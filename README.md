@@ -58,7 +58,8 @@ postgresql://username:mypassword@localhost:5432/mydb
 pnpm run build
 ```
 
-The build step will create tables in your database if you are installing for the first time. It will also create a login user with username **admin** and password **umami**.
+The build step will create tables in your database if you are installing for the first time.
+Rotate the bootstrap administrator credentials immediately after first login.
 
 ### Start the Application
 
@@ -83,6 +84,7 @@ docker pull docker.umami.is/umami-software/umami:latest
 Docker compose (Runs Umami with a PostgreSQL database):
 
 ```bash
+cp env.sample .env
 docker compose up -d
 ```
 
