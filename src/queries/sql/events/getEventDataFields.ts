@@ -66,7 +66,7 @@ async function clickhouseQuery(
       count(*) as "total"
     from event_data
     any left join (
-          select * 
+          select *
           from website_event
           where website_id = {websiteId:UUID}
             and created_at between {startDate:DateTime64} and {endDate:DateTime64}
