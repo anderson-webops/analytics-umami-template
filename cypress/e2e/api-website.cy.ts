@@ -114,6 +114,34 @@ describe('Website API tests', () => {
     });
   });
 
+  it('Does not include team websites in personal listing by default.', () => {
+    cy.request({
+      method: 'GET',
+      url: '/api/me/websites',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: Cypress.env('authorization'),
+      },
+    }).then(response => {
+      expect(response.status).to.eq(200);
+      expect(response.body.data.some(({ name }) => name === 'Team Website')).to.eq(false);
+    });
+  });
+
+  it('Includes team websites in personal listing when requested.', () => {
+    cy.request({
+      method: 'GET',
+      url: '/api/me/websites?includeTeams=true',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: Cypress.env('authorization'),
+      },
+    }).then(response => {
+      expect(response.status).to.eq(200);
+      expect(response.body.data.some(({ name }) => name === 'Team Website')).to.eq(true);
+    });
+  });
+
   it('Gets a website by ID.', () => {
     cy.request({
       method: 'GET',
