@@ -1,8 +1,0 @@
-#!/bin/sh
-
-if [ ! -x ./node_modules/.bin/lint-staged ]; then
-  echo "lint-staged is not installed. Install dependencies before committing."
-  exit 1
-fi
-
-exec ./node_modules/.bin/lint-staged
