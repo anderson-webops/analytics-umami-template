@@ -1,8 +1,11 @@
 import 'dotenv/config';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import createNextIntlPlugin from 'next-intl/plugin';
 import pkg from './package.json' with { type: 'json' };
 
 const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
+const projectRoot = fileURLToPath(new URL('.', import.meta.url));
 
 const TRACKER_SCRIPT = '/script.js';
 
@@ -198,10 +201,14 @@ export default withNextIntl({
   },
   basePath,
   output: 'standalone',
+  outputFileTracingRoot: path.resolve(projectRoot),
   typescript: {
     ignoreBuildErrors: true,
   },
   devIndicators: false,
+  turbopack: {
+    root: path.resolve(projectRoot),
+  },
   async headers() {
     return headers;
   },
