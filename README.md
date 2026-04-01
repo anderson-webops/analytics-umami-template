@@ -1,134 +1,42 @@
-<p align="center">
-  <img src="https://content.umami.is/website/images/umami-logo.png" alt="Umami Logo" width="100">
-</p>
+# Analytics Umami Template
 
-<h1 align="center">Umami</h1>
+Customized Umami base for the self-hosted analytics sites under `analytics.*`.
 
-<p align="center">
-  <i>Umami is a simple, fast, privacy-focused alternative to Google Analytics.</i>
-</p>
+## What This Repo Is For
 
-<p align="center">
-  <a href="https://github.com/umami-software/umami/releases"><img src="https://img.shields.io/github/release/umami-software/umami.svg" alt="GitHub Release" /></a>
-  <a href="https://github.com/umami-software/umami/blob/master/LICENSE"><img src="https://img.shields.io/github/license/umami-software/umami.svg" alt="MIT License" /></a>
-  <a href="https://github.com/umami-software/umami/actions"><img src="https://img.shields.io/github/actions/workflow/status/umami-software/umami/ci.yml" alt="Build Status" /></a>
-  <a href="https://analytics.umami.is/share/LGazGOecbDtaIwDr/umami.is" style="text-decoration: none;"><img src="https://img.shields.io/badge/Try%20Demo%20Now-Click%20Here-brightgreen" alt="Umami Demo" /></a>
-</p>
+- shared source of truth for the analytics forks in this workspace
+- site-independent Umami customization and maintenance
+- Docker/standalone build source used by the deployed analytics services
 
----
+## Important Customizations
 
-## 🚀 Getting Started
+- `team-owner` users see team-owned websites in both the personal Websites view and the team view
+- standalone builds repair hashed Prisma and `pg` aliases before deploy so `/api/config` and `/api/auth/verify` stay resolvable at runtime
+- explicit `GET /healthz`, `GET /readyz`, and guarded `GET /_dbinfo` endpoints are available for monitoring
+- local hook and line-ending handling are normalized for repeatable commits
 
-A detailed getting started guide can be found at [umami.is/docs](https://umami.is/docs/).
+## Important Paths
 
----
+- `src/` - Umami application source
+- `scripts/repair-standalone.js` - fixes standalone runtime alias resolution after build
+- `scripts/postbuild.js` - postbuild entry point used by the app and Docker build
+- `public/` - shared static assets; fork repos replace branding here
+- `env.sample` - local environment template
+- `HEALTHCHECKS.md` - monitor endpoints and expected status codes
 
-## 🛠 Installing from Source
-
-### Requirements
-
-- A server with Node.js version 18.18+.
-- A PostgreSQL database version v12.14+.
-
-### Get the source code and install packages
+## Common Commands
 
 ```bash
-git clone https://github.com/umami-software/umami.git
-cd umami
-pnpm install
-```
-
-### Configure Umami
-
-Create an `.env` file with the following:
-
-```bash
-DATABASE_URL=connection-url
-```
-
-The connection URL format:
-
-```bash
-postgresql://username:mypassword@localhost:5432/mydb
-```
-
-### Build the Application
-
-```bash
-pnpm run build
-```
-
-The build step will create tables in your database if you are installing for the first time.
-Rotate the bootstrap administrator credentials immediately after first login.
-
-### Start the Application
-
-```bash
-pnpm run start
-```
-
-By default, this will launch the application on `http://localhost:3000`. You will need to either [proxy](https://docs.nginx.com/nginx/admin-guide/web-server/reverse-proxy/) requests from your web server or change the [port](https://nextjs.org/docs/api-reference/cli#production) to serve the application directly.
-
----
-
-## 🐳 Installing with Docker
-
-Umami provides Docker images as well as a Docker compose file for easy deployment.
-
-Docker image:
-
-```bash
-docker pull docker.umami.is/umami-software/umami:latest
-```
-
-Docker compose (Runs Umami with a PostgreSQL database):
-
-```bash
+pnpm install --frozen-lockfile
 cp env.sample .env
-docker compose up -d
-```
-
----
-
-## 🔄 Getting Updates
-
-To get the latest features, simply do a pull, install any new dependencies, and rebuild:
-
-```bash
-git pull
-pnpm install
+pnpm dev
 pnpm build
+pnpm build-docker
+pnpm start
 ```
 
-To update the Docker image, simply pull the new images and rebuild:
+## Operational Notes
 
-```bash
-docker compose pull
-docker compose up --force-recreate -d
-```
-
----
-
-## 🛟 Support
-
-<p align="center">
-  <a href="https://github.com/umami-software/umami"><img src="https://img.shields.io/badge/GitHub--blue?style=social&logo=github" alt="GitHub" /></a>
-  <a href="https://twitter.com/umami_software"><img src="https://img.shields.io/badge/Twitter--blue?style=social&logo=twitter" alt="Twitter" /></a>
-  <a href="https://linkedin.com/company/umami-software"><img src="https://img.shields.io/badge/LinkedIn--blue?style=social&logo=linkedin" alt="LinkedIn" /></a>
-  <a href="https://umami.is/discord"><img src="https://img.shields.io/badge/Discord--blue?style=social&logo=discord" alt="Discord" /></a>
-</p>
-
-[release-shield]: https://img.shields.io/github/release/umami-software/umami.svg
-[releases-url]: https://github.com/umami-software/umami/releases
-[license-shield]: https://img.shields.io/github/license/umami-software/umami.svg
-[license-url]: https://github.com/umami-software/umami/blob/master/LICENSE
-[build-shield]: https://img.shields.io/github/actions/workflow/status/umami-software/umami/ci.yml
-[build-url]: https://github.com/umami-software/umami/actions
-[github-shield]: https://img.shields.io/badge/GitHub--blue?style=social&logo=github
-[github-url]: https://github.com/umami-software/umami
-[twitter-shield]: https://img.shields.io/badge/Twitter--blue?style=social&logo=twitter
-[twitter-url]: https://twitter.com/umami_software
-[linkedin-shield]: https://img.shields.io/badge/LinkedIn--blue?style=social&logo=linkedin
-[linkedin-url]: https://linkedin.com/company/umami-software
-[discord-shield]: https://img.shields.io/badge/Discord--blue?style=social&logo=discord
-[discord-url]: https://discord.com/invite/4dz4zcXYrQ
+- PostgreSQL is the primary required dependency. Redis and ClickHouse are optional, but readiness will report them when configured.
+- Use `pnpm build-docker` when validating the deploy artifact path. The Dockerfile relies on the standalone repair step.
+- Fork repos should sync from this template first, then carry only site-specific branding and deployment differences.
