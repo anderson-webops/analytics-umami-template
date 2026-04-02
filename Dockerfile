@@ -22,7 +22,7 @@ ENV BASE_PATH=$BASE_PATH
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV DATABASE_URL="postgresql://user:pass@localhost:5432/dummy"
 
-RUN npm run build-docker && node scripts/repair-standalone.js
+RUN npm run build-docker
 
 # Production image, copy all the files and run next
 FROM node:${NODE_IMAGE_VERSION} AS runner
