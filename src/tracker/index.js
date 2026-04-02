@@ -183,6 +183,8 @@
         credentials,
       });
 
+      if (res.status === 204) return;
+
       const data = await res.json();
       if (data) {
         disabled = !!data.disabled;

@@ -9,7 +9,7 @@ import { getClientInfo, hasBlockedIp } from '@/lib/detect';
 import { createToken, parseToken } from '@/lib/jwt';
 import { fetchWebsite } from '@/lib/load';
 import { parseRequest } from '@/lib/request';
-import { badRequest, forbidden, json, serverError } from '@/lib/response';
+import { badRequest, json, serverError } from '@/lib/response';
 import { anyObjectParam, urlOrPathParam } from '@/lib/schema';
 import { safeDecodeURI, safeDecodeURIComponent } from '@/lib/url';
 import { createSession, saveEvent, saveSessionData } from '@/queries/sql';
@@ -134,7 +134,7 @@ export async function POST(request: Request) {
 
     // IP block
     if (hasBlockedIp(ip)) {
-      return forbidden();
+      return new Response(null, { status: 204 });
     }
 
     const createdAt = timestamp ? new Date(timestamp * 1000) : new Date();
