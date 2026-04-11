@@ -42,6 +42,9 @@ model Session {
   country    String?   @db.Char(2)
   region     String?   @db.VarChar(20)
   city       String?   @db.VarChar(50)
+  isBot      Boolean   @default(false) @map("is_bot")
+  botName    String?   @map("bot_name") @db.VarChar(100)
+  botCategory String?  @map("bot_category") @db.VarChar(50)
   distinctId String?   @map("distinct_id") @db.VarChar(50)
   createdAt  DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
 
@@ -60,6 +63,7 @@ model Session {
   @@index([websiteId, createdAt, country])
   @@index([websiteId, createdAt, region])
   @@index([websiteId, createdAt, city])
+  @@index([websiteId, createdAt, isBot])
   @@map("session")
 }
 
@@ -123,6 +127,9 @@ model WebsiteEvent {
   eventName      String?   @map("event_name") @db.VarChar(50)
   tag            String?   @db.VarChar(50)
   hostname       String?   @db.VarChar(100)
+  isBot          Boolean   @default(false) @map("is_bot")
+  botName        String?   @map("bot_name") @db.VarChar(100)
+  botCategory    String?   @map("bot_category") @db.VarChar(50)
   lcp            Decimal?  @db.Decimal(10, 1)
   inp            Decimal?  @db.Decimal(10, 1)
   cls            Decimal?  @db.Decimal(10, 4)
@@ -146,6 +153,7 @@ model WebsiteEvent {
   @@index([websiteId, sessionId, createdAt])
   @@index([websiteId, visitId, createdAt])
   @@index([websiteId, createdAt, hostname])
+  @@index([websiteId, createdAt, isBot])
   @@map("website_event")
 }
 

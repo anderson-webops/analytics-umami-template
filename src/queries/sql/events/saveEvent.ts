@@ -33,6 +33,9 @@ export interface SaveEventArgs {
   country?: string;
   region?: string;
   city?: string;
+  isBot?: boolean;
+  botName?: string;
+  botCategory?: string;
 
   // Events
   eventName?: string;
@@ -96,6 +99,9 @@ async function relationalQuery({
   ttclid,
   lifatid,
   twclid,
+  isBot,
+  botName,
+  botCategory,
   lcp,
   inp,
   cls,
@@ -131,6 +137,9 @@ async function relationalQuery({
       eventName: eventName ? eventName?.substring(0, EVENT_NAME_LENGTH) : null,
       tag,
       hostname,
+      isBot,
+      botName: botName?.substring(0, 100),
+      botCategory: botCategory?.substring(0, 50),
       lcp,
       inp,
       cls,
@@ -189,6 +198,9 @@ async function clickhouseQuery({
   country,
   region,
   city,
+  isBot,
+  botName,
+  botCategory,
   eventName,
   eventData,
   tag,
@@ -242,6 +254,9 @@ async function clickhouseQuery({
     event_name: eventName ? eventName?.substring(0, EVENT_NAME_LENGTH) : null,
     tag: tag,
     distinct_id: distinctId,
+    is_bot: isBot ? 1 : 0,
+    bot_name: botName?.substring(0, 100) || '',
+    bot_category: botCategory?.substring(0, 50) || '',
     created_at: getUTCString(createdAt),
     browser: browser,
     os: os,

@@ -58,6 +58,9 @@ export const filterParams = {
   distinctId: z.string().optional(),
   language: z.string().optional(),
   event: z.string().optional(),
+  botName: z.string().optional(),
+  botCategory: z.string().optional(),
+  trafficType: z.enum(['human', 'bot', 'all']).optional(),
   utmSource: z.string().optional(),
   utmMedium: z.string().optional(),
   utmCampaign: z.string().optional(),
@@ -119,6 +122,8 @@ export const fieldsParam = z.enum([
   'distinctId',
   'language',
   'event',
+  'botName',
+  'botCategory',
   'utmSource',
   'utmMedium',
   'utmCampaign',
@@ -159,13 +164,12 @@ export const operatorParam = z.enum([
 
 export const goalReportSchema = z.object({
   type: z.literal('goal'),
-  parameters: z
-    .object({
-      startDate: z.coerce.date(),
-      endDate: z.coerce.date(),
-      type: z.string(),
-      value: z.string(),
-    }),
+  parameters: z.object({
+    startDate: z.coerce.date(),
+    endDate: z.coerce.date(),
+    type: z.string(),
+    value: z.string(),
+  }),
 });
 
 export const funnelReportSchema = z.object({

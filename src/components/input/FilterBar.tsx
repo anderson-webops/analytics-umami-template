@@ -28,7 +28,7 @@ export function FilterBar({ websiteId }: { websiteId?: string }) {
     pathname,
     updateParams,
     replaceParams,
-    query: { segment, cohort },
+    query: { segment, cohort, trafficType },
   } = useNavigation();
   const { filters, operatorLabels } = useFilters();
   const { data, isLoading } = useWebsiteSegmentQuery(websiteId, segment || cohort);
@@ -47,7 +47,11 @@ export function FilterBar({ websiteId }: { websiteId?: string }) {
     router.push(updateParams({ [type]: undefined }));
   };
 
-  if (!filters.length && !segment && !cohort) {
+  const handleTrafficRemove = () => {
+    router.push(updateParams({ trafficType: undefined }));
+  };
+
+  if (!filters.length && !segment && !cohort && !trafficType) {
     return null;
   }
 
@@ -76,6 +80,21 @@ export function FilterBar({ websiteId }: { websiteId?: string }) {
             value={data?.name || cohort}
             operator={operatorLabels.eq}
             onRemove={() => handleSegmentRemove('cohort')}
+          />
+        )}
+        {trafficType && (
+          <FilterItem
+            name="trafficType"
+            label={t(labels.traffic)}
+            operator={operatorLabels.eq}
+            value={
+              trafficType === 'bot'
+                ? t(labels.botTraffic)
+                : trafficType === 'all'
+                  ? t(labels.allTraffic)
+                  : t(labels.humanTraffic)
+            }
+            onRemove={handleTrafficRemove}
           />
         )}
         {filters.map(filter => {

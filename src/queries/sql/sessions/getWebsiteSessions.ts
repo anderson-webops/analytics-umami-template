@@ -27,7 +27,9 @@ async function relationalQuery(websiteId: string, filters: QueryFilters) {
            or city ilike {{search}}
            or browser ilike {{search}}
            or os ilike {{search}}
-           or device ilike {{search}})`
+           or device ilike {{search}}
+           or session.bot_name ilike {{search}}
+           or session.bot_category ilike {{search}})`
     : '';
 
   return pagedRawQuery(
@@ -44,6 +46,9 @@ async function relationalQuery(websiteId: string, filters: QueryFilters) {
       session.country,
       session.region,
       session.city,
+      session.is_bot as "isBot",
+      session.bot_name as "botName",
+      session.bot_category as "botCategory",
       min(website_event.created_at) as "firstAt",
       max(website_event.created_at) as "lastAt",
       count(distinct website_event.visit_id) as "visits",
@@ -68,7 +73,10 @@ async function relationalQuery(websiteId: string, filters: QueryFilters) {
       session.language, 
       session.country, 
       session.region, 
-      session.city
+      session.city,
+      session.is_bot,
+      session.bot_name,
+      session.bot_category
     order by max(website_event.created_at) desc
     `,
     queryParams,
@@ -90,7 +98,9 @@ async function clickhouseQuery(websiteId: string, filters: QueryFilters) {
            or (positionCaseInsensitive(city, {search:String}) > 0)
            or (positionCaseInsensitive(browser, {search:String}) > 0)
            or (positionCaseInsensitive(os, {search:String}) > 0)
-           or (positionCaseInsensitive(device, {search:String}) > 0))`
+           or (positionCaseInsensitive(device, {search:String}) > 0)
+           or (positionCaseInsensitive(bot_name, {search:String}) > 0)
+           or (positionCaseInsensitive(bot_category, {search:String}) > 0))`
     : '';
 
   let sql = '';
@@ -109,6 +119,9 @@ async function clickhouseQuery(websiteId: string, filters: QueryFilters) {
       country,
       region,
       city,
+      is_bot as isBot,
+      bot_name as botName,
+      bot_category as botCategory,
       ${getDateStringSQL('min(created_at)')} as firstAt,
       ${getDateStringSQL('max(created_at)')} as lastAt,
       uniq(visit_id) as visits,
@@ -121,7 +134,7 @@ async function clickhouseQuery(websiteId: string, filters: QueryFilters) {
     ${dateQuery}
     ${filterQuery}
     ${searchQuery}
-    group by session_id, website_id, hostname, browser, os, device, screen, language, country, region, city
+    group by session_id, website_id, hostname, browser, os, device, screen, language, country, region, city, is_bot, bot_name, bot_category
     order by lastAt desc
     `;
   } else {
@@ -138,6 +151,9 @@ async function clickhouseQuery(websiteId: string, filters: QueryFilters) {
       country,
       region,
       city,
+      is_bot as isBot,
+      bot_name as botName,
+      bot_category as botCategory,
       ${getDateStringSQL('min(min_time)')} as firstAt,
       ${getDateStringSQL('max(max_time)')} as lastAt,
       uniq(visit_id) as visits,
@@ -150,7 +166,7 @@ async function clickhouseQuery(websiteId: string, filters: QueryFilters) {
     ${dateQuery}
     ${filterQuery}
     ${searchQuery}
-    group by session_id, website_id, hostname, browser, os, device, screen, language, country, region, city
+    group by session_id, website_id, hostname, browser, os, device, screen, language, country, region, city, is_bot, bot_name, bot_category
     order by lastAt desc
     `;
   }

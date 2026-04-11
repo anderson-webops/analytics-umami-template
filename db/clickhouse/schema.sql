@@ -45,6 +45,9 @@ CREATE TABLE umami.website_event
     event_name String,
     tag String,
     distinct_id String,
+    is_bot UInt8,
+    bot_name LowCardinality(String),
+    bot_category LowCardinality(String),
     created_at DateTime('UTC'),
     job_id Nullable(UUID)
 )
@@ -129,6 +132,9 @@ CREATE TABLE umami.website_event_stats_hourly
     max_time SimpleAggregateFunction(max, DateTime('UTC')),
     tag SimpleAggregateFunction(groupArrayArray, Array(String)),
     distinct_id String,
+    is_bot UInt8,
+    bot_name LowCardinality(String),
+    bot_category LowCardinality(String),
     created_at Datetime('UTC')
 )
 ENGINE = AggregatingMergeTree
@@ -182,6 +188,9 @@ SELECT
     max_time,
     tag,
     distinct_id,
+    is_bot,
+    bot_name,
+    bot_category,
     timestamp as created_at
 FROM (SELECT
     website_id,
@@ -220,6 +229,9 @@ FROM (SELECT
     max(created_at) max_time,
     arrayFilter(x -> x != '', groupArray(tag)) tag,
     distinct_id,
+    is_bot,
+    bot_name,
+    bot_category,
     toStartOfHour(created_at) timestamp
 FROM umami.website_event
 GROUP BY website_id,
@@ -236,6 +248,9 @@ GROUP BY website_id,
     city,
     event_type,
     distinct_id,
+    is_bot,
+    bot_name,
+    bot_category,
     timestamp);
 
 -- projections

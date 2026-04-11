@@ -134,6 +134,17 @@ function getFilterQuery(filters: Record<string, any>, options: QueryOptions = {}
     parts.push(`and (\n  ${orClauses.join('\n  or ')}\n)`);
   }
 
+  switch (filters.trafficType) {
+    case 'bot':
+      parts.push('and is_bot = 1');
+      break;
+    case 'all':
+      break;
+    default:
+      parts.push('and is_bot = 0');
+      break;
+  }
+
   parts.push(...andClauses);
 
   return parts.join('\n');

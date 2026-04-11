@@ -1,4 +1,3 @@
-import { isbot } from 'isbot';
 import { serializeError } from 'serialize-error';
 import { z } from 'zod';
 import { secret } from '@/lib/crypto';
@@ -76,15 +75,11 @@ export async function POST(request: Request) {
       }
     }
 
-    // Client info for bot/IP checks
-    const { ip, userAgent } = await getClientInfo(request, {});
-
-    if (!process.env.DISABLE_BOT_CHECK && isbot(userAgent)) {
-      return json({ beep: 'boop' });
-    }
+    // Client info for IP checks
+    const { ip } = await getClientInfo(request, {});
 
     if (hasBlockedIp(ip)) {
-      return forbidden();
+      return new Response(null, { status: 204 });
     }
 
     // Compute timestamps from events

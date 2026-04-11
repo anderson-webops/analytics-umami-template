@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { Avatar } from '@/components/common/Avatar';
 import { DateDistance } from '@/components/common/DateDistance';
 import { TypeIcon } from '@/components/common/TypeIcon';
-import { useFormat, useMessages } from '@/components/hooks';
+import { useFormat, useMessages, useNavigation } from '@/components/hooks';
 
 export function SessionsTable({
   websiteId,
@@ -12,6 +12,10 @@ export function SessionsTable({
 }: DataTableProps & { websiteId: string; getSessionHref?: (row: any) => string }) {
   const { t, labels } = useMessages();
   const { formatValue } = useFormat();
+  const {
+    query: { trafficType },
+  } = useNavigation();
+  const showTraffic = !!trafficType;
 
   return (
     <DataTable {...props}>
@@ -29,6 +33,15 @@ export function SessionsTable({
       <DataColumn id="visits" label={t(labels.visits)} width="80px" />
       <DataColumn id="views" label={t(labels.views)} width="80px" />
       <DataColumn id="events" label={t(labels.events)} width="80px" />
+      {showTraffic && (
+        <DataColumn id="traffic" label={t(labels.traffic)} width="180px">
+          {(row: any) =>
+            row.isBot
+              ? row.botName || row.botCategory || t(labels.botTraffic)
+              : t(labels.humanTraffic)
+          }
+        </DataColumn>
+      )}
       <DataColumn id="location" label={t(labels.location)}>
         {(row: any) => (
           <TypeIcon type="country" value={row.country}>

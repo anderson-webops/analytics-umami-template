@@ -92,9 +92,12 @@ export interface FilterParams {
   city?: string;
   language?: string;
   event?: string;
+  botName?: string;
+  botCategory?: string;
   search?: string;
   tag?: string;
   eventType?: number;
+  trafficType?: 'human' | 'bot' | 'all';
   segment?: string;
   cohort?: string;
   compare?: string;

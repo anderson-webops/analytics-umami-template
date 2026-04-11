@@ -1,4 +1,15 @@
-import { Button, Column, Row, Tab, TabList, TabPanel, Tabs } from '@umami/react-zen';
+import {
+  Button,
+  Column,
+  Label,
+  ListItem,
+  Row,
+  Select,
+  Tab,
+  TabList,
+  TabPanel,
+  Tabs,
+} from '@umami/react-zen';
 import { useState } from 'react';
 import { useFilters, useMessages, useMobile, useNavigation } from '@/components/hooks';
 import { FieldFilters } from '@/components/input/FieldFilters';
@@ -11,13 +22,14 @@ export interface FilterEditFormProps {
     segment?: string;
     cohort?: string;
     match?: string;
+    trafficType?: string;
   }) => void;
   onClose?: () => void;
 }
 
 export function FilterEditForm({ websiteId, onChange, onClose }: FilterEditFormProps) {
   const {
-    query: { segment, cohort, match },
+    query: { segment, cohort, match, trafficType },
     pathname,
   } = useNavigation();
   const { filters } = useFilters();
@@ -26,6 +38,7 @@ export function FilterEditForm({ websiteId, onChange, onClose }: FilterEditFormP
   const [currentSegment, setCurrentSegment] = useState(segment);
   const [currentCohort, setCurrentCohort] = useState(cohort);
   const [currentMatch, setCurrentMatch] = useState<string>(match || 'all');
+  const [currentTrafficType, setCurrentTrafficType] = useState<string>(trafficType || 'human');
   const { isMobile } = useMobile();
   const isPixelLink = !websiteId || pathname.includes('/pixels') || pathname.includes('/links');
   const excludeEvent = !pathname.endsWith('/events') && !pathname.endsWith('/replays');
@@ -55,6 +68,7 @@ export function FilterEditForm({ websiteId, onChange, onClose }: FilterEditFormP
     setCurrentSegment(undefined);
     setCurrentCohort(undefined);
     setCurrentMatch('all');
+    setCurrentTrafficType('human');
   };
 
   const handleSave = () => {
@@ -63,6 +77,7 @@ export function FilterEditForm({ websiteId, onChange, onClose }: FilterEditFormP
       segment: currentSegment,
       cohort: currentCohort,
       match: currentMatch !== 'all' ? currentMatch : undefined,
+      trafficType: currentTrafficType,
     });
     onClose?.();
   };
@@ -74,6 +89,20 @@ export function FilterEditForm({ websiteId, onChange, onClose }: FilterEditFormP
 
   return (
     <Column width={isMobile ? 'auto' : '800px'} gap="6">
+      <Row alignItems="center" gap="4">
+        <Column gap="1">
+          <Label>{t(labels.traffic)}</Label>
+          <Select
+            value={currentTrafficType}
+            onChange={setCurrentTrafficType}
+            style={{ width: 180 }}
+          >
+            <ListItem id="human">{t(labels.humanTraffic)}</ListItem>
+            <ListItem id="bot">{t(labels.botTraffic)}</ListItem>
+            <ListItem id="all">{t(labels.allTraffic)}</ListItem>
+          </Select>
+        </Column>
+      </Row>
       <Column minHeight="500px">
         <Tabs>
           <TabList>

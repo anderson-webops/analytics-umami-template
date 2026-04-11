@@ -17,14 +17,35 @@ export async function getValues(
 async function relationalQuery(websiteId: string, column: string, filters: QueryFilters) {
   const { rawQuery, getSearchSQL } = prisma;
   const params = {};
-  const { startDate, endDate, search } = filters;
+  const { startDate, endDate, search, trafficType = 'human' } = filters;
+  const sessionColumns = new Set([
+    'browser',
+    'os',
+    'device',
+    'screen',
+    'language',
+    'country',
+    'region',
+    'city',
+    'distinct_id',
+  ]);
+  const qualifiedColumn = sessionColumns.has(column)
+    ? `session.${column}`
+    : `website_event.${column}`;
 
   let searchQuery = '';
   let excludeDomain = '';
+  let trafficQuery = '';
 
   if (column === 'referrer_domain') {
     excludeDomain = `and website_event.referrer_domain != regexp_replace(website_event.hostname, '^www.', '')
       and website_event.referrer_domain != ''`;
+  }
+
+  if (trafficType === 'bot') {
+    trafficQuery = 'and coalesce(website_event.is_bot, false) = true';
+  } else if (trafficType !== 'all') {
+    trafficQuery = 'and coalesce(website_event.is_bot, false) = false';
   }
 
   if (search) {
@@ -37,17 +58,17 @@ async function relationalQuery(websiteId: string, column: string, filters: Query
 
           params[key] = value;
 
-          return getSearchSQL(column, key).replace('and ', '');
+          return getSearchSQL(qualifiedColumn, key).replace('and ', '');
         })
         .join(' OR ')})`;
     } else {
-      searchQuery = getSearchSQL(column);
+      searchQuery = getSearchSQL(qualifiedColumn);
     }
   }
 
   return rawQuery(
     `
-    select ${column} as "value", count(*) as "count"
+    select ${qualifiedColumn} as "value", count(*) as "count"
     from website_event
     inner join session
       on session.session_id = website_event.session_id
@@ -55,6 +76,7 @@ async function relationalQuery(websiteId: string, column: string, filters: Query
     where website_event.website_id = {{websiteId::uuid}}
       and website_event.created_at between {{startDate}} and {{endDate}}
       ${searchQuery}
+      ${trafficQuery}
       ${excludeDomain}
     group by 1
     order by 2 desc
@@ -74,13 +96,20 @@ async function relationalQuery(websiteId: string, column: string, filters: Query
 async function clickhouseQuery(websiteId: string, column: string, filters: QueryFilters) {
   const { rawQuery, getSearchSQL } = clickhouse;
   const params = {};
-  const { startDate, endDate, search } = filters;
+  const { startDate, endDate, search, trafficType = 'human' } = filters;
 
   let searchQuery = '';
   let excludeDomain = '';
+  let trafficQuery = '';
 
   if (column === 'referrer_domain') {
     excludeDomain = `and referrer_domain != hostname and referrer_domain != ''`;
+  }
+
+  if (trafficType === 'bot') {
+    trafficQuery = 'and is_bot = 1';
+  } else if (trafficType !== 'all') {
+    trafficQuery = 'and is_bot = 0';
   }
 
   if (search) {
@@ -112,6 +141,7 @@ async function clickhouseQuery(websiteId: string, column: string, filters: Query
     where website_id = {websiteId:UUID}
       and created_at between {startDate:DateTime64} and {endDate:DateTime64}
       ${searchQuery}
+      ${trafficQuery}
       ${excludeDomain}
     group by 1
     order by 2 desc

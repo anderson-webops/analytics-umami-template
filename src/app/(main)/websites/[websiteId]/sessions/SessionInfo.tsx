@@ -51,6 +51,14 @@ export function SessionInfo({ data }) {
       <Info label={t(labels.device)} icon={<TypeIcon type="device" value={data?.device} />}>
         {formatValue(data?.device, 'device')}
       </Info>
+
+      <Info label={t(labels.traffic)}>
+        {data?.isBot ? data?.botName || t(labels.botTraffic) : t(labels.humanTraffic)}
+      </Info>
+
+      {data?.isBot && (
+        <Info label={t(labels.botCategory)}>{data?.botCategory?.replaceAll('-', ' ')}</Info>
+      )}
     </Grid>
   );
 }

@@ -19,6 +19,9 @@ export async function createSession(data: Prisma.SessionCreateInput) {
       country,
       region,
       city,
+      is_bot,
+      bot_name,
+      bot_category,
       distinct_id,
       created_at
     )
@@ -33,6 +36,9 @@ export async function createSession(data: Prisma.SessionCreateInput) {
       {{country}},
       {{region}},
       {{city}},
+      {{isBot}},
+      {{botName}},
+      {{botCategory}},
       {{distinctId}},
       {{createdAt}}
     )

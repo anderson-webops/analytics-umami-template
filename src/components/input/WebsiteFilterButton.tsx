@@ -20,7 +20,7 @@ export function WebsiteFilterButton({
   const isOverview =
     /^\/teams\/[^/]+\/websites\/[^/]+$/.test(pathname) || /^\/share\/[^/]+$/.test(pathname);
 
-  const handleChange = ({ filters, segment, cohort, match }: any) => {
+  const handleChange = ({ filters, segment, cohort, match, trafficType }: any) => {
     const params = filtersArrayToObject(filters);
     const cleared = Object.fromEntries(currentFilters.map(f => [f.name, undefined]));
 
@@ -30,6 +30,7 @@ export function WebsiteFilterButton({
       segment,
       cohort,
       match,
+      trafficType: trafficType && trafficType !== 'human' ? trafficType : undefined,
       excludeBounce: excludeBounce ? 'true' : undefined,
     });
 

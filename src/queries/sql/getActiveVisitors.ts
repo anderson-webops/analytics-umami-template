@@ -22,6 +22,7 @@ async function relationalQuery(websiteId: string) {
     from website_event
     where website_id = {{websiteId::uuid}}
     and created_at >= {{startDate}}
+    and coalesce(is_bot, false) = false
     `,
     { websiteId, startDate },
     FUNCTION_NAME,
@@ -41,6 +42,7 @@ async function clickhouseQuery(websiteId: string): Promise<{ x: number }> {
     from website_event
     where website_id = {websiteId:UUID}
       and created_at >= {startDate:DateTime64}
+      and is_bot = 0
     `,
     { websiteId, startDate },
     FUNCTION_NAME,

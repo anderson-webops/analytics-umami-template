@@ -87,6 +87,8 @@ export const FILTER_COLUMNS = {
   language: 'language',
   event: 'event_name',
   tag: 'tag',
+  botName: 'bot_name',
+  botCategory: 'bot_category',
   eventType: 'event_type',
   utmSource: 'utm_source',
   utmMedium: 'utm_medium',

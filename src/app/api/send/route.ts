@@ -1,5 +1,4 @@
 import { startOfHour } from 'date-fns';
-import { isbot } from 'isbot';
 import { serializeError } from 'serialize-error';
 import { z } from 'zod';
 import clickhouse from '@/lib/clickhouse';
@@ -122,15 +121,19 @@ export async function POST(request: Request) {
     }
 
     // Client info
-    const { ip, userAgent, device, browser, os, country, region, city } = await getClientInfo(
-      request,
-      payload,
-    );
-
-    // Bot check
-    if (!process.env.DISABLE_BOT_CHECK && isbot(userAgent)) {
-      return json({ beep: 'boop' });
-    }
+    const {
+      ip,
+      userAgent,
+      device,
+      browser,
+      os,
+      country,
+      region,
+      city,
+      isBot,
+      botName,
+      botCategory,
+    } = await getClientInfo(request, payload);
 
     // IP block
     if (hasBlockedIp(ip)) {
@@ -159,6 +162,9 @@ export async function POST(request: Request) {
         country,
         region,
         city,
+        isBot,
+        botName,
+        botCategory,
         distinctId: id,
         createdAt,
       });
@@ -248,6 +254,9 @@ export async function POST(request: Request) {
         country,
         region,
         city,
+        isBot,
+        botName,
+        botCategory,
 
         // Events
         eventName: name,

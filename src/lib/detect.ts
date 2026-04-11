@@ -2,6 +2,7 @@ import path from 'node:path';
 import { browserName, detectOS } from 'detect-browser';
 import ipaddr from 'ipaddr.js';
 import isLocalhost from 'is-localhost-ip';
+import { isbot } from 'isbot';
 import maxmind from 'maxmind';
 import { UAParser } from 'ua-parser-js';
 import { getIpAddress, stripPort } from '@/lib/ip';
@@ -45,6 +46,63 @@ const PROVIDER_HEADERS = [
     cityHeader: 'eo-ipcity',
   },
 ];
+
+const BOT_SIGNATURES = [
+  { pattern: /\bGPTBot\b/i, name: 'GPTBot', category: 'ai-crawler' },
+  { pattern: /\bChatGPT-User\b/i, name: 'ChatGPT-User', category: 'ai-crawler' },
+  { pattern: /\bOAI-SearchBot\b/i, name: 'OAI-SearchBot', category: 'ai-crawler' },
+  { pattern: /\bClaudeBot\b/i, name: 'ClaudeBot', category: 'ai-crawler' },
+  { pattern: /\bClaude-SearchBot\b/i, name: 'Claude-SearchBot', category: 'ai-crawler' },
+  { pattern: /\bAnthropic[- ]?AI\b/i, name: 'Anthropic-AI', category: 'ai-crawler' },
+  { pattern: /\bPerplexityBot\b/i, name: 'PerplexityBot', category: 'ai-crawler' },
+  { pattern: /\bGoogle-Extended\b/i, name: 'Google-Extended', category: 'ai-crawler' },
+  { pattern: /\bGoogleOther\b/i, name: 'GoogleOther', category: 'search-crawler' },
+  { pattern: /\bGooglebot\b/i, name: 'Googlebot', category: 'search-crawler' },
+  { pattern: /\bBytespider\b/i, name: 'Bytespider', category: 'ai-crawler' },
+  { pattern: /\bCCBot\b/i, name: 'CCBot', category: 'ai-crawler' },
+  { pattern: /\bfacebookexternalhit\b/i, name: 'facebookexternalhit', category: 'generic-bot' },
+];
+
+function getBotCategory(name: string) {
+  if (/gpt|openai|oai-|claude|anthropic|perplexity|bytespider|ccbot|google-extended/i.test(name)) {
+    return 'ai-crawler';
+  }
+
+  if (/googlebot|googleother|bingbot|duckduckbot|slurp|yandex|baiduspider/i.test(name)) {
+    return 'search-crawler';
+  }
+
+  return 'generic-bot';
+}
+
+export function getBotInfo(userAgent: string | undefined | null) {
+  const value = userAgent || '';
+
+  if (!value || !isbot(value)) {
+    return { isBot: false, botName: null, botCategory: null };
+  }
+
+  const matchedBot = BOT_SIGNATURES.find(({ pattern }) => pattern.test(value));
+
+  if (matchedBot) {
+    return {
+      isBot: true,
+      botName: matchedBot.name,
+      botCategory: matchedBot.category,
+    };
+  }
+
+  const fallback =
+    value.match(
+      /\b([A-Za-z][A-Za-z0-9._-]*(?:bot|crawler|spider|fetcher|preview|slurp))\b/i,
+    )?.[1] || 'UnknownBot';
+
+  return {
+    isBot: true,
+    botName: fallback,
+    botCategory: getBotCategory(fallback),
+  };
+}
 
 export function getDevice(userAgent: string, screen: string = '') {
   const { device } = UAParser(userAgent);
@@ -124,17 +182,18 @@ export async function getLocation(ip: string = '', headers: Headers, skipHeaders
 }
 
 export async function getClientInfo(request: Request, payload: Record<string, any>) {
-  const userAgent = payload?.userAgent || request.headers.get('user-agent');
+  const userAgent = payload?.userAgent || request.headers.get('user-agent') || '';
   const ip = payload?.ip || getIpAddress(request.headers);
   const location = await getLocation(ip, request.headers, !!payload?.ip);
   const country = safeDecodeURIComponent(location?.country);
   const region = safeDecodeURIComponent(location?.region);
   const city = safeDecodeURIComponent(location?.city);
+  const { isBot, botName, botCategory } = getBotInfo(userAgent);
   const browser = payload?.browser ?? browserName(userAgent);
   const os = payload?.os ?? (detectOS(userAgent) as string);
   const device = payload?.device ?? getDevice(userAgent, payload?.screen);
 
-  return { userAgent, browser, os, ip, country, region, city, device };
+  return { userAgent, browser, os, ip, country, region, city, device, isBot, botName, botCategory };
 }
 
 export function hasBlockedIp(clientIp: string) {

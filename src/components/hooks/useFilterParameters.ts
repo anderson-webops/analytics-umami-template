@@ -21,6 +21,7 @@ export function useFilterParameters() {
       segment: query.segment,
       cohort: query.cohort,
       excludeBounce: query.excludeBounce,
+      trafficType: query.trafficType,
       match: query.match,
       page: query.page,
       pageSize: query.pageSize,

@@ -16,7 +16,9 @@ function clickhouseQuery(
   filters: QueryFilters,
 ): Promise<{ websiteId: string; count: number }[]> {
   const { rawQuery } = clickhouse;
-  const { startDate, endDate } = filters;
+  const { startDate, endDate, trafficType = 'human' } = filters;
+  const trafficQuery =
+    trafficType === 'all' ? '' : trafficType === 'bot' ? 'and is_bot = 1' : 'and is_bot = 0';
 
   return rawQuery(
     `
@@ -26,6 +28,7 @@ function clickhouseQuery(
     from website_event 
     where website_id in {websiteIds:Array(UUID)}
       and created_at between {startDate:DateTime64} and {endDate:DateTime64}
+      ${trafficQuery}
     group by website_id
     `,
     {
