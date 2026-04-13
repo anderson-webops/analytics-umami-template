@@ -1,5 +1,5 @@
 import { Box, ToggleGroup, ToggleGroupItem } from '@umami/react-zen';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 export interface FilterButtonsProps {
   items: { id: string; label: string }[];
@@ -9,6 +9,10 @@ export interface FilterButtonsProps {
 
 export function FilterButtons({ items, value, onChange }: FilterButtonsProps) {
   const [selected, setSelected] = useState(value);
+
+  useEffect(() => {
+    setSelected(value);
+  }, [value]);
 
   const handleChange = (value: string) => {
     setSelected(value);
