@@ -14,3 +14,23 @@
 - If the existing tag or release history contains stale drafts, redundant entries, or ad-hoc labels, clean that history up instead of preserving clutter.
 - Skip tags and releases for trivial doc-only edits, formatting-only changes, or routine housekeeping unless they change deployment, operations, or a consumer-facing contract.
 - Keep inherited upstream lineage unless there is a concrete cleanup reason; new local tags and releases should describe deployable local template states, not ad-hoc sync checkpoints.
+
+## Dependency & Lockfile Discipline
+
+- Treat the repo-root `pnpm install --frozen-lockfile` path as the source of truth for deploy readiness.
+- Any time `package.json`, any workspace `package.json`, dependency ranges, `pnpm-lock.yaml`, or dependency update tooling changes, verify lockfile parity from the repo root before committing.
+- Do not rely on a non-frozen `pnpm install` fallback as success. A change is not deploy-ready unless the frozen root install succeeds.
+
+Required dependency verification before every commit/push:
+1. Run `pnpm install --frozen-lockfile` from the repository root.
+2. Run `pnpm run lint`.
+3. Run `pnpm run typecheck`.
+4. Run `pnpm run build`.
+5. If API or back-end behavior changed, run the repo's API/back-end test command.
+
+If the frozen install fails because manifests and `pnpm-lock.yaml` are out of sync:
+1. Run `pnpm install --lockfile-only --ignore-scripts` from the repository root.
+2. Re-run `pnpm install --frozen-lockfile` from the repository root.
+3. Commit the resulting `pnpm-lock.yaml` change with the related dependency/package change.
+
+Never commit or push dependency/package changes if the frozen root install fails.
