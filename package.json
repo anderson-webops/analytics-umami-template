@@ -3,7 +3,7 @@
   "version": "3.1.0",
   "description": "A modern, privacy-focused alternative to Google Analytics.",
   "author": "Umami Software, Inc. <hello@umami.is>",
-  "packageManager": "pnpm@10.33.0",
+  "packageManager": "pnpm@11.1.0",
   "license": "MIT",
   "homepage": "https://umami.is",
   "repository": {
@@ -136,7 +136,7 @@
     "cypress": "^15.14.1",
     "dotenv-cli": "^11.0.0",
     "jest": "^29.7.0",
-    "postcss": "^8.5.14",
+    "postcss": "8.5.14",
     "postcss-flexbugs-fixes": "^5.0.2",
     "postcss-import": "^15.1.0",
     "postcss-preset-env": "7.8.3",
@@ -171,7 +171,7 @@
       "yaml": "2.8.3",
       "@cypress/request>uuid": "14.0.0",
       "fast-uri": "3.1.2",
-      "postcss": "8.5.10"
+      "postcss": "8.5.14"
     }
   }
 }
