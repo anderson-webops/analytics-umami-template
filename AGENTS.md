@@ -21,6 +21,13 @@
 - Any time `package.json`, any workspace `package.json`, dependency ranges, `pnpm-lock.yaml`, or dependency update tooling changes, verify lockfile parity from the repo root before committing.
 - Do not rely on a non-frozen `pnpm install` fallback as success. A change is not deploy-ready unless the frozen root install succeeds.
 
+Required production/dev dependency update flow before every dependency commit:
+1. Check production and development dependency freshness from the repository root with `pnpm outdated --recursive` or the repo's documented equivalent.
+2. Review both `dependencies` and `devDependencies` in the root and every workspace package; do not limit updates to production-only packages.
+3. Apply needed updates with the narrowest command that updates the relevant manifest and lockfile together, such as `pnpm up <package>@<version>` or `pnpm up -D <package>@<version>`.
+4. If the update is only a lockfile/security refresh, regenerate from the root with `pnpm install --lockfile-only --ignore-scripts`.
+5. Run `pnpm audit` from the repository root and resolve remaining production or dev advisories before committing unless a documented upstream limitation prevents it.
+
 Required dependency verification before every commit/push:
 1. Run `pnpm install --frozen-lockfile` from the repository root.
 2. Run `pnpm run lint`.

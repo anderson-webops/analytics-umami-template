@@ -55,7 +55,6 @@ export function ShareProvider({ slug, children }: { slug: string; children: Reac
   const router = useRouter();
   const pathname = usePathname();
   const path = getSharePath(pathname);
-  const isBoardShare = share?.shareType === ENTITY_TYPE.board;
   const isWebsiteShare = share?.shareType === ENTITY_TYPE.website;
 
   const allowedSections = isWebsiteShare && share?.parameters

@@ -23,7 +23,7 @@ import { ListTable } from '@/components/metrics/ListTable';
 import { MetricLabel } from '@/components/metrics/MetricLabel';
 import { PerformanceCard } from '@/components/metrics/PerformanceCard';
 import { renderDateLabels } from '@/lib/charts';
-import { CHART_COLORS, WEB_VITALS_THRESHOLDS } from '@/lib/constants';
+import { CHART_COLORS } from '@/lib/constants';
 import { generateTimeSeries } from '@/lib/date';
 import { formatLongNumber } from '@/lib/format';
 import styles from './Performance.module.css';
@@ -136,7 +136,6 @@ export function Performance({ websiteId, startDate, endDate, unit }: Performance
 
   const renderXLabel = useCallback(renderDateLabels(unit, locale), [unit, locale]);
 
-  const threshold = WEB_VITALS_THRESHOLDS[selectedMetric as keyof typeof WEB_VITALS_THRESHOLDS];
   const isCls = selectedMetric === 'cls';
   const metricLabel = t(labels[selectedMetric]) || selectedMetric.toUpperCase();
   const formatListCount = isCls

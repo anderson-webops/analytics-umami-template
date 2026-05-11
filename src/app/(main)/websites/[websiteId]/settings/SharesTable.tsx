@@ -1,6 +1,5 @@
 import { DataColumn, DataTable, type DataTableProps, Row } from '@umami/react-zen';
 import { CopyButton } from '@/components/common/CopyButton';
-import { DateDistance } from '@/components/common/DateDistance';
 import { ExternalLink } from '@/components/common/ExternalLink';
 import { useConfig, useMessages, useMobile } from '@/components/hooks';
 import { ShareDeleteButton } from './ShareDeleteButton';
