@@ -159,19 +159,5 @@
     "tsup": "^8.5.1",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3"
-  },
-  "pnpm": {
-    "overrides": {
-      "@hono/node-server": "1.19.13",
-      "d3-color": "3.1.0",
-      "defu": "6.1.6",
-      "hono": "4.12.18",
-      "lodash": "4.18.0",
-      "serialize-javascript": "7.0.5",
-      "yaml": "2.8.3",
-      "@cypress/request>uuid": "14.0.0",
-      "fast-uri": "3.1.2",
-      "postcss": "8.5.14"
-    }
   }
 }
