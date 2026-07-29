@@ -21,10 +21,10 @@ jobs:
         with:
           run_install: false
 
-      - name: Use Node.js 22
+      - name: Use Node.js 24
         uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24.18.0
           cache: pnpm
 
       - name: Install deps
@@ -42,10 +42,10 @@ jobs:
         with:
           run_install: false
 
-      - name: Use Node.js 22
+      - name: Use Node.js 24
         uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24.18.0
           cache: pnpm
 
       - name: Install deps

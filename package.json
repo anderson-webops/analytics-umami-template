@@ -3,7 +3,11 @@
   "version": "3.1.0",
   "description": "A modern, privacy-focused alternative to Google Analytics.",
   "author": "Umami Software, Inc. <hello@umami.is>",
-  "packageManager": "pnpm@11.1.0",
+  "packageManager": "pnpm@11.18.0",
+  "engines": {
+    "node": ">=24.18.0 <25",
+    "pnpm": ">=11.18.0 <12"
+  },
   "license": "MIT",
   "homepage": "https://umami.is",
   "repository": {

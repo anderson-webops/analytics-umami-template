@@ -1,4 +1,4 @@
-ARG NODE_IMAGE_VERSION="22-alpine"
+ARG NODE_IMAGE_VERSION="24.18.0-alpine"
 
 # Install dependencies only when needed
 FROM node:${NODE_IMAGE_VERSION} AS deps
@@ -6,14 +6,14 @@ FROM node:${NODE_IMAGE_VERSION} AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN npm install -g pnpm@11.1.0
+RUN npm install -g pnpm@11.18.0
 RUN pnpm install --frozen-lockfile
 
 FROM node:${NODE_IMAGE_VERSION} AS production-deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN npm install -g pnpm@11.1.0
+RUN npm install -g pnpm@11.18.0
 RUN pnpm install --prod --frozen-lockfile
 
 # Rebuild the source code only when needed
