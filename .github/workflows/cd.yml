@@ -27,6 +27,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Reclaim runner disk space
+        run: |
+          sudo rm -rf \
+            /usr/local/lib/android \
+            /usr/share/dotnet \
+            /opt/ghc \
+            /usr/local/.ghcup \
+            /usr/local/share/boost
+          df -h /
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
 
@@ -113,7 +123,7 @@ jobs:
           push: true
           tags: ${{ steps.compute.outputs.ghcr_tags }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=min
 
       - name: Build and push to Docker Hub
         if: github.repository == 'umami-software/umami'
@@ -124,4 +134,4 @@ jobs:
           push: true
           tags: ${{ steps.compute.outputs.docker_tags }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=min
