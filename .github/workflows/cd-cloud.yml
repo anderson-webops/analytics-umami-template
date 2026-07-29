@@ -12,13 +12,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
 
       - name: Generate random hash
         id: random_hash
         run: echo "hash=$(openssl rand -hex 4)" >> $GITHUB_OUTPUT
 
-      - uses: mr-smithers-excellent/docker-build-push@v6
+      - uses: mr-smithers-excellent/docker-build-push@v7.0
         name: Build & push Docker image to docker.io
         with:
           image: umamisoftware/umami
