@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { parseRequest } from '@/lib/request';
-import { badRequest, json, ok, serverError, unauthorized } from '@/lib/response';
+import { badRequest, json, notFound, ok, serverError, unauthorized } from '@/lib/response';
+import { httpUrlParam, routeSlugParam } from '@/lib/schema';
 import { canDeleteLink, canUpdateLink, canViewLink } from '@/permissions';
 import { deleteLink, getLink, updateLink } from '@/queries/prisma';
 
@@ -17,16 +18,31 @@ export async function GET(request: Request, { params }: { params: Promise<{ link
     return unauthorized();
   }
 
-  const website = await getLink(linkId);
+  const link = await getLink(linkId);
 
-  return json(website);
+  if (!link) {
+    return notFound();
+  }
+
+  if (!auth.user) {
+    return json({
+      id: link.id,
+      name: link.name,
+      url: link.url,
+      slug: link.slug,
+      createdAt: link.createdAt,
+      updatedAt: link.updatedAt,
+    });
+  }
+
+  return json(link);
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ linkId: string }> }) {
   const schema = z.object({
-    name: z.string().max(100).optional(),
-    url: z.string().max(500).optional(),
-    slug: z.string().min(8).max(100).optional(),
+    name: z.string().trim().min(1).max(100).optional(),
+    url: httpUrlParam.optional(),
+    slug: routeSlugParam.optional(),
   });
 
   const { auth, body, error } = await parseRequest(request, schema);
@@ -43,11 +59,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ lin
   }
 
   try {
-    const result = await updateLink(linkId, { name, url, slug });
+    const result = await updateLink(linkId, { name, url, slug }, auth.user.id);
 
     return Response.json(result);
   } catch (e: any) {
-    if (e.message.toLowerCase().includes('unique constraint') && e.message.includes('slug')) {
+    if (e.message === 'ENTITY_NOT_FOUND') {
+      return notFound({ message: 'Link not found.' });
+    }
+
+    if (e.message === 'ENTITY_ACTOR_NOT_AUTHORIZED') {
+      return unauthorized({ message: 'Your link-update permission changed.' });
+    }
+
+    if (e?.code === 'P2002') {
       return badRequest({ message: 'That slug is already taken.' });
     }
 
@@ -71,7 +95,18 @@ export async function DELETE(
     return unauthorized();
   }
 
-  await deleteLink(linkId);
+  try {
+    await deleteLink(linkId, auth.user.id);
+  } catch (error: any) {
+    switch (error?.message) {
+      case 'ENTITY_NOT_FOUND':
+        return notFound({ message: 'Link not found.' });
+      case 'ENTITY_ACTOR_NOT_AUTHORIZED':
+        return unauthorized({ message: 'Your link-deletion permission changed.' });
+      default:
+        throw error;
+    }
+  }
 
   return ok();
 }

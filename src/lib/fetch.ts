@@ -23,7 +23,8 @@ export async function request(
 ): Promise<FetchResponse> {
   return fetch(url, {
     method,
-    cache: 'no-cache',
+    cache: 'no-store',
+    credentials: 'same-origin',
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
@@ -31,7 +32,14 @@ export async function request(
     },
     body,
   }).then(async res => {
-    const data = await res.json();
+    const text = await res.text();
+    let data;
+
+    try {
+      data = text ? JSON.parse(text) : undefined;
+    } catch {
+      data = undefined;
+    }
 
     return {
       ok: res.ok,

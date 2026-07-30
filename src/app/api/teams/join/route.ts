@@ -1,12 +1,11 @@
 import { z } from 'zod';
-import { ROLES } from '@/lib/constants';
 import { parseRequest } from '@/lib/request';
 import { badRequest, json, notFound } from '@/lib/response';
-import { createTeamUser, findTeam, getTeamUser } from '@/queries/prisma';
+import { joinTeamByAccessCode } from '@/queries/prisma';
 
 export async function POST(request: Request) {
   const schema = z.object({
-    accessCode: z.string().max(50),
+    accessCode: z.string().regex(/^team_[A-Za-z0-9]{16}$/, 'Invalid team access code.'),
   });
 
   const { auth, body, error } = await parseRequest(request, schema);
@@ -17,23 +16,22 @@ export async function POST(request: Request) {
 
   const { accessCode } = body;
 
-  const team = await findTeam({
-    where: {
-      accessCode,
-    },
-  });
+  let user;
 
-  if (!team) {
-    return notFound({ message: 'Team not found.', code: 'team-not-found' });
+  try {
+    user = await joinTeamByAccessCode(auth.user.id, accessCode);
+  } catch (error: any) {
+    switch (error?.message) {
+      case 'TEAM_NOT_FOUND':
+        return notFound({ message: 'Team not found.', code: 'team-not-found' });
+      case 'TEAM_USER_EXISTS':
+        return badRequest({ message: 'User is already a team member.' });
+      case 'TEAM_USER_NOT_FOUND':
+        return badRequest({ message: 'Your account is no longer active.' });
+      default:
+        throw error;
+    }
   }
-
-  const teamUser = await getTeamUser(team.id, auth.user.id);
-
-  if (teamUser) {
-    return badRequest({ message: 'User is already a team member.' });
-  }
-
-  const user = await createTeamUser(auth.user.id, team.id, ROLES.teamMember);
 
   return json(user);
 }

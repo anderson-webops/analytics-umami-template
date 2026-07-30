@@ -1,5 +1,6 @@
+import { isUuid } from '@/lib/crypto';
 import { parseRequest } from '@/lib/request';
-import { json, unauthorized } from '@/lib/response';
+import { badRequest, json, unauthorized } from '@/lib/response';
 import { canViewWebsiteSection } from '@/permissions';
 import { getSessionData } from '@/queries/sql';
 
@@ -14,6 +15,10 @@ export async function GET(
   }
 
   const { websiteId, sessionId } = await params;
+
+  if (!isUuid(websiteId) || !isUuid(sessionId)) {
+    return badRequest({ message: 'Invalid session identifier.' });
+  }
 
   if (
     !(await canViewWebsiteSection(auth, websiteId, ['sessions', 'events', 'realtime', 'revenue']))

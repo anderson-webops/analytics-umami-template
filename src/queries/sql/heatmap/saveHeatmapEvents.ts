@@ -1,3 +1,4 @@
+import type { Prisma } from '@/generated/prisma/client';
 import clickhouse from '@/lib/clickhouse';
 import { uuid } from '@/lib/crypto';
 import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
@@ -22,7 +23,10 @@ export interface HeatmapEventRow {
   createdAt: Date;
 }
 
-export async function saveHeatmapEvents(rows: HeatmapEventRow[]) {
+export async function saveHeatmapEvents(
+  rows: HeatmapEventRow[],
+  transaction?: Prisma.TransactionClient,
+) {
   if (!rows?.length) return;
 
   const normalizedRows = rows.map(r => ({
@@ -37,6 +41,10 @@ export async function saveHeatmapEvents(rows: HeatmapEventRow[]) {
     pageH: toInt(r.pageH),
     scrollPct: toScrollPct(r.scrollPct),
   }));
+
+  if (transaction) {
+    return relationalQuery(normalizedRows, transaction);
+  }
 
   return runQuery({
     [PRISMA]: () => relationalQuery(normalizedRows),
@@ -56,8 +64,11 @@ function toScrollPct(value: number | null) {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
 
-async function relationalQuery(rows: HeatmapEventRow[]) {
-  return prisma.client.heatmapEvent.createMany({
+async function relationalQuery(
+  rows: HeatmapEventRow[],
+  transaction: Prisma.TransactionClient | typeof prisma.client = prisma.client,
+) {
+  return transaction.heatmapEvent.createMany({
     data: rows.map(r => ({
       id: uuid(),
       websiteId: r.websiteId,

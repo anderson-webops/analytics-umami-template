@@ -9,19 +9,20 @@ import {
 import { createAuthKey, hash, secret } from '@/lib/crypto';
 import { createSecureToken, parseSecureToken, parseToken } from '@/lib/jwt';
 import redis from '@/lib/redis';
+import { getAuthSessionTtlSeconds, publicSharesDisabled } from '@/lib/security';
+import { getBearerToken, getSessionCookie, isSameOriginMutation } from '@/lib/session';
+import { resolveShareAccess } from '@/lib/share-access';
 import { ensureArray } from '@/lib/utils';
+import { getShare } from '@/queries/prisma';
 import { getUser } from '@/queries/prisma/user';
 
 const log = debug('umami:auth');
 
-export function getBearerToken(request: Request) {
-  const auth = request.headers.get('authorization');
-
-  return auth?.split(' ')[1];
-}
-
 export async function checkAuth(request: Request) {
-  const token = getBearerToken(request);
+  const bearerToken = getBearerToken(request);
+  const cookieToken = bearerToken ? null : getSessionCookie(request);
+  const token = bearerToken || cookieToken;
+  const source = bearerToken ? 'bearer' : cookieToken ? 'cookie' : null;
   const payload = parseSecureToken(token, secret());
   const shareToken = await parseShareToken(request);
 
@@ -31,9 +32,11 @@ export async function checkAuth(request: Request) {
   if (userId) {
     user = await getUser(userId, { includePassword: true });
 
-    // Reject tokens issued before the current password.
-    // Allow legacy stateless tokens that were minted without a password fingerprint.
-    if (user && payload.pwd && hash(user.password) !== payload.pwd) {
+    if (
+      !payload.pwd ||
+      !payload.role ||
+      (user && (hash(user.password) !== payload.pwd || user.role !== payload.role))
+    ) {
       user = null;
     }
   } else if (redis.enabled && authKey) {
@@ -42,11 +45,19 @@ export async function checkAuth(request: Request) {
     if (key?.userId) {
       user = await getUser(key.userId, { includePassword: true });
 
-      // Only enforce password-change invalidation for sessions that include a password fingerprint.
-      if (user && key.pwd && hash(user.password) !== key.pwd) {
+      if (
+        !key.pwd ||
+        !key.role ||
+        (user && (hash(user.password) !== key.pwd || user.role !== key.role))
+      ) {
         user = null;
       }
     }
+  }
+
+  if (source === 'cookie' && !isSameOriginMutation(request)) {
+    log('Rejected cross-origin cookie-authenticated mutation');
+    return null;
   }
 
   log({
@@ -55,6 +66,7 @@ export async function checkAuth(request: Request) {
     hasAuthKey: !!authKey,
     hasShareToken: !!shareToken,
     userId: user?.id,
+    source,
   });
 
   if (!user?.id && !shareToken) {
@@ -79,42 +91,48 @@ export async function checkAuth(request: Request) {
     token,
     authKey,
     shareToken,
+    source,
     user,
   };
 }
 
-export async function saveAuth(data: any, expire = 0) {
+export async function saveAuth(data: any, expire = getAuthSessionTtlSeconds()) {
   const authKey = `auth:${createAuthKey()}`;
 
   if (redis.enabled) {
-    await redis.client.set(authKey, data);
-
-    if (expire) {
-      await redis.client.expire(authKey, expire);
-    }
+    await redis.client.set(authKey, data, expire);
   }
 
-  return createSecureToken({ authKey }, secret());
+  return createSecureToken({ authKey }, secret(), { expiresIn: expire });
 }
 
 export async function hasPermission(role: string, permission: string | string[]) {
   return ensureArray(permission).some(e => ROLE_PERMISSIONS[role]?.includes(e));
 }
 
-export function parseShareToken(request: Request) {
+export async function parseShareToken(request: Request) {
+  if (publicSharesDisabled()) {
+    return null;
+  }
+
   try {
     const token: any = parseToken(request.headers.get(SHARE_TOKEN_HEADER), secret());
 
-    // Only accept tokens explicitly minted as share tokens. This prevents other
-    // tokens signed with the same secret (e.g. the cache token from /api/send)
-    // from being replayed as share tokens to gain analytics access.
-    if (token?.type !== SHARE_TOKEN_TYPE) {
+    if (token?.type !== SHARE_TOKEN_TYPE || typeof token.shareId !== 'string') {
       return null;
     }
 
-    return token;
-  } catch (e) {
-    log(e);
+    const share = await getShare(token.shareId);
+
+    if (!share || share.shareType !== token.shareType) {
+      return null;
+    }
+
+    const access = await resolveShareAccess(share);
+
+    return access ? { ...access.data, type: SHARE_TOKEN_TYPE } : null;
+  } catch {
+    log('Unable to parse share token');
     return null;
   }
 }

@@ -60,7 +60,7 @@ export function AdminWebsitesTable({ data = [], ...props }: { data: any[] }) {
             const { id } = row;
 
             return (
-              <MenuButton>
+              <MenuButton label={t(labels.actions)}>
                 <MenuItem href={`/admin/websites/${id}`} data-test="link-button-edit">
                   <Row alignItems="center" gap>
                     <Icon>

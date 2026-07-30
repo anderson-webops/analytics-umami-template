@@ -1,5 +1,6 @@
+import { isUuid } from '@/lib/crypto';
 import { parseRequest } from '@/lib/request';
-import { json, unauthorized } from '@/lib/response';
+import { badRequest, json, unauthorized } from '@/lib/response';
 import { canViewWebsiteSection } from '@/permissions';
 import { getEventDataById } from '@/queries/sql/events/getEventDataById';
 
@@ -14,6 +15,10 @@ export async function GET(
   }
 
   const { websiteId, eventId } = await params;
+
+  if (!isUuid(websiteId) || !isUuid(eventId)) {
+    return badRequest({ message: 'Invalid event identifier.' });
+  }
 
   if (!(await canViewWebsiteSection(auth, websiteId, 'events'))) {
     return unauthorized();

@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import clickhouse from '@/lib/clickhouse';
 import prisma from '@/lib/prisma';
 import redis from '@/lib/redis';
@@ -6,16 +7,15 @@ const noStoreHeaders = {
   'Cache-Control': 'no-store',
 };
 
-const loopbackAddresses = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
-
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'check-failed';
 }
 
-function getClientIp(request: Request): string {
-  const forwardedFor = request.headers.get('x-forwarded-for');
+function secretsMatch(left: string, right: string): boolean {
+  const leftDigest = crypto.createHash('sha256').update(left).digest();
+  const rightDigest = crypto.createHash('sha256').update(right).digest();
 
-  return forwardedFor?.split(',')[0]?.trim() || '';
+  return crypto.timingSafeEqual(leftDigest, rightDigest);
 }
 
 export function healthResponse() {
@@ -26,7 +26,7 @@ export async function getReadiness() {
   const components: Record<string, { ok: boolean; error?: string }> = {};
 
   try {
-    await prisma.client.$queryRawUnsafe('SELECT 1');
+    await prisma.client.$queryRaw`SELECT 1`;
     components.db = { ok: true };
   } catch (error) {
     components.db = { ok: false, error: getErrorMessage(error) };
@@ -67,7 +67,7 @@ export async function getReadiness() {
 
 export function readyResponse(
   status: number,
-  body: { ready: boolean; components: Record<string, unknown> },
+  body: { ready: boolean; components?: Record<string, unknown> },
 ) {
   return Response.json(body, { headers: noStoreHeaders, status });
 }
@@ -78,12 +78,9 @@ export function canAccessInternalDiagnostics(request: Request): boolean {
   }
 
   const requestKey = request.headers.get('x-internal-diagnostics-key');
+  const expectedKey = process.env.INTERNAL_DIAGNOSTICS_KEY;
 
-  if (process.env.INTERNAL_DIAGNOSTICS_KEY && requestKey === process.env.INTERNAL_DIAGNOSTICS_KEY) {
-    return true;
-  }
-
-  return loopbackAddresses.has(getClientIp(request));
+  return !!requestKey && !!expectedKey && secretsMatch(requestKey, expectedKey);
 }
 
 export function getDbInfo() {

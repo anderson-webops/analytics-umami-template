@@ -2,13 +2,8 @@
 import { Loading } from '@umami/react-zen';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect } from 'react';
-import { setClientAuthToken } from '@/lib/client';
-
-function isSafeRedirectUrl(url: string): boolean {
-  // Must start with a single slash (relative path)
-  // Block protocol handlers (javascript:, data:, etc.) and protocol-relative URLs (//)
-  return url.startsWith('/') && !url.startsWith('//') && !url.includes(':');
-}
+import { getApiUrl } from '@/lib/api-url';
+import { getSafeNavigationTarget } from '@/lib/security';
 
 export function SSOPage() {
   const router = useRouter();
@@ -18,13 +13,27 @@ export function SSOPage() {
 
   useEffect(() => {
     if (url && token) {
-      if (!isSafeRedirectUrl(url)) {
-        router.push('/');
+      window.history.replaceState(null, '', window.location.pathname);
+      const target = getSafeNavigationTarget(url);
+
+      if (!target || target.external) {
+        router.replace('/');
         return;
       }
 
-      setClientAuthToken(token);
-      router.push(url);
+      void fetch(getApiUrl('/auth/sso'), {
+        method: 'POST',
+        cache: 'no-store',
+        credentials: 'same-origin',
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: '{}',
+      }).then(response => {
+        router.replace(response.ok ? target.url : '/login');
+      });
     }
   }, [router, url, token]);
 

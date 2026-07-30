@@ -1,10 +1,11 @@
 import { z } from 'zod';
 import { uuid } from '@/lib/crypto';
+import { isEnvEnabled } from '@/lib/env';
 import { getRandomChars } from '@/lib/generate';
 import { fetchAccount } from '@/lib/load';
 import redis from '@/lib/redis';
 import { getQueryFilters, parseRequest } from '@/lib/request';
-import { json, unauthorized } from '@/lib/response';
+import { badRequest, json, unauthorized } from '@/lib/response';
 import { pagingParams, sortingParams } from '@/lib/schema';
 import { canCreateTeam } from '@/permissions';
 import { createTeam, getUserTeams } from '@/queries/prisma';
@@ -30,7 +31,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   const schema = z.object({
-    name: z.string().max(50),
+    name: z.string().trim().min(1).max(50),
     ownerId: z.uuid().optional(),
   });
 
@@ -49,16 +50,31 @@ export async function POST(request: Request) {
   const teamId = uuid();
   const teamOwnerId = ownerId && auth.user.isAdmin ? ownerId : auth.user.id;
 
-  const team = await createTeam(
-    {
-      id: teamId,
-      name,
-      accessCode: `team_${getRandomChars(16)}`,
-    },
-    teamOwnerId,
-  );
+  let team;
 
-  if (process.env.CLOUD_MODE && redis.enabled) {
+  try {
+    team = await createTeam(
+      {
+        id: teamId,
+        name,
+        accessCode: `team_${getRandomChars(16)}`,
+      },
+      teamOwnerId,
+      auth.user.id,
+    );
+  } catch (error: any) {
+    if (error?.message === 'TEAM_ACTOR_NOT_AUTHORIZED') {
+      return unauthorized({ message: 'Your team-creation permission changed.' });
+    }
+
+    if (error?.message === 'TEAM_OWNER_TARGET_NOT_FOUND') {
+      return badRequest({ message: 'The selected owner does not exist.' });
+    }
+
+    throw error;
+  }
+
+  if (isEnvEnabled('CLOUD_MODE') && redis.enabled) {
     const account = await fetchAccount(teamOwnerId);
 
     if (account) {

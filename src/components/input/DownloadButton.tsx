@@ -2,6 +2,7 @@ import { Button, Icon, Text, Tooltip, TooltipTrigger } from '@umami/react-zen';
 import Papa from 'papaparse';
 import { useMessages } from '@/components/hooks';
 import { Download } from '@/components/icons';
+import { sanitizeCsvData } from '@/lib/csv';
 
 export function DownloadButton({
   filename = 'data',
@@ -14,7 +15,7 @@ export function DownloadButton({
   const { t, labels } = useMessages();
 
   const handleClick = async () => {
-    downloadCsv(`${filename}.csv`, Papa.unparse(data));
+    downloadCsv(`${filename}.csv`, Papa.unparse(sanitizeCsvData(data)));
   };
 
   return (
@@ -32,7 +33,7 @@ export function DownloadButton({
 }
 
 function downloadCsv(filename: string, data: any) {
-  const blob = new Blob([data], { type: 'text/csv' });
+  const blob = new Blob([data], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
 
   const a = document.createElement('a');

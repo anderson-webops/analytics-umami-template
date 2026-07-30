@@ -1,9 +1,10 @@
 import { z } from 'zod';
+import { TEAM_ROLE_RANK } from '@/lib/constants';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import { badRequest, json, unauthorized } from '@/lib/response';
 import { pagingParams, searchParams, teamRoleParam } from '@/lib/schema';
 import { canUpdateTeam, canViewTeam } from '@/permissions';
-import { createTeamUser, getTeamUser, getTeamUsers } from '@/queries/prisma';
+import { addTeamUserByActor, getTeamUser, getTeamUsers, getUser } from '@/queries/prisma';
 
 export async function GET(request: Request, { params }: { params: Promise<{ teamId: string }> }) {
   const schema = z.object({
@@ -71,13 +72,46 @@ export async function POST(request: Request, { params }: { params: Promise<{ tea
 
   const { userId, role } = body;
 
+  const targetUser = await getUser(userId);
+
+  if (!targetUser) {
+    return badRequest({ message: 'User does not exist.' });
+  }
+
   const teamUser = await getTeamUser(teamId, userId);
 
   if (teamUser) {
     return badRequest({ message: 'User is already a member of the Team.' });
   }
 
-  const users = await createTeamUser(userId, teamId, role);
+  if (!auth.user.isAdmin) {
+    const actorTeamUser = await getTeamUser(teamId, auth.user.id);
+    const actorRank = TEAM_ROLE_RANK[actorTeamUser?.role] ?? -1;
+    const requestedRank = TEAM_ROLE_RANK[role] ?? -1;
+
+    if (actorRank <= requestedRank) {
+      return unauthorized({ message: 'You cannot assign a role at or above your own role.' });
+    }
+  }
+
+  let users;
+
+  try {
+    users = await addTeamUserByActor(teamId, userId, role, auth.user.id);
+  } catch (error: any) {
+    switch (error?.message) {
+      case 'TEAM_NOT_FOUND':
+        return badRequest({ message: 'Team does not exist.' });
+      case 'TEAM_USER_NOT_FOUND':
+        return badRequest({ message: 'User does not exist.' });
+      case 'TEAM_USER_EXISTS':
+        return badRequest({ message: 'User is already a member of the team.' });
+      case 'TEAM_ACTOR_NOT_AUTHORIZED':
+        return unauthorized({ message: 'Your team-management permission changed.' });
+      default:
+        throw error;
+    }
+  }
 
   return json(users);
 }

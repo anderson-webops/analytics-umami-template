@@ -1,23 +1,37 @@
 import { Prisma, type Team } from '@/generated/prisma/client';
-import { ROLES } from '@/lib/constants';
-import { uuid } from '@/lib/crypto';
+import { ROLES, TEAM_ROLE_RANK } from '@/lib/constants';
+import { isUuid, uuid } from '@/lib/crypto';
+import { isEnvEnabled } from '@/lib/env';
 import prisma from '@/lib/prisma';
 import redis from '@/lib/redis';
 import { sanitizeSortFilters } from '@/lib/sort';
 import type { PageResult, QueryFilters } from '@/lib/types';
+import { deleteClickhouseCollectionSources } from '@/queries/sql/deleteCollectionSources';
+import { runSerializable } from './authorization';
+import { lockCollectionSources } from './collection';
 
 import TeamFindManyArgs = Prisma.TeamFindManyArgs;
 
 const TEAM_SORT_FIELDS = ['name', 'createdAt'] as const;
 
-export async function findTeam(criteria: Prisma.TeamFindUniqueArgs): Promise<Team> {
-  return prisma.client.team.findUnique(criteria);
+export async function findTeam(criteria: Prisma.TeamFindUniqueArgs): Promise<Team | null> {
+  return prisma.client.team.findUnique({
+    ...criteria,
+    where: {
+      ...criteria.where,
+      deletedAt: null,
+    },
+  });
 }
 
 export async function getTeam(
   teamId: string,
   options: { includeMembers?: boolean } = {},
-): Promise<Team> {
+): Promise<Team | null> {
+  if (!isUuid(teamId)) {
+    return null;
+  }
+
   const { includeMembers } = options;
 
   return findTeam({
@@ -106,118 +120,272 @@ export async function getAllUserTeams(userId: string) {
 }
 
 export async function getTeamOwner(teamId: string) {
+  if (!isUuid(teamId)) {
+    return null;
+  }
+
   return prisma.client.teamUser.findFirst({
-    where: { teamId, role: ROLES.teamOwner },
+    where: {
+      teamId,
+      role: ROLES.teamOwner,
+      team: { deletedAt: null },
+      user: { deletedAt: null },
+    },
     select: { userId: true },
   });
 }
 
-export async function createTeam(data: Prisma.TeamCreateInput, userId: string): Promise<any> {
-  const { id } = data;
-  const { client, transaction } = prisma;
-
-  return transaction([
-    client.team.create({
-      data,
-    }),
-    client.teamUser.create({
-      data: {
-        id: uuid(),
-        teamId: id,
-        userId,
-        role: ROLES.teamOwner,
-      },
-    }),
-  ]);
-}
-
-export async function updateTeam(teamId: string, data: Prisma.TeamUpdateInput): Promise<Team> {
-  const { client } = prisma;
-
-  return client.team.update({
+async function getActiveUserRole(transaction: Prisma.TransactionClient, userId: string) {
+  return transaction.user.findFirst({
     where: {
-      id: teamId,
+      id: userId,
+      deletedAt: null,
     },
-    data: {
-      ...data,
-      updatedAt: new Date(),
+    select: {
+      role: true,
     },
   });
 }
 
-export async function deleteTeam(teamId: string) {
-  const { client, transaction } = prisma;
-  const cloudMode = !!process.env.CLOUD_MODE;
+export async function createTeam(
+  data: {
+    id: string;
+    name: string;
+    accessCode?: string | null;
+    logoUrl?: string | null;
+  },
+  ownerUserId: string,
+  actorUserId: string,
+): Promise<Team> {
+  return runSerializable(async transaction => {
+    const actor = await getActiveUserRole(transaction, actorUserId);
+    const owner = await getActiveUserRole(transaction, ownerUserId);
 
-  const [links, pixels, boards] = await Promise.all([
-    client.link.findMany({
-      where: { teamId },
-      select: { id: true, slug: true, deletedAt: true },
-    }),
-    client.pixel.findMany({
-      where: { teamId },
-      select: { id: true, slug: true, deletedAt: true },
-    }),
-    client.board.findMany({ where: { teamId }, select: { id: true } }),
-  ]);
-  const entityIds = [...links.map(l => l.id), ...pixels.map(p => p.id), ...boards.map(b => b.id)];
-  // Only invalidate Redis cache for slugs that are still live (not already soft-deleted).
-  const linkSlugs = links.filter(l => !l.deletedAt).map(l => l.slug);
-  const pixelSlugs = pixels.filter(p => !p.deletedAt).map(p => p.slug);
+    const actorCanCreate =
+      actor?.role === ROLES.admin || (actor?.role === ROLES.user && actorUserId === ownerUserId);
 
-  const invalidateRedis = async () => {
-    if (redis.enabled && (linkSlugs.length || pixelSlugs.length)) {
-      await Promise.all([
-        ...linkSlugs.map(slug => redis.client.del(`link:${slug}`)),
-        ...pixelSlugs.map(slug => redis.client.del(`pixel:${slug}`)),
-      ]);
+    if (!actorCanCreate) {
+      throw new Error('TEAM_ACTOR_NOT_AUTHORIZED');
     }
-  };
 
-  if (cloudMode) {
-    return transaction([
-      client.team.update({
-        data: {
-          deletedAt: new Date(),
-        },
-        where: {
-          id: teamId,
-        },
-      }),
-      client.share.deleteMany({ where: { entityId: { in: entityIds } } }),
-      // deletedAt: null avoids restamping rows that were already soft-deleted earlier.
-      client.link.updateMany({
-        data: { deletedAt: new Date() },
-        where: { teamId, deletedAt: null },
-      }),
-      client.pixel.updateMany({
-        data: { deletedAt: new Date() },
-        where: { teamId, deletedAt: null },
-      }),
-      client.board.deleteMany({ where: { teamId } }),
-    ]).then(async result => {
-      await invalidateRedis();
-      return result;
+    if (!owner) {
+      throw new Error('TEAM_OWNER_TARGET_NOT_FOUND');
+    }
+
+    const team = await transaction.team.create({
+      data,
     });
-  }
 
-  return transaction([
-    client.teamUser.deleteMany({
+    await transaction.teamUser.create({
+      data: {
+        id: uuid(),
+        teamId: data.id,
+        userId: ownerUserId,
+        role: ROLES.teamOwner,
+      },
+    });
+
+    return team;
+  });
+}
+
+export async function updateTeam(
+  teamId: string,
+  data: Prisma.TeamUpdateInput,
+  actorUserId: string,
+): Promise<Team> {
+  return runSerializable(async transaction => {
+    const actor = await getActiveUserRole(transaction, actorUserId);
+    const team = await transaction.team.findFirst({
+      where: {
+        id: teamId,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+      },
+    });
+    const membership = await transaction.teamUser.findFirst({
       where: {
         teamId,
+        userId: actorUserId,
+        team: { deletedAt: null },
+        user: { deletedAt: null },
       },
-    }),
-    client.share.deleteMany({ where: { entityId: { in: entityIds } } }),
-    client.link.deleteMany({ where: { teamId } }),
-    client.pixel.deleteMany({ where: { teamId } }),
-    client.board.deleteMany({ where: { teamId } }),
-    client.team.delete({
+      select: {
+        role: true,
+      },
+    });
+
+    if (!team) {
+      throw new Error('TEAM_NOT_FOUND');
+    }
+
+    const canUpdate =
+      actor?.role === ROLES.admin ||
+      (actor && (TEAM_ROLE_RANK[membership?.role] ?? -1) >= TEAM_ROLE_RANK[ROLES.teamManager]);
+
+    if (!canUpdate) {
+      throw new Error('TEAM_ACTOR_NOT_AUTHORIZED');
+    }
+
+    return transaction.team.update({
       where: {
         id: teamId,
       },
-    }),
-  ]).then(async result => {
-    await invalidateRedis();
-    return result;
+      data: {
+        ...data,
+        updatedAt: new Date(),
+      },
+    });
   });
+}
+
+export async function deleteTeam(teamId: string, actorUserId: string) {
+  const cloudMode = isEnvEnabled('CLOUD_MODE');
+
+  const result = await runSerializable(
+    async transaction => {
+      const actor = await getActiveUserRole(transaction, actorUserId);
+      const team = await transaction.team.findFirst({
+        where: {
+          id: teamId,
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+        },
+      });
+      const membership = await transaction.teamUser.findFirst({
+        where: {
+          teamId,
+          userId: actorUserId,
+          team: { deletedAt: null },
+          user: { deletedAt: null },
+        },
+        select: {
+          role: true,
+        },
+      });
+
+      if (!team) {
+        throw new Error('TEAM_NOT_FOUND');
+      }
+
+      if (actor?.role !== ROLES.admin && membership?.role !== ROLES.teamOwner) {
+        throw new Error('TEAM_ACTOR_NOT_AUTHORIZED');
+      }
+
+      const websites = await transaction.website.findMany({
+        where: { teamId },
+        select: { id: true },
+      });
+      const links = await transaction.link.findMany({
+        where: { teamId },
+        select: { id: true, slug: true, deletedAt: true },
+      });
+      const pixels = await transaction.pixel.findMany({
+        where: { teamId },
+        select: { id: true, slug: true, deletedAt: true },
+      });
+      const boards = await transaction.board.findMany({
+        where: { teamId },
+        select: { id: true },
+      });
+      const websiteIds = websites.map(website => website.id);
+      const sourceIds = [
+        ...websiteIds,
+        ...links.map(link => link.id),
+        ...pixels.map(pixel => pixel.id),
+      ];
+      const entityIds = [...sourceIds, ...boards.map(board => board.id)];
+
+      await lockCollectionSources(transaction, sourceIds);
+      await deleteClickhouseCollectionSources(sourceIds);
+
+      await transaction.sessionReplaySaved.deleteMany({
+        where: { websiteId: { in: websiteIds } },
+      });
+      await transaction.sessionReplay.deleteMany({
+        where: { websiteId: { in: websiteIds } },
+      });
+      await transaction.heatmapEvent.deleteMany({
+        where: { websiteId: { in: websiteIds } },
+      });
+      await transaction.revenue.deleteMany({
+        where: { websiteId: { in: sourceIds } },
+      });
+      await transaction.eventData.deleteMany({
+        where: { websiteId: { in: sourceIds } },
+      });
+      await transaction.sessionData.deleteMany({
+        where: { websiteId: { in: sourceIds } },
+      });
+      await transaction.websiteEvent.deleteMany({
+        where: { websiteId: { in: sourceIds } },
+      });
+      await transaction.session.deleteMany({
+        where: { websiteId: { in: sourceIds } },
+      });
+      await transaction.report.deleteMany({
+        where: { websiteId: { in: websiteIds } },
+      });
+      await transaction.segment.deleteMany({
+        where: { websiteId: { in: websiteIds } },
+      });
+      await transaction.share.deleteMany({
+        where: { entityId: { in: entityIds } },
+      });
+
+      if (cloudMode) {
+        const deletedAt = new Date();
+
+        await transaction.link.updateMany({
+          data: { deletedAt },
+          where: { teamId, deletedAt: null },
+        });
+        await transaction.pixel.updateMany({
+          data: { deletedAt },
+          where: { teamId, deletedAt: null },
+        });
+        await transaction.website.updateMany({
+          data: { deletedAt },
+          where: { teamId, deletedAt: null },
+        });
+        await transaction.board.deleteMany({ where: { teamId } });
+        await transaction.teamUser.deleteMany({ where: { teamId } });
+        await transaction.team.updateMany({
+          data: { deletedAt },
+          where: { id: teamId, deletedAt: null },
+        });
+      } else {
+        await transaction.link.deleteMany({ where: { teamId } });
+        await transaction.pixel.deleteMany({ where: { teamId } });
+        await transaction.board.deleteMany({ where: { teamId } });
+        await transaction.website.deleteMany({ where: { teamId } });
+        await transaction.teamUser.deleteMany({ where: { teamId } });
+        await transaction.team.deleteMany({ where: { id: teamId } });
+      }
+
+      return { websiteIds, links, pixels };
+    },
+    {
+      timeout: 300_000,
+    },
+  );
+
+  if (redis.enabled) {
+    await Promise.all([
+      ...result.websiteIds.map(id => redis.client.del(`website:${id}`)),
+      ...result.links
+        .filter(link => !link.deletedAt)
+        .map(link => redis.client.del(`link:${link.slug}`)),
+      ...result.pixels
+        .filter(pixel => !pixel.deletedAt)
+        .map(pixel => redis.client.del(`pixel:${pixel.slug}`)),
+      redis.client.del(`team:${teamId}`),
+    ]);
+  }
+
+  return result;
 }

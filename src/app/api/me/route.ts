@@ -8,5 +8,5 @@ export async function GET(request: Request) {
     return error();
   }
 
-  return json(auth);
+  return json({ user: auth.user });
 }

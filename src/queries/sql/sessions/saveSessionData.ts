@@ -1,3 +1,4 @@
+import type { Prisma } from '@/generated/prisma/client';
 import clickhouse from '@/lib/clickhouse';
 import { DATA_TYPE, FIELD_LENGTH } from '@/lib/constants';
 import { uuid } from '@/lib/crypto';
@@ -16,22 +17,24 @@ export interface SaveSessionDataArgs {
   createdAt?: Date;
 }
 
-export async function saveSessionData(data: SaveSessionDataArgs) {
+export async function saveSessionData(
+  data: SaveSessionDataArgs,
+  transaction?: Prisma.TransactionClient,
+) {
+  if (transaction) {
+    return relationalQuery(data, transaction);
+  }
+
   return runQuery({
     [PRISMA]: () => relationalQuery(data),
     [CLICKHOUSE]: () => clickhouseQuery(data),
   });
 }
 
-export async function relationalQuery({
-  websiteId,
-  sessionId,
-  sessionData,
-  distinctId,
-  createdAt,
-}: SaveSessionDataArgs) {
-  const { client } = prisma;
-
+export async function relationalQuery(
+  { websiteId, sessionId, sessionData, distinctId, createdAt }: SaveSessionDataArgs,
+  transaction: Prisma.TransactionClient | typeof prisma.client = prisma.client,
+) {
   const jsonKeys = flattenJSON(sessionData);
   const normalizedDistinctId = truncateString(distinctId, FIELD_LENGTH.distinctId);
 
@@ -49,24 +52,20 @@ export async function relationalQuery({
   }));
 
   for (const data of flattenedData) {
-    const { sessionId, dataKey, ...props } = data;
+    const { id: _id, sessionId, dataKey, ...props } = data;
 
-    const updateResult = await client.sessionData.updateMany({
+    await transaction.sessionData.upsert({
       where: {
-        sessionId,
-        dataKey,
+        sessionId_dataKey: {
+          sessionId,
+          dataKey,
+        },
       },
-      data: {
+      create: data,
+      update: {
         ...props,
       },
     });
-
-    // If no record was updated, create a new one
-    if (updateResult.count === 0) {
-      await client.sessionData.create({
-        data,
-      });
-    }
   }
 }
 

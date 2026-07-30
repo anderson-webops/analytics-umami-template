@@ -26,7 +26,7 @@ export function LinkButton({
   const { dir } = useLocale();
 
   const linkElement = asAnchor ? (
-    <a href={href} target={target}>
+    <a href={href} target={target} rel={target === '_blank' ? 'noreferrer noopener' : undefined}>
       {children}
     </a>
   ) : (

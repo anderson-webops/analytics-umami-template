@@ -6,10 +6,12 @@ export function MenuButton({
   children,
   onAction,
   isDisabled,
+  label,
 }: {
   children: ReactNode;
   onAction?: (action: string) => void;
   isDisabled?: boolean;
+  label: string;
 }) {
   const handleAction = (key: Key) => {
     onAction?.(key.toString());
@@ -17,7 +19,7 @@ export function MenuButton({
 
   return (
     <DialogTrigger>
-      <Button variant="quiet" isDisabled={isDisabled}>
+      <Button variant="quiet" isDisabled={isDisabled} aria-label={label}>
         <Icon>
           <Ellipsis />
         </Icon>

@@ -1,6 +1,7 @@
+import { z } from 'zod';
 import { restoreReplayEventFragments } from '@/lib/replay';
 import { parseRequest } from '@/lib/request';
-import { json, unauthorized } from '@/lib/response';
+import { badRequest, json, unauthorized } from '@/lib/response';
 import { canViewAuthenticatedWebsite } from '@/permissions';
 import { getReplayChunks } from '@/queries/sql';
 
@@ -8,16 +9,6 @@ function getEventTimestamp(event: any): number | null {
   const timestamp = Number(event?.timestamp);
 
   return Number.isFinite(timestamp) ? timestamp : null;
-}
-
-function parseOptionalInteger(value: string | null): number | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  const parsed = Number(value);
-
-  return Number.isInteger(parsed) ? parsed : undefined;
 }
 
 function mergeReplayEvents(
@@ -74,17 +65,35 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ websiteId: string; replayId: string }> },
 ) {
-  const { auth, error } = await parseRequest(request);
+  const schema = z.object({
+    until: z.coerce
+      .number()
+      .int()
+      .nonnegative()
+      .max(Date.now() + 5 * 60 * 1000)
+      .optional(),
+    chunkIndex: z.coerce.number().int().nonnegative().max(10_000_000).optional(),
+    eventIndex: z.coerce.number().int().nonnegative().max(10_000).optional(),
+  });
+  const { auth, query, error } = await parseRequest(request, schema);
 
   if (error) {
     return error();
   }
 
-  const { websiteId, replayId } = await params;
-  const searchParams = new URL(request.url).searchParams;
-  const until = parseOptionalInteger(searchParams.get('until'));
-  const endChunkIndex = parseOptionalInteger(searchParams.get('chunkIndex'));
-  const endEventIndex = parseOptionalInteger(searchParams.get('eventIndex'));
+  const parsedParams = z
+    .object({
+      websiteId: z.uuid(),
+      replayId: z.uuid(),
+    })
+    .safeParse(await params);
+
+  if (!parsedParams.success) {
+    return badRequest({ message: 'Invalid replay identifier.' });
+  }
+
+  const { websiteId, replayId } = parsedParams.data;
+  const { until, chunkIndex: endChunkIndex, eventIndex: endEventIndex } = query;
   const endAt = until !== undefined ? new Date(until) : undefined;
 
   if (!(await canViewAuthenticatedWebsite(auth, websiteId))) {

@@ -4,7 +4,7 @@ import { parseRequest } from '@/lib/request';
 import { badRequest, json, ok, unauthorized } from '@/lib/response';
 import { teamRoleParam } from '@/lib/schema';
 import { canDeleteTeamUser, canUpdateTeam } from '@/permissions';
-import { deleteTeamUser, getTeamUser, updateTeamUser } from '@/queries/prisma';
+import { deleteTeamUserByActor, getTeamUser, updateTeamUserRoleByActor } from '@/queries/prisma';
 
 export async function GET(
   request: Request,
@@ -53,18 +53,41 @@ export async function POST(
     return badRequest({ message: 'The User does not exists on this team.' });
   }
 
-  // Server-side rank check: actor must outrank target to modify their role.
+  if (teamUser.role === ROLES.teamOwner) {
+    return unauthorized({
+      message: 'Use the ownership-transfer endpoint to replace the team owner.',
+    });
+  }
+
   if (!auth.user.isAdmin) {
     const actorTeamUser = await getTeamUser(teamId, auth.user.id);
     const actorRank = TEAM_ROLE_RANK[actorTeamUser?.role] ?? -1;
-    const targetRank = TEAM_ROLE_RANK[teamUser.role] ?? -1;
+    const currentTargetRank = TEAM_ROLE_RANK[teamUser.role] ?? -1;
+    const requestedTargetRank = TEAM_ROLE_RANK[body.role] ?? -1;
 
-    if (actorRank <= targetRank) {
+    if (actorRank <= currentTargetRank || actorRank <= requestedTargetRank) {
       return unauthorized({ message: 'You do not have permission to modify this user.' });
     }
   }
 
-  const user = await updateTeamUser(teamUser.id, body);
+  let user;
+
+  try {
+    user = await updateTeamUserRoleByActor(teamId, userId, body.role, auth.user.id);
+  } catch (error: any) {
+    switch (error?.message) {
+      case 'TEAM_USER_NOT_FOUND':
+        return badRequest({ message: 'User does not exist on this team.' });
+      case 'TEAM_OWNER_REQUIRES_TRANSFER':
+        return unauthorized({
+          message: 'Use the ownership-transfer endpoint to replace the team owner.',
+        });
+      case 'TEAM_ACTOR_NOT_AUTHORIZED':
+        return unauthorized({ message: 'Your team-management permission changed.' });
+      default:
+        throw error;
+    }
+  }
 
   return json(user);
 }
@@ -91,8 +114,10 @@ export async function DELETE(
     return badRequest({ message: 'The User does not exists on this team.' });
   }
 
-  if (!auth.user.isAdmin && teamUser.role === ROLES.teamOwner) {
-    return unauthorized({ message: 'You do not have permission to remove this user.' });
+  if (teamUser.role === ROLES.teamOwner) {
+    return unauthorized({
+      message: 'Transfer ownership before removing the team owner.',
+    });
   }
 
   // Server-side rank check: actor must outrank target to remove them.
@@ -106,7 +131,22 @@ export async function DELETE(
     }
   }
 
-  await deleteTeamUser(teamId, userId);
+  try {
+    await deleteTeamUserByActor(teamId, userId, auth.user.id);
+  } catch (error: any) {
+    switch (error?.message) {
+      case 'TEAM_USER_NOT_FOUND':
+        return badRequest({ message: 'User does not exist on this team.' });
+      case 'TEAM_OWNER_REQUIRES_TRANSFER':
+        return unauthorized({
+          message: 'Transfer ownership before removing the team owner.',
+        });
+      case 'TEAM_ACTOR_NOT_AUTHORIZED':
+        return unauthorized({ message: 'Your team-management permission changed.' });
+      default:
+        throw error;
+    }
+  }
 
   return ok();
 }

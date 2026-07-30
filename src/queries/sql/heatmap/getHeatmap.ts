@@ -1,6 +1,7 @@
 import clickhouse from '@/lib/clickhouse';
 import { HEATMAP_EVENT_TYPE, OPERATORS } from '@/lib/constants';
 import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
+import { buildHeatmapPageUrl } from '@/lib/heatmap-url';
 import { filtersObjectToArray } from '@/lib/params';
 import prisma from '@/lib/prisma';
 import type { QueryFilters } from '@/lib/types';
@@ -582,43 +583,6 @@ async function getIframeSnapshot({
     viewportW,
     viewportH: height,
   };
-}
-
-function getFirstDomain(domain?: string | null) {
-  return domain?.split(',')[0]?.trim() || null;
-}
-
-function getWebsiteOrigin(domain?: string | null) {
-  const host = getFirstDomain(domain);
-
-  if (!host) {
-    return null;
-  }
-
-  if (host.startsWith('http://') || host.startsWith('https://')) {
-    return new URL(host);
-  }
-
-  const protocol =
-    host.startsWith('localhost') || host.startsWith('127.0.0.1') || host.startsWith('[::1]')
-      ? 'http'
-      : 'https';
-
-  return new URL(`${protocol}://${host}`);
-}
-
-function buildHeatmapPageUrl(domain: string | null | undefined, urlPath: string) {
-  try {
-    const origin = getWebsiteOrigin(domain);
-
-    if (!origin) {
-      return null;
-    }
-
-    return new URL(urlPath || '/', origin).toString();
-  } catch {
-    return null;
-  }
 }
 
 function pickSnapshotViewport(

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HASHED_ALIAS_SUFFIX = /-[0-9a-f]{16}$/;
+const ENVIRONMENT_FILE_NAME = /^\.env(?:\..+)?$/;
 
 async function exists(targetPath) {
   try {
@@ -62,6 +63,22 @@ async function collectStandaloneAliases(nextNodeModulesDir) {
   return aliases;
 }
 
+async function removeBundledEnvironmentFiles(appDir) {
+  const entries = await fs.readdir(appDir, { withFileTypes: true });
+  const removed = [];
+
+  for (const entry of entries) {
+    if (!ENVIRONMENT_FILE_NAME.test(entry.name)) {
+      continue;
+    }
+
+    await fs.rm(path.join(appDir, entry.name), { recursive: entry.isDirectory() });
+    removed.push(entry.name);
+  }
+
+  return removed;
+}
+
 async function ensureAlias(appDir, relativeAliasPath) {
   const nextAliasPath = path.join(appDir, '.next', 'node_modules', relativeAliasPath);
   const standaloneAliasPath = path.join(appDir, 'node_modules', relativeAliasPath);
@@ -83,19 +100,27 @@ export async function repairStandaloneRuntime() {
   const standaloneRootDir = path.join(process.cwd(), '.next', 'standalone');
 
   if (!(await exists(standaloneRootDir))) {
-    return { appDir: null, aliases: [] };
+    return { appDir: null, aliases: [], environmentFiles: [] };
   }
 
   const standaloneAppDir = await findStandaloneAppDir(standaloneRootDir);
 
   if (!standaloneAppDir) {
-    return { appDir: null, aliases: [] };
+    return { appDir: null, aliases: [], environmentFiles: [] };
+  }
+
+  const environmentFiles = await removeBundledEnvironmentFiles(standaloneAppDir);
+
+  if (environmentFiles.length > 0) {
+    console.log(
+      `[repair-standalone] removed ${environmentFiles.length} environment file(s) from ${path.relative(process.cwd(), standaloneAppDir)}`,
+    );
   }
 
   const nextNodeModulesDir = path.join(standaloneAppDir, '.next', 'node_modules');
 
   if (!(await exists(nextNodeModulesDir))) {
-    return { appDir: standaloneAppDir, aliases: [] };
+    return { appDir: standaloneAppDir, aliases: [], environmentFiles };
   }
 
   const aliases = await collectStandaloneAliases(nextNodeModulesDir);
@@ -113,7 +138,7 @@ export async function repairStandaloneRuntime() {
     );
   }
 
-  return { appDir: standaloneAppDir, aliases: createdAliases };
+  return { appDir: standaloneAppDir, aliases: createdAliases, environmentFiles };
 }
 
 const currentScriptPath = fileURLToPath(import.meta.url);

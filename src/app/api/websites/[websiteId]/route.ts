@@ -1,19 +1,10 @@
 import { z } from 'zod';
-import type { Prisma } from '@/generated/prisma/client';
-import { ENTITY_TYPE } from '@/lib/constants';
-import { uuid } from '@/lib/crypto';
-import { getRecorderConfig, getRecorderEnabled } from '@/lib/recorder';
 import { parseRequest } from '@/lib/request';
-import { badRequest, json, ok, serverError, unauthorized } from '@/lib/response';
+import { badRequest, json, notFound, ok, serverError, unauthorized } from '@/lib/response';
+import { domainParam, routeSlugParam } from '@/lib/schema';
+import { publicSharesDisabled } from '@/lib/security';
 import { canDeleteWebsite, canUpdateWebsite, canViewSharedWebsite } from '@/permissions';
-import {
-  createShare,
-  deleteSharesByEntityId,
-  deleteWebsite,
-  getShareByEntityId,
-  getWebsite,
-  updateWebsite,
-} from '@/queries/prisma';
+import { deleteWebsite, getWebsite, updateWebsite } from '@/queries/prisma';
 
 export async function GET(
   request: Request,
@@ -33,6 +24,21 @@ export async function GET(
 
   const website = await getWebsite(websiteId);
 
+  if (!website) {
+    return notFound();
+  }
+
+  if (!auth.user) {
+    return json({
+      id: website.id,
+      name: website.name,
+      domain: website.domain,
+      resetAt: website.resetAt,
+      createdAt: website.createdAt,
+      updatedAt: website.updatedAt,
+    });
+  }
+
   return json(website);
 }
 
@@ -41,9 +47,9 @@ export async function POST(
   { params }: { params: Promise<{ websiteId: string }> },
 ) {
   const schema = z.object({
-    name: z.string().max(100).optional(),
-    domain: z.string().max(500).optional(),
-    shareId: z.string().max(50).nullable().optional(),
+    name: z.string().trim().min(1).max(100).optional(),
+    domain: domainParam.optional(),
+    shareId: routeSlugParam.nullable().optional(),
     replayConfig: z
       .object({
         replayEnabled: z.boolean().optional(),
@@ -51,9 +57,10 @@ export async function POST(
         sampleRate: z.number().min(0).max(1).optional(),
         heatmapSampleRate: z.number().min(0).max(1).optional(),
         maskLevel: z.enum(['strict', 'moderate']).optional(),
-        maxDuration: z.number().int().positive().optional(),
-        blockSelector: z.string().optional(),
+        maxDuration: z.number().int().min(60_000).max(3_600_000).optional(),
+        blockSelector: z.string().max(1_000).optional(),
       })
+      .strict()
       .nullable()
       .optional(),
   });
@@ -67,56 +74,42 @@ export async function POST(
   const { websiteId } = await params;
   const { name, domain, shareId, replayConfig } = body;
 
+  if (shareId && publicSharesDisabled()) {
+    return badRequest({ message: 'Public analytics shares are disabled.' });
+  }
+
   if (!(await canUpdateWebsite(auth, websiteId))) {
     return unauthorized();
   }
 
   try {
-    const currentWebsite = await getWebsite(websiteId);
-
-    if (!currentWebsite) {
-      return badRequest({ message: 'Website not found.' });
-    }
-
-    const nextReplayConfig = getRecorderConfig(
-      replayConfig === null
-        ? {}
-        : {
-            ...getRecorderConfig(currentWebsite.replayConfig),
-            ...(replayConfig ?? {}),
-          },
+    const { website, share } = await updateWebsite(
+      websiteId,
+      {
+        name,
+        domain,
+      },
+      auth.user.id,
+      {
+        shareSlug: shareId,
+        replayConfig,
+      },
     );
-
-    const website = await updateWebsite(websiteId, {
-      name,
-      domain,
-      ...(replayConfig !== undefined && {
-        replayConfig: nextReplayConfig as Prisma.InputJsonObject,
-        recorderEnabled: getRecorderEnabled(nextReplayConfig),
-      }),
-    });
-
-    if (shareId === null) {
-      await deleteSharesByEntityId(website.id);
-    }
-
-    const share = shareId
-      ? await createShare({
-          id: uuid(),
-          entityId: websiteId,
-          shareType: ENTITY_TYPE.website,
-          name: website.name,
-          slug: shareId,
-          parameters: { overview: true, events: true },
-        })
-      : await getShareByEntityId(websiteId);
 
     return json({
       ...website,
       shareId: share?.slug ?? null,
     });
   } catch (e: any) {
-    if (e.message.toLowerCase().includes('unique constraint')) {
+    if (e.message === 'ENTITY_NOT_FOUND') {
+      return notFound({ message: 'Website not found.' });
+    }
+
+    if (e.message === 'ENTITY_ACTOR_NOT_AUTHORIZED') {
+      return unauthorized({ message: 'Your website-update permission changed.' });
+    }
+
+    if (e?.code === 'P2002') {
       return badRequest({ message: 'That share ID is already taken.' });
     }
 
@@ -140,7 +133,18 @@ export async function DELETE(
     return unauthorized();
   }
 
-  await deleteWebsite(websiteId);
+  try {
+    await deleteWebsite(websiteId, auth.user.id);
+  } catch (error: any) {
+    switch (error?.message) {
+      case 'ENTITY_NOT_FOUND':
+        return notFound({ message: 'Website not found.' });
+      case 'ENTITY_ACTOR_NOT_AUTHORIZED':
+        return unauthorized({ message: 'Your website-deletion permission changed.' });
+      default:
+        throw error;
+    }
+  }
 
   return ok();
 }

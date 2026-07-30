@@ -1,4 +1,5 @@
 import { gzipSync } from 'node:zlib';
+import type { Prisma } from '@/generated/prisma/client';
 import clickhouse from '@/lib/clickhouse';
 import { uuid } from '@/lib/crypto';
 import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
@@ -16,26 +17,36 @@ export interface SaveRecordingArgs {
   endedAt: Date;
 }
 
-export async function saveRecording(args: SaveRecordingArgs) {
+export async function saveRecording(
+  args: SaveRecordingArgs,
+  transaction?: Prisma.TransactionClient,
+) {
+  if (transaction) {
+    return relationalQuery(args, transaction);
+  }
+
   return runQuery({
     [PRISMA]: () => relationalQuery(args),
     [CLICKHOUSE]: () => clickhouseQuery(args),
   });
 }
 
-async function relationalQuery({
-  websiteId,
-  sessionId,
-  visitId,
-  chunkIndex,
-  events,
-  eventCount,
-  startedAt,
-  endedAt,
-}: SaveRecordingArgs) {
+async function relationalQuery(
+  {
+    websiteId,
+    sessionId,
+    visitId,
+    chunkIndex,
+    events,
+    eventCount,
+    startedAt,
+    endedAt,
+  }: SaveRecordingArgs,
+  transaction: Prisma.TransactionClient | typeof prisma.client = prisma.client,
+) {
   const compressed = gzipSync(Buffer.from(JSON.stringify(events), 'utf-8'));
 
-  return prisma.client.sessionReplay.create({
+  return transaction.sessionReplay.create({
     data: {
       id: uuid(),
       websiteId,

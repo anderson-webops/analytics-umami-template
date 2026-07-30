@@ -1,12 +1,17 @@
 export const users = {
   userCreate: {
     username: 'playwright1',
-    password: 'password',
+    password: 'Playwright-user-password-2026-A9',
     role: 'user',
   },
   userUpdate: {
     username: 'playwright1',
     role: 'view-only',
+  },
+  teamUserCreate: {
+    username: 'playwright-team-member',
+    password: 'Playwright-team-password-2026-B8',
+    role: 'user',
   },
 };
 

@@ -1,3 +1,4 @@
+import { isEnvEnabled } from '@/lib/env';
 import { fetchAccount, fetchTeam } from '@/lib/load';
 import { parseRequest } from '@/lib/request';
 import { json } from '@/lib/response';
@@ -13,7 +14,7 @@ export async function POST(request: Request) {
   const user = { ...auth.user };
   const teams = await getAllUserTeams(user.id);
 
-  if (process.env.CLOUD_MODE) {
+  if (isEnvEnabled('CLOUD_MODE')) {
     const account = await fetchAccount(user.id);
 
     if (account) {

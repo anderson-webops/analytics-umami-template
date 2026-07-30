@@ -1,7 +1,6 @@
-import { z } from 'zod';
 import { parseRequest } from '@/lib/request';
 import { json, notFound, ok, unauthorized } from '@/lib/response';
-import { anyObjectParam, segmentTypeParam } from '@/lib/schema';
+import { savedSegmentSchema } from '@/lib/schema';
 import { canDeleteWebsite, canUpdateWebsite, canViewSharedWebsiteFilters } from '@/permissions';
 import { deleteSegment, getWebsiteSegment, updateSegment } from '@/queries/prisma';
 
@@ -34,13 +33,7 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ websiteId: string; segmentId: string }> },
 ) {
-  const schema = z.object({
-    type: segmentTypeParam,
-    name: z.string().max(200),
-    parameters: anyObjectParam,
-  });
-
-  const { auth, body, error } = await parseRequest(request, schema);
+  const { auth, body, error } = await parseRequest(request, savedSegmentSchema);
 
   if (error) {
     return error();
@@ -59,11 +52,30 @@ export async function POST(
     return notFound();
   }
 
-  const result = await updateSegment(segmentId, {
-    type,
-    name,
-    parameters,
-  } as any);
+  let result;
+
+  try {
+    result = await updateSegment(
+      websiteId,
+      segmentId,
+      {
+        type,
+        name,
+        parameters,
+      } as any,
+      auth.user.id,
+    );
+  } catch (error: any) {
+    switch (error?.message) {
+      case 'SEGMENT_NOT_FOUND':
+        return notFound();
+      case 'ENTITY_NOT_FOUND':
+      case 'ENTITY_ACTOR_NOT_AUTHORIZED':
+        return unauthorized({ message: 'Your segment-update permission changed.' });
+      default:
+        throw error;
+    }
+  }
 
   return json(result);
 }
@@ -90,7 +102,19 @@ export async function DELETE(
     return notFound();
   }
 
-  await deleteSegment(segmentId);
+  try {
+    await deleteSegment(websiteId, segmentId, auth.user.id);
+  } catch (error: any) {
+    switch (error?.message) {
+      case 'SEGMENT_NOT_FOUND':
+        return notFound();
+      case 'ENTITY_NOT_FOUND':
+      case 'ENTITY_ACTOR_NOT_AUTHORIZED':
+        return unauthorized({ message: 'Your segment-deletion permission changed.' });
+      default:
+        throw error;
+    }
+  }
 
   return ok();
 }

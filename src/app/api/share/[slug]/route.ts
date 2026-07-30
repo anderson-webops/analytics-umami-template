@@ -1,18 +1,16 @@
-import { getBoardEntityIds } from '@/lib/boards';
-import { ENTITY_TYPE, ROLES, SHARE_TOKEN_TYPE } from '@/lib/constants';
+import { ROLES, SHARE_TOKEN_TYPE } from '@/lib/constants';
 import { secret } from '@/lib/crypto';
 import { createToken } from '@/lib/jwt';
 import prisma from '@/lib/prisma';
 import redis from '@/lib/redis';
 import { json, notFound } from '@/lib/response';
-import type { Auth, BoardParameters, WhiteLabel } from '@/lib/types';
-import { canViewLink, canViewPixel, canViewWebsite } from '@/permissions';
-import { getBoard, getLink, getPixel, getShareByCode, getUser, getWebsite } from '@/queries/prisma';
+import { routeSlugParam, whiteLabelParam } from '@/lib/schema';
+import { getShareTokenTtlSeconds, publicSharesDisabled } from '@/lib/security';
+import { resolveShareAccess, type ShareEntity } from '@/lib/share-access';
+import type { WhiteLabel } from '@/lib/types';
+import { getShareByCode } from '@/queries/prisma';
 
-type BoardEntityIds = ReturnType<typeof getBoardEntityIds>;
-type OwnedEntity = { userId?: string | null; teamId?: string | null } | null;
-
-async function getAccountId(entity: { userId?: string; teamId?: string }): Promise<string | null> {
+async function getAccountId(entity: ShareEntity): Promise<string | null> {
   if (entity.userId) {
     return entity.userId;
   }
@@ -22,6 +20,8 @@ async function getAccountId(entity: { userId?: string; teamId?: string }): Promi
       where: {
         teamId: entity.teamId,
         role: ROLES.teamOwner,
+        team: { deletedAt: null },
+        user: { deletedAt: null },
       },
       select: {
         userId: true,
@@ -40,92 +40,21 @@ async function getWhiteLabel(accountId: string): Promise<WhiteLabel | null> {
   }
 
   const data = await redis.client.get(`white-label:${accountId}`);
+  const result = whiteLabelParam.safeParse(data);
 
-  if (data) {
-    return data as WhiteLabel;
-  }
-
-  return null;
-}
-
-async function filterEntityIds(
-  ids: string[],
-  canView: (id: string) => Promise<boolean>,
-): Promise<string[]> {
-  const results = await Promise.all(
-    ids.map(async id => {
-      try {
-        return (await canView(id)) ? id : null;
-      } catch {
-        return null;
-      }
-    }),
-  );
-
-  return results.filter((id): id is string => !!id);
-}
-
-async function getTeamUserIds(teamId: string) {
-  const teamUsers = await prisma.client.teamUser.findMany({
-    where: { teamId },
-    select: { userId: true },
-  });
-
-  return new Set(teamUsers.map(({ userId }) => userId));
-}
-
-function isOwnedByTeam(entity: OwnedEntity, teamId: string, teamUserIds: Set<string>) {
-  return entity?.teamId === teamId || !!(entity?.userId && teamUserIds.has(entity.userId));
-}
-
-async function filterBoardEntityIdsForShare(
-  entity: { userId?: string | null; teamId?: string | null },
-  ids: BoardEntityIds,
-): Promise<BoardEntityIds> {
-  if (entity.teamId) {
-    const teamUserIds = await getTeamUserIds(entity.teamId);
-
-    return {
-      websiteIds: await filterEntityIds(ids.websiteIds, async id =>
-        isOwnedByTeam(await getWebsite(id), entity.teamId, teamUserIds),
-      ),
-      pixelIds: await filterEntityIds(ids.pixelIds, async id =>
-        isOwnedByTeam(await getPixel(id), entity.teamId, teamUserIds),
-      ),
-      linkIds: await filterEntityIds(ids.linkIds, async id =>
-        isOwnedByTeam(await getLink(id), entity.teamId, teamUserIds),
-      ),
-    };
-  }
-
-  if (!entity.userId) {
-    return { websiteIds: [], pixelIds: [], linkIds: [] };
-  }
-
-  const user = await getUser(entity.userId);
-
-  if (!user) {
-    return { websiteIds: [], pixelIds: [], linkIds: [] };
-  }
-
-  const auth: Auth = {
-    user: {
-      id: user.id,
-      username: user.username,
-      role: user.role,
-      isAdmin: user.role === ROLES.admin,
-    },
-  };
-
-  return {
-    websiteIds: await filterEntityIds(ids.websiteIds, id => canViewWebsite(auth, id)),
-    pixelIds: await filterEntityIds(ids.pixelIds, id => canViewPixel(auth, id)),
-    linkIds: await filterEntityIds(ids.linkIds, id => canViewLink(auth, id)),
-  };
+  return result.success ? (result.data as WhiteLabel) : null;
 }
 
 export async function GET(_request: Request, { params }: { params: Promise<{ slug: string }> }) {
+  if (publicSharesDisabled()) {
+    return notFound();
+  }
+
   const { slug } = await params;
+
+  if (!routeSlugParam.safeParse(slug).success) {
+    return notFound();
+  }
 
   const share = await getShareByCode(slug);
 
@@ -133,51 +62,22 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
     return notFound();
   }
 
-  const data: Record<string, any> = {
-    shareId: share.id,
-    shareType: share.shareType,
-    parameters: share.parameters,
-  };
+  const access = await resolveShareAccess(share);
 
-  let entity: { userId?: string; teamId?: string } | null = null;
-
-  if (share.shareType === ENTITY_TYPE.board) {
-    const board = await getBoard(share.entityId);
-    if (!board) return notFound();
-    entity = board;
-    data.boardId = share.entityId;
-    const boardEntityIds = getBoardEntityIds({
-      type: board.type,
-      parameters: board.parameters as BoardParameters,
-    });
-    const authorizedEntityIds = await filterBoardEntityIdsForShare(board, boardEntityIds);
-    data.websiteIds = authorizedEntityIds.websiteIds;
-    data.pixelIds = authorizedEntityIds.pixelIds;
-    data.linkIds = authorizedEntityIds.linkIds;
-  } else if (share.shareType === ENTITY_TYPE.website) {
-    entity = await getWebsite(share.entityId);
-    if (!entity) return notFound();
-    data.websiteId = share.entityId;
-  } else if (share.shareType === ENTITY_TYPE.pixel) {
-    entity = await getPixel(share.entityId);
-    if (!entity) return notFound();
-    data.websiteId = share.entityId;
-    data.pixelId = share.entityId;
-  } else if (share.shareType === ENTITY_TYPE.link) {
-    entity = await getLink(share.entityId);
-    if (!entity) return notFound();
-    data.websiteId = share.entityId;
-    data.linkId = share.entityId;
-  } else {
+  if (!access) {
     return notFound();
   }
 
-  data.token = createToken({ ...data, type: SHARE_TOKEN_TYPE }, secret());
+  const data: Record<string, any> = { ...access.data };
+  data.token = createToken({ ...data, type: SHARE_TOKEN_TYPE }, secret(), {
+    expiresIn: getShareTokenTtlSeconds(),
+  });
 
-  const accountId = await getAccountId(entity);
+  const accountId = await getAccountId(access.entity);
 
   if (accountId) {
     const whiteLabel = await getWhiteLabel(accountId);
+
     if (whiteLabel) {
       data.whiteLabel = whiteLabel;
     }

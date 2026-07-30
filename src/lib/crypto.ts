@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { startOfDay, startOfMonth, startOfWeek } from 'date-fns';
-import { v4, v5, v7 } from 'uuid';
+import { v4, v5, v7, validate } from 'uuid';
+import { isEnvEnabled } from '@/lib/env';
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 16;
@@ -54,7 +55,13 @@ export function md5(...args: string[]) {
 }
 
 export function secret() {
-  return hash(process.env.APP_SECRET || process.env.DATABASE_URL);
+  const value = process.env.APP_SECRET?.trim();
+
+  if (!value || Buffer.byteLength(value, 'utf8') < 32) {
+    throw new Error('APP_SECRET must contain at least 32 UTF-8 bytes.');
+  }
+
+  return hash(value);
 }
 
 export function uuid(...args: any) {
@@ -62,7 +69,11 @@ export function uuid(...args: any) {
     return v5(hash(...args, secret()), v5.DNS);
   }
 
-  return process.env.USE_UUIDV7 ? v7() : v4();
+  return isEnvEnabled('USE_UUIDV7') ? v7() : v4();
+}
+
+export function isUuid(value: unknown): value is string {
+  return typeof value === 'string' && validate(value);
 }
 
 export function createAuthKey() {

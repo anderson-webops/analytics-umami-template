@@ -5,9 +5,11 @@ import prisma from '@/lib/prisma';
 
 const FUNCTION_NAME = 'createSession';
 
-export async function createSession(data: Prisma.SessionCreateInput) {
-  const { rawQuery } = prisma;
-  const normalizedData: Prisma.SessionCreateInput = {
+export async function createSession(
+  data: Prisma.SessionUncheckedCreateInput,
+  transaction?: Prisma.TransactionClient,
+) {
+  const normalizedData: Prisma.SessionUncheckedCreateInput = {
     ...data,
     browser: truncateString(data.browser, FIELD_LENGTH.browser),
     os: truncateString(data.os, FIELD_LENGTH.os),
@@ -20,43 +22,54 @@ export async function createSession(data: Prisma.SessionCreateInput) {
     distinctId: truncateString(data.distinctId, FIELD_LENGTH.distinctId),
   };
 
+  if (transaction) {
+    await transaction.session.upsert({
+      where: { id: normalizedData.id },
+      create: normalizedData,
+      update: {},
+    });
+    return;
+  }
+
+  const { rawQuery } = prisma;
+
   await rawQuery(
     `
-    insert into session (
-      session_id,
-      website_id,
-      browser,
-      os,
-      device,
-      screen,
-      language,
-      country,
-      region,
-      city,
-      is_bot,
-      bot_name,
-      bot_category,
-      distinct_id,
-      created_at
-    )
-    values (
-      {{id}},
-      {{websiteId}},
-      {{browser}},
-      {{os}},
-      {{device}},
-      {{screen}},
-      {{language}},
-      {{country}},
-      {{region}},
-      {{city}},
-      {{isBot}},
-      {{botName}},
-      {{botCategory}},
-      {{distinctId}},
-      {{createdAt}}
-    )
-    on conflict (session_id) do nothing
+      insert into session (
+        session_id,
+        website_id,
+        browser,
+        os,
+        device,
+        screen,
+        language,
+        country,
+        region,
+        city,
+        is_bot,
+        bot_name,
+        bot_category,
+        distinct_id,
+        created_at
+      )
+      values (
+        {{id}},
+        {{websiteId}},
+        {{browser}},
+        {{os}},
+        {{device}},
+        {{screen}},
+        {{language}},
+        {{country}},
+        {{region}},
+        {{city}},
+        {{isBot}},
+        {{botName}},
+        {{botCategory}},
+        {{distinctId}},
+        {{createdAt}}
+      )
+      on conflict (session_id) do nothing
     `,
     normalizedData,
     FUNCTION_NAME,

@@ -5,10 +5,6 @@ import type { Auth } from '@/lib/types';
 import { getTeamUser, getWebsite } from '@/queries/prisma';
 
 export async function canViewWebsite({ user, shareToken }: Auth, websiteId: string) {
-  if (user?.isAdmin) {
-    return true;
-  }
-
   if (
     shareToken?.websiteId === websiteId ||
     shareToken?.pixelId === websiteId ||
@@ -22,7 +18,15 @@ export async function canViewWebsite({ user, shareToken }: Auth, websiteId: stri
 
   const entity = await getEntity(websiteId);
 
-  if (!entity || !user) {
+  if (!entity) {
+    return false;
+  }
+
+  if (user?.isAdmin) {
+    return true;
+  }
+
+  if (!user) {
     return false;
   }
 
@@ -60,14 +64,14 @@ export async function canUpdateWebsite({ user }: Auth, websiteId: string) {
     return false;
   }
 
-  if (user.isAdmin) {
-    return true;
-  }
-
   const website = await getWebsite(websiteId);
 
   if (!website) {
     return false;
+  }
+
+  if (user.isAdmin) {
+    return true;
   }
 
   if (website.userId) {
@@ -88,14 +92,14 @@ export async function canDeleteWebsite({ user }: Auth, websiteId: string) {
     return false;
   }
 
-  if (user.isAdmin) {
-    return true;
-  }
-
   const website = await getWebsite(websiteId);
 
   if (!website) {
     return false;
+  }
+
+  if (user.isAdmin) {
+    return true;
   }
 
   if (website.userId) {

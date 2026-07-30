@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -38,7 +38,13 @@ const pkg = fs.existsSync(packageFile)
   ? JSON.parse(fs.readFileSync(packageFile, 'utf8'))
   : defaultPackage;
 
-const published = execSync(`npm view ${pkg.name} version`, { encoding: 'utf8' }).trim();
+if (typeof pkg.name !== 'string' || !/^(?:@[a-z0-9._~-]+\/)?[a-z0-9._~-]+$/.test(pkg.name)) {
+  throw new Error('Package name is invalid.');
+}
+
+const published = execFileSync('npm', ['view', pkg.name, 'version'], {
+  encoding: 'utf8',
+}).trim();
 const [major, minor] = published.split('.').map(Number);
 const next = `${major}.${minor + 1}.0`;
 

@@ -13,7 +13,7 @@ import { UpdateNotice } from './UpdateNotice';
 export function App({ children }) {
   const { user, isLoading, error } = useLoginQuery();
   const config = useConfig();
-  const { pathname, router, teamId } = useNavigation();
+  const { router, teamId } = useNavigation();
   const { isLoading: isTeamLoading, error: teamError } = useTeamQuery(teamId);
 
   useEffect(() => {
@@ -67,9 +67,6 @@ export function App({ children }) {
         <Column alignItems="center">{children}</Column>
       </Column>
       <UpdateNotice user={user} config={config} />
-      {process.env.NODE_ENV === 'production' && !pathname.includes('/share/') && (
-        <Script src={`${process.env.basePath || ''}/telemetry.js`} />
-      )}
       {process.env.selfTrack && (
         <Script
           async

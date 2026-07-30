@@ -1,10 +1,35 @@
-import { expect, test, vi } from 'vitest';
+import { beforeEach, expect, test, vi } from 'vitest';
 import { ENTITY_TYPE } from '@/lib/constants';
 import { canViewSharedWebsite, canViewSharedWebsiteFilters, canViewWebsiteSection } from './share';
+import { canViewWebsite } from './website';
+
+vi.mock('./board', () => ({
+  canDeleteBoard: vi.fn(),
+  canUpdateBoard: vi.fn(),
+  canViewBoard: vi.fn(),
+}));
+
+vi.mock('./link', () => ({
+  canDeleteLink: vi.fn(),
+  canUpdateLink: vi.fn(),
+  canViewLink: vi.fn(),
+}));
+
+vi.mock('./pixel', () => ({
+  canDeletePixel: vi.fn(),
+  canUpdatePixel: vi.fn(),
+  canViewPixel: vi.fn(),
+}));
 
 vi.mock('./website', () => ({
+  canDeleteWebsite: vi.fn(),
+  canUpdateWebsite: vi.fn(),
   canViewWebsite: vi.fn(),
 }));
+
+beforeEach(() => {
+  vi.mocked(canViewWebsite).mockResolvedValue(true);
+});
 
 test('canViewWebsiteSection allows board shares for included websites', async () => {
   await expect(

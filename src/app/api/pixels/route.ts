@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import { uuid } from '@/lib/crypto';
 import { getQueryFilters, parseRequest } from '@/lib/request';
-import { json, unauthorized } from '@/lib/response';
-import { pagingParams, searchParams, sortingParams } from '@/lib/schema';
+import { conflict, json, unauthorized } from '@/lib/response';
+import { pagingParams, routeSlugParam, searchParams, sortingParams } from '@/lib/schema';
 import { canCreateTeamWebsite, canCreateWebsite } from '@/permissions';
 import { createPixel, getUserPixels } from '@/queries/prisma';
 
@@ -28,9 +28,9 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   const schema = z.object({
-    name: z.string().max(100),
-    slug: z.string().max(100),
-    teamId: z.string().nullable().optional(),
+    name: z.string().trim().min(1).max(100),
+    slug: routeSlugParam,
+    teamId: z.uuid().nullable().optional(),
     id: z.uuid().nullable().optional(),
   });
 
@@ -41,6 +41,10 @@ export async function POST(request: Request) {
   }
 
   const { id, name, slug, teamId } = body;
+
+  if (id && !auth.user.isAdmin) {
+    return unauthorized({ message: 'Only an administrator can supply an entity ID.' });
+  }
 
   if ((teamId && !(await canCreateTeamWebsite(auth, teamId))) || !(await canCreateWebsite(auth))) {
     return unauthorized();
@@ -57,7 +61,28 @@ export async function POST(request: Request) {
     data.userId = auth.user.id;
   }
 
-  const result = await createPixel(data);
+  let result;
+
+  try {
+    result = await createPixel(data, auth.user.id, { customEntityId: !!id });
+  } catch (error: any) {
+    switch (error?.message) {
+      case 'ENTITY_ID_CONFLICT':
+        return conflict({ message: 'That entity ID is already in use.' });
+      case 'ENTITY_OWNER_NOT_FOUND':
+        return unauthorized({ message: 'The selected owner is no longer available.' });
+      case 'ENTITY_ACTOR_NOT_AUTHORIZED':
+        return unauthorized({ message: 'Your pixel-creation permission changed.' });
+      case 'ENTITY_ADMIN_REQUIRED':
+        return unauthorized({ message: 'Only an administrator can supply an entity ID.' });
+      default:
+        if (error?.code === 'P2002') {
+          return conflict({ message: 'That pixel slug is already in use.' });
+        }
+
+        throw error;
+    }
+  }
 
   return json(result);
 }

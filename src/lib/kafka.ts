@@ -3,6 +3,7 @@ import debug from 'debug';
 import { Kafka, logLevel, type Producer, type RecordMetadata, type SASLOptions } from 'kafkajs';
 import { serializeError } from 'serialize-error';
 import { KAFKA, KAFKA_PRODUCER } from '@/lib/db';
+import { isEnvEnabled } from '@/lib/env';
 
 const log = debug('umami:kafka');
 const CONNECT_TIMEOUT = 5000;
@@ -38,24 +39,26 @@ function getMessages(message: KafkaMessage | KafkaMessage[]) {
 }
 
 function getClient() {
-  const { username, password } = new URL(process.env.KAFKA_URL);
+  const { protocol, username, password } = new URL(process.env.KAFKA_URL);
   const brokers = process.env.KAFKA_BROKER.split(',');
   const mechanism =
     (process.env.KAFKA_SASL_MECHANISM as 'plain' | 'scram-sha-256' | 'scram-sha-512') || 'plain';
+  const useTls =
+    protocol === 'kafkas:' || isEnvEnabled('KAFKA_SSL') || Boolean(username && password);
 
   const ssl: { ssl?: tls.ConnectionOptions | boolean; sasl?: SASLOptions } =
     username && password
       ? {
-          ssl: {
-            rejectUnauthorized: false,
-          },
+          ssl: useTls,
           sasl: {
             mechanism,
             username,
             password,
           },
         }
-      : {};
+      : useTls
+        ? { ssl: true }
+        : {};
 
   const client: Kafka = new Kafka({
     clientId: 'umami',

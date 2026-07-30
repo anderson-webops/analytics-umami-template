@@ -1,5 +1,5 @@
 import { parseRequest } from '@/lib/request';
-import { ok, unauthorized } from '@/lib/response';
+import { notFound, ok, unauthorized } from '@/lib/response';
 import { canUpdateWebsite } from '@/permissions';
 import { resetWebsite } from '@/queries/prisma';
 
@@ -19,7 +19,18 @@ export async function POST(
     return unauthorized();
   }
 
-  await resetWebsite(websiteId);
+  try {
+    await resetWebsite(websiteId, auth.user.id);
+  } catch (error: any) {
+    switch (error?.message) {
+      case 'ENTITY_NOT_FOUND':
+        return notFound({ message: 'Website not found.' });
+      case 'ENTITY_ACTOR_NOT_AUTHORIZED':
+        return unauthorized({ message: 'Your website-reset permission changed.' });
+      default:
+        throw error;
+    }
+  }
 
   return ok();
 }

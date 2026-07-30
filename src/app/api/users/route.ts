@@ -4,15 +4,15 @@ import { uuid } from '@/lib/crypto';
 import { hashPassword } from '@/lib/password';
 import { parseRequest } from '@/lib/request';
 import { badRequest, json, unauthorized } from '@/lib/response';
-import { userRoleParam } from '@/lib/schema';
+import { passwordParam, userRoleParam } from '@/lib/schema';
 import { canCreateUser } from '@/permissions';
 import { createUser, getUserByUsername } from '@/queries/prisma';
 
 export async function POST(request: Request) {
   const schema = z.object({
     id: z.uuid().optional(),
-    username: z.string().max(255),
-    password: z.string().min(8).max(255),
+    username: z.string().trim().min(1).max(255),
+    password: passwordParam,
     role: userRoleParam,
   });
 
@@ -34,12 +34,29 @@ export async function POST(request: Request) {
     return badRequest({ message: 'User already exists' });
   }
 
-  const user = await createUser({
-    id: id || uuid(),
-    username: username.toLowerCase(),
-    password: hashPassword(password),
-    role: role ?? ROLES.user,
-  });
+  let user;
+
+  try {
+    user = await createUser(
+      {
+        id: id || uuid(),
+        username: username.toLowerCase(),
+        password: await hashPassword(password),
+        role: role ?? ROLES.user,
+      },
+      auth.user.id,
+    );
+  } catch (error: any) {
+    if (error?.message === 'ADMIN_AUTHORIZATION_CHANGED') {
+      return unauthorized({ message: 'Your administrator permission changed.' });
+    }
+
+    if (error?.code === 'P2002') {
+      return badRequest({ message: 'User already exists' });
+    }
+
+    throw error;
+  }
 
   return json(user);
 }

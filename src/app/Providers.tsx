@@ -6,6 +6,7 @@ import { NextIntlClientProvider } from 'next-intl';
 import { useEffect } from 'react';
 import { ErrorBoundary } from '@/components/common/ErrorBoundary';
 import { useLocale } from '@/components/hooks';
+import { getSafeNavigationTarget } from '@/lib/security';
 import 'chartjs-adapter-date-fns';
 
 const client = new QueryClient({
@@ -37,15 +38,18 @@ export function Providers({ children }) {
   const router = useRouter();
 
   function navigate(url: string) {
-    if (shouldUseNativeLink(url)) {
-      window.location.href = url;
-    } else {
-      router.push(url);
-    }
-  }
+    const target = getSafeNavigationTarget(url);
 
-  function shouldUseNativeLink(url: string) {
-    return url.startsWith('http');
+    if (!target) {
+      return;
+    }
+
+    if (target.external) {
+      window.location.assign(target.url);
+      return;
+    }
+
+    router.push(target.url);
   }
 
   return (

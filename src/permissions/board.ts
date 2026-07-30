@@ -3,9 +3,9 @@ import { getBoardEntityIds } from '@/lib/boards';
 import { PERMISSIONS } from '@/lib/constants';
 import type { Auth, BoardParameters } from '@/lib/types';
 import { getBoard, getTeamUser } from '@/queries/prisma';
-import { canViewLink } from './link';
-import { canViewPixel } from './pixel';
-import { canViewWebsite } from './website';
+import { canUpdateLink, canViewLink } from './link';
+import { canUpdatePixel, canViewPixel } from './pixel';
+import { canUpdateWebsite, canViewWebsite } from './website';
 
 async function checkBoardEntityAccess(check: Promise<boolean>) {
   try {
@@ -21,23 +21,33 @@ export async function canViewBoardEntities(
   parameters: BoardParameters = {},
 ) {
   const { websiteIds, pixelIds, linkIds } = getBoardEntityIds({ type, parameters });
-  const userOnlyAuth: Auth = { user: auth.user };
+  const userOnlyAuth: Auth = auth.user ? { user: auth.user } : {};
   const checks = [
     ...websiteIds.map(id => checkBoardEntityAccess(canViewWebsite(userOnlyAuth, id))),
     ...pixelIds.map(id => checkBoardEntityAccess(canViewPixel(userOnlyAuth, id))),
     ...linkIds.map(id => checkBoardEntityAccess(canViewLink(userOnlyAuth, id))),
   ];
 
-  const results = await Promise.all(checks);
+  return (await Promise.all(checks)).every(Boolean);
+}
 
-  return results.every(Boolean);
+export async function canShareBoardEntities(
+  auth: Auth,
+  type: string | undefined,
+  parameters: BoardParameters = {},
+) {
+  const { websiteIds, pixelIds, linkIds } = getBoardEntityIds({ type, parameters });
+  const userOnlyAuth: Auth = auth.user ? { user: auth.user } : {};
+  const checks = [
+    ...websiteIds.map(id => checkBoardEntityAccess(canUpdateWebsite(userOnlyAuth, id))),
+    ...pixelIds.map(id => checkBoardEntityAccess(canUpdatePixel(userOnlyAuth, id))),
+    ...linkIds.map(id => checkBoardEntityAccess(canUpdateLink(userOnlyAuth, id))),
+  ];
+
+  return (await Promise.all(checks)).every(Boolean);
 }
 
 export async function canViewBoard({ user, shareToken }: Auth, boardId: string) {
-  if (user?.isAdmin) {
-    return true;
-  }
-
   if (shareToken?.boardId === boardId) {
     return true;
   }
@@ -50,6 +60,10 @@ export async function canViewBoard({ user, shareToken }: Auth, boardId: string) 
 
   if (!board) {
     return false;
+  }
+
+  if (user.isAdmin) {
+    return true;
   }
 
   if (board.userId) {
@@ -70,14 +84,14 @@ export async function canUpdateBoard({ user }: Auth, boardId: string) {
     return false;
   }
 
-  if (user.isAdmin) {
-    return true;
-  }
-
   const board = await getBoard(boardId);
 
   if (!board) {
     return false;
+  }
+
+  if (user.isAdmin) {
+    return true;
   }
 
   if (board.userId) {
@@ -98,14 +112,14 @@ export async function canDeleteBoard({ user }: Auth, boardId: string) {
     return false;
   }
 
-  if (user.isAdmin) {
-    return true;
-  }
-
   const board = await getBoard(boardId);
 
   if (!board) {
     return false;
+  }
+
+  if (user.isAdmin) {
+    return true;
   }
 
   if (board.userId) {

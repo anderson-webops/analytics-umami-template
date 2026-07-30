@@ -28,8 +28,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ team
 
 export async function POST(request: Request, { params }: { params: Promise<{ teamId: string }> }) {
   const schema = z.object({
-    name: z.string().max(50).optional(),
-    accessCode: z.string().max(50).optional(),
+    name: z.string().trim().min(1).max(50).optional(),
+    accessCode: z
+      .string()
+      .regex(/^team_[A-Za-z0-9]{16}$/, 'Invalid team access code.')
+      .optional(),
   });
 
   const { auth, body, error } = await parseRequest(request, schema);
@@ -44,7 +47,20 @@ export async function POST(request: Request, { params }: { params: Promise<{ tea
     return unauthorized({ message: 'You must be the owner/manager of this team.' });
   }
 
-  const team = await updateTeam(teamId, body);
+  let team;
+
+  try {
+    team = await updateTeam(teamId, body, auth.user.id);
+  } catch (error: any) {
+    switch (error?.message) {
+      case 'TEAM_NOT_FOUND':
+        return notFound({ message: 'Team not found.' });
+      case 'TEAM_ACTOR_NOT_AUTHORIZED':
+        return unauthorized({ message: 'Your team-management permission changed.' });
+      default:
+        throw error;
+    }
+  }
 
   return json(team);
 }
@@ -65,7 +81,18 @@ export async function DELETE(
     return unauthorized({ message: 'You must be the owner/manager of this team.' });
   }
 
-  await deleteTeam(teamId);
+  try {
+    await deleteTeam(teamId, auth.user.id);
+  } catch (error: any) {
+    switch (error?.message) {
+      case 'TEAM_NOT_FOUND':
+        return notFound({ message: 'Team not found.' });
+      case 'TEAM_ACTOR_NOT_AUTHORIZED':
+        return unauthorized({ message: 'Your team-deletion permission changed.' });
+      default:
+        throw error;
+    }
+  }
 
   return ok();
 }

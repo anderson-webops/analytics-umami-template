@@ -4,10 +4,6 @@ import type { Auth } from '@/lib/types';
 import { getPixel, getTeamUser } from '@/queries/prisma';
 
 export async function canViewPixel({ user, shareToken }: Auth, pixelId: string) {
-  if (user?.isAdmin) {
-    return true;
-  }
-
   if (
     shareToken?.pixelId === pixelId ||
     shareToken?.websiteId === pixelId ||
@@ -24,6 +20,10 @@ export async function canViewPixel({ user, shareToken }: Auth, pixelId: string) 
 
   if (!pixel) {
     return false;
+  }
+
+  if (user.isAdmin) {
+    return true;
   }
 
   if (pixel.userId) {
@@ -44,14 +44,14 @@ export async function canUpdatePixel({ user }: Auth, pixelId: string) {
     return false;
   }
 
-  if (user.isAdmin) {
-    return true;
-  }
-
   const pixel = await getPixel(pixelId);
 
   if (!pixel) {
     return false;
+  }
+
+  if (user.isAdmin) {
+    return true;
   }
 
   if (pixel.userId) {
@@ -72,14 +72,14 @@ export async function canDeletePixel({ user }: Auth, pixelId: string) {
     return false;
   }
 
-  if (user.isAdmin) {
-    return true;
-  }
-
   const pixel = await getPixel(pixelId);
 
   if (!pixel) {
     return false;
+  }
+
+  if (user.isAdmin) {
+    return true;
   }
 
   if (pixel.userId) {

@@ -1,3 +1,4 @@
+import type { Prisma } from '@/generated/prisma/client';
 import clickhouse from '@/lib/clickhouse';
 import { DATA_TYPE, FIELD_LENGTH } from '@/lib/constants';
 import { uuid } from '@/lib/crypto';
@@ -18,14 +19,24 @@ export interface SaveEventDataArgs {
   createdAt?: Date;
 }
 
-export async function saveEventData(data: SaveEventDataArgs) {
+export async function saveEventData(
+  data: SaveEventDataArgs,
+  transaction?: Prisma.TransactionClient | typeof prisma.client,
+) {
+  if (transaction) {
+    return relationalQuery(data, transaction);
+  }
+
   return runQuery({
     [PRISMA]: () => relationalQuery(data),
     [CLICKHOUSE]: () => clickhouseQuery(data),
   });
 }
 
-async function relationalQuery(data: SaveEventDataArgs) {
+async function relationalQuery(
+  data: SaveEventDataArgs,
+  transaction: Prisma.TransactionClient | typeof prisma.client = prisma.client,
+) {
   const { websiteId, eventId, eventData, createdAt } = data;
 
   const jsonKeys = flattenJSON(eventData);
@@ -43,7 +54,7 @@ async function relationalQuery(data: SaveEventDataArgs) {
     createdAt,
   }));
 
-  await prisma.client.eventData.createMany({
+  await transaction.eventData.createMany({
     data: flattenedData,
   });
 }

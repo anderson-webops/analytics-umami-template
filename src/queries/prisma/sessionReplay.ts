@@ -1,6 +1,8 @@
+import { PERMISSIONS } from '@/lib/constants';
 import { uuid } from '@/lib/crypto';
 import prisma from '@/lib/prisma';
 import type { QueryFilters } from '@/lib/types';
+import { assertActorCanMutateEntity, runSerializable } from './authorization';
 
 export interface CreateReplayChunkArgs {
   websiteId: string;
@@ -72,22 +74,63 @@ export async function getReplaySaved(websiteId: string, visitId: string): Promis
   return record !== null;
 }
 
-export async function createReplaySaved(websiteId: string, visitId: string, name: string) {
-  return prisma.client.sessionReplaySaved.create({
-    data: { id: uuid(), websiteId, visitId, name },
-  });
-}
+export async function setReplaySavedByActor(
+  websiteId: string,
+  visitId: string,
+  isSaved: boolean,
+  name: string,
+  actorUserId: string,
+) {
+  return runSerializable(async transaction => {
+    await assertActorCanMutateEntity(
+      transaction,
+      actorUserId,
+      'website',
+      websiteId,
+      PERMISSIONS.websiteUpdate,
+    );
 
-export async function updateReplaySaved(websiteId: string, visitId: string, name: string) {
-  return prisma.client.sessionReplaySaved.updateMany({
-    where: { websiteId, visitId },
-    data: { name },
-  });
-}
+    if (!isSaved) {
+      await transaction.sessionReplaySaved.deleteMany({
+        where: { websiteId, visitId },
+      });
 
-export async function deleteReplaySaved(websiteId: string, visitId: string) {
-  return prisma.client.sessionReplaySaved.deleteMany({
-    where: { websiteId, visitId },
+      return false;
+    }
+
+    const replayExists = await transaction.sessionReplay.findFirst({
+      where: {
+        websiteId,
+        visitId,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!replayExists) {
+      throw new Error('REPLAY_NOT_FOUND');
+    }
+
+    await transaction.sessionReplaySaved.upsert({
+      where: {
+        websiteId_visitId: {
+          websiteId,
+          visitId,
+        },
+      },
+      create: {
+        id: uuid(),
+        websiteId,
+        visitId,
+        name,
+      },
+      update: {
+        name,
+      },
+    });
+
+    return true;
   });
 }
 

@@ -57,6 +57,50 @@ class UmamiRedisClient {
     return this.client.del(key);
   }
 
+  async incrementWithExpiry(key: string, seconds: number): Promise<number> {
+    await this.connect();
+
+    return Number(
+      await this.client.eval(
+        `
+          local count = redis.call('INCR', KEYS[1])
+          if count == 1 then
+            redis.call('EXPIRE', KEYS[1], ARGV[1])
+          end
+          return count
+        `,
+        {
+          keys: [key],
+          arguments: [String(seconds)],
+        },
+      ),
+    );
+  }
+
+  async decrementFloorZero(key: string): Promise<number> {
+    await this.connect();
+
+    return Number(
+      await this.client.eval(
+        `
+          if redis.call('EXISTS', KEYS[1]) == 0 then
+            return 0
+          end
+          local count = redis.call('DECR', KEYS[1])
+          if count <= 0 then
+            redis.call('DEL', KEYS[1])
+            return 0
+          end
+          return count
+        `,
+        {
+          keys: [key],
+          arguments: [],
+        },
+      ),
+    );
+  }
+
   async incr(key: string) {
     await this.connect();
 

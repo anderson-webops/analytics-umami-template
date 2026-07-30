@@ -16,6 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  APP_SECRET: ci-validation-only-secret-00000000000000000000
   DISABLE_TELEMETRY: "1"
   NEXT_TELEMETRY_DISABLED: "1"
 
@@ -143,7 +144,7 @@ jobs:
       APP_SECRET: test-${{ github.sha }}
       DATABASE_TYPE: postgresql
       DATABASE_URL: postgresql://umami:database-${{ github.run_id }}@127.0.0.1:5432/umami
-      UMAMI_PASSWORD: umami
+      UMAMI_PASSWORD: Test-admin-${{ github.run_id }}-A9!
       UMAMI_USER: admin
       UMAMI_USER_ID: 41e2b680-648e-4b09-bcd7-3e2b10c06264
 
@@ -172,6 +173,9 @@ jobs:
         run: |
           pnpm run build-db
           pnpm run update-db
+          pnpm run change-password
+          pnpm run check-env
+          pnpm run check-db
 
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps chromium

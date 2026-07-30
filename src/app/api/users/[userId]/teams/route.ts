@@ -1,6 +1,7 @@
 import { z } from 'zod';
+import { isUuid } from '@/lib/crypto';
 import { parseRequest } from '@/lib/request';
-import { json, unauthorized } from '@/lib/response';
+import { badRequest, json, unauthorized } from '@/lib/response';
 import { pagingParams, sortingParams } from '@/lib/schema';
 import { getUserTeams } from '@/queries/prisma';
 
@@ -17,6 +18,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ user
   }
 
   const { userId } = await params;
+
+  if (!isUuid(userId)) {
+    return badRequest({ message: 'Invalid user identifier.' });
+  }
 
   if (auth.user.id !== userId && !auth.user.isAdmin) {
     return unauthorized();

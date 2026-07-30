@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import { json, unauthorized } from '@/lib/response';
-import { filterParams, timezoneParam, unitParam } from '@/lib/schema';
+import { filterParams, queryLimitParam, timezoneParam, unitParam } from '@/lib/schema';
 import { canViewWebsiteSection } from '@/permissions';
 import { getEventStats } from '@/queries/sql';
 
@@ -14,7 +14,7 @@ export async function GET(
     endAt: z.coerce.number().int(),
     unit: unitParam.optional(),
     timezone: timezoneParam,
-    limit: z.coerce.number().optional(),
+    limit: queryLimitParam.optional(),
     ...filterParams,
   });
 

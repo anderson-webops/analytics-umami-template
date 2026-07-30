@@ -3,33 +3,13 @@ import { uuid } from '@/lib/crypto';
 import { parseRequest } from '@/lib/request';
 import { json, unauthorized } from '@/lib/response';
 import { pagingParams, reportSchema, reportTypeParam } from '@/lib/schema';
-import type { ShareSection } from '@/permissions';
 import {
   canUpdateWebsite,
   canViewAuthenticatedWebsite,
   canViewWebsiteSection,
+  getReportShareSection,
 } from '@/permissions';
 import { createReport, getReports } from '@/queries/prisma';
-
-function getReportSection(type?: z.infer<typeof reportTypeParam>): ShareSection | null {
-  switch (type) {
-    case 'attribution':
-    case 'breakdown':
-    case 'performance':
-    case 'retention':
-    case 'revenue':
-    case 'utm':
-      return type;
-    case 'funnel':
-      return 'funnels';
-    case 'goal':
-      return 'goals';
-    case 'journey':
-      return 'journeys';
-    default:
-      return null;
-  }
-}
 
 export async function GET(request: Request) {
   const schema = z.object({
@@ -51,7 +31,7 @@ export async function GET(request: Request) {
     search,
   };
 
-  const section = getReportSection(type);
+  const section = type ? getReportShareSection(type) : null;
   const canView = section
     ? await canViewWebsiteSection(auth, websiteId, section)
     : await canViewAuthenticatedWebsite(auth, websiteId);
@@ -89,15 +69,30 @@ export async function POST(request: Request) {
     return unauthorized();
   }
 
-  const result = await createReport({
-    id: uuid(),
-    userId: auth.user.id,
-    websiteId,
-    type,
-    name,
-    description: description || '',
-    parameters,
-  });
+  let result;
+
+  try {
+    result = await createReport(
+      {
+        id: uuid(),
+        userId: auth.user.id,
+        websiteId,
+        type,
+        name,
+        description: description || '',
+        parameters,
+      },
+      auth.user.id,
+    );
+  } catch (error: any) {
+    switch (error?.message) {
+      case 'REPORT_ACTOR_NOT_AUTHORIZED':
+      case 'REPORT_DESTINATION_NOT_AUTHORIZED':
+        return unauthorized({ message: 'Your report-creation permission changed.' });
+      default:
+        throw error;
+    }
+  }
 
   return json(result);
 }

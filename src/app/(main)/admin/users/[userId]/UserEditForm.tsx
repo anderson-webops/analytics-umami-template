@@ -46,7 +46,7 @@ export function UserEditForm({ userId, onSave }: { userId: string; onSave?: () =
 
       {user.id !== login.id && (
         <FormField name="role" label={t(labels.role)} rules={{ required: t(labels.required) }}>
-          <Select defaultValue={user.role}>
+          <Select defaultValue={user.role} data-test="dropdown-role">
             <ListItem id={ROLES.viewOnly} data-test="dropdown-item-viewOnly">
               {t(labels.viewOnly)}
             </ListItem>

@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { BOARD_TYPES, normalizeBoardType } from '@/lib/boards';
 import { parseRequest } from '@/lib/request';
-import { badRequest, json, ok, serverError, unauthorized } from '@/lib/response';
+import { badRequest, json, notFound, ok, serverError, unauthorized } from '@/lib/response';
+import { boardParametersParam } from '@/lib/schema';
 import type { BoardParameters } from '@/lib/types';
 import { canDeleteBoard, canUpdateBoard, canViewBoard, canViewBoardEntities } from '@/permissions';
 import { deleteBoard, getBoard, updateBoard } from '@/queries/prisma';
@@ -21,6 +22,22 @@ export async function GET(request: Request, { params }: { params: Promise<{ boar
 
   const board = await getBoard(boardId);
 
+  if (!board) {
+    return notFound();
+  }
+
+  if (!auth.user) {
+    return json({
+      id: board.id,
+      type: board.type,
+      name: board.name,
+      description: board.description,
+      parameters: board.parameters,
+      createdAt: board.createdAt,
+      updatedAt: board.updatedAt,
+    });
+  }
+
   return json(board);
 }
 
@@ -36,9 +53,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ boa
       ])
       .or(z.literal('open'))
       .optional(),
-    name: z.string().max(200).optional(),
+    name: z.string().trim().min(1).max(200).optional(),
     description: z.string().max(500).optional(),
-    parameters: z.object({}).passthrough().optional(),
+    parameters: boardParametersParam.optional(),
   });
 
   const { auth, body, error } = await parseRequest(request, schema);
@@ -71,11 +88,23 @@ export async function POST(request: Request, { params }: { params: Promise<{ boa
   }
 
   try {
-    const board = await updateBoard(boardId, { type, name, description, parameters });
+    const board = await updateBoard(boardId, { type, name, description, parameters }, auth.user.id);
 
     return Response.json(board);
-  } catch (e: any) {
-    return serverError(e);
+  } catch (error: any) {
+    if (error?.message === 'ENTITY_NOT_FOUND') {
+      return notFound({ message: 'Board not found.' });
+    }
+
+    if (error?.message === 'ENTITY_ACTOR_NOT_AUTHORIZED') {
+      return unauthorized({ message: 'Your board-update permission changed.' });
+    }
+
+    if (error?.message === 'ENTITY_REFERENCE_NOT_AUTHORIZED') {
+      return badRequest({ message: 'Board contains inaccessible entities.' });
+    }
+
+    return serverError(error);
   }
 }
 
@@ -95,7 +124,18 @@ export async function DELETE(
     return unauthorized();
   }
 
-  await deleteBoard(boardId);
+  try {
+    await deleteBoard(boardId, auth.user.id);
+  } catch (error: any) {
+    switch (error?.message) {
+      case 'ENTITY_NOT_FOUND':
+        return notFound({ message: 'Board not found.' });
+      case 'ENTITY_ACTOR_NOT_AUTHORIZED':
+        return unauthorized({ message: 'Your board-deletion permission changed.' });
+      default:
+        throw error;
+    }
+  }
 
   return ok();
 }

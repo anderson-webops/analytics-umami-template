@@ -2,7 +2,7 @@ import { beforeEach, expect, test, vi } from 'vitest';
 import { ROLES } from '@/lib/constants';
 import { parseRequest } from '@/lib/request';
 import { canDeleteTeamUser, canUpdateTeam } from '@/permissions';
-import { deleteTeamUser, getTeamUser, updateTeamUser } from '@/queries/prisma';
+import { deleteTeamUserByActor, getTeamUser, updateTeamUserRoleByActor } from '@/queries/prisma';
 import { DELETE, POST } from './route';
 
 vi.mock('@/lib/request', () => ({
@@ -15,17 +15,17 @@ vi.mock('@/permissions', () => ({
 }));
 
 vi.mock('@/queries/prisma', () => ({
-  deleteTeamUser: vi.fn(),
+  deleteTeamUserByActor: vi.fn(),
   getTeamUser: vi.fn(),
-  updateTeamUser: vi.fn(),
+  updateTeamUserRoleByActor: vi.fn(),
 }));
 
 const parseRequestMock = vi.mocked(parseRequest);
 const canUpdateTeamMock = vi.mocked(canUpdateTeam);
 const canDeleteTeamUserMock = vi.mocked(canDeleteTeamUser);
 const getTeamUserMock = vi.mocked(getTeamUser);
-const updateTeamUserMock = vi.mocked(updateTeamUser);
-const deleteTeamUserMock = vi.mocked(deleteTeamUser);
+const updateTeamUserMock = vi.mocked(updateTeamUserRoleByActor);
+const deleteTeamUserMock = vi.mocked(deleteTeamUserByActor);
 
 beforeEach(() => {
   parseRequestMock.mockReset();

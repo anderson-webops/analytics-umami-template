@@ -1,50 +1,54 @@
-# How to deploy umami on podman
+# Deploy Umami with rootless Podman
 
+The Podman stack builds this repository's source. It does not pull a mutable
+upstream Umami application tag. PostgreSQL is pinned to the same immutable image
+used by CI, runs only on an internal container network, and is not published on
+the host.
 
-## How to use
+## Start the stack
 
-1. Rename `env.sample` to `.env`
-2. Edit `.env` file. At the minimum set the passwords.
-3. Start umami by running `podman-compose up -d`.
+1. Copy `env.sample` to `.env`, set every required value, and restrict it to the
+   current user:
 
-If you need to stop umami, you can do so by running `podman-compose down`.
+   ```bash
+   install -m 0600 env.sample .env
+   ```
 
+2. Build and start the checked-out source:
 
-### Install systemd service (optional)
+   ```bash
+   podman-compose build
+   podman-compose up -d
+   ```
 
-If you want to install a systemd service to run umami, you can use the provided
-systemd service.
+3. Put a trusted TLS reverse proxy in front of the loopback listener. The
+   default host address is `127.0.0.1:3000`; set `UMAMI_PORT` in `.env` only
+   when a different loopback port is needed.
 
-Edit `umami.service` and change these two variables:
+Stop the stack with:
 
+```bash
+podman-compose down
+```
 
-	WorkingDirectory=/opt/apps/umami
-	EnvironmentFile=/opt/apps/umami/.env
+## Install the user service
 
-`WorkingDirectory` should be changed to the path in which `podman-compose.yml`
-is located.
+Edit `umami.service` and set `WorkingDirectory` to the absolute path of this
+repository's `podman` directory. Secrets are intentionally not imported into
+the systemd manager; Podman Compose reads the protected `.env` file directly.
 
-`EnvironmentFile` should be changed to the path in which your `.env`file is
-located.
+Then install and start the service:
 
-You can run the script `install-systemd-user-service` to install the systemd
-service under the current user.
+```bash
+./install-systemd-user-service
+```
 
-
-	./install-systemd-user-service
-
-Note: this script will enable the service and also start it. So it will assume
-that umami is not currently running.  If you started it previously, bring it
-down using:
-
-	podman-compose down
-
-
+The service rebuilds the checked-out source before starting it. If the stack is
+already running outside systemd, stop it first with `podman-compose down`.
 
 ## Compatibility
 
 These files should be compatible with podman 4.3+.
 
-I have tested this on Debian GNU/Linux 12 (bookworm) and with the podman that
-is distributed with the official Debian stable mirrors (podman
-v4.3.1+ds1-8+deb12u1, podman-compose v1.0.3-3).
+The baseline is Debian GNU/Linux 12 with Podman 4.3 and podman-compose 1.0.3 or
+newer.

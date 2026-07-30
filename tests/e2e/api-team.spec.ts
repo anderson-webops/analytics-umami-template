@@ -14,14 +14,14 @@ test.describe('Team API tests', () => {
 
     const response = await request.post('/api/users', {
       headers: authHeaders(auth),
-      data: users.userCreate,
+      data: users.teamUserCreate,
     });
     const body = await response.json();
 
     userId = body.id;
 
     expect(response.status()).toBe(200);
-    expect(body).toHaveProperty('username', 'playwright1');
+    expect(body).toHaveProperty('username', 'playwright-team-member');
     expect(body).toHaveProperty('role', 'user');
   });
 
@@ -38,11 +38,10 @@ test.describe('Team API tests', () => {
     });
     const body = await response.json();
 
-    teamId = body[0].id;
+    teamId = body.id;
 
     expect(response.status()).toBe(200);
-    expect(body[0]).toHaveProperty('name', 'playwright');
-    expect(body[1]).toHaveProperty('role', 'team-owner');
+    expect(body).toHaveProperty('name', 'playwright');
   });
 
   test('gets a team by ID', async ({ request }) => {

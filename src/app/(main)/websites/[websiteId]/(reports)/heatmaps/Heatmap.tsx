@@ -916,6 +916,7 @@ function IframeSnapshot({ snapshot, onReady }: { snapshot: HeatmapSnapshot; onRe
         loading="lazy"
         scrolling="no"
         referrerPolicy="no-referrer"
+        sandbox="allow-scripts"
         onLoad={handleLoad}
         onError={handleError}
       />

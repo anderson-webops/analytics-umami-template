@@ -1,3 +1,4 @@
+export * from './deleteCollectionSources';
 export * from './events/getEventDataArraySeries';
 export * from './events/getEventDataById';
 export * from './events/getEventDataDateSeries';

@@ -3,7 +3,7 @@ import { serverError } from './response';
 
 describe('serverError', () => {
   test('does not expose internal error details in the response body', async () => {
-    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const response = serverError(new Error('database exploded'));
 
@@ -18,15 +18,18 @@ describe('serverError', () => {
     logSpy.mockRestore();
   });
 
-  test('allows intentional server error messages', async () => {
+  test('does not expose string error details in the response body', async () => {
+    const logSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const response = serverError('Redis is disabled');
 
     expect(await response.json()).toEqual({
       error: {
-        message: 'Redis is disabled',
+        message: 'Server error',
         code: 'server-error',
         status: 500,
       },
     });
+
+    logSpy.mockRestore();
   });
 });

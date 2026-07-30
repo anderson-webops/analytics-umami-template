@@ -1,14 +1,10 @@
 import { PrismaPg } from '@prisma/adapter-pg';
 import { readReplicas } from '@prisma/extension-read-replicas';
 import debug from 'debug';
-import { PrismaClient } from '@/generated/prisma/client';
-import {
-  DATA_TYPE,
-  DEFAULT_PAGE_SIZE,
-  FILTER_COLUMNS,
-  OPERATORS,
-  SESSION_COLUMNS,
-} from './constants';
+import { type Prisma, PrismaClient } from '@/generated/prisma/client';
+import { isEnvEnabled } from '@/lib/env';
+import { DATA_TYPE, FILTER_COLUMNS, OPERATORS, SESSION_COLUMNS } from './constants';
+import { normalizePagination } from './paging';
 import { filtersObjectToArray } from './params';
 import type { Operator, PropertyFilter, QueryFilters, QueryOptions } from './types';
 
@@ -422,7 +418,7 @@ function getPropertyFilterQuery(
 }
 
 async function rawQuery(sql: string, data: Record<string, any>, name?: string): Promise<any> {
-  if (process.env.LOG_QUERY) {
+  if (isEnvEnabled('LOG_QUERY')) {
     log('QUERY:\n', sql);
     log('PARAMETERS:\n', data);
     log('NAME:\n', name);
@@ -451,8 +447,8 @@ async function rawQuery(sql: string, data: Record<string, any>, name?: string): 
 }
 
 async function pagedQuery<T>(model: string, criteria: T, filters?: QueryFilters) {
-  const { page = 1, pageSize, orderBy, sortDescending = false, search } = filters || {};
-  const size = +pageSize || DEFAULT_PAGE_SIZE;
+  const { page, pageSize: size, orderBy, sortDescending } = normalizePagination(filters);
+  const { search } = filters || {};
 
   const data = await client[model].findMany({
     ...criteria,
@@ -479,21 +475,25 @@ async function pagedRawQuery(
   filters: QueryFilters,
   name?: string,
 ) {
-  const { page = 1, pageSize, orderBy, sortDescending = false } = filters;
-  const size = +pageSize || DEFAULT_PAGE_SIZE;
-  const offset = +size * (+page - 1);
+  const {
+    page,
+    pageSize: size,
+    orderBy,
+    sortDescending,
+    maxResults,
+  } = normalizePagination(filters);
+  const offset = size * (page - 1);
   const direction = sortDescending ? 'desc' : 'asc';
 
   const statements = [
     orderBy && `order by ${orderBy} ${direction}`,
-    +size > 0 && `limit ${+size} offset ${offset}`,
+    `limit ${size} offset ${offset}`,
   ]
     .filter(n => n)
     .join('\n');
 
-  const { maxResults } = filters;
   const countQuery = maxResults
-    ? `select count(*) as num from (select 1 from (${query}) t limit ${+maxResults}) t2`
+    ? `select count(*) as num from (select 1 from (${query}) t limit ${maxResults}) t2`
     : `select count(*) as num from (${query}) t`;
 
   const count = await rawQuery(countQuery, queryParams).then(res => Number(res[0].num));
@@ -502,10 +502,10 @@ async function pagedRawQuery(
   return {
     data,
     count,
-    page: +page,
+    page,
     pageSize: size,
     orderBy,
-    isCapped: !!maxResults && +count >= +maxResults,
+    isCapped: !!maxResults && count >= maxResults,
   };
 }
 
@@ -535,8 +535,13 @@ function getSearchParameters(query: string, filters: Record<string, any>[]) {
   };
 }
 
-function transaction(input: any, options?: any) {
-  return client.$transaction(input, options);
+function transaction<T>(
+  input: (transaction: Prisma.TransactionClient) => Promise<T>,
+  options?: any,
+): Promise<T>;
+function transaction(input: any[], options?: any): Promise<any[]>;
+function transaction(input: any, options?: any): Promise<any> {
+  return client.$transaction(input, options) as Promise<any>;
 }
 
 function getSchema() {
@@ -548,13 +553,19 @@ function getSchema() {
 
   const connectionUrl = new URL(databaseUrl);
 
-  return connectionUrl.searchParams.get('schema');
+  const schema = connectionUrl.searchParams.get('schema');
+
+  if (schema && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(schema)) {
+    throw new Error('DATABASE_URL schema must be a simple PostgreSQL identifier.');
+  }
+
+  return schema;
 }
 
 function getClient() {
   const url = process.env.DATABASE_URL;
   const replicaUrl = process.env.DATABASE_REPLICA_URL;
-  const logQuery = process.env.LOG_QUERY;
+  const logQuery = isEnvEnabled('LOG_QUERY');
 
   if (!url) {
     throw new Error('DATABASE_URL is not set.');

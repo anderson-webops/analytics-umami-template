@@ -1,7 +1,7 @@
 import { hasPermission } from '@/lib/auth';
 import { PERMISSIONS } from '@/lib/constants';
 import type { Auth } from '@/lib/types';
-import { getTeamUser } from '@/queries/prisma';
+import { getTeam, getTeamUser } from '@/queries/prisma';
 
 export async function canViewTeam({ user }: Auth, teamId: string) {
   if (!user) {
@@ -9,7 +9,7 @@ export async function canViewTeam({ user }: Auth, teamId: string) {
   }
 
   if (user.isAdmin) {
-    return true;
+    return !!(await getTeam(teamId));
   }
 
   return getTeamUser(teamId, user.id);
@@ -33,7 +33,7 @@ export async function canUpdateTeam({ user }: Auth, teamId: string) {
   }
 
   if (user.isAdmin) {
-    return true;
+    return !!(await getTeam(teamId));
   }
 
   const teamUser = await getTeamUser(teamId, user.id);
@@ -47,7 +47,7 @@ export async function canDeleteTeam({ user }: Auth, teamId: string) {
   }
 
   if (user.isAdmin) {
-    return true;
+    return !!(await getTeam(teamId));
   }
 
   const teamUser = await getTeamUser(teamId, user.id);
@@ -61,7 +61,7 @@ export async function canDeleteTeamUser({ user }: Auth, teamId: string, removeUs
   }
 
   if (user.isAdmin) {
-    return true;
+    return !!(await getTeam(teamId));
   }
 
   if (removeUserId === user.id) {
@@ -73,13 +73,27 @@ export async function canDeleteTeamUser({ user }: Auth, teamId: string, removeUs
   return teamUser && hasPermission(teamUser.role, PERMISSIONS.teamUpdate);
 }
 
+export async function canTransferTeamOwnership({ user }: Auth, teamId: string) {
+  if (!user) {
+    return false;
+  }
+
+  if (user.isAdmin) {
+    return !!(await getTeam(teamId));
+  }
+
+  const teamUser = await getTeamUser(teamId, user.id);
+
+  return teamUser?.role === 'team-owner';
+}
+
 export async function canCreateTeamWebsite({ user }: Auth, teamId: string) {
   if (!user) {
     return false;
   }
 
   if (user.isAdmin) {
-    return true;
+    return !!(await getTeam(teamId));
   }
 
   const teamUser = await getTeamUser(teamId, user.id);

@@ -48,20 +48,26 @@ ENV PORT=3000
 RUN addgroup --system --gid 1001 nodejs \
     && adduser --system --uid 1001 --ingroup nodejs nextjs
 
-COPY --from=builder --chown=nextjs:nodejs /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /app/geo ./geo
-COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
-COPY --from=builder --chown=nextjs:nodejs /app/prisma.config.ts ./prisma.config.ts
-COPY --from=builder --chown=nextjs:nodejs \
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/geo ./geo
+COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
+COPY --from=builder \
+    /app/scripts/change-password.js \
     /app/scripts/check-db.js \
     /app/scripts/check-env.js \
     /app/scripts/update-tracker.js \
     ./scripts/
-COPY --from=builder --chown=nextjs:nodejs /app/generated ./generated
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-COPY --from=builder --chown=nextjs:nodejs /app/package.json ./package.json
-COPY --from=production-deps --chown=nextjs:nodejs /app/node_modules ./node_modules
+COPY --from=builder /app/generated ./generated
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/package.json ./package.json
+COPY --from=production-deps /app/node_modules ./node_modules
+
+# The service runs without root and may only mutate the generated tracker and
+# framework cache. Application code and dependencies remain root-owned.
+RUN mkdir -p .next/cache /tmp/npm \
+    && chown nextjs:nodejs public/script.js .next/cache /tmp/npm
 
 USER nextjs
 

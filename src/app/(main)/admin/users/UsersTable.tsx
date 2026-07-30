@@ -52,7 +52,7 @@ export function UsersTable({
               const { id } = row;
 
               return (
-                <MenuButton>
+                <MenuButton label={t(labels.actions)}>
                   <MenuItem href={`/admin/users/${id}`} data-test="link-button-edit">
                     <Row alignItems="center" gap>
                       <Icon>

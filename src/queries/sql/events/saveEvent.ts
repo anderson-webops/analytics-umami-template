@@ -1,3 +1,4 @@
+import type { Prisma } from '@/generated/prisma/client';
 import clickhouse from '@/lib/clickhouse';
 import { FIELD_LENGTH } from '@/lib/constants';
 import { uuid } from '@/lib/crypto';
@@ -66,52 +67,59 @@ export interface SaveEventArgs {
   ttfb?: number;
 }
 
-export async function saveEvent(args: SaveEventArgs) {
+export async function saveEvent(args: SaveEventArgs, transaction?: Prisma.TransactionClient) {
+  if (transaction) {
+    return relationalQuery(args, transaction);
+  }
+
   return runQuery({
     [PRISMA]: () => relationalQuery(args),
     [CLICKHOUSE]: () => clickhouseQuery(args),
   });
 }
 
-async function relationalQuery({
-  websiteId,
-  sessionId,
-  visitId,
-  eventType,
-  createdAt,
-  pageTitle,
-  hostname,
-  urlPath,
-  urlQuery,
-  referrerPath,
-  referrerQuery,
-  referrerDomain,
-  eventName,
-  eventData,
-  tag,
-  utmSource,
-  utmMedium,
-  utmCampaign,
-  utmContent,
-  utmTerm,
-  gclid,
-  fbclid,
-  msclkid,
-  ttclid,
-  lifatid,
-  twclid,
-  isBot,
-  botName,
-  botCategory,
-  lcp,
-  inp,
-  cls,
-  fcp,
-  ttfb,
-}: SaveEventArgs) {
+async function relationalQuery(
+  {
+    websiteId,
+    sessionId,
+    visitId,
+    eventType,
+    createdAt,
+    pageTitle,
+    hostname,
+    urlPath,
+    urlQuery,
+    referrerPath,
+    referrerQuery,
+    referrerDomain,
+    eventName,
+    eventData,
+    tag,
+    utmSource,
+    utmMedium,
+    utmCampaign,
+    utmContent,
+    utmTerm,
+    gclid,
+    fbclid,
+    msclkid,
+    ttclid,
+    lifatid,
+    twclid,
+    isBot,
+    botName,
+    botCategory,
+    lcp,
+    inp,
+    cls,
+    fcp,
+    ttfb,
+  }: SaveEventArgs,
+  transaction: Prisma.TransactionClient | typeof prisma.client = prisma.client,
+) {
   const websiteEventId = uuid();
 
-  await prisma.client.websiteEvent.create({
+  await transaction.websiteEvent.create({
     data: {
       id: websiteEventId,
       websiteId,
@@ -151,28 +159,34 @@ async function relationalQuery({
   });
 
   if (eventData) {
-    await saveEventData({
-      websiteId,
-      sessionId,
-      eventId: websiteEventId,
-      urlPath: truncateString(urlPath, FIELD_LENGTH.url),
-      eventName: truncateString(eventName, FIELD_LENGTH.eventName),
-      eventData,
-      createdAt,
-    });
+    await saveEventData(
+      {
+        websiteId,
+        sessionId,
+        eventId: websiteEventId,
+        urlPath: truncateString(urlPath, FIELD_LENGTH.url),
+        eventName: truncateString(eventName, FIELD_LENGTH.eventName),
+        eventData,
+        createdAt,
+      },
+      transaction,
+    );
 
     const { revenue, currency } = eventData;
 
     if (revenue > 0 && currency) {
-      await saveRevenue({
-        websiteId,
-        sessionId,
-        eventId: websiteEventId,
-        eventName: truncateString(eventName, FIELD_LENGTH.eventName),
-        currency,
-        revenue,
-        createdAt,
-      });
+      await saveRevenue(
+        {
+          websiteId,
+          sessionId,
+          eventId: websiteEventId,
+          eventName: truncateString(eventName, FIELD_LENGTH.eventName),
+          currency,
+          revenue,
+          createdAt,
+        },
+        transaction,
+      );
     }
   }
 }

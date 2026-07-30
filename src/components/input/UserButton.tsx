@@ -98,6 +98,8 @@ export function UserButton({ showText = true, onClose }: UserButtonProps) {
             borderRadius
             minHeight="40px"
             role="button"
+            aria-label={user.username}
+            data-test="button-profile"
             style={{ cursor: 'pointer', textWrap: 'nowrap', overflow: 'hidden', outline: 'none' }}
           >
             <Row alignItems="center" gap padding>
@@ -184,7 +186,13 @@ export function UserButton({ showText = true, onClose }: UserButtonProps) {
                 return <MenuSeparator key={id} />;
               }
               return (
-                <MenuItem key={id} id={id} href={path} target={target}>
+                <MenuItem
+                  key={id}
+                  id={id}
+                  href={path}
+                  target={target}
+                  data-test={id === 'logout' ? 'item-logout' : undefined}
+                >
                   <Row alignItems="center" gap>
                     <Icon>{icon}</Icon>
                     <Text>{label}</Text>

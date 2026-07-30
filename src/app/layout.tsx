@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import { headers } from 'next/headers';
 import { Suspense } from 'react';
+import { isEnvEnabled } from '@/lib/env';
 import { getBaseUrl } from '@/lib/get-base-url';
 import { Providers } from './Providers';
 import '@umami/react-zen/styles.full.css';
@@ -14,7 +15,7 @@ const inter = Inter({
 });
 
 export default function ({ children }) {
-  if (process.env.DISABLE_UI) {
+  if (isEnvEnabled('DISABLE_UI')) {
     return (
       <html>
         <body></body>

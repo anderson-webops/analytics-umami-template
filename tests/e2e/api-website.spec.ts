@@ -19,11 +19,10 @@ test.describe('Website API tests', () => {
     });
     const body = await response.json();
 
-    teamId = body[0].id;
+    teamId = body.id;
 
     expect(response.status()).toBe(200);
-    expect(body[0]).toHaveProperty('name', 'playwright');
-    expect(body[1]).toHaveProperty('role', 'team-owner');
+    expect(body).toHaveProperty('name', 'playwright');
   });
 
   test.afterAll(async ({ request }) => {
@@ -120,12 +119,12 @@ test.describe('Website API tests', () => {
   test('updates a website with only shareId', async ({ request }) => {
     const response = await request.post(`/api/websites/${websiteId}`, {
       headers: authHeaders(auth),
-      data: { shareId: 'ABCDEF' },
+      data: { shareId: 'ABCDEF12' },
     });
     const body = await response.json();
 
     expect(response.status()).toBe(200);
-    expect(body).toHaveProperty('shareId', 'ABCDEF');
+    expect(body).toHaveProperty('shareId', 'ABCDEF12');
   });
 
   test('resets a website by removing all data related to the website', async ({ request }) => {

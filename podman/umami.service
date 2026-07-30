@@ -1,14 +1,18 @@
 [Unit]
 Description=Umami Container Stack via Podman-Compose
-After=network.target
+Wants=network-online.target
+After=network-online.target
 
 [Service]
-Type=simple
-WorkingDirectory=/opt/apps/umami
-EnvironmentFile=/opt/apps/umami/.env
+Type=oneshot
+WorkingDirectory=/opt/apps/umami/podman
+UMask=0077
+ExecStartPre=/usr/bin/podman-compose -f podman-compose.yml build
 ExecStart=/usr/bin/podman-compose -f podman-compose.yml up -d
 ExecStop=/usr/bin/podman-compose -f podman-compose.yml down
 RemainAfterExit=yes
+TimeoutStartSec=0
+TimeoutStopSec=90
 
 [Install]
 WantedBy=default.target

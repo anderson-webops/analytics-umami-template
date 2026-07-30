@@ -1,7 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useCallback } from 'react';
 import { getApiUrl } from '@/lib/api-url';
-import { getClientAuthToken } from '@/lib/client';
 import { SHARE_CONTEXT_HEADER, SHARE_TOKEN_HEADER } from '@/lib/constants';
 import { type FetchResponse, httpDelete, httpGet, httpPost, httpPut } from '@/lib/fetch';
 import { useApp } from '@/store/app';
@@ -22,10 +21,7 @@ export function useApi() {
   const shareHeaders =
     shareId && shareToken ? { [SHARE_TOKEN_HEADER]: shareToken, [SHARE_CONTEXT_HEADER]: '1' } : {};
 
-  const defaultHeaders = {
-    authorization: `Bearer ${getClientAuthToken()}`,
-    ...shareHeaders,
-  };
+  const defaultHeaders = { ...shareHeaders };
   const getUrl = (url: string) => {
     return getApiUrl(url);
   };

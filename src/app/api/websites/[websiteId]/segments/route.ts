@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { uuid } from '@/lib/crypto';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import { json, unauthorized } from '@/lib/response';
-import { searchParams, segmentParamSchema, segmentTypeParam } from '@/lib/schema';
+import { savedSegmentSchema, searchParams, segmentTypeParam } from '@/lib/schema';
 import { canUpdateWebsite, canViewSharedWebsiteFilters } from '@/permissions';
 import { createSegment, getWebsiteSegments } from '@/queries/prisma';
 
@@ -39,13 +39,7 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ websiteId: string }> },
 ) {
-  const schema = z.object({
-    type: segmentTypeParam,
-    name: z.string().max(200),
-    parameters: segmentParamSchema,
-  });
-
-  const { auth, body, error } = await parseRequest(request, schema);
+  const { auth, body, error } = await parseRequest(request, savedSegmentSchema);
 
   if (error) {
     return error();
@@ -58,13 +52,26 @@ export async function POST(
     return unauthorized();
   }
 
-  const result = await createSegment({
-    id: uuid(),
-    websiteId,
-    type,
-    name,
-    parameters,
-  } as any);
+  let result;
+
+  try {
+    result = await createSegment(
+      {
+        id: uuid(),
+        websiteId,
+        type,
+        name,
+        parameters,
+      } as any,
+      auth.user.id,
+    );
+  } catch (error: any) {
+    if (['ENTITY_NOT_FOUND', 'ENTITY_ACTOR_NOT_AUTHORIZED'].includes(error?.message)) {
+      return unauthorized({ message: 'Your segment-creation permission changed.' });
+    }
+
+    throw error;
+  }
 
   return json(result);
 }

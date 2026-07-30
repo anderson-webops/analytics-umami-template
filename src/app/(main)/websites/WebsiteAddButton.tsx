@@ -16,7 +16,13 @@ export function WebsiteAddButton({ teamId, onSave }: { teamId: string; onSave?: 
   };
 
   return (
-    <DialogButton icon={<Plus />} label={t(labels.addWebsite)} variant="primary" width="400px">
+    <DialogButton
+      icon={<Plus />}
+      label={t(labels.addWebsite)}
+      variant="primary"
+      width="400px"
+      data-test="button-website-add"
+    >
       {({ close }) => <WebsiteAddForm teamId={teamId} onSave={handleSave} onClose={close} />}
     </DialogButton>
   );

@@ -5,10 +5,15 @@ import { POST } from '@/app/api/send/route';
 import type { Link } from '@/generated/prisma/client';
 import redis from '@/lib/redis';
 import { notFound } from '@/lib/response';
+import { httpUrlParam, routeSlugParam } from '@/lib/schema';
 import { findLink } from '@/queries/prisma';
 
 export async function GET(request: Request, { params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
+
+  if (!routeSlugParam.safeParse(slug).success) {
+    return notFound();
+  }
 
   let link: Link;
 
@@ -42,6 +47,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
     }
   }
 
+  if (!httpUrlParam.safeParse(link.url).success) {
+    return notFound();
+  }
+
   const payload = {
     type: 'event',
     payload: {
@@ -51,13 +60,23 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
     },
   };
 
+  const headers = new Headers(request.headers);
+  headers.delete('authorization');
+  headers.delete('content-length');
+  headers.delete('cookie');
+  headers.delete('x-umami-cache');
+  headers.set('content-type', 'application/json');
+
   const req = new Request(request.url, {
     method: 'POST',
-    headers: request.headers,
+    headers,
     body: JSON.stringify(payload),
   });
 
   await POST(req);
 
-  return NextResponse.redirect(link.url);
+  const response = NextResponse.redirect(link.url);
+  response.headers.set('Cache-Control', 'no-store');
+
+  return response;
 }

@@ -2,7 +2,9 @@ import { type ClickHouseClient, createClient } from '@clickhouse/client';
 import { formatInTimeZone } from 'date-fns-tz';
 import debug from 'debug';
 import { CLICKHOUSE } from '@/lib/db';
-import { DATA_TYPE, DEFAULT_PAGE_SIZE, FILTER_COLUMNS, OPERATORS } from './constants';
+import { isEnvEnabled } from '@/lib/env';
+import { normalizePagination } from '@/lib/paging';
+import { DATA_TYPE, FILTER_COLUMNS, OPERATORS } from './constants';
 import { filtersObjectToArray } from './params';
 import type { Operator, PropertyFilter, QueryFilters, QueryOptions } from './types';
 
@@ -385,21 +387,26 @@ async function pagedRawQuery(
   filters: QueryFilters,
   name?: string,
 ) {
-  const { page = 1, pageSize, orderBy, sortDescending = false, search } = filters;
-  const size = +pageSize || DEFAULT_PAGE_SIZE;
-  const offset = +size * (+page - 1);
+  const {
+    page,
+    pageSize: size,
+    orderBy,
+    sortDescending,
+    maxResults,
+  } = normalizePagination(filters);
+  const { search } = filters;
+  const offset = size * (page - 1);
   const direction = sortDescending ? 'desc' : 'asc';
 
   const statements = [
     orderBy && `order by ${orderBy} ${direction}`,
-    +size > 0 && `limit ${+size} offset ${+offset}`,
+    `limit ${size} offset ${offset}`,
   ]
     .filter(n => n)
     .join('\n');
 
-  const { maxResults } = filters;
   const countQuery = maxResults
-    ? `select count(*) as num from (select 1 from (${query}) t limit ${+maxResults}) t2`
+    ? `select count(*) as num from (select 1 from (${query}) t limit ${maxResults}) t2`
     : `select count(*) as num from (${query}) t`;
 
   const count = await rawQuery(countQuery, queryParams).then(res => res[0].num);
@@ -408,11 +415,11 @@ async function pagedRawQuery(
   return {
     data,
     count,
-    page: +page,
+    page,
     pageSize: size,
     orderBy,
     search,
-    isCapped: !!maxResults && +count >= +maxResults,
+    isCapped: !!maxResults && Number(count) >= maxResults,
   };
 }
 
@@ -421,7 +428,7 @@ async function rawQuery<T = unknown>(
   params: Record<string, unknown> = {},
   name?: string,
 ): Promise<T> {
-  if (process.env.LOG_QUERY) {
+  if (isEnvEnabled('LOG_QUERY')) {
     log({ query, params, name });
   }
 
@@ -444,6 +451,18 @@ async function insert(table: string, values: any[]) {
   await connect();
 
   return clickhouse.insert({ table, values, format: 'JSONEachRow' });
+}
+
+async function command(query: string, params: Record<string, unknown> = {}) {
+  await connect();
+
+  return clickhouse.command({
+    query,
+    query_params: params,
+    clickhouse_settings: {
+      mutations_sync: '2',
+    },
+  });
 }
 
 async function findUnique(data: any[]) {
@@ -483,4 +502,5 @@ export default {
   findFirst,
   rawQuery,
   insert,
+  command,
 };

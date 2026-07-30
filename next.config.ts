@@ -10,17 +10,18 @@ const projectRoot = fileURLToPath(new URL('.', import.meta.url));
 const TRACKER_SCRIPT = '/script.js';
 
 const isProd = process.env.NODE_ENV === 'production';
+const isEnabled = (name: string) =>
+  ['1', 'true', 'yes', 'on'].includes(process.env[name]?.trim().toLowerCase() ?? '');
 
 const apiUrl = process.env.API_URL || '';
 const basePath = process.env.BASE_PATH || '';
-const cloudMode = process.env.CLOUD_MODE || '';
+const cloudMode = isEnabled('CLOUD_MODE') ? 'true' : '';
 const cloudUrl = process.env.CLOUD_URL || '';
 const collectApiEndpoint = process.env.COLLECT_API_ENDPOINT || '';
 const corsMaxAge = process.env.CORS_MAX_AGE || '';
 const defaultCurrency = process.env.DEFAULT_CURRENCY || '';
 const defaultLocale = process.env.DEFAULT_LOCALE || '';
-const forceSSL = process.env.FORCE_SSL || '';
-const frameAncestors = process.env.ALLOWED_FRAME_URLS || '';
+const forceSSL = isProd || isEnabled('FORCE_SSL');
 const trackerScriptName = process.env.TRACKER_SCRIPT_NAME || '';
 const trackerScriptURL = process.env.TRACKER_SCRIPT_URL || '';
 const selfTrack = process.env.UMAMI_SELF_TRACK || '';
@@ -42,28 +43,122 @@ function normalizePath(url: string) {
   return `/${url.replace(/^\/+|\/+$/g, '')}`;
 }
 
+function getSafeRoutePath(value: string, name: string, allowRoot = false) {
+  const normalized = normalizePath(value);
+
+  if (
+    (normalized === '/' && !allowRoot) ||
+    (normalized !== '/' && !/^\/[A-Za-z0-9._~!$&'()+,;=@%/-]+$/.test(normalized)) ||
+    normalized.split('/').includes('..')
+  ) {
+    throw new Error(`${name} must be a relative URL path without traversal or route patterns.`);
+  }
+
+  return normalized;
+}
+
+function getSafeHttpsUrl(value: string, name: string) {
+  if (!value) {
+    return '';
+  }
+
+  try {
+    const url = new URL(value);
+
+    if (url.protocol !== 'https:' || url.username || url.password) {
+      throw new Error();
+    }
+
+    return url.toString();
+  } catch {
+    throw new Error(`${name} must be an HTTPS URL without embedded credentials.`);
+  }
+}
+
+function getAllowedFrameAncestors(value: string) {
+  const sources = value
+    .split(/[\s,]+/)
+    .map(source => source.trim())
+    .filter(Boolean)
+    .map(source => {
+      try {
+        const url = new URL(source);
+
+        if (
+          !['https:', ...(isProd ? [] : ['http:'])].includes(url.protocol) ||
+          url.username ||
+          url.password ||
+          url.pathname !== '/' ||
+          url.search ||
+          url.hash
+        ) {
+          throw new Error();
+        }
+
+        return url.origin;
+      } catch {
+        throw new Error('ALLOWED_FRAME_URLS must contain only exact HTTP(S) origins.');
+      }
+    });
+
+  return [...new Set(sources)];
+}
+
 const apiUrlOrigin = getUrlOrigin(apiUrl);
-const connectSrc = ["'self'", 'https:', apiUrlOrigin].filter(Boolean).join(' ');
+const cloudUrlOrigin = getUrlOrigin(cloudUrl);
+const connectSrc = ["'self'", apiUrlOrigin, cloudUrlOrigin].filter(Boolean).join(' ');
+const allowedFrameAncestors = getAllowedFrameAncestors(process.env.ALLOWED_FRAME_URLS || '');
+const frameAncestors = allowedFrameAncestors.length
+  ? ["'self'", ...allowedFrameAncestors].join(' ')
+  : "'none'";
 
 const contentSecurityPolicy = `
   default-src 'self';
+  base-uri 'self';
+  object-src 'none';
+  form-action 'self';
   img-src 'self' https: data: blob:;
-  script-src 'self' 'unsafe-eval' 'unsafe-inline';
+  font-src 'self' data:;
+  script-src 'self' 'unsafe-inline' ${isProd ? '' : "'unsafe-eval'"};
   style-src 'self' 'unsafe-inline';
   connect-src ${connectSrc};
-  frame-src 'self' http: https:;
-  frame-ancestors 'self' ${frameAncestors};
+  frame-src 'self' https: ${isProd ? '' : 'http:'};
+  frame-ancestors ${frameAncestors};
+  media-src 'self';
+  worker-src 'self' blob:;
+  manifest-src 'self';
+  ${isProd ? 'upgrade-insecure-requests;' : ''}
 `;
 
 const defaultHeaders = [
   {
     key: 'X-DNS-Prefetch-Control',
-    value: 'on',
+    value: 'off',
   },
   {
     key: 'X-Robots-Tag',
     value: 'noindex, nofollow',
   },
+  {
+    key: 'X-Content-Type-Options',
+    value: 'nosniff',
+  },
+  {
+    key: 'Referrer-Policy',
+    value: 'no-referrer',
+  },
+  {
+    key: 'Permissions-Policy',
+    value: 'camera=(), geolocation=(), microphone=(), payment=(), usb=()',
+  },
+  ...(allowedFrameAncestors.length
+    ? []
+    : [
+        {
+          key: 'X-Frame-Options',
+          value: 'DENY',
+        },
+      ]),
   {
     key: 'Content-Security-Policy',
     value: contentSecurityPolicy.replace(/\s{2,}/g, ' ').trim(),
@@ -83,6 +178,10 @@ const trackerHeaders = [
     value: '*',
   },
   {
+    key: 'Cross-Origin-Resource-Policy',
+    value: 'cross-origin',
+  },
+  {
     key: 'Cache-Control',
     value: 'public, max-age=86400, must-revalidate',
   },
@@ -95,11 +194,11 @@ const apiHeaders = [
   },
   {
     key: 'Access-Control-Allow-Headers',
-    value: '*',
+    value: 'Content-Type, X-Umami-Cache',
   },
   {
     key: 'Access-Control-Allow-Methods',
-    value: 'GET, DELETE, POST, PUT',
+    value: 'POST, OPTIONS',
   },
   {
     key: 'Access-Control-Max-Age',
@@ -107,14 +206,31 @@ const apiHeaders = [
   },
   {
     key: 'Cache-Control',
-    value: 'no-cache',
+    value: 'no-store',
   },
 ];
 
 const headers = [
   {
-    source: '/api/:path*',
+    source: '/api/send',
     headers: apiHeaders,
+  },
+  {
+    source: '/api/record',
+    headers: apiHeaders,
+  },
+  {
+    source: '/api/batch',
+    headers: apiHeaders,
+  },
+  {
+    source: '/api/:path*',
+    headers: [
+      {
+        key: 'Cache-Control',
+        value: 'no-store',
+      },
+    ],
   },
   {
     source: '/:path*',
@@ -134,30 +250,44 @@ const rewrites = [];
 if (trackerScriptURL) {
   rewrites.push({
     source: TRACKER_SCRIPT,
-    destination: trackerScriptURL,
+    destination: getSafeHttpsUrl(trackerScriptURL, 'TRACKER_SCRIPT_URL'),
   });
 }
 
 if (collectApiEndpoint) {
+  const normalizedCollectApiEndpoint = getSafeRoutePath(collectApiEndpoint, 'COLLECT_API_ENDPOINT');
+
   headers.push({
-    source: collectApiEndpoint,
+    source: normalizedCollectApiEndpoint,
     headers: apiHeaders,
   });
 
   rewrites.push({
-    source: collectApiEndpoint,
+    source: normalizedCollectApiEndpoint,
     destination: '/api/send',
   });
 }
 
 if (isRelativeUrl(apiUrl)) {
-  const normalizedApiUrl = normalizePath(apiUrl);
+  const normalizedApiUrl = getSafeRoutePath(apiUrl, 'API_URL', true);
 
   if (normalizedApiUrl !== '/' && normalizedApiUrl !== '/api') {
     headers.push({
       source: `${normalizedApiUrl}/:path*`,
-      headers: apiHeaders,
+      headers: [
+        {
+          key: 'Cache-Control',
+          value: 'no-store',
+        },
+      ],
     });
+
+    for (const endpoint of ['send', 'record', 'batch']) {
+      headers.push({
+        source: `${normalizedApiUrl}/${endpoint}`,
+        headers: apiHeaders,
+      });
+    }
 
     rewrites.push({
       source: `${normalizedApiUrl}/:path*`,
@@ -201,23 +331,24 @@ const redirects = [
 
 // Adding rewrites + headers for all alternative tracker script names.
 if (trackerScriptName) {
-  const names = trackerScriptName?.split(',').map(name => name.trim());
+  const names = trackerScriptName
+    .split(',')
+    .map(name => name.trim())
+    .filter(Boolean);
 
-  if (names) {
-    names.forEach(name => {
-      const normalizedSource = `/${name.replace(/^\/+/, '')}`;
+  names.forEach(name => {
+    const normalizedSource = getSafeRoutePath(name, 'TRACKER_SCRIPT_NAME');
 
-      rewrites.push({
-        source: normalizedSource,
-        destination: TRACKER_SCRIPT,
-      });
-
-      headers.push({
-        source: normalizedSource,
-        headers: trackerHeaders,
-      });
+    rewrites.push({
+      source: normalizedSource,
+      destination: TRACKER_SCRIPT,
     });
-  }
+
+    headers.push({
+      source: normalizedSource,
+      headers: trackerHeaders,
+    });
+  });
 }
 
 if (isProd && cloudMode) {
@@ -230,6 +361,7 @@ if (isProd && cloudMode) {
 /** @type {import('next').NextConfig} */
 export default withNextIntl({
   reactStrictMode: false,
+  poweredByHeader: false,
   env: {
     apiUrl,
     basePath,
@@ -244,9 +376,6 @@ export default withNextIntl({
   basePath,
   output: 'standalone',
   outputFileTracingRoot: path.resolve(projectRoot),
-  typescript: {
-    ignoreBuildErrors: true,
-  },
   devIndicators: false,
   turbopack: {
     root: path.resolve(projectRoot),
@@ -257,10 +386,6 @@ export default withNextIntl({
   async rewrites() {
     return [
       ...rewrites,
-      {
-        source: '/telemetry.js',
-        destination: '/api/scripts/telemetry',
-      },
       {
         source: '/teams/:teamId/:path*',
         destination: '/:path*',

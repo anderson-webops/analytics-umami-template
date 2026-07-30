@@ -1,11 +1,18 @@
 import { saveAuth } from '@/lib/auth';
 import { hash } from '@/lib/crypto';
+import { isEnvEnabled } from '@/lib/env';
 import redis from '@/lib/redis';
 import { parseRequest } from '@/lib/request';
-import { json, serverError } from '@/lib/response';
+import { json, notFound, serverError, unauthorized } from '@/lib/response';
+import { getAuthSessionTtlSeconds } from '@/lib/security';
+import { setSessionCookie } from '@/lib/session';
 import { getUser } from '@/queries/prisma';
 
 export async function POST(request: Request) {
+  if (!isEnvEnabled('CLOUD_MODE')) {
+    return notFound();
+  }
+
   const { auth, error } = await parseRequest(request);
 
   if (error) {
@@ -17,7 +24,16 @@ export async function POST(request: Request) {
   }
 
   const user = await getUser(auth.user.id, { includePassword: true });
-  const token = await saveAuth({ userId: auth.user.id, pwd: hash(user.password) }, 86400);
 
-  return json({ user: auth.user, token });
+  if (!user) {
+    return unauthorized();
+  }
+
+  const sessionTtl = getAuthSessionTtlSeconds();
+  const token = await saveAuth(
+    { userId: auth.user.id, role: auth.user.role, pwd: hash(user.password) },
+    sessionTtl,
+  );
+
+  return setSessionCookie(json({ user: auth.user, token }), token, sessionTtl);
 }

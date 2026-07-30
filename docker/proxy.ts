@@ -12,16 +12,39 @@ const BASE_PATH = process.env.BASE_PATH || '';
 
 const apiHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': '*',
-  'Access-Control-Allow-Methods': 'GET, DELETE, POST, PUT',
+  'Access-Control-Allow-Headers': 'Content-Type, X-Umami-Cache',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Max-Age': process.env.CORS_MAX_AGE || '86400',
-  'Cache-Control': 'no-cache',
+  'Cache-Control': 'no-store',
 };
 
 const trackerHeaders = {
   'Access-Control-Allow-Origin': '*',
+  'Cross-Origin-Resource-Policy': 'cross-origin',
   'Cache-Control': 'public, max-age=86400, must-revalidate',
 };
+
+function isEnabled(value?: string) {
+  return ['1', 'true', 'yes', 'on'].includes(value?.trim().toLowerCase() ?? '');
+}
+
+function getSafeTrackerUrl(value?: string) {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const url = new URL(value);
+
+    if (url.protocol !== 'https:' || url.username || url.password) {
+      return null;
+    }
+
+    return url;
+  } catch {
+    return null;
+  }
+}
 
 function customCollectEndpoint(request: NextRequest) {
   const collectEndpoint = process.env.COLLECT_API_ENDPOINT;
@@ -51,7 +74,7 @@ function customScriptName(request: NextRequest) {
 }
 
 function customScriptUrl(request: NextRequest) {
-  const scriptUrl = process.env.TRACKER_SCRIPT_URL;
+  const scriptUrl = getSafeTrackerUrl(process.env.TRACKER_SCRIPT_URL);
 
   if (scriptUrl && matchesConfiguredPath(request.nextUrl.pathname, TRACKER_PATH, BASE_PATH)) {
     return NextResponse.rewrite(scriptUrl, { headers: trackerHeaders });
@@ -59,9 +82,10 @@ function customScriptUrl(request: NextRequest) {
 }
 
 function disableLogin(request: NextRequest) {
-  const loginDisabled = process.env.DISABLE_LOGIN;
-
-  if (loginDisabled && matchesConfiguredPath(request.nextUrl.pathname, LOGIN_PATH, BASE_PATH)) {
+  if (
+    isEnabled(process.env.DISABLE_LOGIN) &&
+    matchesConfiguredPath(request.nextUrl.pathname, LOGIN_PATH, BASE_PATH)
+  ) {
     return new NextResponse('Access denied', { status: 403 });
   }
 }

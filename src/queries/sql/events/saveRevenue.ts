@@ -1,3 +1,4 @@
+import type { Prisma } from '@/generated/prisma/client';
 import { FIELD_LENGTH } from '@/lib/constants';
 import { uuid } from '@/lib/crypto';
 import { PRISMA, runQuery } from '@/lib/db';
@@ -14,16 +15,26 @@ export interface SaveRevenueArgs {
   createdAt: Date;
 }
 
-export async function saveRevenue(data: SaveRevenueArgs) {
+export async function saveRevenue(
+  data: SaveRevenueArgs,
+  transaction?: Prisma.TransactionClient | typeof prisma.client,
+) {
+  if (transaction) {
+    return relationalQuery(data, transaction);
+  }
+
   return runQuery({
     [PRISMA]: () => relationalQuery(data),
   });
 }
 
-async function relationalQuery(data: SaveRevenueArgs) {
+async function relationalQuery(
+  data: SaveRevenueArgs,
+  transaction: Prisma.TransactionClient | typeof prisma.client = prisma.client,
+) {
   const { websiteId, sessionId, eventId, eventName, currency, revenue, createdAt } = data;
 
-  await prisma.client.revenue.create({
+  await transaction.revenue.create({
     data: {
       id: uuid(),
       websiteId,

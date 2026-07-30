@@ -1,12 +1,9 @@
 import { z } from 'zod';
+import { isUuid } from '@/lib/crypto';
 import { parseRequest } from '@/lib/request';
-import { json, unauthorized } from '@/lib/response';
+import { badRequest, json, notFound, unauthorized } from '@/lib/response';
 import { canUpdateWebsite, canViewAuthenticatedWebsite } from '@/permissions';
-import {
-  createReplaySaved,
-  deleteReplaySaved,
-  getReplaySaved,
-} from '@/queries/prisma/sessionReplay';
+import { getReplaySaved, setReplaySavedByActor } from '@/queries/prisma/sessionReplay';
 
 export async function GET(
   request: Request,
@@ -19,6 +16,10 @@ export async function GET(
   }
 
   const { websiteId, replayId } = await params;
+
+  if (!isUuid(websiteId) || !isUuid(replayId)) {
+    return badRequest({ message: 'Invalid replay identifier.' });
+  }
 
   if (!(await canViewAuthenticatedWebsite(auth, websiteId))) {
     return unauthorized();
@@ -46,14 +47,26 @@ export async function POST(
 
   const { websiteId, replayId } = await params;
 
+  if (!isUuid(websiteId) || !isUuid(replayId)) {
+    return badRequest({ message: 'Invalid replay identifier.' });
+  }
+
   if (!(await canUpdateWebsite(auth, websiteId))) {
     return unauthorized();
   }
 
-  if (body.isSaved) {
-    await createReplaySaved(websiteId, replayId, body.name ?? '');
-  } else {
-    await deleteReplaySaved(websiteId, replayId);
+  try {
+    await setReplaySavedByActor(websiteId, replayId, body.isSaved, body.name ?? '', auth.user.id);
+  } catch (error: any) {
+    switch (error?.message) {
+      case 'REPLAY_NOT_FOUND':
+      case 'ENTITY_NOT_FOUND':
+        return notFound({ message: 'Replay or website not found.' });
+      case 'ENTITY_ACTOR_NOT_AUTHORIZED':
+        return unauthorized({ message: 'Your replay-management permission changed.' });
+      default:
+        throw error;
+    }
   }
 
   return json({ ok: true });

@@ -4,11 +4,14 @@ import { parseRequest } from '@/lib/request';
 import { json, serverError } from '@/lib/response';
 import { anyObjectParam } from '@/lib/schema';
 
-const schema = z.array(anyObjectParam).max(500);
+const schema = z.array(anyObjectParam).min(1).max(20);
 
 export async function POST(request: Request) {
   try {
-    const { body, error } = await parseRequest(request, schema, { skipAuth: true });
+    const { body, error } = await parseRequest(request, schema, {
+      skipAuth: true,
+      maxBodyBytes: 1024 * 1024,
+    });
 
     if (error) {
       return error();

@@ -8,7 +8,7 @@ export type Config = {
   linksUrl?: string;
   pixelsUrl?: string;
   privateMode: boolean;
-  telemetryDisabled: boolean;
+  publicSharesDisabled: boolean;
   trackerScriptName?: string;
   updatesDisabled: boolean;
 };

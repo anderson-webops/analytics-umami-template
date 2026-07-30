@@ -1,4 +1,5 @@
 import { HEATMAP_EVENT_TYPE } from '@/lib/constants';
+import { getHeatmapUrlPath } from '@/lib/heatmap-url';
 
 const RRWEB_TYPE_INCREMENTAL = 3;
 const RRWEB_TYPE_META = 4;
@@ -24,12 +25,7 @@ interface ExtractHeatmapEventOptions {
 }
 
 function safePathname(href: unknown): string | null {
-  if (typeof href !== 'string') return null;
-  try {
-    return new URL(href).pathname || '/';
-  } catch {
-    return href.startsWith('/') ? href.split(/[?#]/)[0] : null;
-  }
+  return typeof href === 'string' ? getHeatmapUrlPath(href) : null;
 }
 
 export function extractHeatmapEvents(events: any[], _options: ExtractHeatmapEventOptions = {}) {

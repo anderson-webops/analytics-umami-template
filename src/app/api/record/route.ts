@@ -1,32 +1,68 @@
-import { serializeError } from 'serialize-error';
 import { z } from 'zod';
-import { HEATMAP_EVENT_TYPE } from '@/lib/constants';
+import clickhouse from '@/lib/clickhouse';
+import { getCollectionLimit } from '@/lib/collection-rate-limit';
+import { CACHE_TOKEN_TYPE, HEATMAP_EVENT_TYPE } from '@/lib/constants';
 import { secret } from '@/lib/crypto';
 import { getClientInfo, hasBlockedIp } from '@/lib/detect';
+import { isEnvEnabled } from '@/lib/env';
+import { getHeatmapUrlPath } from '@/lib/heatmap-url';
 import { parseToken } from '@/lib/jwt';
 import { fetchAccount, fetchTeam } from '@/lib/load';
 import { getRecorderConfig } from '@/lib/recorder';
 import { getReplayEventCount } from '@/lib/replay';
 import { parseRequest } from '@/lib/request';
-import { badRequest, forbidden, json, payloadTooLarge, serverError } from '@/lib/response';
-import { getWebsite } from '@/queries/prisma';
+import { badRequest, forbidden, json, serverError, tooManyRequests } from '@/lib/response';
+import { replayObjectParam, urlOrPathParam } from '@/lib/schema';
+import { getWebsite, withActiveCollectionSource } from '@/queries/prisma';
 import { saveRecording } from '@/queries/sql';
 import { saveHeatmapEvents } from '@/queries/sql/heatmap/saveHeatmapEvents';
 
 interface Cache {
+  websiteId: string;
   sessionId: string;
   visitId: string;
+  type: string;
 }
 
-const MAX_RECORD_REQUEST_BYTES = 1_000_000;
+const MAX_RECORD_REQUEST_BYTES = 1024 * 1024;
+const MAX_REPLAY_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
+
+const replayEventTimestampParam = z.coerce
+  .number()
+  .finite()
+  .nonnegative()
+  .refine(
+    value => value >= Date.now() - MAX_REPLAY_AGE_MS && value <= Date.now() + MAX_FUTURE_SKEW_MS,
+    'Replay event timestamp is outside the accepted window.',
+  );
+
+const requestTimestampParam = z.coerce
+  .number()
+  .int()
+  .refine(value => {
+    const now = Math.floor(Date.now() / 1000);
+
+    return value >= now - MAX_REPLAY_AGE_MS / 1000 && value <= now + MAX_FUTURE_SKEW_MS / 1000;
+  }, 'Replay timestamp is outside the accepted window.');
+
+const replayEventParam = replayObjectParam.and(
+  z
+    .object({
+      timestamp: replayEventTimestampParam.optional(),
+    })
+    .passthrough(),
+);
+
+const coordinateParam = z.coerce.number().finite().nonnegative().max(10_000_000);
 
 const schema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('record'),
     payload: z.object({
       website: z.uuid(),
-      events: z.array(z.any()).max(200),
-      timestamp: z.coerce.number().int().optional(),
+      events: z.array(replayEventParam).max(200),
+      timestamp: requestTimestampParam.optional(),
     }),
   }),
   z.object({
@@ -36,78 +72,47 @@ const schema = z.discriminatedUnion('type', [
       events: z
         .array(
           z.discriminatedUnion('type', [
-            z.object({
-              type: z.literal('click'),
-              url: z.string(),
-              x: z.coerce.number().optional(),
-              y: z.coerce.number().optional(),
-              pageX: z.coerce.number().optional(),
-              pageY: z.coerce.number().optional(),
-              pageW: z.coerce.number().optional(),
-              pageH: z.coerce.number().optional(),
-              viewportW: z.coerce.number().optional(),
-              viewportH: z.coerce.number().optional(),
-              timestamp: z.coerce.number().int().optional(),
-            }),
-            z.object({
-              type: z.literal('scroll'),
-              url: z.string(),
-              scrollPct: z.coerce.number().optional(),
-              pageW: z.coerce.number().optional(),
-              pageH: z.coerce.number().optional(),
-              viewportW: z.coerce.number().optional(),
-              viewportH: z.coerce.number().optional(),
-              timestamp: z.coerce.number().int().optional(),
-            }),
+            z
+              .object({
+                type: z.literal('click'),
+                url: urlOrPathParam,
+                x: coordinateParam.optional(),
+                y: coordinateParam.optional(),
+                pageX: coordinateParam.optional(),
+                pageY: coordinateParam.optional(),
+                pageW: coordinateParam.optional(),
+                pageH: coordinateParam.optional(),
+                viewportW: coordinateParam.optional(),
+                viewportH: coordinateParam.optional(),
+                timestamp: replayEventTimestampParam.optional(),
+              })
+              .strict(),
+            z
+              .object({
+                type: z.literal('scroll'),
+                url: urlOrPathParam,
+                scrollPct: z.coerce.number().finite().min(0).max(100).optional(),
+                pageW: coordinateParam.optional(),
+                pageH: coordinateParam.optional(),
+                viewportW: coordinateParam.optional(),
+                viewportH: coordinateParam.optional(),
+                timestamp: replayEventTimestampParam.optional(),
+              })
+              .strict(),
           ]),
         )
         .max(200),
-      timestamp: z.coerce.number().int().optional(),
+      timestamp: requestTimestampParam.optional(),
     }),
   }),
 ]);
 
-function getUrlPath(url: string) {
-  try {
-    return new URL(url).pathname || '/';
-  } catch {
-    return url.startsWith('/') ? url.split(/[?#]/)[0] || '/' : '/';
-  }
-}
-
-async function getRequestBodySize(request: Request): Promise<number | null> {
-  const contentLength = request.headers.get('content-length');
-
-  if (contentLength) {
-    const size = Number(contentLength);
-
-    if (Number.isFinite(size)) {
-      return size;
-    }
-  }
-
-  try {
-    const text = await request.clone().text();
-
-    return new TextEncoder().encode(text).length;
-  } catch {
-    return null;
-  }
-}
-
 export async function POST(request: Request) {
   try {
-    const requestBodySize = await getRequestBodySize(request);
-
-    if (requestBodySize && requestBodySize > MAX_RECORD_REQUEST_BYTES) {
-      return payloadTooLarge({
-        reason: 'payload_too_large',
-        maxBytes: MAX_RECORD_REQUEST_BYTES,
-        size: requestBodySize,
-      });
-    }
-
-    const { body, error } = await parseRequest(request, schema, { skipAuth: true });
+    const { body, error } = await parseRequest(request, schema, {
+      skipAuth: true,
+      maxBodyBytes: MAX_RECORD_REQUEST_BYTES,
+    });
 
     if (error) {
       return error();
@@ -116,6 +121,11 @@ export async function POST(request: Request) {
     const { website: websiteId } = body.payload;
     const events = body.payload.events;
     const timestamp = body.payload.timestamp;
+    const collectionLimit = await getCollectionLimit(request, websiteId);
+
+    if (collectionLimit.blocked) {
+      return tooManyRequests(collectionLimit.retryAfter);
+    }
 
     if (!events?.length) {
       return json({ ok: true });
@@ -130,7 +140,12 @@ export async function POST(request: Request) {
 
     const cache = (await parseToken(cacheHeader, secret())) as Cache | null;
 
-    if (!cache?.sessionId || !cache?.visitId) {
+    if (
+      cache?.type !== CACHE_TOKEN_TYPE ||
+      cache.websiteId !== websiteId ||
+      !cache.sessionId ||
+      !cache.visitId
+    ) {
       return badRequest({ message: 'Invalid session token.' });
     }
 
@@ -139,19 +154,15 @@ export async function POST(request: Request) {
     // Query directly to avoid stale Redis cache for recorderEnabled
     const website = await getWebsite(websiteId);
 
-    if (!website) {
+    if (!website || website.deletedAt) {
       return badRequest({ message: 'Website not found.' });
     }
-
-    const recorderConfig = getRecorderConfig(website.replayConfig);
-    const replayEnabled = recorderConfig.replayEnabled === true;
-    const heatmapEnabled = recorderConfig.heatmapEnabled === true;
 
     if (!website.recorderEnabled) {
       return json({ ok: false, reason: 'recorder_disabled' });
     }
 
-    if (process.env.CLOUD_MODE) {
+    if (isEnvEnabled('CLOUD_MODE')) {
       const account = website.teamId
         ? await fetchTeam(website.teamId)
         : website.userId
@@ -170,67 +181,97 @@ export async function POST(request: Request) {
       return new Response(null, { status: 204 });
     }
 
-    if (body.type === 'record') {
-      if (!replayEnabled) {
+    try {
+      await withActiveCollectionSource('website', websiteId, async transaction => {
+        const currentWebsite = await transaction.website.findFirst({
+          where: {
+            id: websiteId,
+            deletedAt: null,
+          },
+          select: {
+            recorderEnabled: true,
+            replayConfig: true,
+          },
+        });
+
+        if (!currentWebsite?.recorderEnabled) {
+          throw new Error('RECORDER_DISABLED');
+        }
+
+        const recorderConfig = getRecorderConfig(currentWebsite.replayConfig);
+        const writeTransaction = clickhouse.enabled ? undefined : transaction;
+
+        if (body.type === 'record') {
+          if (recorderConfig.replayEnabled !== true) {
+            throw new Error('REPLAY_DISABLED');
+          }
+
+          const eventTimestamps = events
+            .map((event: any) => Number(event?.timestamp))
+            .filter((value: number) => Number.isFinite(value) && value > 0);
+          const fallbackMs = (timestamp || Math.floor(Date.now() / 1000)) * 1000;
+          const minTimestamp = eventTimestamps.length ? Math.min(...eventTimestamps) : fallbackMs;
+          const maxTimestamp = eventTimestamps.length ? Math.max(...eventTimestamps) : fallbackMs;
+
+          await saveRecording(
+            {
+              websiteId,
+              sessionId,
+              visitId,
+              chunkIndex: timestamp || Math.floor(Date.now() / 1000),
+              events,
+              eventCount: getReplayEventCount(events),
+              startedAt: new Date(minTimestamp),
+              endedAt: new Date(maxTimestamp),
+            },
+            writeTransaction,
+          );
+          return;
+        }
+
+        if (recorderConfig.heatmapEnabled !== true) {
+          throw new Error('HEATMAP_DISABLED');
+        }
+
+        const fallbackMs = (timestamp || Math.floor(Date.now() / 1000)) * 1000;
+        const heatmapRows = events.map(event => ({
+          websiteId,
+          sessionId,
+          visitId,
+          eventType: event.type === 'click' ? HEATMAP_EVENT_TYPE.click : HEATMAP_EVENT_TYPE.scroll,
+          x: event.type === 'click' ? (event.x ?? null) : null,
+          y: event.type === 'click' ? (event.y ?? null) : null,
+          pageX: event.type === 'click' ? (event.pageX ?? null) : null,
+          pageY: event.type === 'click' ? (event.pageY ?? null) : null,
+          pageW: event.pageW ?? null,
+          viewportW: event.viewportW ?? null,
+          viewportH: event.viewportH ?? null,
+          pageH: event.pageH ?? null,
+          scrollPct: event.type === 'scroll' ? (event.scrollPct ?? null) : null,
+          urlPath: getHeatmapUrlPath(event.url),
+          createdAt: new Date(event.timestamp ?? fallbackMs),
+        }));
+
+        await saveHeatmapEvents(heatmapRows, writeTransaction);
+      });
+    } catch (error: any) {
+      if (error?.message === 'RECORDER_DISABLED') {
+        return json({ ok: false, reason: 'recorder_disabled' });
+      }
+
+      if (error?.message === 'REPLAY_DISABLED') {
         return json({ ok: false, reason: 'replay_disabled' });
       }
 
-      const eventTimestamps = events
-        .map((e: any) => Number(e?.timestamp))
-        .filter((t: number) => Number.isFinite(t) && t > 0);
-
-      const fallbackMs = (timestamp || Math.floor(Date.now() / 1000)) * 1000;
-      const minTimestamp = eventTimestamps.length ? Math.min(...eventTimestamps) : fallbackMs;
-      const maxTimestamp = eventTimestamps.length ? Math.max(...eventTimestamps) : fallbackMs;
-
-      const startedAt = new Date(minTimestamp);
-      const endedAt = new Date(maxTimestamp);
-      const chunkIndex = timestamp || Math.floor(Date.now() / 1000);
-
-      await saveRecording({
-        websiteId,
-        sessionId,
-        visitId,
-        chunkIndex,
-        events,
-        eventCount: getReplayEventCount(events),
-        startedAt,
-        endedAt,
-      });
-
-      return json({ ok: true });
-    }
-
-    if (!heatmapEnabled) {
-      return json({ ok: false, reason: 'heatmap_disabled' });
-    }
-
-    try {
-      const fallbackMs = (timestamp || Math.floor(Date.now() / 1000)) * 1000;
-      const heatmapRows = events.map(event => ({
-        websiteId,
-        sessionId,
-        visitId,
-        eventType: event.type === 'click' ? HEATMAP_EVENT_TYPE.click : HEATMAP_EVENT_TYPE.scroll,
-        x: event.type === 'click' ? (event.x ?? null) : null,
-        y: event.type === 'click' ? (event.y ?? null) : null,
-        pageX: event.type === 'click' ? (event.pageX ?? null) : null,
-        pageY: event.type === 'click' ? (event.pageY ?? null) : null,
-        pageW: event.pageW ?? null,
-        viewportW: event.viewportW ?? null,
-        viewportH: event.viewportH ?? null,
-        pageH: event.pageH ?? null,
-        scrollPct: event.type === 'scroll' ? (event.scrollPct ?? null) : null,
-        urlPath: getUrlPath(event.url),
-        createdAt: new Date(event.timestamp ?? fallbackMs),
-      }));
-
-      if (heatmapRows.length) {
-        await saveHeatmapEvents(heatmapRows);
+      if (error?.message === 'HEATMAP_DISABLED') {
+        return json({ ok: false, reason: 'heatmap_disabled' });
       }
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.log('heatmap save failed', serializeError(e));
+
+      if (error?.message === 'COLLECTION_SOURCE_NOT_FOUND') {
+        return badRequest({ message: 'Website not found.' });
+      }
+
+      throw error;
     }
 
     return json({ ok: true });

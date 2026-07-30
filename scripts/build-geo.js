@@ -6,12 +6,15 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import { list } from 'tar';
 
-if (process.env.SKIP_BUILD_GEO) {
+const isEnabled = name =>
+  ['1', 'true', 'yes', 'on'].includes(process.env[name]?.trim().toLowerCase() ?? '');
+
+if (isEnabled('SKIP_BUILD_GEO')) {
   console.log('SKIP_BUILD_GEO is set. Skipping geo setup.');
   process.exit(0);
 }
 
-if (process.env.VERCEL && !process.env.BUILD_GEO) {
+if (process.env.VERCEL && !isEnabled('BUILD_GEO')) {
   console.log('Vercel environment detected. Skipping geo setup.');
   process.exit(0);
 }

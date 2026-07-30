@@ -5,6 +5,8 @@ import isLocalhost from 'is-localhost-ip';
 import { isbot } from 'isbot';
 import maxmind from 'maxmind';
 import { UAParser } from 'ua-parser-js';
+import { canTrustClientInfoPayload } from '@/lib/client-info-trust';
+import { isEnvEnabled } from '@/lib/env';
 import { getIpAddress, stripPort } from '@/lib/ip';
 import { safeDecodeURIComponent } from '@/lib/url';
 
@@ -12,7 +14,7 @@ const MAXMIND = 'maxmind';
 
 const PROVIDER_HEADERS = [
   // Umami custom headers (cloud mode only)
-  ...(process.env.CLOUD_MODE
+  ...(isEnvEnabled('CLOUD_MODE')
     ? [
         {
           countryHeader: 'x-umami-client-country',
@@ -150,7 +152,11 @@ export async function getLocation(ip: string = '', headers: Headers, skipHeaders
     return null;
   }
 
-  if (!skipHeaders && !process.env.SKIP_LOCATION_HEADERS) {
+  if (
+    !skipHeaders &&
+    isEnvEnabled('TRUST_LOCATION_HEADERS') &&
+    !isEnvEnabled('SKIP_LOCATION_HEADERS')
+  ) {
     for (const provider of PROVIDER_HEADERS) {
       const countryHeader = headers.get(provider.countryHeader);
       if (countryHeader) {
@@ -192,16 +198,22 @@ export async function getLocation(ip: string = '', headers: Headers, skipHeaders
 }
 
 export async function getClientInfo(request: Request, payload: Record<string, any>) {
-  const userAgent = payload?.userAgent || request.headers.get('user-agent') || '';
-  const ip = payload?.ip || getIpAddress(request.headers);
-  const location = await getLocation(ip, request.headers, !!payload?.ip);
+  const trustClientPayload = canTrustClientInfoPayload(request);
+  const payloadIp = trustClientPayload ? payload?.ip : undefined;
+  const userAgent =
+    (trustClientPayload ? payload?.userAgent : undefined) ||
+    request.headers.get('user-agent') ||
+    '';
+  const ip = payloadIp || getIpAddress(request.headers);
+  const location = await getLocation(ip, request.headers, !!payloadIp);
   const country = safeDecodeURIComponent(location?.country);
   const region = safeDecodeURIComponent(location?.region);
   const city = safeDecodeURIComponent(location?.city);
   const { isBot, botName, botCategory } = getBotInfo(userAgent);
-  const browser = payload?.browser ?? browserName(userAgent);
-  const os = payload?.os ?? (detectOS(userAgent) as string);
-  const device = payload?.device ?? getDevice(userAgent, payload?.screen);
+  const browser = (trustClientPayload ? payload?.browser : undefined) ?? browserName(userAgent);
+  const os = (trustClientPayload ? payload?.os : undefined) ?? (detectOS(userAgent) as string);
+  const device =
+    (trustClientPayload ? payload?.device : undefined) ?? getDevice(userAgent, payload?.screen);
 
   return { userAgent, browser, os, ip, country, region, city, device, isBot, botName, botCategory };
 }

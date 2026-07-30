@@ -1,4 +1,4 @@
-import { expect, test } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 import { HOMEPAGE_URL } from './constants';
 import { getBaseUrl } from './get-base-url';
 
@@ -9,6 +9,37 @@ function createHeaders(entries: Record<string, string>) {
     },
   };
 }
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+test('uses the configured public origin in production', () => {
+  vi.stubEnv('NODE_ENV', 'production');
+  vi.stubEnv('PUBLIC_URL', 'https://analytics.example.com');
+
+  const url = getBaseUrl(
+    createHeaders({
+      'x-forwarded-host': 'attacker.example',
+      'x-forwarded-proto': 'https',
+    }),
+  );
+
+  expect(url.toString()).toBe('https://analytics.example.com/');
+});
+
+test('does not trust request host headers in production without a valid public origin', () => {
+  vi.stubEnv('NODE_ENV', 'production');
+  vi.stubEnv('PUBLIC_URL', '');
+
+  const url = getBaseUrl(
+    createHeaders({
+      host: 'attacker.example',
+    }),
+  );
+
+  expect(url.toString()).toBe(`${HOMEPAGE_URL}/`);
+});
 
 test('prefers forwarded host and protocol', () => {
   const url = getBaseUrl(

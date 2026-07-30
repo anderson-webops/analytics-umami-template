@@ -36,12 +36,8 @@ export async function loginViaApi(
   };
 }
 
-export async function loginPage(page: Page, request: APIRequestContext): Promise<Auth> {
-  const auth = await loginViaApi(request);
-
-  await page.addInitScript(token => {
-    window.localStorage.setItem('umami.auth', JSON.stringify(token));
-  }, auth.token);
+export async function loginPage(page: Page, _request: APIRequestContext): Promise<Auth> {
+  const auth = await loginViaApi(page.context().request);
 
   return auth;
 }

@@ -1,4 +1,5 @@
 export * from './board';
+export * from './collection';
 export * from './link';
 export * from './pixel';
 export * from './report';

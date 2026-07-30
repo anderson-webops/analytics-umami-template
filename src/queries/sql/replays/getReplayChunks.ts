@@ -4,6 +4,7 @@ import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
 import prisma from '@/lib/prisma';
 
 const FUNCTION_NAME = 'getReplayChunks';
+const MAX_REPLAY_CHUNKS = 500;
 
 export interface ReplayChunk {
   sessionId: string;
@@ -73,6 +74,7 @@ async function relationalQuery(
       ${endAtFilter}
       ${endChunkFilter}
     order by chunk_index asc
+    limit ${MAX_REPLAY_CHUNKS}
     `,
     { websiteId, visitId, endAt, endChunkIndex },
     FUNCTION_NAME,
@@ -128,6 +130,7 @@ async function clickhouseQuery(
       ${endAtFilter}
       ${endChunkFilter}
     order by chunk_index asc
+    limit ${MAX_REPLAY_CHUNKS}
     `,
     { websiteId, visitId, endAt, endChunkIndex },
     FUNCTION_NAME,

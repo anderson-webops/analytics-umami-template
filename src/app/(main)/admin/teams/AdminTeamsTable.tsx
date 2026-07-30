@@ -61,7 +61,7 @@ export function AdminTeamsTable({
               const { id } = row;
 
               return (
-                <MenuButton>
+                <MenuButton label={t(labels.actions)}>
                   <MenuItem href={`/admin/teams/${id}`} data-test="link-button-edit">
                     <Row alignItems="center" gap>
                       <Icon>

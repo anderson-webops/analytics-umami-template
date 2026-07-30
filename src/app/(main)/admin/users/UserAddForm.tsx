@@ -45,7 +45,7 @@ export function UserAddForm({ onSave, onClose }) {
         <PasswordField autoComplete="new-password" data-test="input-password" />
       </FormField>
       <FormField label={t(labels.role)} name="role" rules={{ required: t(labels.required) }}>
-        <Select>
+        <Select data-test="dropdown-role">
           <ListItem id={ROLES.viewOnly} data-test="dropdown-item-viewOnly">
             {t(labels.viewOnly)}
           </ListItem>
