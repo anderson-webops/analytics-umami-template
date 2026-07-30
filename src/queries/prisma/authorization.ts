@@ -18,6 +18,69 @@ type EntityReference = {
   entityId: string;
 };
 
+export const SERIALIZABLE_RETRY_ATTEMPTS = 8;
+const SERIALIZABLE_RETRY_BASE_DELAY_MS = 50;
+const SERIALIZABLE_RETRY_MAX_DELAY_MS = 1_000;
+const USER_MUTATION_LOCK_KEY = 'umami:user-mutations';
+
+function hasSerializableConflictMarker(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) {
+    return false;
+  }
+
+  return (
+    ('code' in error && (error.code === 'P2034' || error.code === '40001')) ||
+    ('originalCode' in error && error.originalCode === '40001') ||
+    ('kind' in error && error.kind === 'TransactionWriteConflict')
+  );
+}
+
+export function isSerializableRetryError(error: unknown): boolean {
+  if (hasSerializableConflictMarker(error)) {
+    return true;
+  }
+
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'cause' in error &&
+    hasSerializableConflictMarker(error.cause)
+  );
+}
+
+export async function waitForSerializableRetry(attempt: number): Promise<void> {
+  const exponentialDelay = Math.min(
+    SERIALIZABLE_RETRY_BASE_DELAY_MS * 2 ** attempt,
+    SERIALIZABLE_RETRY_MAX_DELAY_MS,
+  );
+  const jitter = Math.floor(Math.random() * SERIALIZABLE_RETRY_BASE_DELAY_MS);
+
+  await new Promise(resolve => setTimeout(resolve, exponentialDelay + jitter));
+}
+
+export async function runSerializedUserMutation<T>(
+  operation: (transaction: Prisma.TransactionClient) => Promise<T>,
+  options: { timeout?: number } = {},
+): Promise<T> {
+  return prisma.transaction(
+    async transaction => {
+      // Account mutations share cross-row invariants such as the final active
+      // administrator. Queue them before re-reading authorization state so
+      // concurrent requests cannot race those checks.
+      await transaction.$queryRaw`
+        SELECT pg_advisory_xact_lock(hashtext(${USER_MUTATION_LOCK_KEY}))::text
+      `;
+
+      return operation(transaction);
+    },
+    {
+      isolationLevel: 'ReadCommitted',
+      timeout: 30_000,
+      ...options,
+    },
+  );
+}
+
 function roleHasPermission(role: string | null | undefined, permission: string) {
   if (!role) {
     return false;
@@ -32,16 +95,18 @@ export async function runSerializable<T>(
   operation: (transaction: Prisma.TransactionClient) => Promise<T>,
   options: { timeout?: number } = {},
 ): Promise<T> {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < SERIALIZABLE_RETRY_ATTEMPTS; attempt += 1) {
     try {
       return await prisma.transaction(operation, {
         isolationLevel: 'Serializable',
         ...options,
       });
-    } catch (error: any) {
-      if (error?.code !== 'P2034' || attempt === 2) {
+    } catch (error) {
+      if (!isSerializableRetryError(error) || attempt === SERIALIZABLE_RETRY_ATTEMPTS - 1) {
         throw error;
       }
+
+      await waitForSerializableRetry(attempt);
     }
   }
 
