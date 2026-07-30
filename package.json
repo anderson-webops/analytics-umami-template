@@ -1,6 +1,6 @@
 {
   "name": "umami",
-  "version": "3.2.0",
+  "version": "3.2.1",
   "private": true,
   "description": "A modern, privacy-focused alternative to Google Analytics.",
   "author": "Umami Software, Inc. <hello@umami.is>",
@@ -60,6 +60,7 @@
     "typecheck": "tsc --noEmit",
     "audit:all": "pnpm audit --audit-level high",
     "audit:prod": "pnpm audit --prod --audit-level high",
+    "prevalidate": "pnpm run build-db",
     "validate": "npm-run-all check:native-bindings check:peers format:check typecheck test:unit",
     "format": "biome format --write .",
     "check": "biome check ."
