@@ -11,6 +11,7 @@ const TRACKER_SCRIPT = '/script.js';
 
 const isProd = process.env.NODE_ENV === 'production';
 
+const apiUrl = process.env.API_URL || '';
 const basePath = process.env.BASE_PATH || '';
 const cloudMode = process.env.CLOUD_MODE || '';
 const cloudUrl = process.env.CLOUD_URL || '';
@@ -25,12 +26,32 @@ const trackerScriptURL = process.env.TRACKER_SCRIPT_URL || '';
 const selfTrack = process.env.UMAMI_SELF_TRACK || '';
 const selfRecord = process.env.UMAMI_SELF_RECORD || '';
 
+function getUrlOrigin(url: string) {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return '';
+  }
+}
+
+function isRelativeUrl(url: string) {
+  return Boolean(url && !/^https?:\/\//i.test(url));
+}
+
+function normalizePath(url: string) {
+  return `/${url.replace(/^\/+|\/+$/g, '')}`;
+}
+
+const apiUrlOrigin = getUrlOrigin(apiUrl);
+const connectSrc = ["'self'", 'https:', apiUrlOrigin].filter(Boolean).join(' ');
+
 const contentSecurityPolicy = `
   default-src 'self';
-  img-src 'self' https: data:;
+  img-src 'self' https: data: blob:;
   script-src 'self' 'unsafe-eval' 'unsafe-inline';
   style-src 'self' 'unsafe-inline';
-  connect-src 'self' https:;
+  connect-src ${connectSrc};
+  frame-src 'self' http: https:;
   frame-ancestors 'self' ${frameAncestors};
 `;
 
@@ -129,6 +150,22 @@ if (collectApiEndpoint) {
   });
 }
 
+if (isRelativeUrl(apiUrl)) {
+  const normalizedApiUrl = normalizePath(apiUrl);
+
+  if (normalizedApiUrl !== '/' && normalizedApiUrl !== '/api') {
+    headers.push({
+      source: `${normalizedApiUrl}/:path*`,
+      headers: apiHeaders,
+    });
+
+    rewrites.push({
+      source: `${normalizedApiUrl}/:path*`,
+      destination: '/api/:path*',
+    });
+  }
+}
+
 const redirects = [
   {
     source: '/teams/:id/dashboard/edit',
@@ -194,6 +231,7 @@ if (isProd && cloudMode) {
 export default withNextIntl({
   reactStrictMode: false,
   env: {
+    apiUrl,
     basePath,
     cloudMode,
     cloudUrl,

@@ -1,7 +1,7 @@
 import { DataColumn, DataTable, type DataTableProps } from '@umami/react-zen';
-import Link from 'next/link';
 import { Avatar } from '@/components/common/Avatar';
 import { DateDistance } from '@/components/common/DateDistance';
+import Link from '@/components/common/Link';
 import { TypeIcon } from '@/components/common/TypeIcon';
 import { useFormat, useMessages, useNavigation } from '@/components/hooks';
 
@@ -42,7 +42,7 @@ export function SessionsTable({
           }
         </DataColumn>
       )}
-      <DataColumn id="location" label={t(labels.location)}>
+      <DataColumn id="location" label={t(labels.location)} width="200px">
         {(row: any) => (
           <TypeIcon type="country" value={row.country}>
             {row.city ? `${row.city}, ` : ''}

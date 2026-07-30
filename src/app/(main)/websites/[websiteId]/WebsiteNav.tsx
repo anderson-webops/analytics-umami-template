@@ -1,6 +1,6 @@
 import { Column, Focusable, Row, Text, Tooltip, TooltipTrigger } from '@umami/react-zen';
-import Link from 'next/link';
 import { IconLabel } from '@/components/common/IconLabel';
+import Link from '@/components/common/Link';
 import { useMessages, useNavigation, useWebsiteNavItems } from '@/components/hooks';
 import { ArrowLeft } from '@/components/icons';
 
@@ -18,7 +18,7 @@ export function WebsiteNav({
   const { items, selectedKey } = useWebsiteNavItems(websiteId);
 
   return (
-    <Column gap="2">
+    <Column gap="2" marginTop={isCollapsed ? '2' : undefined}>
       <Link href={renderUrl('/websites', false)} role="button" onClick={onItemClick}>
         <TooltipTrigger isDisabled={!isCollapsed} delay={0}>
           <Focusable>

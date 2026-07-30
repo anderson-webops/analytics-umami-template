@@ -1,5 +1,5 @@
-import type { Board, BoardComponentConfig, BoardParameters } from './types';
 import { isBoardComponentSupportedByEntityType } from './boardComponentCompatibility';
+import type { Board, BoardComponentConfig, BoardParameters } from './types';
 
 export const BOARD_TYPES = {
   dashboard: 'dashboard',
@@ -72,9 +72,7 @@ export function isOpenBoardType(type?: string) {
 }
 
 export function requiresBoardEntity(type?: string) {
-  return (
-    type === BOARD_TYPES.website || type === BOARD_TYPES.pixel || type === BOARD_TYPES.link
-  );
+  return type === BOARD_TYPES.website || type === BOARD_TYPES.pixel || type === BOARD_TYPES.link;
 }
 
 export function getBoardEntity(board?: Pick<Board, 'type' | 'parameters'> | Partial<Board>): {
@@ -141,10 +139,7 @@ export function getResolvedComponentEntity(
   return getComponentEntity(config);
 }
 
-export function isBoardComponentSupported(
-  componentType: string,
-  entityType?: BoardEntityType,
-) {
+export function isBoardComponentSupported(componentType: string, entityType?: BoardEntityType) {
   return isBoardComponentSupportedByEntityType(componentType, entityType);
 }
 
@@ -164,18 +159,34 @@ export function getFirstBoardComponentEntity(
   return {};
 }
 
-export function getBoardWebsiteIds(
-  board?: Pick<Board, 'type' | 'parameters'> | Partial<Board>,
-): string[] {
-  const ids = new Set<string>();
+export function getBoardEntityIds(board?: Pick<Board, 'type' | 'parameters'> | Partial<Board>): {
+  websiteIds: string[];
+  pixelIds: string[];
+  linkIds: string[];
+} {
+  const websiteIds = new Set<string>();
+  const pixelIds = new Set<string>();
+  const linkIds = new Set<string>();
   const boardEntity = getBoardEntity(board);
 
   if (boardEntity.entityType === BOARD_ENTITY_TYPES.website && boardEntity.entityId) {
-    ids.add(boardEntity.entityId);
+    websiteIds.add(boardEntity.entityId);
+  } else if (boardEntity.entityType === BOARD_ENTITY_TYPES.pixel && boardEntity.entityId) {
+    pixelIds.add(boardEntity.entityId);
+  } else if (boardEntity.entityType === BOARD_ENTITY_TYPES.link && boardEntity.entityId) {
+    linkIds.add(boardEntity.entityId);
   }
 
   if (board?.parameters?.websiteId) {
-    ids.add(board.parameters.websiteId);
+    websiteIds.add(board.parameters.websiteId);
+  }
+
+  if (board?.parameters?.pixelId) {
+    pixelIds.add(board.parameters.pixelId);
+  }
+
+  if (board?.parameters?.linkId) {
+    linkIds.add(board.parameters.linkId);
   }
 
   for (const row of board?.parameters?.rows ?? []) {
@@ -183,12 +194,20 @@ export function getBoardWebsiteIds(
       const entity = getComponentEntity(column.component);
 
       if (entity.entityType === BOARD_ENTITY_TYPES.website && entity.entityId) {
-        ids.add(entity.entityId);
+        websiteIds.add(entity.entityId);
+      } else if (entity.entityType === BOARD_ENTITY_TYPES.pixel && entity.entityId) {
+        pixelIds.add(entity.entityId);
+      } else if (entity.entityType === BOARD_ENTITY_TYPES.link && entity.entityId) {
+        linkIds.add(entity.entityId);
       }
     }
   }
 
-  return [...ids];
+  return {
+    websiteIds: [...websiteIds],
+    pixelIds: [...pixelIds],
+    linkIds: [...linkIds],
+  };
 }
 
 export function clearBoardEntity(parameters: BoardParameters = {}): BoardParameters {

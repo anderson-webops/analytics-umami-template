@@ -8,8 +8,10 @@ import { filtersArrayToObject } from '@/lib/params';
 
 export function WebsiteFilterButton({
   websiteId,
+  allowBounceFilter,
 }: {
   websiteId?: string;
+  allowBounceFilter?: boolean;
   position?: 'bottom' | 'top' | 'left' | 'right';
   alignment?: 'end' | 'center' | 'start';
 }) {
@@ -38,11 +40,16 @@ export function WebsiteFilterButton({
   };
 
   return (
-    <DialogButton icon={<ListFilter />} label={t(labels.filter)} variant="outline">
+    <DialogButton
+      icon={<ListFilter />}
+      label={t(labels.filter)}
+      variant="outline"
+      height="min(80dvh, calc(100dvh - 40px))"
+    >
       {({ close }) => {
         return (
           <>
-            {isOverview && (
+            {(isOverview || allowBounceFilter) && (
               <Row position="absolute" top="30px" right="30px">
                 <Checkbox
                   value={excludeBounce ? 'true' : ''}

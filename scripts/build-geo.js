@@ -1,10 +1,10 @@
 /* eslint-disable no-console */
 import 'dotenv/config';
 import fs from 'node:fs';
+import https from 'node:https';
 import path from 'node:path';
-import https from 'https';
+import zlib from 'node:zlib';
 import { list } from 'tar';
-import zlib from 'zlib';
 
 if (process.env.SKIP_BUILD_GEO) {
   console.log('SKIP_BUILD_GEO is set. Skipping geo setup.');

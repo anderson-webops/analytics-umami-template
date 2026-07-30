@@ -1,13 +1,18 @@
 import { FILTER_COLUMNS, OPERATORS } from '@/lib/constants';
 import { safeDecodeURIComponent } from '@/lib/url';
+import { useShare } from './context/useShare';
 import { useFields } from './useFields';
 import { useMessages } from './useMessages';
 import { useNavigation } from './useNavigation';
+import { useOperatorLabels } from './useOperatorLabels';
 
 export function useFilters() {
   const { t, labels } = useMessages();
   const { query } = useNavigation();
   const { fields } = useFields();
+  const operatorLabels = useOperatorLabels();
+  const share = useShare();
+  const allowFilter = share?.parameters?.allowFilter !== false;
 
   const operators = [
     { name: 'eq', type: 'string', label: t(labels.is) },
@@ -30,25 +35,6 @@ export function useFilters() {
     { name: 'af', type: 'date', label: t(labels.after) },
     { name: 'eq', type: 'uuid', label: t(labels.is) },
   ];
-
-  const operatorLabels = {
-    [OPERATORS.equals]: t(labels.is),
-    [OPERATORS.notEquals]: t(labels.isNot),
-    [OPERATORS.set]: t(labels.isSet),
-    [OPERATORS.notSet]: t(labels.isNotSet),
-    [OPERATORS.contains]: t(labels.contains),
-    [OPERATORS.doesNotContain]: t(labels.doesNotContain),
-    [OPERATORS.regex]: t(labels.regexMatch),
-    [OPERATORS.notRegex]: t(labels.regexNotMatch),
-    [OPERATORS.true]: t(labels.true),
-    [OPERATORS.false]: t(labels.false),
-    [OPERATORS.greaterThan]: t(labels.greaterThan),
-    [OPERATORS.lessThan]: t(labels.lessThan),
-    [OPERATORS.greaterThanEquals]: t(labels.greaterThanEquals),
-    [OPERATORS.lessThanEquals]: t(labels.lessThanEquals),
-    [OPERATORS.before]: t(labels.before),
-    [OPERATORS.after]: t(labels.after),
-  };
 
   const typeFilters = {
     string: [
@@ -73,30 +59,32 @@ export function useFilters() {
     uuid: [OPERATORS.equals],
   };
 
-  const filters = Object.keys(query).reduce((arr, key) => {
-    const baseName = key.replace(/\d+$/, '');
-    if (FILTER_COLUMNS[baseName]) {
-      let operator = 'eq';
-      let value = safeDecodeURIComponent(query[key]);
-      const label = fields.find(({ name }) => name === baseName)?.label;
+  const filters = allowFilter
+    ? Object.keys(query).reduce((arr, key) => {
+        const baseName = key.replace(/\d+$/, '');
+        if (FILTER_COLUMNS[baseName]) {
+          let operator = 'eq';
+          let value = safeDecodeURIComponent(query[key]);
+          const label = fields.find(({ name }) => name === baseName)?.label;
 
-      const match = value.match(/^([a-z]+)\.(.*)/);
+          const match = value.match(/^([a-z]+)\.(.*)/);
 
-      if (match) {
-        operator = match[1];
-        value = match[2];
-      }
+          if (match) {
+            operator = match[1];
+            value = match[2];
+          }
 
-      return arr.concat({
-        name: key,
-        type: baseName,
-        operator,
-        value,
-        label,
-      });
-    }
-    return arr;
-  }, []);
+          return arr.concat({
+            name: key,
+            type: baseName,
+            operator,
+            value,
+            label,
+          });
+        }
+        return arr;
+      }, [])
+    : [];
 
   const getFilters = (type: string) => {
     return (

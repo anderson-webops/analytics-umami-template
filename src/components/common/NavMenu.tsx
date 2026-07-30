@@ -1,6 +1,6 @@
 import { Column, Heading, Row, Text } from '@umami/react-zen';
-import Link from 'next/link';
 import { IconLabel } from '@/components/common/IconLabel';
+import Link from '@/components/common/Link';
 
 interface NavMenuData {
   id: string;

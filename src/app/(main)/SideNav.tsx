@@ -9,11 +9,11 @@ import {
   Tooltip,
   TooltipTrigger,
 } from '@umami/react-zen';
-import Link from 'next/link';
 import { AdminNav } from '@/app/(main)/admin/AdminNav';
 import { SettingsNav } from '@/app/(main)/settings/SettingsNav';
 import { WebsiteNav } from '@/app/(main)/websites/[websiteId]/WebsiteNav';
 import { IconLabel } from '@/components/common/IconLabel';
+import Link from '@/components/common/Link';
 import { useGlobalState, useMessages, useNavigation } from '@/components/hooks';
 import {
   Globe,
@@ -74,12 +74,12 @@ export function SideNav(props: any) {
       backgroundColor="surface-base"
       border
       borderRadius
-      paddingX="2"
+      padding="2"
       flexGrow="1"
       minHeight="0"
       margin="2"
       style={{
-        width: isCollapsed ? '55px' : '240px',
+        width: isCollapsed ? '60px' : '240px',
         transition: 'width 0.2s ease-in-out',
         overflow: 'hidden',
       }}
@@ -87,10 +87,10 @@ export function SideNav(props: any) {
       <Row
         alignItems="center"
         justifyContent="space-between"
-        height="60px"
+        minHeight="40px"
         style={{ flexShrink: 0 }}
       >
-        <Row paddingX="3" alignItems="center" justifyContent="space-between" flexGrow="1">
+        <Row padding="3" alignItems="center" justifyContent="space-between" flexGrow="1">
           {!isCollapsed && (
             <IconLabel icon={<Logo />}>
               <Text weight="bold">umami</Text>
@@ -137,7 +137,7 @@ export function SideNav(props: any) {
           </Column>
         )}
       </Column>
-      <Row marginBottom="4" paddingTop="2">
+      <Row paddingTop="2">
         <UserButton showText={!isCollapsed} />
       </Row>
     </Column>

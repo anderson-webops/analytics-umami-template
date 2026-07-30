@@ -4,8 +4,8 @@ import { IconLabel } from '@/components/common/IconLabel';
 import { LinkButton } from '@/components/common/LinkButton';
 import { PageHeader } from '@/components/common/PageHeader';
 import { useMessages, useNavigation, useWebsite } from '@/components/hooks';
-import { TrafficTypeToggle } from '@/components/input/TrafficTypeToggle';
 import { Edit } from '@/components/icons';
+import { TrafficTypeToggle } from '@/components/input/TrafficTypeToggle';
 import { ActiveUsers } from '@/components/metrics/ActiveUsers';
 
 export function WebsiteHeader({
@@ -34,7 +34,7 @@ export function WebsiteHeader({
       <Row alignItems="center" gap="6" wrap="wrap">
         <TrafficTypeToggle />
 
-        <ActiveUsers websiteId={website.id} />
+        <ActiveUsers websiteId={website.id} allowLink={allowLink} />
 
         {showActions && (
           <LinkButton href={renderUrl(`/websites/${website.id}/settings`, false)}>

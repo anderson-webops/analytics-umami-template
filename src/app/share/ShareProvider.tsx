@@ -4,7 +4,8 @@ import { usePathname, useRouter } from 'next/navigation';
 import { createContext, type ReactNode, useEffect } from 'react';
 import { useShareTokenQuery } from '@/components/hooks';
 import { ENTITY_TYPE } from '@/lib/constants';
-import type { WhiteLabel } from '@/lib/types';
+import type { ShareParameters, WhiteLabel } from '@/lib/types';
+import { setShareData, useApp } from '@/store/app';
 
 export interface ShareData {
   shareId: string;
@@ -15,18 +16,21 @@ export interface ShareData {
   boardId?: string;
   pixelId?: string;
   linkId?: string;
-  parameters: any;
+  parameters: ShareParameters;
   token: string;
   whiteLabel?: WhiteLabel;
 }
 
 export const ShareContext = createContext<ShareData>(null);
 
+const selector = (state: { shareToken: { token?: string } | null }) => state.shareToken;
+
 const ALL_SECTION_IDS = [
   'overview',
   'events',
   'sessions',
   'realtime',
+  'performance',
   'compare',
   'breakdown',
   'goals',
@@ -54,14 +58,18 @@ export function ShareProvider({ slug, children }: { slug: string; children: Reac
   const { share, isLoading, isFetching } = useShareTokenQuery(slug);
   const router = useRouter();
   const pathname = usePathname();
+  const shareToken = useApp(selector);
   const path = getSharePath(pathname);
   const isWebsiteShare = share?.shareType === ENTITY_TYPE.website;
+  const isShareReady = !!share?.token && shareToken?.token === share.token;
 
-  const allowedSections = isWebsiteShare && share?.parameters
-    ? ALL_SECTION_IDS.filter(id => share.parameters[id] !== false)
-    : [];
+  const allowedSections =
+    isWebsiteShare && share?.parameters
+      ? ALL_SECTION_IDS.filter(id => share.parameters[id] === true)
+      : [];
 
-  const shouldRedirect = isWebsiteShare &&
+  const shouldRedirect =
+    isWebsiteShare &&
     allowedSections.length === 1 &&
     allowedSections[0] !== 'overview' &&
     (path === undefined || path === '' || path === 'overview');
@@ -72,11 +80,17 @@ export function ShareProvider({ slug, children }: { slug: string; children: Reac
     }
   }, [shouldRedirect, slug, allowedSections, router]);
 
-  if (isFetching && isLoading) {
+  useEffect(() => {
+    return () => {
+      setShareData(null, null);
+    };
+  }, [slug]);
+
+  if ((isFetching && isLoading) || (share && !isShareReady)) {
     return <Loading placement="absolute" />;
   }
 
-  if (!share || shouldRedirect) {
+  if (!share || !isShareReady || shouldRedirect) {
     return null;
   }
 
