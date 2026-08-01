@@ -101,6 +101,10 @@ async function checkDatabaseVersion() {
 
 async function applyMigration() {
   if (isEnabled(process.env.SKIP_DB_MIGRATION)) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('SKIP_DB_MIGRATION is not permitted in production.');
+    }
+
     warning('Database migration was explicitly skipped.');
     return;
   }
@@ -134,6 +138,59 @@ async function applyMigration() {
   }
 
   success('Database is up to date.');
+}
+
+async function checkSchemaCompatibility() {
+  const result = await prisma.$queryRaw`
+    SELECT
+      EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'website'
+          AND column_name = 'recorder_enabled'
+      ) AS recorder_enabled,
+      EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'website'
+          AND column_name = 'replay_config'
+      ) AS replay_config,
+      EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = current_schema()
+          AND table_name = 'session_replay'
+      ) AS session_replay,
+      EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = current_schema()
+          AND table_name = 'session_replay_saved'
+      ) AS session_replay_saved,
+      EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = current_schema()
+          AND table_name = 'heatmap_event'
+      ) AS heatmap_event
+  `;
+  const schema = result[0];
+
+  if (
+    !schema?.recorder_enabled ||
+    !schema?.replay_config ||
+    !schema?.session_replay ||
+    !schema?.session_replay_saved ||
+    !schema?.heatmap_event
+  ) {
+    throw new Error(
+      'Database schema is incomplete after migration. Ensure every committed Prisma migration is available and can be applied before starting the service.',
+    );
+  }
+
+  success('Database schema compatibility check successful.');
 }
 
 async function checkUsers() {
@@ -519,6 +576,7 @@ async function run() {
     checkConnection,
     checkDatabaseVersion,
     applyMigration,
+    checkSchemaCompatibility,
     checkSecurityState,
   ];
 

@@ -194,7 +194,7 @@ const apiHeaders = [
   },
   {
     key: 'Access-Control-Allow-Headers',
-    value: 'Content-Type, X-Umami-Cache, X-Umami-Hostname',
+    value: 'Content-Type, X-Umami-Cache, X-Umami-Hostname, X-Umami-Website-Id',
   },
   {
     key: 'Access-Control-Allow-Methods',

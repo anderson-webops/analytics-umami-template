@@ -535,6 +535,10 @@ if (process.env.NODE_ENV === 'production') {
     fail('SKIP_DB_CHECK is not permitted in production.');
   }
 
+  if (isEnabled(process.env.SKIP_DB_MIGRATION)) {
+    fail('SKIP_DB_MIGRATION is not permitted in production.');
+  }
+
   if (isEnabled(process.env.LOG_QUERY) || getValue('DEBUG')) {
     fail('LOG_QUERY and DEBUG must not be enabled in production.');
   }

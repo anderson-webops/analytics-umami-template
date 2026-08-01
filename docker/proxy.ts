@@ -12,7 +12,8 @@ const BASE_PATH = process.env.BASE_PATH || '';
 
 const apiHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type, X-Umami-Cache, X-Umami-Hostname',
+  'Access-Control-Allow-Headers':
+    'Content-Type, X-Umami-Cache, X-Umami-Hostname, X-Umami-Website-Id',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Max-Age': process.env.CORS_MAX_AGE || '86400',
   'Cache-Control': 'no-store',

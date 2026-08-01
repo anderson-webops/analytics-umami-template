@@ -56,6 +56,7 @@ COPY --from=builder \
     /app/scripts/change-password.js \
     /app/scripts/check-db.js \
     /app/scripts/check-env.js \
+    /app/scripts/start-docker.js \
     /app/scripts/update-tracker.js \
     ./scripts/
 COPY --from=builder /app/generated ./generated
@@ -67,6 +68,13 @@ COPY --from=production-deps /app/node_modules ./node_modules
 # The service runs without root and may only mutate the generated tracker and
 # framework cache. Application code and dependencies remain root-owned.
 RUN mkdir -p .next/cache /tmp/npm \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+    && rm -f \
+      /usr/local/bin/corepack \
+      /usr/local/bin/npm \
+      /usr/local/bin/npx \
+      /usr/local/bin/pnpm \
+      /usr/local/bin/pnpx \
     && chown nextjs:nodejs public/script.js .next/cache /tmp/npm
 
 USER nextjs
@@ -76,4 +84,4 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD ["node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(response => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1));"]
 
-CMD ["npm", "run", "start-docker"]
+CMD ["node", "scripts/start-docker.js"]
