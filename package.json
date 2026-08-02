@@ -1,6 +1,6 @@
 {
   "name": "umami",
-  "version": "3.2.6",
+  "version": "4.0.0",
   "private": true,
   "description": "A modern, privacy-focused alternative to Google Analytics.",
   "author": "Umami Software, Inc. <hello@umami.is>",
@@ -22,8 +22,8 @@
     "build": "npm-run-all check-env build-db check-db build-tracker build-recorder build-geo build-app",
     "prestart": "npm-run-all check-env check-db",
     "start": "next start",
-    "build-docker": "npm-run-all build-db build-tracker build-recorder build-geo build-app postbuild",
-    "start-docker": "node scripts/start-docker.js",
+    "build:production": "npm-run-all build-db build-tracker build-recorder build-geo build-app postbuild",
+    "start:production": "node scripts/start-production.js",
     "start-env": "node scripts/start-env.js",
     "start-server": "node server.js",
     "build-app": "cross-env NEXT_TELEMETRY_DISABLED=1 next build --webpack",

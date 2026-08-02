@@ -21,7 +21,7 @@ describe('tracker cross-origin requests', () => {
       expect(trackerSource).toContain(trackerHeader);
     }
 
-    for (const configurationFile of ['docker/proxy.ts', 'next.config.ts']) {
+    for (const configurationFile of ['src/proxy.ts', 'next.config.ts']) {
       const configurationSource = fs.readFileSync(
         path.join(repositoryRoot, configurationFile),
         'utf8',

@@ -6,27 +6,33 @@ Customized Umami base for the self-hosted analytics sites under `analytics.*`.
 
 - shared source of truth for the analytics forks in this workspace
 - site-independent Umami customization and maintenance
-- Docker/standalone build source used by the deployed analytics services
+- direct Node 24 production builds for systemd-managed analytics services
+
+Production deployment intentionally does not use Docker, Compose, Podman, or a
+container registry. PostgreSQL runs as an operating-system service or managed
+database, while the application listens only on loopback behind Nginx.
 
 ## Important Customizations
 
 - `team-owner` users see team-owned websites in both the personal Websites view and the team view
 - standalone builds repair hashed Prisma and `pg` aliases before deploy so `/api/config` and `/api/auth/verify` stay resolvable at runtime
-- standalone packaging removes any accidentally traced `.env*` files before an artifact is shipped
+- standalone packaging removes accidentally traced `.env*` files and copies public/static runtime assets into the deployable tree
 - explicit `GET /healthz`, `GET /readyz`, and guarded `GET /_dbinfo` endpoints are available for monitoring
-- production startup validates secrets, trusted proxy configuration, supported PostgreSQL, database migrations, active administrators, roles, ownership, memberships, shares, and relational integrity
+- production startup validates secrets, loopback binding, trusted proxy configuration, supported PostgreSQL, database migrations, active administrators, roles, ownership, memberships, shares, and relational integrity
 - local hook and line-ending handling are normalized for repeatable commits
 
 ## Important Paths
 
-- `src/` - Umami application source
+- `src/` - Umami application source, including the production proxy middleware
 - `scripts/repair-standalone.js` - fixes standalone runtime alias resolution after build
 - `scripts/check-env.js` - rejects unsafe or ambiguous production configuration
 - `scripts/check-db.js` - applies migrations and verifies security/data invariants
+- `scripts/start-production.js` - checks configuration/database state and starts the loopback-only standalone server
 - `scripts/change-password.js` - rotates a user's password without exposing it as a command-line argument
-- `scripts/postbuild.js` - postbuild entry point used by the app and Docker build
-- `public/` - shared static assets; fork repos replace branding here
-- `env.sample` - local environment template
+- `deploy/systemd/umami@.service` - hardened direct Node service template
+- `deploy/nginx/analytics.locations.conf` - same-origin reverse-proxy example
+- `env.sample` - production environment template
+- `DEPLOYMENT.md` - non-container deployment and rollback procedure
 - `HEALTHCHECKS.md` - monitor endpoints and expected status codes
 
 ## Common Commands
@@ -35,37 +41,27 @@ Customized Umami base for the self-hosted analytics sites under `analytics.*`.
 pnpm install --frozen-lockfile
 cp env.sample .env
 pnpm dev
-pnpm build
-pnpm build-docker
-pnpm start
+pnpm build:production
+pnpm start:production
 ```
 
-## Container Deployment
+## Production Deployment
 
-The Compose stack builds the checked-out hardened source instead of pulling a
-mutable upstream application tag. It binds Umami to loopback, pins PostgreSQL
-by digest, and keeps the database on an internal network.
+Use PostgreSQL 15 or newer, Node 24.18.1, pnpm 11.18.0, the supplied systemd
+unit, and Nginx. Each release is built from an exact commit in its own directory
+and promoted by changing the `current` symlink. The service defaults to
+`127.0.0.1:3000`; production validation rejects a public bind address.
 
-```bash
-install -m 0600 env.sample .env
-# Fill in every required value in .env.
-docker compose config
-docker compose build --pull
-docker compose up -d
-```
-
-Do not publish the resolved `docker compose config` output because it contains
-environment values. Put a trusted TLS reverse proxy in front of
-`127.0.0.1:3000`; `UMAMI_PORT` can select another loopback port. See
-`podman/README.md` for the rootless Podman equivalent.
+See [DEPLOYMENT.md](DEPLOYMENT.md) for installation, migration, verification,
+rollback, and IPv4/IPv6-preservation requirements.
 
 ## Operational Notes
 
-- PostgreSQL 15 or newer is required. Redis and ClickHouse are optional, but readiness will report them when configured.
-- Production requires `APP_SECRET`, `PUBLIC_URL`, and `CLIENT_IP_HEADER`. The configured IP header must be overwritten by a trusted edge or reverse proxy; arbitrary forwarding headers are not trusted in production.
+- PostgreSQL 15 or newer is required. Redis and ClickHouse are optional, but readiness reports them when configured.
+- Production requires `APP_SECRET`, `PUBLIC_URL`, and `CLIENT_IP_HEADER`. The configured IP header must be overwritten by a trusted edge or reverse proxy; arbitrary forwarding headers are not trusted.
 - Known CDN location headers are used only when `TRUST_LOCATION_HEADERS=1`. Client-supplied IP, user-agent, browser, OS, and device fields are used only in the cloud collector architecture with `CLOUD_MODE=1`, `TRUST_CLIENT_INFO_PAYLOAD=1`, and a matching `CLIENT_INFO_TRUST_KEY` supplied through the `x-umami-client-info-key` request header.
 - Public database, Redis, ClickHouse, and Kafka hosts must use encrypted connections. `LOG_QUERY`, `DEBUG`, `ENABLE_TEST_CONSOLE`, and `SKIP_DB_CHECK` are rejected in production.
-- After the initial migration, rotate the seeded password before starting the service:
+- Rotate the seeded administrator password before public promotion:
 
   ```bash
   read -s UMAMI_PASSWORD
@@ -74,9 +70,7 @@ environment values. Put a trusted TLS reverse proxy in front of
   unset UMAMI_PASSWORD
   ```
 
-  Supply the password through a protected environment or secret manager and remove it from the environment immediately afterward.
-- Fresh sites can be provisioned atomically after migration without placing the
-  administrator password in process arguments:
+- Fresh sites can be provisioned atomically after migration without placing the administrator password in process arguments:
 
   ```bash
   read -s UMAMI_ADMIN_PASSWORD
@@ -90,5 +84,4 @@ environment values. Put a trusted TLS reverse proxy in front of
   Existing non-admin users are never promoted implicitly. Use
   `--promote-existing-admin` only after verifying the intended account, and use
   `--update-admin-password` only for an intentional rotation.
-- Use `pnpm build-docker` when validating the deploy artifact path. The Dockerfile relies on the standalone repair step.
 - Fork repos should sync from this template first, then carry only site-specific branding and deployment differences.

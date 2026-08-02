@@ -1,32 +1,23 @@
-name: Create docker images
+name: Validate direct production release
 
 on:
   push:
     tags:
       - "v*.*.*"
   workflow_dispatch:
-    inputs:
-      version:
-        description: "Optional image version (e.g. 3.0.0, v3.0.0, or 3.0.0-beta.1)"
-        required: false
-        default: ""
-      include_latest:
-        description: "Include latest tag"
-        required: false
-        type: boolean
-        default: true
+
+permissions:
+  contents: read
 
 concurrency:
-  group: analytics-container-release
+  group: analytics-direct-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   validate:
-    name: Validate release source
-    runs-on: ubuntu-latest
+    name: Validate non-container release
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
-    permissions:
-      contents: read
     env:
       APP_SECRET: release-validation-only-secret-0000000000000000
       DATABASE_URL: postgresql://user:pass@localhost:5432/dummy
@@ -35,7 +26,7 @@ jobs:
       SKIP_DB_CHECK: "1"
 
     steps:
-      - name: Check out source
+      - name: Check out exact release source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
@@ -55,150 +46,19 @@ jobs:
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Audit and validate release source
+      - name: Audit and validate source
         run: |
           pnpm run audit:all
           pnpm run audit:prod
           pnpm run validate
-          pnpm run build-docker
 
-  build:
-    name: Build, push, and deploy
-    needs: validate
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      packages: write
+      - name: Build direct production runtime
+        run: pnpm run build:production
 
-    steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-
-      - name: Reclaim runner disk space
+      - name: Verify standalone runtime identity
         run: |
-          sudo rm -rf \
-            /usr/local/lib/android \
-            /usr/share/dotnet \
-            /opt/ghc \
-            /usr/local/.ghcup \
-            /usr/local/share/boost
-          df -h /
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
-
-      - name: Log into GHCR
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Log into Docker Hub
-        if: github.repository == 'umami-software/umami'
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
-        with:
-          registry: docker.io
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Compute version tags
-        id: compute
-        env:
-          INPUT_VERSION: ${{ inputs.version }}
-          REF_NAME: ${{ github.ref_name }}
-          REF_TYPE: ${{ github.ref_type }}
-          INCLUDE_LATEST: ${{ inputs.include_latest }}
-        run: |
-          set -euo pipefail
-          INPUT="$INPUT_VERSION"
-
-          # Determine version source
-          if [[ -n "$INPUT" ]]; then
-            VERSION="${INPUT#v}"
-          elif [[ "$REF_TYPE" == "tag" ]]; then
-            VERSION="${REF_NAME#v}"
-          else
-            VERSION=""
-          fi
-
-          if [[ -n "$VERSION" ]] && [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
-            echo "Version must be a Docker-compatible semantic version." >&2
-            exit 1
-          fi
-
-          GHCR_TAGS=""
-          DOCKER_TAGS=""
-          REPOSITORY="${GITHUB_REPOSITORY,,}"
-
-          if [[ -n "$VERSION" ]]; then
-            MAJOR=$(echo "$VERSION" | cut -d. -f1)
-            MINOR=$(echo "$VERSION" | cut -d. -f2)
-
-            if [[ "$VERSION" == *-* ]]; then
-              # prerelease: only version tag
-              GHCR_TAGS="ghcr.io/$REPOSITORY:$VERSION"
-              DOCKER_TAGS="umamisoftware/umami:$VERSION"
-            else
-              # stable release: version + hierarchy
-              GHCR_TAGS="ghcr.io/$REPOSITORY:$VERSION"
-              GHCR_TAGS="$GHCR_TAGS,ghcr.io/$REPOSITORY:${MAJOR}.${MINOR}"
-              GHCR_TAGS="$GHCR_TAGS,ghcr.io/$REPOSITORY:${MAJOR}"
-              GHCR_TAGS="$GHCR_TAGS,ghcr.io/$REPOSITORY:postgresql-latest"
-          
-              DOCKER_TAGS="umamisoftware/umami:$VERSION"
-              DOCKER_TAGS="$DOCKER_TAGS,umamisoftware/umami:${MAJOR}.${MINOR}"
-              DOCKER_TAGS="$DOCKER_TAGS,umamisoftware/umami:${MAJOR}"
-              DOCKER_TAGS="$DOCKER_TAGS,umamisoftware/umami:postgresql-latest"
-          
-              # Add latest tag based on trigger and input
-              if [[ "$REF_TYPE" == "tag" ]] || [[ "$INCLUDE_LATEST" == "true" ]]; then
-                GHCR_TAGS="$GHCR_TAGS,ghcr.io/$REPOSITORY:latest"
-                DOCKER_TAGS="$DOCKER_TAGS,umamisoftware/umami:latest"
-              fi
-            fi
-          else
-            # Non-tag build (e.g. from main branch)
-            if [[ ! "$REF_NAME" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
-              echo "Git ref cannot be represented safely as an image tag." >&2
-              exit 1
-            fi
-
-            GHCR_TAGS="ghcr.io/$REPOSITORY:${REF_NAME}"
-            DOCKER_TAGS="umamisoftware/umami:${REF_NAME}"
-          fi
-
-          echo "ghcr_tags=$GHCR_TAGS" >> "$GITHUB_OUTPUT"
-          echo "docker_tags=$DOCKER_TAGS" >> "$GITHUB_OUTPUT"
-          echo "Computed GHCR tags: $GHCR_TAGS"
-          echo "Computed Docker Hub tags: $DOCKER_TAGS"
-
-      - name: Build and push to GHCR
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.compute.outputs.ghcr_tags }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=min
-          provenance: mode=max
-          sbom: true
-
-      - name: Build and push to Docker Hub
-        if: github.repository == 'umami-software/umami'
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.compute.outputs.docker_tags }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=min
-          provenance: mode=max
-          sbom: true
+          test -f .next/standalone/server.js
+          test -f .next/standalone/public/script.js
+          test -d .next/standalone/.next/static
+          test ! -e Dockerfile
+          test ! -e docker-compose.yml

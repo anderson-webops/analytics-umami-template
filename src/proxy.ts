@@ -91,13 +91,14 @@ function disableLogin(request: NextRequest) {
   }
 }
 
-export default function middleware(req: NextRequest) {
-  const fns = [customCollectEndpoint, customScriptName, customScriptUrl, disableLogin];
+export default function middleware(request: NextRequest) {
+  const handlers = [customCollectEndpoint, customScriptName, customScriptUrl, disableLogin];
 
-  for (const fn of fns) {
-    const res = fn(req);
-    if (res) {
-      return res;
+  for (const handler of handlers) {
+    const response = handler(request);
+
+    if (response) {
+      return response;
     }
   }
 

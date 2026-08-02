@@ -14,7 +14,7 @@ async function exists(targetPath) {
   }
 }
 
-async function findStandaloneAppDir(rootDir) {
+export async function findStandaloneAppDir(rootDir) {
   const queue = [rootDir];
 
   while (queue.length > 0) {

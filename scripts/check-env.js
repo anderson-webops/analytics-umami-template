@@ -15,6 +15,7 @@ const PLACEHOLDER_SECRETS = new Set([
 ]);
 const SAFE_SCHEMA = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const SAFE_HEADER = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+const EXPECTED_NODE_VERSION = '24.18.1';
 const FORBIDDEN_CLIENT_IP_HEADERS = new Set([
   'authorization',
   'connection',
@@ -510,8 +511,18 @@ if (isEnabled(process.env.TRUST_LOCATION_HEADERS) && isEnabled(process.env.SKIP_
 }
 
 if (process.env.NODE_ENV === 'production') {
+  if (process.versions.node !== EXPECTED_NODE_VERSION) {
+    fail(`Production requires Node ${EXPECTED_NODE_VERSION}; found ${process.versions.node}.`);
+  }
+
   checkMissing(['DATABASE_URL', 'APP_SECRET', 'PUBLIC_URL', 'CLIENT_IP_HEADER']);
   checkHeaderName('CLIENT_IP_HEADER', { required: true });
+
+  const bindAddress = getValue('UMAMI_BIND_ADDRESS') || '127.0.0.1';
+
+  if (!['127.0.0.1', '::1'].includes(bindAddress)) {
+    fail('UMAMI_BIND_ADDRESS must be a loopback address in production.');
+  }
 
   if (getValue('INTERNAL_DIAGNOSTICS_KEY')) {
     checkMinimumBytes('INTERNAL_DIAGNOSTICS_KEY', 32);

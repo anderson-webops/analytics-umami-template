@@ -1,0 +1,44 @@
+[Unit]
+Description=Umami analytics instance %i
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=umami
+Group=umami
+WorkingDirectory=/srv/umami/%i/current
+EnvironmentFile=/etc/umami/%i.env
+Environment=NODE_ENV=production
+Environment=UMAMI_BIND_ADDRESS=127.0.0.1
+ExecStart=/usr/bin/node scripts/start-production.js
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=180s
+TimeoutStopSec=30s
+KillSignal=SIGTERM
+UMask=0027
+
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadWritePaths=-/srv/umami/%i/current/.next/standalone/public
+ReadWritePaths=-/srv/umami/%i/current/.next/standalone/.next/cache
+
+[Install]
+WantedBy=multi-user.target
