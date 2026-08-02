@@ -1,0 +1,59 @@
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:20"
+      timezone: America/New_York
+    versioning-strategy: increase-if-necessary
+    open-pull-requests-limit: 10
+    groups:
+      production-minor-and-patch:
+        dependency-type: production
+        update-types:
+          - minor
+          - patch
+      development-minor-and-patch:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # These major updates require upstream migrations. Vulnerability alerts
+      # and the repository's audit gates remain enabled.
+      - dependency-name: "@dicebear/core"
+        update-types:
+          - version-update:semver-major
+      - dependency-name: "@types/node"
+        update-types:
+          - version-update:semver-major
+      - dependency-name: typescript
+        update-types:
+          - version-update:semver-major
+      # React Zen 0.x minor releases may contain breaking component API
+      # changes; 0.246+ requires the upstream UI migration.
+      - dependency-name: "@umami/react-zen"
+        versions:
+          - ">=0.246.0"
+      # Native packages must exactly match the JavaScript loader that consumes
+      # them. Update them only through the native-binding lockfile workflow.
+      - dependency-name: "@esbuild/linux-*"
+      - dependency-name: "@img/sharp-*linux*"
+      - dependency-name: "@next/swc-linux-*"
+      - dependency-name: "@rolldown/binding-linux-*"
+      - dependency-name: "@rollup/rollup-linux-*"
+      - dependency-name: "@unrs/resolver-binding-linux-*"
+      - dependency-name: "lightningcss-linux-*"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:35"
+      timezone: America/New_York
+    open-pull-requests-limit: 5
+
