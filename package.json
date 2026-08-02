@@ -1,6 +1,6 @@
 {
   "name": "umami",
-  "version": "3.2.5",
+  "version": "3.2.6",
   "private": true,
   "description": "A modern, privacy-focused alternative to Google Analytics.",
   "author": "Umami Software, Inc. <hello@umami.is>",
@@ -115,7 +115,7 @@
     "react-simple-maps": "^3.0.0",
     "react-use-measure": "^2.1.7",
     "react-window": "^2.3.0",
-    "redis": "^6.1.0",
+    "redis": "^6.2.0",
     "request-ip": "^3.3.0",
     "rrweb": "^2.1.1",
     "rrweb-player": "2.1.1",
