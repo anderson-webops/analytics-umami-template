@@ -1,15 +1,18 @@
-import { canAccessInternalDiagnostics, getReadiness, readyResponse } from '@/lib/health';
+import { getReadiness, readyResponse } from '@/lib/health';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function GET(request: Request) {
-  const readiness = await getReadiness();
-  const body = canAccessInternalDiagnostics(request)
-    ? readiness
-    : {
-        ready: readiness.ready,
-      };
+async function respond(method: 'GET' | 'HEAD') {
+  const ready = await getReadiness();
 
-  return readyResponse(readiness.ready ? 200 : 503, body);
+  return readyResponse(ready, method);
+}
+
+export async function GET() {
+  return respond('GET');
+}
+
+export async function HEAD() {
+  return respond('HEAD');
 }

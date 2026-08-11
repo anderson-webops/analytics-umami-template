@@ -7,10 +7,6 @@ const noStoreHeaders = {
   'Cache-Control': 'no-store',
 };
 
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'check-failed';
-}
-
 function secretsMatch(left: string, right: string): boolean {
   const leftDigest = crypto.createHash('sha256').update(left).digest();
   const rightDigest = crypto.createHash('sha256').update(right).digest();
@@ -18,27 +14,35 @@ function secretsMatch(left: string, right: string): boolean {
   return crypto.timingSafeEqual(leftDigest, rightDigest);
 }
 
-export function healthResponse() {
-  return Response.json({ ok: true }, { headers: noStoreHeaders });
+type ProbeMethod = 'GET' | 'HEAD';
+
+function probeResponse(ok: boolean, status: number, method: ProbeMethod) {
+  if (method === 'HEAD') {
+    return new Response(null, { headers: noStoreHeaders, status });
+  }
+
+  return Response.json({ ok }, { headers: noStoreHeaders, status });
+}
+
+export function healthResponse(method: ProbeMethod = 'GET') {
+  return probeResponse(true, 200, method);
 }
 
 export async function getReadiness() {
-  const components: Record<string, { ok: boolean; error?: string }> = {};
+  let ready = true;
 
   try {
     await prisma.client.$queryRaw`SELECT 1`;
-    components.db = { ok: true };
-  } catch (error) {
-    components.db = { ok: false, error: getErrorMessage(error) };
+  } catch {
+    ready = false;
   }
 
   if (redis.enabled) {
     try {
       await redis.client.connect();
       await redis.client.client.ping();
-      components.redis = { ok: true };
-    } catch (error) {
-      components.redis = { ok: false, error: getErrorMessage(error) };
+    } catch {
+      ready = false;
     }
   }
 
@@ -51,25 +55,16 @@ export async function getReadiness() {
       }
 
       await client.ping();
-      components.clickhouse = { ok: true };
-    } catch (error) {
-      components.clickhouse = { ok: false, error: getErrorMessage(error) };
+    } catch {
+      ready = false;
     }
   }
 
-  const ready = Object.values(components).every(component => component.ok);
-
-  return {
-    ready,
-    components,
-  };
+  return ready;
 }
 
-export function readyResponse(
-  status: number,
-  body: { ready: boolean; components?: Record<string, unknown> },
-) {
-  return Response.json(body, { headers: noStoreHeaders, status });
+export function readyResponse(ready: boolean, method: ProbeMethod = 'GET') {
+  return probeResponse(ready, ready ? 200 : 503, method);
 }
 
 export function canAccessInternalDiagnostics(request: Request): boolean {

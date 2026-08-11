@@ -17,7 +17,7 @@ database, while the application listens only on loopback behind Nginx.
 - `team-owner` users see team-owned websites in both the personal Websites view and the team view
 - standalone builds repair hashed Prisma and `pg` aliases before deploy so `/api/config` and `/api/auth/verify` stay resolvable at runtime
 - standalone packaging removes accidentally traced `.env*` files and copies public/static runtime assets into the deployable tree
-- explicit `GET /healthz`, `GET /readyz`, and guarded `GET /_dbinfo` endpoints are available for monitoring
+- explicit minimal `GET`/`HEAD /healthz` and `GET`/`HEAD /readyz` probes are available for monitoring; guarded `GET /_dbinfo` remains separate from monitoring
 - production startup validates secrets, loopback binding, trusted proxy configuration, supported PostgreSQL, database migrations, active administrators, roles, ownership, memberships, shares, and relational integrity
 - local hook and line-ending handling are normalized for repeatable commits
 
