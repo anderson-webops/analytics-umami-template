@@ -96,6 +96,15 @@ export function notFound(error?: Record<string, any>) {
   );
 }
 
+export function serviceUnavailable(error?: Record<string, any>) {
+  return Response.json(
+    {
+      error: { message: 'Service unavailable', code: 'service-unavailable', status: 503, ...error },
+    },
+    { status: 503 },
+  );
+}
+
 export function serverError(error?: unknown) {
   if (error) {
     const name = error instanceof Error ? error.name : typeof error;

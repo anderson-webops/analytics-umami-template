@@ -8,6 +8,7 @@ const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
 const projectRoot = fileURLToPath(new URL('.', import.meta.url));
 
 const TRACKER_SCRIPT = '/script.js';
+const RECORDER_SCRIPT = '/recorder.js';
 
 const isProd = process.env.NODE_ENV === 'production';
 const isEnabled = (name: string) =>
@@ -241,6 +242,10 @@ const headers = [
 if (isProd) {
   headers.push({
     source: TRACKER_SCRIPT,
+    headers: trackerHeaders,
+  });
+  headers.push({
+    source: RECORDER_SCRIPT,
     headers: trackerHeaders,
   });
 }

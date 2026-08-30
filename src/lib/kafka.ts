@@ -49,7 +49,9 @@ function getClient() {
   const ssl: { ssl?: tls.ConnectionOptions | boolean; sasl?: SASLOptions } =
     username && password
       ? {
-          ssl: useTls,
+          ssl: {
+            rejectUnauthorized: process.env.KAFKA_SSL_ALLOW_UNAUTHORIZED !== 'true',
+          },
           sasl: {
             mechanism,
             username,

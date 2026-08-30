@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { corsPreflight } from '@/lib/cors';
 import { getRecorderConfig } from '@/lib/recorder';
 import { isAllowedTrackingHostname } from '@/lib/security';
 import { findWebsite } from '@/queries/prisma';
@@ -31,6 +32,10 @@ function unavailable() {
       },
     },
   );
+}
+
+export function OPTIONS() {
+  return corsPreflight();
 }
 
 export async function GET(

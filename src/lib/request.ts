@@ -5,7 +5,11 @@ import { DEFAULT_PAGE_SIZE, FILTER_COLUMNS, OPERATORS } from '@/lib/constants';
 import { getAllowedUnits, getMinimumUnit, maxDate, parseDateRange } from '@/lib/date';
 import { isEnvEnabled } from '@/lib/env';
 import { fetchAccount, fetchWebsite } from '@/lib/load';
-import { filtersArrayToObject } from '@/lib/params';
+import {
+  filtersArrayToObject,
+  parseSessionPropertyFilters,
+  parseUniversalEventPropertyFilters,
+} from '@/lib/params';
 import { badRequest, forbidden, payloadTooLarge, unauthorized } from '@/lib/response';
 import { savedSegmentSchema } from '@/lib/schema';
 import { hasShareFilterParams } from '@/lib/share-filter';
@@ -69,8 +73,12 @@ export async function parseRequest(
         const baseName = key.replace(/\d+$/, '');
         const isSuffixedFilter = /\d+$/.test(key) && baseName in FILTER_COLUMNS;
         const isPropertyFilter = /^pf_[A-Za-z0-9_-]+$/.test(key);
+        const isUniversalPropertyFilter = /^(?:epf|spf)\d+$/.test(key);
 
-        if ((isSuffixedFilter || isPropertyFilter) && !(key in query)) {
+        if (
+          (isSuffixedFilter || isPropertyFilter || isUniversalPropertyFilter) &&
+          !(key in query)
+        ) {
           dynamicFilterCount += 1;
 
           if (dynamicFilterCount > 100 || key.length > 128 || String(rawQuery[key]).length > 500) {
@@ -224,6 +232,8 @@ export async function getQueryFilters(
 ): Promise<QueryFilters> {
   const dateRange = getRequestDateRange(params);
   const filters = getRequestFilters(params);
+  const eventPropertyFilters = parseUniversalEventPropertyFilters(params);
+  const sessionPropertyFilters = parseSessionPropertyFilters(params);
 
   let match = params?.match;
 
@@ -291,6 +301,8 @@ export async function getQueryFilters(
     ...filters,
     match,
     minDuration: params?.minDuration,
+    eventPropertyFilters,
+    sessionPropertyFilters,
     page: params?.page,
     pageSize: params?.pageSize ? params?.pageSize || DEFAULT_PAGE_SIZE : undefined,
     orderBy: params?.orderBy,

@@ -35,6 +35,7 @@ async function findUser(criteria: Prisma.UserFindUniqueArgs, options: GetUserOpt
       password: includePassword,
       role: true,
       createdAt: true,
+      twoFactorRequired: true,
     },
   });
 }
@@ -55,24 +56,7 @@ export async function getUser(userId: string, options: GetUserOptions = {}) {
 }
 
 export async function getUserByUsername(username: string, options: GetUserOptions = {}) {
-  const { includePassword = false, showDeleted = false } = options;
-
-  return prisma.client.user.findFirst({
-    where: {
-      username: {
-        equals: username.trim(),
-        mode: 'insensitive',
-      },
-      ...(showDeleted ? {} : { deletedAt: null }),
-    },
-    select: {
-      id: true,
-      username: true,
-      password: includePassword,
-      role: true,
-      createdAt: true,
-    },
-  });
+  return findUser({ where: { username: username.trim().toLowerCase() } }, options);
 }
 
 export async function getUsers(criteria: UserFindManyArgs, filters: QueryFilters = {}) {

@@ -44,7 +44,8 @@ overrides:
   serialize-javascript: 7.0.5
   yaml: 2.8.3
   fast-uri: 3.1.5
-  nanoid: 3.3.17
+  nanoid: 3.3.18
+  'deepmerge-ts@<8.0.0': 8.0.2
   postcss: 8.5.25
   'tmp@<0.2.7': 0.2.7
   'systeminformation@>=4.17.0 <5.33.1': 5.33.1

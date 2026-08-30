@@ -5,7 +5,12 @@ import { getQueryFilters, parseRequest } from '@/lib/request';
 import { badRequest, conflict, json, unauthorized } from '@/lib/response';
 import { boardParametersParam, pagingParams, searchParams, sortingParams } from '@/lib/schema';
 import type { BoardParameters } from '@/lib/types';
-import { canCreateTeamWebsite, canCreateWebsite, canViewBoardEntities } from '@/permissions';
+import {
+  canCreateTeamWebsite,
+  canCreateWebsite,
+  canViewBoardEntities,
+  hasValidBoardReports,
+} from '@/permissions';
 import { createBoard, getUserBoards } from '@/queries/prisma';
 
 export async function GET(request: Request) {
@@ -53,6 +58,10 @@ export async function POST(request: Request) {
 
   if (!(await canViewBoardEntities(auth, body.type, body.parameters as BoardParameters))) {
     return badRequest({ message: 'Board contains inaccessible entities.' });
+  }
+
+  if (!(await hasValidBoardReports(body.type, body.parameters))) {
+    return badRequest({ message: 'Board contains invalid saved reports.' });
   }
 
   const data = {

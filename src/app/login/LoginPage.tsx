@@ -1,11 +1,11 @@
 'use client';
 import { Column, Loading } from '@umami/react-zen';
 import { useRouter } from 'next/navigation';
-import { useEffect } from 'react';
+import { type PropsWithChildren, useEffect } from 'react';
 import { useLoginQuery } from '@/components/hooks';
 import { LoginForm } from './LoginForm';
 
-export function LoginPage() {
+export function LoginPageWrapper({ children }: PropsWithChildren) {
   const { user, isLoading } = useLoginQuery();
   const router = useRouter();
 
@@ -27,7 +27,15 @@ export function LoginPage() {
       backgroundColor="surface-raised"
       style={{ paddingTop: '15vh' }}
     >
-      <LoginForm />
+      {children}
     </Column>
+  );
+}
+
+export function LoginPage() {
+  return (
+    <LoginPageWrapper>
+      <LoginForm />
+    </LoginPageWrapper>
   );
 }

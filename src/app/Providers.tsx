@@ -1,12 +1,10 @@
 'use client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider, ZenProvider } from '@umami/react-zen';
-import { useRouter } from 'next/navigation';
 import { NextIntlClientProvider } from 'next-intl';
 import { useEffect } from 'react';
 import { ErrorBoundary } from '@/components/common/ErrorBoundary';
 import { useLocale } from '@/components/hooks';
-import { getSafeNavigationTarget } from '@/lib/security';
 import 'chartjs-adapter-date-fns';
 
 const client = new QueryClient({
@@ -35,26 +33,9 @@ function MessagesProvider({ children }) {
 }
 
 export function Providers({ children }) {
-  const router = useRouter();
-
-  function navigate(url: string) {
-    const target = getSafeNavigationTarget(url);
-
-    if (!target) {
-      return;
-    }
-
-    if (target.external) {
-      window.location.assign(target.url);
-      return;
-    }
-
-    router.push(target.url);
-  }
-
   return (
     <ZenProvider>
-      <RouterProvider navigate={navigate}>
+      <RouterProvider>
         <MessagesProvider>
           <QueryClientProvider client={client}>
             <ErrorBoundary>{children}</ErrorBoundary>

@@ -1,8 +1,9 @@
+import { z } from 'zod';
 import type { Prisma, Website } from '@/generated/prisma/client';
 import { ENTITY_TYPE, PERMISSIONS, ROLES, TEAM_ROLE_RANK } from '@/lib/constants';
-import { isUuid, uuid } from '@/lib/crypto';
+import { uuid } from '@/lib/crypto';
 import { isEnvEnabled } from '@/lib/env';
-import prisma from '@/lib/prisma';
+import prisma, { getSchema } from '@/lib/prisma';
 import { getRecorderConfig, getRecorderEnabled } from '@/lib/recorder';
 import redis from '@/lib/redis';
 import { sanitizeSortFilters } from '@/lib/sort';
@@ -19,12 +20,68 @@ import { lockCollectionSources } from './collection';
 
 const WEBSITE_SORT_FIELDS = ['name', 'domain', 'createdAt'] as const;
 
+async function deleteWebsiteDependentData(tx: any, websiteId: string) {
+  await tx.sessionReplaySaved.deleteMany({
+    where: { websiteId },
+  });
+
+  await tx.sessionReplay.deleteMany({
+    where: { websiteId },
+  });
+
+  await tx.heatmapEvent.deleteMany({
+    where: { websiteId },
+  });
+
+  await tx.revenue.deleteMany({
+    where: { websiteId },
+  });
+
+  await tx.eventData.deleteMany({
+    where: { websiteId },
+  });
+
+  // Follow the real EventData -> WebsiteEvent dependency to clean up any legacy rows
+  // whose duplicated websiteId drifted from the parent event row.
+  const schema = getSchema();
+
+  if (schema) {
+    await tx.$executeRawUnsafe(`SET search_path TO "${schema}";`);
+  }
+
+  await tx.$executeRawUnsafe(
+    `
+      delete from event_data
+      using website_event
+      where event_data.website_event_id = website_event.event_id
+        and website_event.website_id = $1
+    `,
+    websiteId,
+  );
+
+  await tx.sessionData.deleteMany({
+    where: { websiteId },
+  });
+
+  await tx.sessionLink.deleteMany({
+    where: { websiteId },
+  });
+
+  await tx.websiteEvent.deleteMany({
+    where: { websiteId },
+  });
+
+  await tx.session.deleteMany({
+    where: { websiteId },
+  });
+}
+
 export async function findWebsite(criteria: Prisma.WebsiteFindUniqueArgs) {
   return prisma.client.website.findUnique(criteria);
 }
 
 export async function getWebsite(websiteId: string) {
-  if (!isUuid(websiteId)) {
+  if (!z.uuid().safeParse(websiteId).success) {
     return null;
   }
 
@@ -445,38 +502,7 @@ export async function resetWebsite(websiteId: string, actorUserId: string) {
       );
 
       await deleteClickhouseCollectionSources([websiteId]);
-
-      await tx.sessionReplaySaved.deleteMany({
-        where: { websiteId },
-      });
-
-      await tx.sessionReplay.deleteMany({
-        where: { websiteId },
-      });
-
-      await tx.heatmapEvent.deleteMany({
-        where: { websiteId },
-      });
-
-      await tx.revenue.deleteMany({
-        where: { websiteId },
-      });
-
-      await tx.eventData.deleteMany({
-        where: { websiteId },
-      });
-
-      await tx.sessionData.deleteMany({
-        where: { websiteId },
-      });
-
-      await tx.websiteEvent.deleteMany({
-        where: { websiteId },
-      });
-
-      await tx.session.deleteMany({
-        where: { websiteId },
-      });
+      await deleteWebsiteDependentData(tx, websiteId);
 
       const website = await tx.website.update({
         where: { id: websiteId },
@@ -515,38 +541,7 @@ export async function deleteWebsite(websiteId: string, actorUserId: string) {
       );
 
       await deleteClickhouseCollectionSources([websiteId]);
-
-      await tx.sessionReplaySaved.deleteMany({
-        where: { websiteId },
-      });
-
-      await tx.sessionReplay.deleteMany({
-        where: { websiteId },
-      });
-
-      await tx.heatmapEvent.deleteMany({
-        where: { websiteId },
-      });
-
-      await tx.revenue.deleteMany({
-        where: { websiteId },
-      });
-
-      await tx.eventData.deleteMany({
-        where: { websiteId },
-      });
-
-      await tx.sessionData.deleteMany({
-        where: { websiteId },
-      });
-
-      await tx.websiteEvent.deleteMany({
-        where: { websiteId },
-      });
-
-      await tx.session.deleteMany({
-        where: { websiteId },
-      });
+      await deleteWebsiteDependentData(tx, websiteId);
 
       await tx.report.deleteMany({
         where: { websiteId },

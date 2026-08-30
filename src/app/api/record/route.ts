@@ -2,6 +2,7 @@ import { z } from 'zod';
 import clickhouse from '@/lib/clickhouse';
 import { getCollectionLimit } from '@/lib/collection-rate-limit';
 import { CACHE_TOKEN_TYPE, HEATMAP_EVENT_TYPE } from '@/lib/constants';
+import { corsPreflight, withCorsHeaders } from '@/lib/cors';
 import { secret } from '@/lib/crypto';
 import { getClientInfo, hasBlockedIp } from '@/lib/detect';
 import { isEnvEnabled } from '@/lib/env';
@@ -107,6 +108,10 @@ const schema = z.discriminatedUnion('type', [
   }),
 ]);
 
+export function OPTIONS() {
+  return corsPreflight();
+}
+
 export async function POST(request: Request) {
   try {
     const { body, error } = await parseRequest(request, schema, {
@@ -115,7 +120,7 @@ export async function POST(request: Request) {
     });
 
     if (error) {
-      return error();
+      return withCorsHeaders(error());
     }
 
     const { website: websiteId } = body.payload;
@@ -128,14 +133,14 @@ export async function POST(request: Request) {
     }
 
     if (!events?.length) {
-      return json({ ok: true });
+      return withCorsHeaders(json({ ok: true }));
     }
 
     // Parse cache token to get session info
     const cacheHeader = request.headers.get('x-umami-cache');
 
     if (!cacheHeader) {
-      return badRequest({ message: 'Missing session token.' });
+      return withCorsHeaders(badRequest({ message: 'Missing session token.' }));
     }
 
     const cache = (await parseToken(cacheHeader, secret())) as Cache | null;
@@ -146,7 +151,7 @@ export async function POST(request: Request) {
       !cache.sessionId ||
       !cache.visitId
     ) {
-      return badRequest({ message: 'Invalid session token.' });
+      return withCorsHeaders(badRequest({ message: 'Invalid session token.' }));
     }
 
     const { sessionId, visitId } = cache;
@@ -155,11 +160,11 @@ export async function POST(request: Request) {
     const website = await getWebsite(websiteId);
 
     if (!website || website.deletedAt) {
-      return badRequest({ message: 'Website not found.' });
+      return withCorsHeaders(badRequest({ message: 'Website not found.' }));
     }
 
     if (!website.recorderEnabled) {
-      return json({ ok: false, reason: 'recorder_disabled' });
+      return withCorsHeaders(json({ ok: false, reason: 'recorder_disabled' }));
     }
 
     if (isEnvEnabled('CLOUD_MODE')) {
@@ -170,7 +175,7 @@ export async function POST(request: Request) {
           : null;
 
       if (!account?.isBusiness && !account?.isNoBilling) {
-        return forbidden({ message: 'Business subscription required.' });
+        return withCorsHeaders(forbidden({ message: 'Business subscription required.' }));
       }
     }
 
@@ -178,7 +183,7 @@ export async function POST(request: Request) {
     const { ip } = await getClientInfo(request, {});
 
     if (hasBlockedIp(ip)) {
-      return new Response(null, { status: 204 });
+      return withCorsHeaders(new Response(null, { status: 204 }));
     }
 
     try {
@@ -256,26 +261,26 @@ export async function POST(request: Request) {
       });
     } catch (error: any) {
       if (error?.message === 'RECORDER_DISABLED') {
-        return json({ ok: false, reason: 'recorder_disabled' });
+        return withCorsHeaders(json({ ok: false, reason: 'recorder_disabled' }));
       }
 
       if (error?.message === 'REPLAY_DISABLED') {
-        return json({ ok: false, reason: 'replay_disabled' });
+        return withCorsHeaders(json({ ok: false, reason: 'replay_disabled' }));
       }
 
       if (error?.message === 'HEATMAP_DISABLED') {
-        return json({ ok: false, reason: 'heatmap_disabled' });
+        return withCorsHeaders(json({ ok: false, reason: 'heatmap_disabled' }));
       }
 
       if (error?.message === 'COLLECTION_SOURCE_NOT_FOUND') {
-        return badRequest({ message: 'Website not found.' });
+        return withCorsHeaders(badRequest({ message: 'Website not found.' }));
       }
 
       throw error;
     }
 
-    return json({ ok: true });
+    return withCorsHeaders(json({ ok: true }));
   } catch (e) {
-    return serverError(e);
+    return withCorsHeaders(serverError(e));
   }
 }

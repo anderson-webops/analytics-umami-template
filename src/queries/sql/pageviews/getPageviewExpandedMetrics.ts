@@ -37,7 +37,7 @@ async function relationalQuery(
 ): Promise<PageviewExpandedMetricsData[]> {
   const { type, limit = 500, offset = 0 } = parameters;
   let column = getPageviewColumn(type);
-  const { rawQuery, parseFilters, getTimestampDiffSQL } = prisma;
+  const { rawQuery, parseFilters } = prisma;
   const { filterQuery, joinSessionQuery, cohortQuery, excludeBounceQuery, queryParams } =
     parseFilters(
       {
@@ -46,6 +46,10 @@ async function relationalQuery(
       },
       { joinSession: SESSION_COLUMNS.includes(type) },
     );
+  const fullPathSearchQuery =
+    type === 'fullPath' && filters.search
+      ? `and (case when website_event.url_query != '' then website_event.url_path || '?' || website_event.url_query else website_event.url_path end) ilike {{fullPathSearch}}`
+      : '';
 
   let entryExitQuery = '';
   let excludeDomain = '';
@@ -92,25 +96,24 @@ async function relationalQuery(
       sum(t.c) as "pageviews",
       count(distinct t.session_id) as "visitors",
       count(distinct t.visit_id) as "visits",
-      sum(case when t.c = 1 then 1 else 0 end) as "bounces",
-      sum(${getTimestampDiffSQL('t.min_time', 't.max_time')}) as "totaltime"
+      0 as "bounces",
+      0 as "totaltime"
     from (
       select
         ${selectColumn} as "name",
         website_event.session_id,
         website_event.visit_id,
-        count(*) as "c",
-        min(website_event.created_at) as "min_time",
-        max(website_event.created_at) as "max_time"
+        count(*) as "c"
       from website_event
       ${cohortQuery}
       ${excludeBounceQuery}
-      ${joinSessionQuery} 
-      ${entryExitQuery} 
+      ${joinSessionQuery}
+      ${entryExitQuery}
       where website_event.website_id = {{websiteId::uuid}}
       and website_event.created_at between {{startDate}} and {{endDate}}
       and website_event.event_type NOT IN (2, 5)
         ${excludeDomain}
+        ${fullPathSearchQuery}
         ${filterQuery}
       group by ${groupByColumn}, website_event.session_id, website_event.visit_id
     ) as t
@@ -120,7 +123,10 @@ async function relationalQuery(
     limit ${limit}
     offset ${offset}
     `,
-    queryParams,
+    {
+      ...queryParams,
+      ...(type === 'fullPath' && filters.search ? { fullPathSearch: `%${filters.search}%` } : {}),
+    },
     FUNCTION_NAME,
   );
 }
@@ -137,6 +143,10 @@ async function clickhouseQuery(
     ...filters,
     websiteId,
   });
+  const fullPathSearchQuery =
+    type === 'fullPath' && filters.search
+      ? `and positionCaseInsensitive(if(url_query != '', concat(url_path, '?', url_query), url_path), {fullPathSearch:String}) > 0`
+      : '';
 
   let excludeDomain = '';
   let entryExitQuery = '';
@@ -176,16 +186,14 @@ async function clickhouseQuery(
       sum(t.c) as "pageviews",
       uniq(t.session_id) as "visitors",
       uniq(t.visit_id) as "visits",
-      sum(if(t.c = 1, 1, 0)) as "bounces",
-      sum(max_time-min_time) as "totaltime"
+      0 as "bounces",
+      0 as "totaltime"
     from (
       select
         ${selectColumn} name,
         session_id,
         visit_id,
-        count(*) c,
-        min(created_at) min_time,
-        max(created_at) max_time
+        count(*) c
       from website_event
       ${cohortQuery}
       ${excludeBounceQuery}
@@ -195,6 +203,7 @@ async function clickhouseQuery(
         and event_type NOT IN (2, 5)
         and name != ''
         ${excludeDomain}
+        ${fullPathSearchQuery}
         ${filterQuery}
       group by name, session_id, visit_id
     ) as t
@@ -203,7 +212,11 @@ async function clickhouseQuery(
     limit ${limit}
     offset ${offset}
     `,
-    { ...queryParams, ...parameters },
+    {
+      ...queryParams,
+      ...parameters,
+      ...(type === 'fullPath' && filters.search ? { fullPathSearch: filters.search } : {}),
+    },
     FUNCTION_NAME,
   );
 }

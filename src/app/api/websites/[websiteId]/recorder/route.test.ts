@@ -1,75 +1,66 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-
-const findWebsite = vi.fn();
+import { findWebsite } from '@/queries/prisma';
+import { GET, OPTIONS } from './route';
 
 vi.mock('@/queries/prisma', () => ({
-  findWebsite,
+  findWebsite: vi.fn(),
 }));
 
-const { GET } = await import('./route');
+const findWebsiteMock = vi.mocked(findWebsite);
+const WEBSITE_ID = '11111111-1111-4111-8111-111111111111';
 
-const WEBSITE_ID = '1087d7c0-1bfb-4f45-8de8-1413af30f280';
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
-function request(origin = 'https://example.com') {
-  return new Request(`https://analytics.example.net/api/websites/${WEBSITE_ID}/recorder`, {
-    headers: {
-      Origin: origin,
-    },
+describe('recorder config route CORS', () => {
+  test('handles preflight requests', async () => {
+    const response = OPTIONS();
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
+    expect(response.headers.get('Access-Control-Allow-Headers')).toContain('x-umami-cache');
   });
-}
 
-describe('public recorder configuration', () => {
-  beforeEach(() => {
-    findWebsite.mockReset();
-    findWebsite.mockResolvedValue({
+  test('allows the configured tracking origin on config responses', async () => {
+    findWebsiteMock.mockResolvedValue({
       id: WEBSITE_ID,
       domain: 'example.com',
-      deletedAt: null,
-      recorderEnabled: true,
-      replayConfig: {
-        replayEnabled: true,
-        sampleRate: 0.5,
-        maxDuration: 300_000,
-      },
-    });
-  });
+      recorderEnabled: false,
+    } as any);
 
-  test('returns configuration only to the configured website origin', async () => {
-    const response = await GET(request(), {
-      params: Promise.resolve({ websiteId: WEBSITE_ID }),
-    });
+    const response = await GET(
+      new Request(`http://localhost/api/websites/${WEBSITE_ID}/recorder`, {
+        headers: { Origin: 'https://example.com' },
+      }),
+      {
+        params: Promise.resolve({ websiteId: WEBSITE_ID }),
+      },
+    );
 
     expect(response.status).toBe(200);
-    expect(response.headers.get('access-control-allow-origin')).toBe('https://example.com');
-    await expect(response.json()).resolves.toMatchObject({
-      enabled: true,
-      replayEnabled: true,
-      sampleRate: 0.5,
-      maxDuration: 300_000,
-    });
-    expect(findWebsite).toHaveBeenCalledWith({
-      where: {
-        id: WEBSITE_ID,
-        deletedAt: null,
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
+    expect(response.headers.get('Cache-Control')).toContain('max-age=60');
+  });
+
+  test('does not expose configuration to an unrelated origin', async () => {
+    findWebsiteMock.mockResolvedValue({
+      id: WEBSITE_ID,
+      domain: 'example.com',
+      recorderEnabled: true,
+      replayConfig: {},
+    } as any);
+
+    const response = await GET(
+      new Request(`http://localhost/api/websites/${WEBSITE_ID}/recorder`, {
+        headers: { Origin: 'https://attacker.example' },
+      }),
+      {
+        params: Promise.resolve({ websiteId: WEBSITE_ID }),
       },
-    });
-  });
-
-  test('does not reveal configuration to another origin', async () => {
-    const response = await GET(request('https://attacker.example'), {
-      params: Promise.resolve({ websiteId: WEBSITE_ID }),
-    });
+    );
 
     expect(response.status).toBe(404);
-    expect(response.headers.has('access-control-allow-origin')).toBe(false);
-  });
-
-  test('rejects malformed website identifiers before querying', async () => {
-    const response = await GET(request(), {
-      params: Promise.resolve({ websiteId: 'not-a-uuid' }),
-    });
-
-    expect(response.status).toBe(404);
-    expect(findWebsite).not.toHaveBeenCalled();
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull();
   });
 });

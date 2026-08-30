@@ -4,7 +4,13 @@ import { parseRequest } from '@/lib/request';
 import { badRequest, json, notFound, ok, serverError, unauthorized } from '@/lib/response';
 import { boardParametersParam } from '@/lib/schema';
 import type { BoardParameters } from '@/lib/types';
-import { canDeleteBoard, canUpdateBoard, canViewBoard, canViewBoardEntities } from '@/permissions';
+import {
+  canDeleteBoard,
+  canUpdateBoard,
+  canViewBoard,
+  canViewBoardEntities,
+  hasValidBoardReports,
+} from '@/permissions';
 import { deleteBoard, getBoard, updateBoard } from '@/queries/prisma';
 
 export async function GET(request: Request, { params }: { params: Promise<{ boardId: string }> }) {
@@ -84,6 +90,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ boa
 
     if (!(await canViewBoardEntities(auth, nextType, nextParameters))) {
       return badRequest({ message: 'Board contains inaccessible entities.' });
+    }
+
+    if (!(await hasValidBoardReports(nextType, nextParameters))) {
+      return badRequest({ message: 'Board contains invalid saved reports.' });
     }
   }
 

@@ -20,16 +20,17 @@ export function LoginForm() {
   const { mutateAsync, error } = useUpdateQuery('/auth/login');
 
   const handleSubmit = async (data: any) => {
-    try {
-      await mutateAsync(data, {
-        onSuccess: async ({ user }) => {
-          setUser(user);
-          router.push('/');
-        },
-      });
-    } catch {
-      // The mutation error is rendered by the form.
-    }
+    await mutateAsync(data, {
+      onSuccess: async (response: any) => {
+        if (response.requiresTwoFactor) {
+          sessionStorage.setItem('umami.partial-token', response.partialToken);
+          router.push('/login/two-factor');
+          return;
+        }
+        setUser(response.user);
+        router.push('/');
+      },
+    });
   };
 
   return (

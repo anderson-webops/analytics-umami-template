@@ -7,7 +7,7 @@ import {
   canUpdateWebsite,
   canViewAuthenticatedWebsite,
   canViewWebsiteSection,
-  getReportShareSection,
+  getReportSection,
 } from '@/permissions';
 import { createReport, getReports } from '@/queries/prisma';
 
@@ -31,7 +31,7 @@ export async function GET(request: Request) {
     search,
   };
 
-  const section = type ? getReportShareSection(type) : null;
+  const section = getReportSection(type);
   const canView = section
     ? await canViewWebsiteSection(auth, websiteId, section)
     : await canViewAuthenticatedWebsite(auth, websiteId);

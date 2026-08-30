@@ -684,6 +684,11 @@ const reportMetadataSchema = z.object({
   description: z.string().max(500).optional(),
 });
 
+export const reportBaseSchema = reportMetadataSchema.extend({
+  type: reportTypeParam,
+  parameters: anyObjectParam,
+});
+
 export const reportTypeSchema = z.discriminatedUnion('type', [
   goalReportSchema,
   funnelReportSchema,

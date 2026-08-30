@@ -398,7 +398,6 @@ export const PAID_AD_PARAMS = [
   'aid=',
   'dclid=',
   'epik=',
-  'fbclid=',
   'gclid=',
   'li_fat_id=',
   'msclkid=',
@@ -735,6 +734,7 @@ export const CURRENCIES = [
   { id: 'TND', name: 'Tunisian Dinar' },
   { id: 'OMR', name: 'Omani Rial' },
   { id: 'GHS', name: 'Ghanaian Cedi' },
+  { id: 'IRR', name: 'Iranian Rial' },
 ];
 
 export const TIMEZONE_LEGACY: Record<string, string> = {

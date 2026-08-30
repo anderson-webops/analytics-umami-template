@@ -61,6 +61,7 @@ rollback, and IPv4/IPv6-preservation requirements.
 - Production requires `APP_SECRET`, `PUBLIC_URL`, and `CLIENT_IP_HEADER`. The configured IP header must be overwritten by a trusted edge or reverse proxy; arbitrary forwarding headers are not trusted.
 - Known CDN location headers are used only when `TRUST_LOCATION_HEADERS=1`. Client-supplied IP, user-agent, browser, OS, and device fields are used only in the cloud collector architecture with `CLOUD_MODE=1`, `TRUST_CLIENT_INFO_PAYLOAD=1`, and a matching `CLIENT_INFO_TRUST_KEY` supplied through the `x-umami-client-info-key` request header.
 - Public database, Redis, ClickHouse, and Kafka hosts must use encrypted connections. `LOG_QUERY`, `DEBUG`, `ENABLE_TEST_CONSOLE`, and `SKIP_DB_CHECK` are rejected in production.
+- Set `TWO_FACTOR_ENCRYPTION_KEY` to a 64-character hexadecimal value to enable two-factor authentication. Generate one with `openssl rand -hex 32`. Two-factor authentication remains unavailable and cannot be required until this key is configured.
 - Rotate the seeded administrator password before public promotion:
 
   ```bash

@@ -2,15 +2,18 @@ import { z } from 'zod';
 import { saveAuth } from '@/lib/auth';
 import { ROLES } from '@/lib/constants';
 import { hash, secret } from '@/lib/crypto';
+import { isEnvEnabled } from '@/lib/env';
 import { createSecureToken } from '@/lib/jwt';
 import { clearFailedLogins, getLoginLimit } from '@/lib/login-rate-limit';
 import { checkPassword, hashPassword, passwordNeedsRehash } from '@/lib/password';
+import prisma from '@/lib/prisma';
 import redis from '@/lib/redis';
 import { parseRequest } from '@/lib/request';
-import { json, tooManyRequests, unauthorized } from '@/lib/response';
+import { json, serviceUnavailable, tooManyRequests, unauthorized } from '@/lib/response';
 import { loginPasswordParam } from '@/lib/schema';
 import { getAuthSessionTtlSeconds } from '@/lib/security';
 import { isSameOriginMutation, setSessionCookie } from '@/lib/session';
+import { getTwoFactorConfigurationError, isTwoFactorConfigured } from '@/lib/two-factor/crypto';
 import { getAllUserTeams, getUserByUsername } from '@/queries/prisma';
 import { replacePasswordIfCurrent } from '@/queries/prisma/user';
 
@@ -80,19 +83,31 @@ export async function POST(request: Request) {
 
   const passwordFingerprint = hash(passwordHash);
   const sessionTtl = getAuthSessionTtlSeconds();
-
-  let token: string;
-
-  if (redis.enabled) {
-    token = await saveAuth({ userId: id, role, pwd: passwordFingerprint }, sessionTtl);
-  } else {
-    token = createSecureToken({ userId: user.id, role, pwd: passwordFingerprint }, secret(), {
-      expiresIn: sessionTtl,
-    });
-  }
+  const twoFactor = !isEnvEnabled('CLOUD_MODE')
+    ? await prisma.client.twoFactorAuth.findUnique({ where: { userId: id } })
+    : null;
 
   await clearFailedLogins(request, username);
 
+  if (twoFactor?.isEnabled) {
+    if (!isTwoFactorConfigured()) {
+      return serviceUnavailable(getTwoFactorConfigurationError());
+    }
+
+    const partialToken = createSecureToken(
+      { userId: id, pwd: passwordFingerprint, type: 'partial-auth' },
+      secret(),
+      { expiresIn: '5m' },
+    );
+
+    return json({ requiresTwoFactor: true, partialToken });
+  }
+
+  const token = redis.enabled
+    ? await saveAuth({ userId: id, role, pwd: passwordFingerprint }, sessionTtl)
+    : createSecureToken({ userId: id, role, pwd: passwordFingerprint }, secret(), {
+        expiresIn: sessionTtl,
+      });
   const teams = await getAllUserTeams(id);
 
   return setSessionCookie(

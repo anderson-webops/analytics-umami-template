@@ -1,5 +1,6 @@
 import { beforeEach, expect, test, vi } from 'vitest';
-import { canViewReport, getReportShareSection } from './report';
+import { ENTITY_TYPE } from '@/lib/constants';
+import { canViewReport, getReportSection } from './report';
 import { canViewWebsiteSection } from './share';
 import { canViewWebsite } from './website';
 
@@ -8,76 +9,131 @@ vi.mock('./share', () => ({
 }));
 
 vi.mock('./website', () => ({
-  canDeleteWebsite: vi.fn(),
-  canUpdateWebsite: vi.fn(),
   canViewWebsite: vi.fn(),
 }));
 
-const report = {
-  id: '00000000-0000-4000-8000-000000000001',
-  userId: '00000000-0000-4000-8000-000000000002',
-  websiteId: '00000000-0000-4000-8000-000000000003',
-  type: 'goal',
-} as any;
-
 beforeEach(() => {
-  vi.mocked(canViewWebsite).mockReset();
   vi.mocked(canViewWebsiteSection).mockReset();
+  vi.mocked(canViewWebsite).mockReset();
 });
 
-test('maps saved report types to their public-share sections', () => {
-  expect(getReportShareSection('goal')).toBe('goals');
-  expect(getReportShareSection('funnel')).toBe('funnels');
-  expect(getReportShareSection('journey')).toBe('journeys');
-  expect(getReportShareSection('heatmap')).toBeNull();
+test('getReportSection maps saved report types to share sections', () => {
+  expect(getReportSection('goal')).toBe('goals');
+  expect(getReportSection('funnel')).toBe('funnels');
+  expect(getReportSection('journey')).toBe('journeys');
+  expect(getReportSection('revenue')).toBe('revenue');
+  expect(getReportSection('heatmap')).toBe(null);
 });
 
-test('requires the matching section for public access to a saved report', async () => {
-  vi.mocked(canViewWebsiteSection).mockResolvedValue(false);
+test('canViewReport allows board shares to fetch included saved goal reports', async () => {
+  vi.mocked(canViewWebsiteSection).mockResolvedValue(true);
 
   await expect(
     canViewReport(
       {
         shareToken: {
-          websiteId: report.websiteId,
-          parameters: { overview: true, goals: false },
-        },
-      } as any,
-      report,
-    ),
-  ).resolves.toBe(false);
-
-  expect(canViewWebsiteSection).toHaveBeenCalledWith(expect.any(Object), report.websiteId, 'goals');
-});
-
-test('does not expose authenticated-only saved report types to public shares', async () => {
-  await expect(
-    canViewReport(
-      {
-        shareToken: {
-          websiteId: report.websiteId,
+          shareType: ENTITY_TYPE.board,
+          websiteIds: ['website-1'],
           parameters: {},
         },
+      },
+      {
+        id: 'report-1',
+        userId: 'owner-1',
+        websiteId: 'website-1',
+        type: 'goal',
       } as any,
-      { ...report, type: 'heatmap' },
+    ),
+  ).resolves.toBe(true);
+});
+
+test('canViewReport respects share section flags for saved funnel and goal reports', async () => {
+  vi.mocked(canViewWebsiteSection).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+
+  await expect(
+    canViewReport(
+      {
+        shareToken: {
+          shareType: ENTITY_TYPE.website,
+          websiteId: 'website-1',
+          parameters: {
+            overview: true,
+            funnels: false,
+            goals: false,
+          },
+        },
+      },
+      {
+        id: 'report-1',
+        userId: 'owner-1',
+        websiteId: 'website-1',
+        type: 'funnel',
+      } as any,
     ),
   ).resolves.toBe(false);
 
-  expect(canViewWebsiteSection).not.toHaveBeenCalled();
+  await expect(
+    canViewReport(
+      {
+        shareToken: {
+          shareType: ENTITY_TYPE.website,
+          websiteId: 'website-1',
+          parameters: {
+            overview: true,
+            funnels: false,
+            goals: true,
+          },
+        },
+      },
+      {
+        id: 'report-2',
+        userId: 'owner-1',
+        websiteId: 'website-1',
+        type: 'goal',
+      } as any,
+    ),
+  ).resolves.toBe(true);
 });
 
-test('retains normal entity authorization for authenticated users', async () => {
+test('canViewReport denies share-token access to report types without a share section', async () => {
+  await expect(
+    canViewReport(
+      {
+        shareToken: {
+          shareType: ENTITY_TYPE.website,
+          websiteId: 'website-1',
+          parameters: {},
+        },
+      },
+      {
+        id: 'report-1',
+        userId: 'owner-1',
+        websiteId: 'website-1',
+        type: 'heatmap',
+      } as any,
+    ),
+  ).resolves.toBe(false);
+});
+
+test('canViewReport falls back to website access for authenticated users', async () => {
   vi.mocked(canViewWebsite).mockResolvedValue(true);
 
   await expect(
     canViewReport(
       {
         user: {
-          id: '00000000-0000-4000-8000-000000000004',
+          id: 'user-1',
+          username: 'user',
+          role: 'user',
           isAdmin: false,
         },
+      },
+      {
+        id: 'report-1',
+        userId: 'owner-1',
+        websiteId: 'website-1',
+        type: 'heatmap',
       } as any,
-      report,
     ),
   ).resolves.toBe(true);
 });

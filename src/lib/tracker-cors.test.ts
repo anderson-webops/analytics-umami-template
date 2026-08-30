@@ -9,7 +9,7 @@ const allowedHeaders = 'Content-Type, X-Umami-Cache, X-Umami-Hostname, X-Umami-W
 describe('tracker cross-origin requests', () => {
   test('every collection route accepts every header emitted by the tracker', () => {
     const trackerSource = fs.readFileSync(
-      path.join(repositoryRoot, 'src/tracker/index.js'),
+      path.join(repositoryRoot, 'src/tracker/index.ts'),
       'utf8',
     );
 

@@ -4,17 +4,20 @@ import { DateDistance } from '@/components/common/DateDistance';
 import { TypeIcon } from '@/components/common/TypeIcon';
 import { useFormat, useLocale, useMessages, useRegionNames } from '@/components/hooks';
 import { Calendar, KeyRound, Landmark, MapPin } from '@/components/icons';
+import { Network } from '@/components/svg';
 
 export function SessionInfo({ data }) {
   const { locale } = useLocale();
   const { t, labels } = useMessages();
   const { formatValue } = useFormat();
   const { getRegionName } = useRegionNames(locale);
+  const distinctId = data?.distinctId?.trim();
+  const stitchedSessionCount = data?.stitchedSessionCount;
 
   return (
     <Grid columns="repeat(auto-fit, minmax(200px, 1fr)" gap>
       <Info label={t(labels.distinctId)} icon={<KeyRound />}>
-        <span style={{ overflowWrap: 'anywhere' }}>{data?.distinctId}</span>
+        {distinctId ? <span style={{ overflowWrap: 'anywhere' }}>{distinctId}</span> : '—'}
       </Info>
 
       <Info label={t(labels.lastSeen)} icon={<Calendar />}>
@@ -52,12 +55,10 @@ export function SessionInfo({ data }) {
         {formatValue(data?.device, 'device')}
       </Info>
 
-      <Info label={t(labels.traffic)}>
-        {data?.isBot ? data?.botName || t(labels.botTraffic) : t(labels.humanTraffic)}
-      </Info>
-
-      {data?.isBot && (
-        <Info label={t(labels.botCategory)}>{data?.botCategory?.replaceAll('-', ' ')}</Info>
+      {distinctId && stitchedSessionCount > 1 && (
+        <Info label="Linked IDs" icon={<Network />}>
+          {stitchedSessionCount}
+        </Info>
       )}
     </Grid>
   );

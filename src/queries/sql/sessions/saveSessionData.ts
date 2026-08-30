@@ -62,9 +62,7 @@ export async function relationalQuery(
         },
       },
       create: data,
-      update: {
-        ...props,
-      },
+      update: props,
     });
   }
 }

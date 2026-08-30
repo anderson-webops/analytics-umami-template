@@ -4,7 +4,7 @@ import { parseRequest } from '@/lib/request';
 import { badRequest, json, unauthorized } from '@/lib/response';
 import { boardParametersParam } from '@/lib/schema';
 import type { BoardParameters } from '@/lib/types';
-import { canViewBoardEntities } from '@/permissions';
+import { canViewBoardEntities, hasValidBoardReports } from '@/permissions';
 import { createBoard, getBoard, updateBoard } from '@/queries/prisma';
 
 export async function GET(request: Request) {
@@ -55,6 +55,10 @@ export async function POST(request: Request) {
     description: body.description,
     parameters: body.parameters ?? {},
   };
+
+  if (!(await hasValidBoardReports(existing?.type ?? 'dashboard', data.parameters))) {
+    return badRequest({ message: 'Board contains invalid saved reports.' });
+  }
 
   try {
     if (existing) {
