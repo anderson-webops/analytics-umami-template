@@ -74,6 +74,7 @@ export function App({ children }) {
       <Column overflowX="hidden" minHeight="0" position="relative">
         <TopNav />
         <Column
+          as="main"
           alignItems="center"
           aria-hidden={needsTwoFactorSetup || undefined}
           style={needsTwoFactorSetup ? { pointerEvents: 'none' } : undefined}
