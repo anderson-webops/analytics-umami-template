@@ -12,5 +12,5 @@ USING ranked_session_data
 WHERE "session_data"."session_data_id" = ranked_session_data."session_data_id"
   AND ranked_session_data.row_num > 1;
 
-CREATE UNIQUE INDEX "session_data_session_id_data_key_key"
+CREATE UNIQUE INDEX IF NOT EXISTS "session_data_session_id_data_key_key"
 ON "session_data"("session_id", "data_key");

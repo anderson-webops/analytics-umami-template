@@ -119,7 +119,7 @@ CREATE UNIQUE INDEX "team_user_one_owner_per_team_key"
 CREATE UNIQUE INDEX "user_username_normalized_key"
   ON "user"(lower(btrim("username")));
 
-CREATE UNIQUE INDEX "session_data_session_id_data_key_key"
+CREATE UNIQUE INDEX IF NOT EXISTS "session_data_session_id_data_key_key"
   ON "session_data"("session_id", "data_key");
 
 ALTER TABLE "user"

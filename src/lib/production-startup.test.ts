@@ -78,4 +78,14 @@ describe('direct production startup', () => {
       expect(databaseCheckSource).toContain(requiredSchemaElement);
     }
   });
+
+  test('keeps the overlapping session-data migrations safe in either upgrade order', () => {
+    const hardeningMigration = read('prisma/migrations/21_harden_auth_invariants/migration.sql');
+    const upstreamSessionMigration = read('prisma/migrations/23_update_session_data/migration.sql');
+    const idempotentIndex =
+      'CREATE UNIQUE INDEX IF NOT EXISTS "session_data_session_id_data_key_key"';
+
+    expect(hardeningMigration).toContain(idempotentIndex);
+    expect(upstreamSessionMigration).toContain(idempotentIndex);
+  });
 });
