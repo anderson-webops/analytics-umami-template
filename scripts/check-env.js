@@ -59,6 +59,14 @@ function checkBoolean(name) {
   }
 }
 
+function checkBinaryFlag(name) {
+  const value = process.env[name] ?? '';
+
+  if (value && !['0', '1'].includes(value)) {
+    fail(`${name} must be 0 or 1.`);
+  }
+}
+
 function checkBoundedInteger(name, minimum, maximum) {
   const value = getValue(name);
 
@@ -444,6 +452,11 @@ const booleanVariables = [
 for (const name of booleanVariables) {
   checkBoolean(name);
 }
+
+// The MCP route deliberately enables only on the exact value `1`. Validate the
+// same contract here so accepted configuration and runtime behavior cannot
+// diverge.
+checkBinaryFlag('MCP_ENABLED');
 
 for (const [name, minimum, maximum] of [
   ['AUTH_SESSION_TTL_SECONDS', 15 * 60, 24 * 60 * 60],

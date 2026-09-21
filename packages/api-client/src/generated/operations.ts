@@ -4,7 +4,7 @@
 import type { RequestOptions } from '../types';
 import type { components, operations as OperationTypes } from './types';
 
-export const API_VERSION = '4.2.4';
+export const API_VERSION = '4.2.5';
 
 export type HttpMethod = 'get' | 'post' | 'put' | 'patch' | 'delete';
 

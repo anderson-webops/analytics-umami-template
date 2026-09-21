@@ -14,14 +14,19 @@ class UmamiRedisClient {
   isConnected: boolean;
 
   constructor(url: string) {
-    const client = createClient({ url }).on('error', logError);
+    const client = createClient({
+      url,
+      socket: {
+        connectTimeout: 1_000,
+      },
+    }).on('error', logError);
 
     this.url = url;
     this.client = client as RedisClientType;
     this.isConnected = false;
   }
 
-  async connect() {
+  async connect(_timeoutMs?: number) {
     if (!this.isConnected) {
       this.isConnected = true;
 
@@ -161,28 +166,62 @@ function getClient() {
   redis.client.on('end', resetConnectionState);
   redis.client.on('reconnecting', resetConnectionState);
 
-  redis.connect = async () => {
-    if (redis.client.isReady || redis.client.isOpen) {
+  redis.connect = async (timeoutMs?: number) => {
+    if (redis.client.isReady) {
       redis.isConnected = true;
       return;
     }
 
-    if (connectPromise) {
-      return connectPromise;
+    // An established client can be in its own reconnect cycle without a
+    // wrapper-level connection promise. Let the bounded PING caller observe
+    // that state rather than opening a second connection loop.
+    if (!connectPromise && redis.client.isOpen) {
+      redis.isConnected = false;
+      return;
     }
 
-    connectPromise = (async () => {
-      try {
-        await originalConnect();
-      } catch (error) {
-        redis.isConnected = false;
-        throw error;
-      } finally {
-        connectPromise = null;
-      }
-    })();
+    if (!connectPromise) {
+      connectPromise = (async () => {
+        try {
+          await originalConnect();
+        } catch (error) {
+          redis.isConnected = false;
+          throw error;
+        } finally {
+          connectPromise = null;
+        }
+      })();
+    }
 
-    return connectPromise;
+    const pendingConnection = connectPromise;
+
+    if (!timeoutMs) {
+      return pendingConnection;
+    }
+
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+
+    try {
+      return await Promise.race([
+        pendingConnection,
+        new Promise<void>((_resolve, reject) => {
+          timeout = setTimeout(() => {
+            if (connectPromise === pendingConnection && !redis.client.isReady) {
+              try {
+                redis.client.destroy();
+              } catch {
+                // A concurrent connection failure may already have closed it.
+              }
+            }
+            reject(new Error('Redis connection deadline exceeded.'));
+          }, timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+    }
   };
 
   if (process.env.NODE_ENV !== 'production') {

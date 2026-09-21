@@ -1,6 +1,6 @@
 {
   "name": "umami",
-  "version": "4.2.4",
+  "version": "4.2.5",
   "private": true,
   "description": "A modern, privacy-focused alternative to Google Analytics.",
   "author": "Umami Software, Inc. <hello@umami.is>",
@@ -18,7 +18,7 @@
   "type": "module",
   "scripts": {
     "predev": "pnpm run check:env",
-    "dev": "cross-env NEXT_TELEMETRY_DISABLED=1 dotenv next dev --turbo",
+    "dev": "cross-env NEXT_TELEMETRY_DISABLED=1 dotenv next dev --turbo --hostname 127.0.0.1",
     "build": "npm-run-all check:env build:db check:db build:tracker build:recorder build:geo build:openapi build:packages build:app",
     "prestart": "npm-run-all check:env check:db",
     "start": "next start",

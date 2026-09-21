@@ -9,6 +9,9 @@ cookies, or redirect. Every response sends `Cache-Control: no-store`.
 - `GET /readyz` returns `200 {"ok":true}` when required services are available.
 - `HEAD /readyz` returns the same readiness status with no response body.
 - Readiness checks Postgres always, Redis when enabled, and ClickHouse when enabled.
+- Concurrent readiness requests share one dependency check. Completed results are
+  reused for two seconds, while each public request fails closed after 1.5 seconds.
+  This internal coalescing does not change the response's `no-store` contract.
 - A required dependency failure returns `503 {"ok":false}` without identifying the
   dependency or exposing its error.
 - `GET /_dbinfo`

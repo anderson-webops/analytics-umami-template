@@ -10,6 +10,42 @@ const read = (relativePath: string) =>
   fs.readFileSync(path.join(repositoryRoot, relativePath), 'utf8');
 
 describe('direct production startup', () => {
+  test('keeps local development origin-free and production configuration separate', () => {
+    const developmentEnvironment = read('env.development.sample');
+    const productionEnvironment = read('env.sample');
+
+    expect(developmentEnvironment.match(/^PUBLIC_URL=.*$/gm)).toEqual(['PUBLIC_URL=']);
+    expect(developmentEnvironment).toContain('FORCE_SSL=0');
+    expect(developmentEnvironment).toContain('MCP_ENABLED=0');
+    expect(productionEnvironment).toContain('FORCE_SSL=1');
+    expect(read('README.md')).toContain('cp env.development.sample .env');
+  });
+
+  test.each(['true', ' 1 '])(
+    'rejects MCP value %j when it does not match the exact runtime enablement contract',
+    value => {
+      const result = spawnSync(process.execPath, ['scripts/check-env.js'], {
+        cwd: repositoryRoot,
+        encoding: 'utf8',
+        env: {
+          NODE_ENV: 'development',
+          APP_SECRET: 'a'.repeat(32),
+          DATABASE_URL: `postgresql://umami:${'b'.repeat(32)}@localhost:5432/umami`,
+          MCP_ENABLED: value,
+        },
+      });
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('MCP_ENABLED must be 0 or 1.');
+    },
+  );
+
+  test('binds the development server explicitly to loopback', () => {
+    const packageJson = JSON.parse(read('package.json'));
+
+    expect(packageJson.scripts.dev).toContain('next dev --turbo --hostname 127.0.0.1');
+  });
+
   test('refuses to skip migrations in production', () => {
     const result = spawnSync(process.execPath, ['scripts/check-env.js'], {
       cwd: repositoryRoot,

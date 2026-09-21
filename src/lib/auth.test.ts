@@ -314,6 +314,23 @@ describe('checkAuth password fingerprint', () => {
     expect(result?.user?.id).toBe('user-1');
   });
 
+  test('uses the configured public origin instead of a local request host', async () => {
+    vi.stubEnv('PUBLIC_URL', 'https://analytics.example.com');
+    parseSecureTokenMock.mockReturnValue({
+      userId: 'user-1',
+      role: 'user',
+      pwd: hash(PASSWORD_HASH),
+    } as any);
+    mockUser();
+
+    expect(
+      await checkAuth(cookieRequest({ method: 'POST', origin: 'https://analytics.example.com' })),
+    ).not.toBeNull();
+    expect(
+      await checkAuth(cookieRequest({ method: 'POST', origin: 'http://localhost' })),
+    ).toBeNull();
+  });
+
   test('rejects a cross-origin cookie session for a mutation', async () => {
     parseSecureTokenMock.mockReturnValue({
       userId: 'user-1',
