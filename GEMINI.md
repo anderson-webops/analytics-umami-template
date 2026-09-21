@@ -15,6 +15,13 @@
 - Skip tags and releases for trivial doc-only edits, formatting-only changes, or routine housekeeping unless they change deployment, operations, or a consumer-facing contract.
 - Keep inherited upstream lineage unless there is a concrete cleanup reason; new local tags and releases should describe deployable local template states, not ad-hoc sync checkpoints.
 
+## Template-First Downstream Workflow
+
+- This repository is the owned canonical source for generally applicable changes to its Umami-based analytics forks. Reconcile relevant `umami-software/umami` updates here first, implement and validate the shared change once, and deliver the coherent template state before changing downstream sites.
+- Merge the reviewed template change into every structurally compatible downstream fork. Preserve genuine site-specific identity, branding, provisioning, secrets boundaries, and runtime configuration while resolving conflicts; apply site-specific edits only afterward and separately where practical.
+- Do not independently copy a shared fix into one downstream fork and leave the template or peer forks behind. If an urgent downstream discovery is generally applicable, backport it here first and then propagate the resulting template change.
+- If a downstream repository intentionally follows a different major line, structure, or upstream history, document why this template is inapplicable instead of forcing unrelated histories together.
+
 ## Dependency & Lockfile Discipline
 
 - Treat the repo-root `pnpm install --frozen-lockfile` path as the source of truth for deploy readiness.
