@@ -85,6 +85,11 @@ describe('runSerializable', () => {
 describe('runSerializedUserMutation', () => {
   beforeEach(() => {
     transaction.mockReset();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   test('takes the transaction-scoped user lock before running the mutation', async () => {
@@ -96,7 +101,7 @@ describe('runSerializedUserMutation', () => {
         callback: (client: { $queryRaw: typeof queryRaw }) => Promise<unknown>,
         options: unknown,
       ) => {
-        expect(options).toEqual({ isolationLevel: 'ReadCommitted', timeout: 45_000 });
+        expect(options).toEqual({ isolationLevel: 'Serializable', timeout: 45_000 });
 
         return callback({ $queryRaw: queryRaw });
       },
@@ -108,5 +113,23 @@ describe('runSerializedUserMutation', () => {
     expect(queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
       operation.mock.invocationCallOrder[0],
     );
+  });
+
+  test('retries ownership races without skipping the user-mutation lock', async () => {
+    const queryRaw = vi.fn().mockResolvedValue([{ pg_advisory_xact_lock: '' }]);
+    const operation = vi.fn().mockResolvedValue('ok');
+
+    transaction
+      .mockRejectedValueOnce(serializationConflict())
+      .mockImplementationOnce(async callback => callback({ $queryRaw: queryRaw }));
+
+    const result = runSerializedUserMutation(operation);
+
+    await vi.runAllTimersAsync();
+
+    await expect(result).resolves.toBe('ok');
+    expect(transaction).toHaveBeenCalledTimes(2);
+    expect(queryRaw).toHaveBeenCalledOnce();
+    expect(operation).toHaveBeenCalledOnce();
   });
 });

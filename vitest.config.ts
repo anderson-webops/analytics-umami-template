@@ -13,7 +13,7 @@ export default defineConfig({
       APP_SECRET: 'unit-test-only-secret-0000000000000000000000',
     },
     environment: 'jsdom',
-    include: ['src/**/*.test.{ts,tsx}'],
+    include: ['src/**/*.test.{ts,tsx}', 'tests/api/coverage/**/*.test.ts'],
     setupFiles: ['./src/test/setup.ts'],
   },
 });

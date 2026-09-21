@@ -18,7 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ControlledDialog } from '@/components/common/ControlledDialog';
 import { IconLabel } from '@/components/common/IconLabel';
 import { LoadingPanel } from '@/components/common/LoadingPanel';
-import { useMobile, useResultQuery } from '@/components/hooks';
+import { useHeatmapQuery, useMobile } from '@/components/hooks';
 import { ListCheck } from '@/components/icons';
 import { formatLongNumber } from '@/lib/format';
 import type { HeatmapMode, HeatmapPoint, HeatmapResult, HeatmapSnapshot } from '@/queries/sql';
@@ -65,7 +65,7 @@ export function Heatmap({ websiteId, urlPath, onUrlPathChange, mode, search }: H
     data: pagesData,
     error,
     isLoading,
-  } = useResultQuery<HeatmapResult>('heatmap', {
+  } = useHeatmapQuery({
     websiteId,
     mode,
   });
@@ -74,8 +74,7 @@ export function Heatmap({ websiteId, urlPath, onUrlPathChange, mode, search }: H
     data: detailData,
     isLoading: isDetailLoading,
     isFetching: isDetailFetching,
-  } = useResultQuery<HeatmapResult>(
-    'heatmap',
+  } = useHeatmapQuery(
     {
       websiteId,
       urlPath: urlPath || undefined,

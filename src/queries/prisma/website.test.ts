@@ -87,6 +87,11 @@ function createDeleteTx(calls: string[]) {
         calls.push('segment');
       }),
     },
+    annotation: {
+      deleteMany: vi.fn(async () => {
+        calls.push('annotation');
+      }),
+    },
     share: {
       deleteMany: vi.fn(async () => {
         calls.push('share');
@@ -154,6 +159,7 @@ describe('website delete dependencies', () => {
       'session',
       'report',
       'segment',
+      'annotation',
       'share',
       'websiteDelete',
     ]);

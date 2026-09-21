@@ -10,13 +10,16 @@ import {
   parseSessionPropertyFilters,
   parseUniversalEventPropertyFilters,
 } from '@/lib/params';
+import { getJsonBody, RequestBodyTooLargeError } from '@/lib/request-body';
 import { badRequest, forbidden, payloadTooLarge, unauthorized } from '@/lib/response';
 import { savedSegmentSchema } from '@/lib/schema';
 import { hasShareFilterParams } from '@/lib/share-filter';
-import type { QueryFilters } from '@/lib/types';
+import type { QueryFilters, SessionPropertyFilter } from '@/lib/types';
 import { getWebsiteSegment } from '@/queries/prisma';
 
 const MAX_QUERY_DATE_RANGE_MS = 20 * 366 * 24 * 60 * 60 * 1000;
+const MAX_API_URL_BYTES = 16 * 1024;
+const MAX_API_QUERY_PARAMETERS = 200;
 
 function isValidQueryDateRange(query: Record<string, any>): boolean {
   if (query.startAt == null || query.endAt == null) {
@@ -40,12 +43,32 @@ export async function parseRequest(
   options?: { skipAuth?: boolean; maxBodyBytes?: number },
 ): Promise<any> {
   const url = new URL(request.url);
-  let query = Object.fromEntries(url.searchParams);
+  let query: Record<string, any> = {};
   let body: unknown;
   let error: () => undefined | undefined | Response;
   let auth = null;
 
-  if (!['GET', 'HEAD'].includes(request.method.toUpperCase())) {
+  if (
+    Buffer.byteLength(request.url, 'utf8') > MAX_API_URL_BYTES ||
+    url.searchParams.size > MAX_API_QUERY_PARAMETERS
+  ) {
+    error = () =>
+      badRequest({
+        message: 'The request URL has too many or oversized query parameters.',
+      });
+  } else {
+    query = Object.fromEntries(url.searchParams);
+  }
+
+  if (!options?.skipAuth && !error) {
+    auth = await checkAuth(request);
+
+    if (!auth) {
+      error = () => unauthorized();
+    }
+  }
+
+  if (!['GET', 'HEAD'].includes(request.method.toUpperCase()) && !error) {
     try {
       body = await getJsonBody(request, options?.maxBodyBytes);
     } catch (cause) {
@@ -56,7 +79,7 @@ export async function parseRequest(
   }
 
   if (schema && !error) {
-    const isGet = request.method === 'GET';
+    const isGet = ['GET', 'HEAD'].includes(request.method.toUpperCase());
     const rawQuery = query;
     const result = schema.safeParse(isGet ? query : body);
 
@@ -101,14 +124,6 @@ export async function parseRequest(
     }
   }
 
-  if (!options?.skipAuth && !error) {
-    auth = await checkAuth(request);
-
-    if (!auth) {
-      error = () => unauthorized();
-    }
-  }
-
   if (!error && auth?.shareToken?.parameters?.allowFilter === false) {
     const bodyFilters =
       body && typeof body === 'object' && !Array.isArray(body) && 'filters' in body
@@ -130,52 +145,6 @@ export async function parseRequest(
   }
 
   return { url, query, body, auth, error };
-}
-
-const DEFAULT_MAX_API_BODY_BYTES = 1024 * 1024;
-const MIN_API_BODY_BYTES = 16 * 1024;
-const MAX_API_BODY_BYTES = 10 * 1024 * 1024;
-
-export class RequestBodyTooLargeError extends Error {
-  constructor() {
-    super('Request body exceeds the configured size limit');
-    this.name = 'RequestBodyTooLargeError';
-  }
-}
-
-function getMaxBodyBytes(override?: number): number {
-  const value = override ?? Number(process.env.MAX_API_BODY_BYTES || DEFAULT_MAX_API_BODY_BYTES);
-
-  if (!Number.isSafeInteger(value) || value < MIN_API_BODY_BYTES || value > MAX_API_BODY_BYTES) {
-    return DEFAULT_MAX_API_BODY_BYTES;
-  }
-
-  return value;
-}
-
-export async function getJsonBody(request: Request, maxBodyBytes?: number) {
-  const limit = getMaxBodyBytes(maxBodyBytes);
-  const contentLength = Number(request.headers.get('content-length'));
-
-  if (Number.isFinite(contentLength) && contentLength > limit) {
-    throw new RequestBodyTooLargeError();
-  }
-
-  try {
-    const text = await request.clone().text();
-
-    if (Buffer.byteLength(text, 'utf8') > limit) {
-      throw new RequestBodyTooLargeError();
-    }
-
-    return text ? JSON.parse(text) : undefined;
-  } catch (cause) {
-    if (cause instanceof RequestBodyTooLargeError) {
-      throw cause;
-    }
-
-    return undefined;
-  }
 }
 
 export function getRequestDateRange(query: Record<string, string>) {
@@ -251,6 +220,9 @@ export async function getQueryFilters(
       const segmentParams = parsedSegment.data.parameters;
 
       Object.assign(filters, filtersArrayToObject(segmentParams.filters ?? []));
+      sessionPropertyFilters.push(
+        ...((segmentParams.sessionPropertyFilters ?? []) as SessionPropertyFilter[]),
+      );
 
       if (segmentParams.match) {
         match = segmentParams.match;

@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { hash } from '@/lib/crypto';
 import { parseSecureToken } from '@/lib/jwt';
 import redis from '@/lib/redis';
+import { getApiKeyByHash, updateApiKeyLastUsed } from '@/queries/prisma/apiKey';
 import { getUser } from '@/queries/prisma/user';
+import { hashApiKey } from './api-key';
 import { checkAuth } from './auth';
 
 vi.mock('@/lib/jwt', () => ({
@@ -22,6 +24,11 @@ vi.mock('@/lib/share-access', () => ({
   resolveShareAccess: vi.fn(),
 }));
 
+vi.mock('@/queries/prisma/apiKey', () => ({
+  getApiKeyByHash: vi.fn(),
+  updateApiKeyLastUsed: vi.fn(() => Promise.resolve()),
+}));
+
 vi.mock('@/lib/redis', () => ({
   default: {
     enabled: false,
@@ -33,6 +40,8 @@ vi.mock('@/lib/redis', () => ({
 
 const parseSecureTokenMock = vi.mocked(parseSecureToken);
 const getUserMock = vi.mocked(getUser);
+const getApiKeyByHashMock = vi.mocked(getApiKeyByHash);
+const updateApiKeyLastUsedMock = vi.mocked(updateApiKeyLastUsed);
 const redisMock = redis as unknown as {
   enabled: boolean;
   client: {
@@ -71,10 +80,131 @@ function mockUser() {
 }
 
 beforeEach(() => {
+  vi.unstubAllEnvs();
+  vi.stubEnv('CLOUD_MODE', '');
   parseSecureTokenMock.mockReset();
   getUserMock.mockReset();
+  getApiKeyByHashMock.mockReset();
+  updateApiKeyLastUsedMock.mockClear();
   redisMock.enabled = false;
   redisMock.client.get.mockReset();
+});
+
+describe('checkAuth api keys', () => {
+  const API_KEY = 'umami_abcdefghijklmnopqrstuvwxyz012345';
+
+  function apiKeyRequest(path = '/api/websites') {
+    return new Request(`http://localhost${path}`, {
+      headers: { authorization: `Bearer ${API_KEY}` },
+    });
+  }
+
+  function mockApiKey(lastUsedAt: Date | null = null) {
+    getApiKeyByHashMock.mockResolvedValue({
+      id: 'key-1',
+      userId: 'user-1',
+      name: 'CI',
+      keyHash: hashApiKey(API_KEY),
+      keyPrefix: 'umami_abcdefgh',
+      lastUsedAt,
+      createdAt: new Date(),
+    } as any);
+  }
+
+  test('authorizes a valid API key without exposing the password', async () => {
+    mockApiKey();
+    mockUser();
+
+    const result: any = await checkAuth(apiKeyRequest());
+
+    expect(getApiKeyByHashMock).toHaveBeenCalledWith(hashApiKey(API_KEY));
+    expect(result?.user?.id).toBe('user-1');
+    expect(result?.user).not.toHaveProperty('password');
+    expect(result?.apiKey).toEqual({ id: 'key-1', name: 'CI' });
+    expect(result?.authType).toBe('api-key');
+    expect(parseSecureTokenMock).not.toHaveBeenCalled();
+  });
+
+  test('rejects unknown or orphaned API keys', async () => {
+    getApiKeyByHashMock.mockResolvedValue(null);
+    expect(await checkAuth(apiKeyRequest())).toBeNull();
+
+    mockApiKey();
+    getUserMock.mockResolvedValue(null as any);
+    expect(await checkAuth(apiKeyRequest())).toBeNull();
+  });
+
+  test('rejects API keys on credential and administration routes', async () => {
+    mockApiKey();
+    mockUser();
+
+    for (const path of [
+      '/api/me/password',
+      '/api/me/api-keys',
+      '/api/me/api-keys/key-1',
+      '/api/2fa/status',
+      '/api/auth/logout',
+      '/api/users',
+      '/api/admin/users',
+    ]) {
+      expect(await checkAuth(apiKeyRequest(path))).toBeNull();
+    }
+
+    expect(getApiKeyByHashMock).not.toHaveBeenCalled();
+  });
+
+  test('rejects API keys when a base path or API rewrite aliases a sensitive route', async () => {
+    vi.stubEnv('BASE_PATH', '/analytics');
+    vi.stubEnv('API_URL', '/data');
+    mockApiKey();
+    mockUser();
+
+    for (const path of [
+      '/analytics/api/2fa/status',
+      '/analytics/data/2fa/setup/initiate',
+      '/analytics/data/admin/users',
+      '/api/%32fa/setup/initiate',
+    ]) {
+      expect(await checkAuth(apiKeyRequest(path))).toBeNull();
+    }
+
+    expect(getApiKeyByHashMock).not.toHaveBeenCalled();
+  });
+
+  test('ignores API keys in cloud mode', async () => {
+    vi.stubEnv('CLOUD_MODE', '1');
+    parseSecureTokenMock.mockReturnValue(null);
+
+    expect(await checkAuth(apiKeyRequest())).toBeNull();
+    expect(getApiKeyByHashMock).not.toHaveBeenCalled();
+  });
+
+  test('updates only stale API-key usage timestamps', async () => {
+    mockApiKey(new Date(Date.now() - 60 * 60 * 1000));
+    mockUser();
+    await checkAuth(apiKeyRequest());
+    expect(updateApiKeyLastUsedMock).toHaveBeenCalledWith('key-1');
+
+    updateApiKeyLastUsedMock.mockClear();
+    mockApiKey(new Date());
+    await checkAuth(apiKeyRequest());
+    expect(updateApiKeyLastUsedMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('checkAuth 2FA partial token', () => {
+  test('rejects partial authentication tokens even with a valid fingerprint', async () => {
+    parseSecureTokenMock.mockReturnValue({
+      userId: 'user-1',
+      role: 'user',
+      type: 'partial-auth',
+      pwd: hash(PASSWORD_HASH),
+    } as any);
+    mockUser();
+
+    expect(await checkAuth(authedRequest())).toBeNull();
+    expect(getUserMock).not.toHaveBeenCalled();
+  });
 });
 
 describe('checkAuth password fingerprint', () => {

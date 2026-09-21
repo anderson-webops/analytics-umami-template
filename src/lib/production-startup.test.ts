@@ -45,6 +45,35 @@ describe('direct production startup', () => {
     expect(result.stderr).toContain('UMAMI_BIND_ADDRESS must be a loopback address in production.');
   });
 
+  test.each([
+    [
+      'KAFKA_SSL_ALLOW_UNAUTHORIZED',
+      'true',
+      'KAFKA_SSL_ALLOW_UNAUTHORIZED must not be enabled in production.',
+    ],
+    [
+      'NODE_TLS_REJECT_UNAUTHORIZED',
+      '0',
+      'NODE_TLS_REJECT_UNAUTHORIZED=0 is not permitted in production.',
+    ],
+  ])('refuses the insecure production TLS override %s', (name, value, message) => {
+    const result = spawnSync(process.execPath, ['scripts/check-env.js'], {
+      cwd: repositoryRoot,
+      encoding: 'utf8',
+      env: {
+        NODE_ENV: 'production',
+        APP_SECRET: 'a'.repeat(32),
+        DATABASE_URL: `postgresql://umami:${'b'.repeat(32)}@localhost:5432/umami`,
+        PUBLIC_URL: 'https://analytics.example.com',
+        CLIENT_IP_HEADER: 'x-real-ip',
+        [name]: value,
+      },
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(message);
+  });
+
   test('uses the hardened system service instead of a production container', () => {
     const packageJson = JSON.parse(read('package.json'));
     const databaseCheckSource = read('scripts/check-db.js');
@@ -55,15 +84,27 @@ describe('direct production startup', () => {
     expect(packageJson.scripts['start:production']).toBe('node scripts/start-production.js');
     expect(packageJson.scripts['build-docker']).toBeUndefined();
     expect(packageJson.scripts['start-docker']).toBeUndefined();
-    expect(startupSource).toMatch(
-      /'scripts\/check-env\.js'[\s\S]+'scripts\/check-db\.js'[\s\S]+'scripts\/update-tracker\.js'/,
-    );
+    expect(startupSource).toMatch(/'scripts\/check-env\.js'[\s\S]+'scripts\/check-db\.js'/);
+    expect(startupSource).not.toContain("'scripts/update-tracker.js'");
     expect(databaseCheckSource).toMatch(
-      /checkDatabaseVersion,\s+applyMigration,\s+checkSchemaCompatibility,\s+checkSecurityState,/,
+      /checkDatabaseVersion,\s+applyMigration,\s+checkMigrationState,\s+checkSchemaCompatibility,\s+verifyOnly \? checkRuntimeSecurityState : checkSecurityState,/,
     );
-    expect(systemdUnit).toContain('ExecStart=/usr/bin/node scripts/start-production.js');
+    expect(databaseCheckSource).toContain('async function checkRuntimeSecurityState()');
+    expect(databaseCheckSource).toContain('async function checkSecurityState()');
+    expect(databaseCheckSource).toContain('HAVING COUNT(u.user_id) <> 1');
+    expect(read('scripts/start-runtime.mjs')).toContain('timeout: 120_000');
+    expect(systemdUnit).toContain(
+      'ExecStart=/opt/node-24.18.1/bin/node .next/standalone/runtime-scripts/start-production.mjs',
+    );
+    expect(systemdUnit).toContain('Environment=NODE_OPTIONS=--max-old-space-size=384');
+    expect(systemdUnit).toContain('MemoryHigh=512M');
+    expect(systemdUnit).toContain('MemoryMax=768M');
+    expect(systemdUnit).toContain('TasksMax=128');
     expect(systemdUnit).toContain('NoNewPrivileges=true');
     expect(systemdUnit).toContain('ProtectSystem=strict');
+    expect(systemdUnit).not.toContain('.next/standalone/public\n');
+    expect(read('deploy/runtime-artifact.json')).toContain('runtime-scripts/start-production.mjs');
+    expect(read('scripts/postbuild.js')).toContain('createRuntimeManifest');
     expect(fs.existsSync(path.join(repositoryRoot, 'Dockerfile'))).toBe(false);
     expect(fs.existsSync(path.join(repositoryRoot, 'docker-compose.yml'))).toBe(false);
     expect(fs.existsSync(path.join(repositoryRoot, 'scripts/start-docker.js'))).toBe(false);

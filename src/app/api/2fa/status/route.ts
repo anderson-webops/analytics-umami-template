@@ -1,3 +1,4 @@
+import { isEnvEnabled } from '@/lib/env';
 import prisma from '@/lib/prisma';
 import { parseRequest } from '@/lib/request';
 import { json } from '@/lib/response';
@@ -10,7 +11,7 @@ export async function GET(request: Request) {
     return error();
   }
 
-  if (process.env.CLOUD_MODE) {
+  if (isEnvEnabled('CLOUD_MODE')) {
     return json({
       isEnabled: false,
       isRequired: false,

@@ -14,7 +14,6 @@ if (!appDir) {
 const startupScripts = [
   { path: 'scripts/check-env.js', cwd: repositoryRoot },
   { path: 'scripts/check-db.js', cwd: repositoryRoot },
-  { path: 'scripts/update-tracker.js', cwd: appDir },
 ];
 
 for (const startupScript of startupScripts) {

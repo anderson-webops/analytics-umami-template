@@ -52,7 +52,7 @@ async function relationalQuery(
     set distinct_id = {{distinctId}}
     where website_id = {{websiteId}}
       and session_id = {{sessionId}}
-      and coalesce(distinct_id, '') != {{distinctId}}
+      and coalesce(distinct_id, '') = ''
     `,
     {
       websiteId,

@@ -59,6 +59,14 @@ jobs:
       - name: Validate source, peers, and native package coverage
         run: pnpm run validate
 
+      - name: Validate generated API contracts and packages
+        run: |
+          pnpm run openapi:generate
+          pnpm run openapi:check --explicit
+          pnpm run check:api:client
+          pnpm run build:packages
+          pnpm run test:packages
+
       - name: Build deploy artifact
         run: pnpm run build:production
 

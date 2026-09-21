@@ -1,9 +1,10 @@
+import { isEnvEnabled } from '@/lib/env';
 import prisma from '@/lib/prisma';
 import { parseRequest } from '@/lib/request';
 import { json, notFound } from '@/lib/response';
 
 export async function POST(request: Request) {
-  if (process.env.CLOUD_MODE) {
+  if (isEnvEnabled('CLOUD_MODE')) {
     return notFound();
   }
 

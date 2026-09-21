@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isEnvEnabled } from '@/lib/env';
 import { checkPassword } from '@/lib/password';
 import prisma from '@/lib/prisma';
 import { parseRequest } from '@/lib/request';
@@ -9,12 +10,12 @@ import {
   isTwoFactorConfigured,
 } from '@/lib/two-factor/crypto';
 import { checkRateLimit, recordFailedAttempt, resetRateLimit } from '@/lib/two-factor/rate-limit';
-import { isOtpReplayed, markOtpUsed } from '@/lib/two-factor/replay-prevention';
+import { consumeOtp } from '@/lib/two-factor/replay-prevention';
 import { verifyTotp } from '@/lib/two-factor/totp';
 import { getUser } from '@/queries/prisma/user';
 
 export async function POST(request: Request) {
-  if (process.env.CLOUD_MODE) {
+  if (isEnvEnabled('CLOUD_MODE')) {
     return notFound();
   }
 
@@ -97,11 +98,6 @@ export async function POST(request: Request) {
     );
   }
 
-  // Prevent OTP replay
-  if (await isOtpReplayed(userId, token)) {
-    return badRequest({ code: 'two-factor-error-code-used', message: 'Code already used' });
-  }
-
   // Verify TOTP
   const secret = decryptSecret(twoFactor.secret);
   if (!(await verifyTotp(token, secret))) {
@@ -113,11 +109,20 @@ export async function POST(request: Request) {
     });
   }
 
-  await prisma.transaction(async tx => {
-    await markOtpUsed(userId, token, tx);
+  const consumed = await prisma.transaction(async tx => {
+    if (!(await consumeOtp(userId, token, tx))) {
+      return false;
+    }
+
     await tx.twoFactorAuth.delete({ where: { userId } });
     await tx.twoFactorBackupCode.deleteMany({ where: { userId } });
+    return true;
   });
+
+  if (!consumed) {
+    return badRequest({ code: 'two-factor-error-code-used', message: 'Code already used' });
+  }
+
   await resetRateLimit(userId);
 
   return json({ ok: true });

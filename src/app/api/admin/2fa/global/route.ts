@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isEnvEnabled } from '@/lib/env';
 import prisma from '@/lib/prisma';
 import { parseRequest } from '@/lib/request';
 import { json, notFound, serviceUnavailable, unauthorized } from '@/lib/response';
@@ -6,7 +7,7 @@ import { getTwoFactorConfigurationError, isTwoFactorConfigured } from '@/lib/two
 import { canEnforceTwoFactorAuthForEveryone } from '@/permissions';
 
 export async function POST(request: Request) {
-  if (process.env.CLOUD_MODE) {
+  if (isEnvEnabled('CLOUD_MODE')) {
     return notFound();
   }
 

@@ -2,7 +2,7 @@ import { Text } from '@umami/react-zen';
 import { EmptyPlaceholder } from '@/components/common/EmptyPlaceholder';
 import { LoadingPanel } from '@/components/common/LoadingPanel';
 import { useDateRange } from '@/components/hooks';
-import { useReportQuery } from '@/components/hooks/queries/useReportQuery';
+import { useGoalDefinitionQuery } from '@/components/hooks/queries/useSavedDefinitionsQuery';
 import { Link2Off } from '@/components/icons';
 import { Goal } from './Goal';
 
@@ -18,7 +18,7 @@ export function BoardGoal({
   const {
     dateRange: { startDate, endDate },
   } = useDateRange();
-  const { data, isLoading, error, isFetching } = useReportQuery(reportId || '');
+  const { data, isLoading, error, isFetching } = useGoalDefinitionQuery(websiteId, reportId || '');
 
   if (!reportId) {
     return (

@@ -16,8 +16,7 @@ const mocks = vi.hoisted(() => ({
   checkRateLimit: vi.fn(),
   recordFailedAttempt: vi.fn(),
   resetRateLimit: vi.fn(),
-  isOtpReplayed: vi.fn(),
-  markOtpUsed: vi.fn(),
+  consumeOtp: vi.fn(),
   verifyTotp: vi.fn(),
   secret: vi.fn(),
   hash: vi.fn(),
@@ -77,8 +76,7 @@ vi.mock('@/lib/two-factor/rate-limit', () => ({
 }));
 
 vi.mock('@/lib/two-factor/replay-prevention', () => ({
-  isOtpReplayed: mocks.isOtpReplayed,
-  markOtpUsed: mocks.markOtpUsed,
+  consumeOtp: mocks.consumeOtp,
 }));
 
 vi.mock('@/lib/two-factor/totp', () => ({
@@ -109,8 +107,7 @@ beforeEach(() => {
   mocks.checkRateLimit.mockReset();
   mocks.recordFailedAttempt.mockReset();
   mocks.resetRateLimit.mockReset();
-  mocks.isOtpReplayed.mockReset();
-  mocks.markOtpUsed.mockReset();
+  mocks.consumeOtp.mockReset();
   mocks.verifyTotp.mockReset();
   mocks.secret.mockReset();
   mocks.hash.mockReset();
@@ -142,8 +139,7 @@ beforeEach(() => {
   mocks.checkRateLimit.mockResolvedValue({ allowed: true });
   mocks.recordFailedAttempt.mockResolvedValue({ lockedUntil: undefined });
   mocks.resetRateLimit.mockResolvedValue(undefined);
-  mocks.isOtpReplayed.mockResolvedValue(false);
-  mocks.markOtpUsed.mockResolvedValue(undefined);
+  mocks.consumeOtp.mockResolvedValue(true);
   mocks.verifyTotp.mockResolvedValue(true);
   mocks.findBackupCodes.mockResolvedValue([]);
   mocks.updateBackupCodes.mockResolvedValue({ count: 0 });
@@ -163,7 +159,7 @@ test('POST accepts a token-only payload and completes 2FA verification', async (
   );
 
   expect(mocks.verifyTotp).toHaveBeenCalledWith('123456', 'plain-secret');
-  expect(mocks.markOtpUsed).toHaveBeenCalledWith('user-1', '123456');
+  expect(mocks.consumeOtp).toHaveBeenCalledWith('user-1', '123456');
   expect(mocks.resetRateLimit).toHaveBeenCalledWith('user-1');
   await expect(response.json()).resolves.toMatchObject({
     token: 'full-auth-token',
@@ -173,6 +169,28 @@ test('POST accepts a token-only payload and completes 2FA verification', async (
     },
   });
   expect(response.status).toBe(200);
+});
+
+test('POST rejects a valid TOTP already consumed by a concurrent request', async () => {
+  mocks.consumeOtp.mockResolvedValue(false);
+
+  const response = await POST(
+    new Request('http://localhost/api/2fa/verify', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer partial-token',
+      },
+      body: JSON.stringify({ token: '123456' }),
+    }),
+  );
+
+  expect(response.status).toBe(400);
+  await expect(response.json()).resolves.toMatchObject({
+    error: { code: 'two-factor-error-code-used' },
+  });
+  expect(mocks.createSecureToken).not.toHaveBeenCalled();
+  expect(mocks.resetRateLimit).not.toHaveBeenCalled();
 });
 
 test('POST returns a configuration error when the encryption key is missing', async () => {

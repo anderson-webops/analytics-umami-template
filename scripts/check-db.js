@@ -1,7 +1,9 @@
 /* eslint-disable no-console */
 import 'dotenv/config';
 import { execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { PrismaPg } from '@prisma/adapter-pg';
 import bcrypt from 'bcryptjs';
 import chalk from 'chalk';
@@ -12,6 +14,8 @@ const MIN_VERSION_NUM = 150_000;
 const VALID_USER_ROLES = new Set(['admin', 'user', 'view-only']);
 const VALID_TEAM_ROLES = ['team-owner', 'team-manager', 'team-member', 'team-view-only'];
 const isEnabled = value => ['1', 'true', 'yes', 'on'].includes(value?.trim().toLowerCase() ?? '');
+const verifyOnly = process.argv.includes('--verify-only');
+const scriptDirectory = path.dirname(path.resolve(process.argv[1]));
 
 let prisma;
 
@@ -75,6 +79,7 @@ async function initialize() {
 async function checkConnection() {
   try {
     await prisma.$connect();
+    await prisma.$queryRaw`SELECT 1`;
     success('Database connection successful.');
   } catch (error) {
     throw new Error(`Unable to connect to the database: ${error.message}`);
@@ -100,6 +105,11 @@ async function checkDatabaseVersion() {
 }
 
 async function applyMigration() {
+  if (verifyOnly) {
+    success('Migration execution is reserved for the pre-promotion deployment step.');
+    return;
+  }
+
   if (isEnabled(process.env.SKIP_DB_MIGRATION)) {
     if (process.env.NODE_ENV === 'production') {
       throw new Error('SKIP_DB_MIGRATION is not permitted in production.');
@@ -109,9 +119,7 @@ async function applyMigration() {
     return;
   }
 
-  const prismaCli = fileURLToPath(
-    new URL('../node_modules/prisma/build/index.js', import.meta.url),
-  );
+  const prismaCli = path.join(scriptDirectory, '..', 'node_modules', 'prisma', 'build', 'index.js');
   const directUrl = process.env.DIRECT_DATABASE_URL || process.env.DATABASE_URL;
 
   try {
@@ -138,6 +146,45 @@ async function applyMigration() {
   }
 
   success('Database is up to date.');
+}
+
+async function checkMigrationState() {
+  const migrationsDirectory = path.join(scriptDirectory, '..', 'prisma', 'migrations');
+  const entries = await fs.readdir(migrationsDirectory, { withFileTypes: true });
+  const expectedMigrations = new Map();
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    const migrationPath = path.join(migrationsDirectory, entry.name, 'migration.sql');
+    const contents = await fs.readFile(migrationPath);
+
+    expectedMigrations.set(entry.name, crypto.createHash('sha256').update(contents).digest('hex'));
+  }
+
+  if (expectedMigrations.size === 0) {
+    throw new Error('The release contains no database migrations.');
+  }
+
+  const appliedMigrations = await prisma.$queryRaw`
+    SELECT migration_name, checksum, finished_at, rolled_back_at
+    FROM "_prisma_migrations"
+  `;
+  const appliedByName = new Map(appliedMigrations.map(row => [row.migration_name, row]));
+
+  for (const [migrationName, checksum] of expectedMigrations) {
+    const applied = appliedByName.get(migrationName);
+
+    if (!applied?.finished_at || applied.rolled_back_at || applied.checksum !== checksum) {
+      throw new Error(
+        `Database migration ${migrationName} is missing, incomplete, rolled back, or does not match this release.`,
+      );
+    }
+  }
+
+  success(`Verified ${expectedMigrations.size} release database migrations.`);
 }
 
 async function checkSchemaCompatibility() {
@@ -297,6 +344,71 @@ async function checkTeams() {
       `${invalidTeamRoles} team membership(s) use unsupported roles. Repair them before starting the service.`,
     );
   }
+}
+
+async function checkRuntimeSecurityState() {
+  const activeAdmins = await prisma.user.count({
+    where: {
+      deletedAt: null,
+      role: 'admin',
+    },
+  });
+
+  if (activeAdmins === 0) {
+    throw new Error('No active administrator exists.');
+  }
+
+  const invalidUserRoles = await prisma.user.count({
+    where: {
+      deletedAt: null,
+      role: {
+        notIn: [...VALID_USER_ROLES],
+      },
+    },
+  });
+
+  if (invalidUserRoles > 0) {
+    throw new Error(
+      `${invalidUserRoles} active user(s) use unsupported global roles. Repair them before starting the service.`,
+    );
+  }
+
+  const invalidTeamRoles = await prisma.teamUser.count({
+    where: {
+      role: {
+        notIn: VALID_TEAM_ROLES,
+      },
+    },
+  });
+
+  if (invalidTeamRoles > 0) {
+    throw new Error(
+      `${invalidTeamRoles} team membership(s) use unsupported roles. Repair them before starting the service.`,
+    );
+  }
+
+  const invalidTeamOwners = await prisma.$queryRaw`
+    SELECT t.team_id
+    FROM team t
+    LEFT JOIN team_user tu
+      ON tu.team_id = t.team_id
+      AND tu.role = 'team-owner'
+    LEFT JOIN "user" u
+      ON u.user_id = tu.user_id
+      AND u.deleted_at IS NULL
+    WHERE t.deleted_at IS NULL
+    GROUP BY t.team_id
+    HAVING COUNT(u.user_id) <> 1
+    LIMIT 1
+  `;
+
+  if (invalidTeamOwners.length > 0) {
+    throw new Error(
+      'Team ownership invariant failed. Each active team must have exactly one active owner.',
+    );
+  }
+
+  success('Bounded runtime authentication, role, and ownership checks passed.');
 }
 
 async function checkUniquenessAndOwnership() {
@@ -576,8 +688,9 @@ async function run() {
     checkConnection,
     checkDatabaseVersion,
     applyMigration,
+    checkMigrationState,
     checkSchemaCompatibility,
-    checkSecurityState,
+    verifyOnly ? checkRuntimeSecurityState : checkSecurityState,
   ];
 
   try {

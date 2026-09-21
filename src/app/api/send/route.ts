@@ -3,10 +3,11 @@ import { z } from 'zod';
 import type { Prisma } from '@/generated/prisma/client';
 import clickhouse from '@/lib/clickhouse';
 import { getCollectionLimit } from '@/lib/collection-rate-limit';
-import { CACHE_TOKEN_TYPE, COLLECTION_TYPE, EVENT_TYPE } from '@/lib/constants';
+import { CACHE_TOKEN_TYPE, COLLECTION_TYPE, EVENT_TYPE, FIELD_LENGTH } from '@/lib/constants';
 import { getSalt, hash, secret, uuid } from '@/lib/crypto';
 import { getClientInfo, hasBlockedIp } from '@/lib/detect';
 import { isEnvEnabled } from '@/lib/env';
+import { truncateString } from '@/lib/format';
 import { createToken, parseToken } from '@/lib/jwt';
 import { fetchWebsite } from '@/lib/load';
 import { parseRequest } from '@/lib/request';
@@ -240,12 +241,15 @@ export async function POST(request: Request) {
 
     const createdAt = timestamp ? new Date(timestamp * 1000) : new Date();
     const now = Math.floor(Date.now() / 1000);
+    const distinctId = truncateString(id, FIELD_LENGTH.distinctId);
 
     const saltRotation = process.env.SALT_ROTATION || 'month';
     const sessionSalt = getSalt(saltRotation, createdAt);
     const visitSalt = hash(startOfHour(createdAt).toUTCString());
 
-    const sessionId = uuid(sourceId, ip, userAgent, sessionSalt);
+    // Keep explicitly identified visitors separate from anonymous visitors who
+    // happen to share network and user-agent attributes.
+    const sessionId = uuid(sourceId, ip, userAgent, sessionSalt, distinctId ?? '');
     const sessionDrift = !!websiteId && !!cache?.sessionId && cache.sessionId !== sessionId;
     const shouldEnsureSession = !clickhouse.enabled && sessionDrift;
 
@@ -283,7 +287,7 @@ export async function POST(request: Request) {
             isBot,
             botName,
             botCategory,
-            distinctId: id,
+            distinctId,
             createdAt,
           },
           transaction,
@@ -369,7 +373,7 @@ export async function POST(request: Request) {
             referrerDomain,
 
             // Session
-            distinctId: id,
+            distinctId,
             browser,
             os,
             device,
@@ -405,8 +409,8 @@ export async function POST(request: Request) {
           transaction,
         );
       } else if (type === COLLECTION_TYPE.identify) {
-        if (websiteId && id) {
-          const newLinkId = hash(sessionId, id);
+        if (websiteId && distinctId) {
+          const newLinkId = hash(sessionId, distinctId);
 
           if (sessionLinkId !== newLinkId) {
             try {
@@ -415,7 +419,7 @@ export async function POST(request: Request) {
                   {
                     websiteId,
                     sessionId,
-                    distinctId: id,
+                    distinctId,
                     createdAt,
                   },
                   transaction,
@@ -424,14 +428,25 @@ export async function POST(request: Request) {
                   {
                     websiteId,
                     sessionId,
-                    distinctId: id,
+                    distinctId,
                   },
                   transaction,
                 ),
               ]);
               sessionLinkId = newLinkId;
             } catch (error) {
-              console.error('Failed to save session link:', error);
+              const name = error instanceof Error ? error.name : typeof error;
+              const rawCode =
+                typeof error === 'object' && error && 'code' in error ? error.code : undefined;
+              const code =
+                typeof rawCode === 'string' && /^[A-Za-z0-9_-]{1,50}$/.test(rawCode)
+                  ? rawCode
+                  : undefined;
+
+              console.error('Failed to save session link', {
+                name,
+                ...(code ? { code } : {}),
+              });
             }
           }
         }
@@ -442,7 +457,7 @@ export async function POST(request: Request) {
               websiteId,
               sessionId,
               sessionData: data,
-              distinctId: id,
+              distinctId,
               createdAt,
             },
             transaction,

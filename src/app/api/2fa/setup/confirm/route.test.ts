@@ -23,8 +23,7 @@ const mocks = vi.hoisted(() => {
     checkRateLimit: vi.fn(),
     recordFailedAttempt: vi.fn(),
     resetRateLimit: vi.fn(),
-    isOtpReplayed: vi.fn(),
-    markOtpUsed: vi.fn(),
+    consumeOtp: vi.fn(),
     verifyTotp: vi.fn(),
   };
 });
@@ -64,8 +63,7 @@ vi.mock('@/lib/two-factor/rate-limit', () => ({
 }));
 
 vi.mock('@/lib/two-factor/replay-prevention', () => ({
-  isOtpReplayed: mocks.isOtpReplayed,
-  markOtpUsed: mocks.markOtpUsed,
+  consumeOtp: mocks.consumeOtp,
 }));
 
 vi.mock('@/lib/two-factor/totp', () => ({
@@ -85,8 +83,7 @@ beforeEach(() => {
   mocks.checkRateLimit.mockReset();
   mocks.recordFailedAttempt.mockReset();
   mocks.resetRateLimit.mockReset();
-  mocks.isOtpReplayed.mockReset();
-  mocks.markOtpUsed.mockReset();
+  mocks.consumeOtp.mockReset();
   mocks.verifyTotp.mockReset();
 
   mocks.parseRequest.mockResolvedValue({
@@ -105,8 +102,7 @@ beforeEach(() => {
   mocks.checkRateLimit.mockResolvedValue({ allowed: true });
   mocks.recordFailedAttempt.mockResolvedValue({ lockedUntil: undefined });
   mocks.resetRateLimit.mockResolvedValue(undefined);
-  mocks.isOtpReplayed.mockResolvedValue(false);
-  mocks.markOtpUsed.mockResolvedValue(undefined);
+  mocks.consumeOtp.mockResolvedValue(true);
   mocks.verifyTotp.mockResolvedValue(true);
   mocks.tx.twoFactorAuth.update.mockResolvedValue(undefined);
   mocks.tx.twoFactorBackupCode.deleteMany.mockResolvedValue(undefined);
@@ -134,12 +130,27 @@ test('POST confirms setup, enables 2FA, stores backup codes, and resets the rate
       { userId: 'user-1', codeHash: 'hash-2' },
     ],
   });
-  expect(mocks.markOtpUsed).toHaveBeenCalledWith('user-1', '123456', mocks.tx);
+  expect(mocks.consumeOtp).toHaveBeenCalledWith('user-1', '123456', mocks.tx);
   expect(mocks.resetRateLimit).toHaveBeenCalledWith('user-1');
   await expect(response.json()).resolves.toEqual({
     backupCodes: ['code-1', 'code-2'],
   });
   expect(response.status).toBe(200);
+});
+
+test('POST leaves setup pending when another request consumes the TOTP first', async () => {
+  mocks.consumeOtp.mockResolvedValue(false);
+
+  const response = await POST(
+    new Request('http://localhost/api/2fa/setup/confirm', { method: 'POST' }),
+  );
+
+  expect(response.status).toBe(400);
+  await expect(response.json()).resolves.toMatchObject({
+    error: { code: 'two-factor-error-code-used' },
+  });
+  expect(mocks.tx.twoFactorAuth.update).not.toHaveBeenCalled();
+  expect(mocks.resetRateLimit).not.toHaveBeenCalled();
 });
 
 test('POST reports a configuration error when the encryption key is missing', async () => {

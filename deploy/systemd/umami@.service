@@ -11,13 +11,18 @@ WorkingDirectory=/srv/umami/%i/current
 EnvironmentFile=/etc/umami/%i.env
 Environment=NODE_ENV=production
 Environment=UMAMI_BIND_ADDRESS=127.0.0.1
-ExecStart=/usr/bin/node scripts/start-production.js
+Environment=NODE_OPTIONS=--max-old-space-size=384
+ExecStart=/opt/node-24.18.1/bin/node .next/standalone/runtime-scripts/start-production.mjs
 Restart=on-failure
 RestartSec=5s
 TimeoutStartSec=180s
 TimeoutStopSec=30s
 KillSignal=SIGTERM
 UMask=0027
+MemoryHigh=512M
+MemoryMax=768M
+TasksMax=128
+LimitNOFILE=8192
 
 NoNewPrivileges=true
 PrivateDevices=true
@@ -37,7 +42,6 @@ RestrictSUIDSGID=true
 LockPersonality=true
 CapabilityBoundingSet=
 AmbientCapabilities=
-ReadWritePaths=-/srv/umami/%i/current/.next/standalone/public
 ReadWritePaths=-/srv/umami/%i/current/.next/standalone/.next/cache
 
 [Install]

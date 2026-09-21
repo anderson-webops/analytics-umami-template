@@ -428,6 +428,7 @@ const booleanVariables = [
   'ENABLE_UPDATE_CHECKS',
   'FORCE_SSL',
   'KAFKA_SSL',
+  'KAFKA_SSL_ALLOW_UNAUTHORIZED',
   'LOG_QUERY',
   'PRIVATE_MODE',
   'REMOVE_TRAILING_SLASH',
@@ -556,6 +557,14 @@ if (process.env.NODE_ENV === 'production') {
 
   if (isEnabled(process.env.ENABLE_TEST_CONSOLE)) {
     fail('ENABLE_TEST_CONSOLE must not be enabled in production.');
+  }
+
+  if (isEnabled(process.env.KAFKA_SSL_ALLOW_UNAUTHORIZED)) {
+    fail('KAFKA_SSL_ALLOW_UNAUTHORIZED must not be enabled in production.');
+  }
+
+  if (getValue('NODE_TLS_REJECT_UNAUTHORIZED') === '0') {
+    fail('NODE_TLS_REJECT_UNAUTHORIZED=0 is not permitted in production.');
   }
 } else {
   checkDatabaseUrls();

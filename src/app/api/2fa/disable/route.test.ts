@@ -31,8 +31,7 @@ vi.mock('@/lib/two-factor/rate-limit', () => ({
 }));
 
 vi.mock('@/lib/two-factor/replay-prevention', () => ({
-  isOtpReplayed: vi.fn(),
-  markOtpUsed: vi.fn(),
+  consumeOtp: vi.fn(),
 }));
 
 vi.mock('@/lib/two-factor/totp', () => ({

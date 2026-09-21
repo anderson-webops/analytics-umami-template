@@ -1,10 +1,9 @@
-import { z } from 'zod';
 import { parseRequest } from '@/lib/request';
 import { badRequest, json, notFound, ok, serverError, unauthorized } from '@/lib/response';
-import { domainParam, routeSlugParam } from '@/lib/schema';
 import { publicSharesDisabled } from '@/lib/security';
 import { canDeleteWebsite, canUpdateWebsite, canViewSharedWebsite } from '@/permissions';
 import { deleteWebsite, getWebsite, updateWebsite } from '@/queries/prisma';
+import { updateWebsiteRequestSchema } from '../request-schema';
 
 export async function GET(
   request: Request,
@@ -46,26 +45,7 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ websiteId: string }> },
 ) {
-  const schema = z.object({
-    name: z.string().trim().min(1).max(100).optional(),
-    domain: domainParam.optional(),
-    shareId: routeSlugParam.nullable().optional(),
-    replayConfig: z
-      .object({
-        replayEnabled: z.boolean().optional(),
-        heatmapEnabled: z.boolean().optional(),
-        sampleRate: z.number().min(0).max(1).optional(),
-        heatmapSampleRate: z.number().min(0).max(1).optional(),
-        maskLevel: z.enum(['strict', 'moderate']).optional(),
-        maxDuration: z.number().int().min(60_000).max(3_600_000).optional(),
-        blockSelector: z.string().max(1_000).optional(),
-      })
-      .strict()
-      .nullable()
-      .optional(),
-  });
-
-  const { auth, body, error } = await parseRequest(request, schema);
+  const { auth, body, error } = await parseRequest(request, updateWebsiteRequestSchema);
 
   if (error) {
     return error();

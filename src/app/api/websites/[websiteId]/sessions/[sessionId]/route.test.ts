@@ -84,6 +84,7 @@ test('GET includes canDelete when relational storage and delete permission are a
     id: SESSION_ID,
     distinctId: 'distinct-1',
   });
+  getLinkedDistinctIdsMock.mockResolvedValue(['distinct-1']);
   getLinkedSessionIdsMock.mockResolvedValue([
     { sessionId: LINKED_SESSION_ID, createdAt: '2026-07-24T00:00:00.000Z' },
   ]);
@@ -99,8 +100,34 @@ test('GET includes canDelete when relational storage and delete permission are a
   await expect(response.json()).resolves.toMatchObject({
     id: SESSION_ID,
     canDelete: true,
+    distinctIds: ['distinct-1'],
     stitchedSessionCount: 2,
   });
+});
+
+test('GET does not stitch a session with multiple linked identities', async () => {
+  parseRequestMock.mockResolvedValue({ auth: {}, error: undefined });
+  canViewWebsiteSectionMock.mockResolvedValue(true);
+  isRelationalOnlyMock.mockReturnValue(true);
+  canDeleteWebsiteMock.mockResolvedValue(false);
+  getWebsiteSessionMock.mockResolvedValue({ id: SESSION_ID, distinctId: 'distinct-2' });
+  getLinkedDistinctIdsMock.mockResolvedValue(['distinct-1', 'distinct-2']);
+
+  const response = await GET(
+    new Request(`http://localhost/api/websites/${WEBSITE_ID}/sessions/${SESSION_ID}`),
+    {
+      params: Promise.resolve({ websiteId: WEBSITE_ID, sessionId: SESSION_ID }),
+    },
+  );
+
+  const body = await response.json();
+
+  expect(body).toMatchObject({
+    distinctIds: ['distinct-1', 'distinct-2'],
+    stitchedSessionCount: 1,
+  });
+  expect(body).not.toHaveProperty('distinctId');
+  expect(getLinkedSessionIdsMock).not.toHaveBeenCalled();
 });
 
 test('DELETE rejects session deletion for non-relational storage', async () => {

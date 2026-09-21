@@ -2,9 +2,13 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { readReplicas } from '@prisma/extension-read-replicas';
 import debug from 'debug';
 import { type Prisma, PrismaClient } from '@/generated/prisma/client';
-import { isEnvEnabled } from '@/lib/env';
-import { DATA_TYPE, FILTER_COLUMNS, OPERATORS, SESSION_COLUMNS } from './constants';
-import { normalizePagination } from './paging';
+import {
+  DATA_TYPE,
+  DEFAULT_PAGE_SIZE,
+  FILTER_COLUMNS,
+  OPERATORS,
+  SESSION_COLUMNS,
+} from './constants';
 import { filtersObjectToArray } from './params';
 import type { Operator, PropertyFilter, QueryFilters, QueryOptions } from './types';
 
@@ -70,15 +74,9 @@ export function getRawQueryClient(
   return client;
 }
 
+// Always Z-suffixed so JS parses the already-shifted local value as an unambiguous
+// instant instead of re-interpreting it in the runtime's own timezone.
 const DATE_FORMATS = {
-  minute: 'YYYY-MM-DD HH24:MI:00',
-  hour: 'YYYY-MM-DD HH24:00:00',
-  day: 'YYYY-MM-DD HH24:00:00',
-  month: 'YYYY-MM-01 HH24:00:00',
-  year: 'YYYY-01-01 HH24:00:00',
-};
-
-const DATE_FORMATS_UTC = {
   minute: 'YYYY-MM-DD"T"HH24:MI:00"Z"',
   hour: 'YYYY-MM-DD"T"HH24:00:00"Z"',
   day: 'YYYY-MM-DD"T"HH24:00:00"Z"',
@@ -88,7 +86,7 @@ const DATE_FORMATS_UTC = {
 
 const DATE_STRING_FORMATS = {
   utc: 'YYYY-MM-DD"T"HH24:MI:SS"Z"',
-  second: 'YYYY-MM-DD"T"HH24:MI:SS',
+  second: 'YYYY-MM-DD"T"HH24:MI:SS"Z"',
 };
 
 function isUtcTimezone(timezone?: string) {
@@ -108,11 +106,11 @@ function getCastColumnQuery(field: string, type: string): string {
 }
 
 function getDateSQL(field: string, unit: string, timezone?: string): string {
-  if (timezone && !isUtcTimezone(timezone)) {
-    return `to_char(date_trunc('${unit}', ${field} at time zone '${timezone}'), '${DATE_FORMATS[unit]}')`;
-  }
+  // Explicit `at time zone` even for UTC — `date_trunc` without one falls back to the
+  // DB session's ambient TimeZone setting, which this app never pins.
+  const tz = timezone && !isUtcTimezone(timezone) ? timezone : 'UTC';
 
-  return `to_char(date_trunc('${unit}', ${field}), '${DATE_FORMATS_UTC[unit]}')`;
+  return `to_char(date_trunc('${unit}', ${field} at time zone '${tz}'), '${DATE_FORMATS[unit]}')`;
 }
 
 function getDateStringSQL(
@@ -120,15 +118,17 @@ function getDateStringSQL(
   unit: keyof typeof DATE_STRING_FORMATS = 'utc',
   timezone?: string,
 ): string {
-  if (timezone && !isUtcTimezone(timezone)) {
-    return `to_char(${field} at time zone '${timezone}', '${DATE_STRING_FORMATS[unit]}')`;
-  }
+  const isUtc = !timezone || isUtcTimezone(timezone);
+  const tz = isUtc ? 'UTC' : timezone;
+  const format = isUtc ? DATE_STRING_FORMATS.utc : DATE_STRING_FORMATS[unit];
 
-  return `to_char(${field}, '${DATE_STRING_FORMATS.utc}')`;
+  return `to_char(${field} at time zone '${tz}', '${format}')`;
 }
 
 function getDateWeeklySQL(field: string, timezone?: string) {
-  return `concat(extract(dow from (${field} at time zone '${timezone}')), ':', to_char((${field} at time zone '${timezone}'), 'HH24'))`;
+  const tz = timezone && !isUtcTimezone(timezone) ? timezone : 'UTC';
+
+  return `concat(extract(dow from (${field} at time zone '${tz}')), ':', to_char((${field} at time zone '${tz}'), 'HH24'))`;
 }
 
 export function getTimestampSQL(field: string) {
@@ -214,17 +214,6 @@ function getFilterQuery(filters: Record<string, any>, options: QueryOptions = {}
 
   if (orClauses.length > 0) {
     parts.push(`and (\n  ${orClauses.join('\n  or ')}\n)`);
-  }
-
-  switch (filters.trafficType) {
-    case 'bot':
-      parts.push('and coalesce(website_event.is_bot, false) = true');
-      break;
-    case 'all':
-      break;
-    default:
-      parts.push('and coalesce(website_event.is_bot, false) = false');
-      break;
   }
 
   parts.push(...andClauses);
@@ -780,8 +769,8 @@ async function writeRawQuery(sql: string, data: Record<string, any>, name?: stri
 }
 
 async function pagedQuery<T>(model: string, criteria: T, filters?: QueryFilters) {
-  const { page, pageSize: size, orderBy, sortDescending } = normalizePagination(filters);
-  const { search } = filters || {};
+  const { page = 1, pageSize, orderBy, sortDescending = false, search } = filters || {};
+  const size = +pageSize || DEFAULT_PAGE_SIZE;
 
   const data = await client[model].findMany({
     ...criteria,
@@ -807,26 +796,23 @@ async function pagedRawQuery(
   queryParams: Record<string, any>,
   filters: QueryFilters,
   name?: string,
+  defaultOrderBy?: string,
 ) {
-  const {
-    page,
-    pageSize: size,
-    orderBy,
-    sortDescending,
-    maxResults,
-  } = normalizePagination(filters);
-  const offset = size * (page - 1);
+  const { page = 1, pageSize, orderBy, sortDescending = false } = filters;
+  const size = +pageSize || DEFAULT_PAGE_SIZE;
+  const offset = +size * (+page - 1);
   const direction = sortDescending ? 'desc' : 'asc';
 
   const statements = [
-    orderBy && `order by ${orderBy} ${direction}`,
-    `limit ${size} offset ${offset}`,
+    orderBy ? `order by ${orderBy} ${direction}` : defaultOrderBy && `order by ${defaultOrderBy}`,
+    +size > 0 && `limit ${+size} offset ${offset}`,
   ]
     .filter(n => n)
     .join('\n');
 
+  const { maxResults } = filters;
   const countQuery = maxResults
-    ? `select count(*) as num from (select 1 from (${query}) t limit ${maxResults}) t2`
+    ? `select count(*) as num from (select 1 from (${query}) t limit ${+maxResults}) t2`
     : `select count(*) as num from (${query}) t`;
 
   const count = await rawQuery(countQuery, queryParams).then(res => Number(res[0].num));
@@ -835,10 +821,10 @@ async function pagedRawQuery(
   return {
     data,
     count,
-    page,
+    page: +page,
     pageSize: size,
     orderBy,
-    isCapped: !!maxResults && count >= maxResults,
+    isCapped: !!maxResults && +count >= +maxResults,
   };
 }
 
@@ -868,12 +854,26 @@ function getSearchParameters(query: string, filters: Record<string, any>[]) {
   };
 }
 
-function transaction<T>(
-  input: (transaction: Prisma.TransactionClient) => Promise<T>,
-  options?: any,
-): Promise<T>;
-function transaction(input: any[], options?: any): Promise<any[]>;
-function transaction(input: any, options?: any): Promise<any> {
+type TransactionOptions = {
+  maxWait?: number;
+  timeout?: number;
+  isolationLevel?: Prisma.TransactionIsolationLevel;
+};
+
+type PrismaPromiseResult<T> = T extends Prisma.PrismaPromise<infer Result> ? Result : never;
+type TransactionResults<Promises extends readonly Prisma.PrismaPromise<any>[]> = {
+  [Index in keyof Promises]: PrismaPromiseResult<Promises[Index]>;
+};
+
+function transaction<Promises extends Prisma.PrismaPromise<any>[]>(
+  input: [...Promises],
+  options?: TransactionOptions,
+): Promise<TransactionResults<Promises>>;
+function transaction<Result>(
+  input: (transaction: Prisma.TransactionClient) => Promise<Result>,
+  options?: TransactionOptions,
+): Promise<Result>;
+function transaction(input: any, options?: TransactionOptions): Promise<any> {
   return client.$transaction(input, options) as Promise<any>;
 }
 
@@ -886,19 +886,13 @@ export function getSchema() {
 
   const connectionUrl = new URL(databaseUrl);
 
-  const schema = connectionUrl.searchParams.get('schema');
-
-  if (schema && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(schema)) {
-    throw new Error('DATABASE_URL schema must be a simple PostgreSQL identifier.');
-  }
-
-  return schema;
+  return connectionUrl.searchParams.get('schema');
 }
 
 function getClient() {
   const url = process.env.DATABASE_URL;
   const replicaUrl = process.env.DATABASE_REPLICA_URL;
-  const logQuery = isEnvEnabled('LOG_QUERY');
+  const logQuery = process.env.LOG_QUERY;
 
   if (!url) {
     throw new Error('DATABASE_URL is not set.');

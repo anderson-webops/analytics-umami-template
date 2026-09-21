@@ -8,5 +8,7 @@ export async function GET(request: Request) {
     return error();
   }
 
-  return json({ user: auth.user });
+  const { user, apiKey, authType, shareToken } = auth;
+
+  return json({ user, apiKey, authType, shareToken });
 }

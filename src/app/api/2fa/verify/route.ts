@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { saveAuth } from '@/lib/auth';
-import { ROLES } from '@/lib/constants';
+import { PARTIAL_AUTH_TOKEN_TYPE, ROLES } from '@/lib/constants';
 import { hash, secret } from '@/lib/crypto';
 import { isEnvEnabled } from '@/lib/env';
 import { createSecureToken, parseSecureToken } from '@/lib/jwt';
@@ -17,7 +17,7 @@ import {
   isTwoFactorConfigured,
 } from '@/lib/two-factor/crypto';
 import { checkRateLimit, recordFailedAttempt, resetRateLimit } from '@/lib/two-factor/rate-limit';
-import { isOtpReplayed, markOtpUsed } from '@/lib/two-factor/replay-prevention';
+import { consumeOtp } from '@/lib/two-factor/replay-prevention';
 import { verifyTotp } from '@/lib/two-factor/totp';
 import { getAllUserTeams, getUser } from '@/queries/prisma';
 
@@ -37,7 +37,11 @@ export async function POST(request: Request) {
   }
 
   const payload = parseSecureToken(rawToken, secret()) as any;
-  if (payload?.type !== 'partial-auth' || !payload.userId || typeof payload.pwd !== 'string') {
+  if (
+    payload?.type !== PARTIAL_AUTH_TOKEN_TYPE ||
+    !payload.userId ||
+    typeof payload.pwd !== 'string'
+  ) {
     return unauthorized({ code: 'two-factor-error-invalid-partial-token' });
   }
 
@@ -117,10 +121,6 @@ export async function POST(request: Request) {
   } else {
     const { token } = body;
 
-    if (await isOtpReplayed(userId, token)) {
-      return badRequest({ code: 'two-factor-error-code-used', message: 'Code already used' });
-    }
-
     const decryptedSecret = decryptSecret(twoFactor.secret);
 
     if (!(await verifyTotp(token, decryptedSecret))) {
@@ -132,7 +132,10 @@ export async function POST(request: Request) {
       });
     }
 
-    await markOtpUsed(userId, token);
+    if (!(await consumeOtp(userId, token))) {
+      return badRequest({ code: 'two-factor-error-code-used', message: 'Code already used' });
+    }
+
     await resetRateLimit(userId);
   }
 

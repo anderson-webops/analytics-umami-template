@@ -1,11 +1,10 @@
 import 'dotenv/config';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import createNextIntlPlugin from 'next-intl/plugin';
 import pkg from './package.json' with { type: 'json' };
 
 const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
-const projectRoot = fileURLToPath(new URL('.', import.meta.url));
+const projectRoot = process.cwd();
 
 const TRACKER_SCRIPT = '/script.js';
 const RECORDER_SCRIPT = '/recorder.js';
@@ -391,6 +390,16 @@ export default withNextIntl({
   async rewrites() {
     return [
       ...rewrites,
+      // Keep pre-3.4 report callers working without exposing the compatibility
+      // handlers as part of the current generated API contract.
+      {
+        source: '/api/reports/:path*',
+        destination: '/compat/api/reports/:path*',
+      },
+      {
+        source: '/api/websites/:websiteId/reports',
+        destination: '/compat/api/websites/:websiteId/reports',
+      },
       {
         source: '/teams/:teamId/:path*',
         destination: '/:path*',

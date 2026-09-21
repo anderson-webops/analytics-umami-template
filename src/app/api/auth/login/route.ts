@@ -1,6 +1,5 @@
-import { z } from 'zod';
 import { saveAuth } from '@/lib/auth';
-import { ROLES } from '@/lib/constants';
+import { PARTIAL_AUTH_TOKEN_TYPE, ROLES } from '@/lib/constants';
 import { hash, secret } from '@/lib/crypto';
 import { isEnvEnabled } from '@/lib/env';
 import { createSecureToken } from '@/lib/jwt';
@@ -10,12 +9,12 @@ import prisma from '@/lib/prisma';
 import redis from '@/lib/redis';
 import { parseRequest } from '@/lib/request';
 import { json, serviceUnavailable, tooManyRequests, unauthorized } from '@/lib/response';
-import { loginPasswordParam } from '@/lib/schema';
 import { getAuthSessionTtlSeconds } from '@/lib/security';
 import { isSameOriginMutation, setSessionCookie } from '@/lib/session';
 import { getTwoFactorConfigurationError, isTwoFactorConfigured } from '@/lib/two-factor/crypto';
 import { getAllUserTeams, getUserByUsername } from '@/queries/prisma';
 import { replacePasswordIfCurrent } from '@/queries/prisma/user';
+import { loginRequestSchema } from './schema';
 
 const DUMMY_PASSWORD_HASH = '$2b$12$dzX/8VLqsHliwcW1P2rlnuxNhqzhg00Jqq7s6vi/PNkMuBsbgJHGi';
 
@@ -32,12 +31,7 @@ export async function POST(request: Request) {
     return unauthorized({ code: 'invalid-login-origin' });
   }
 
-  const schema = z.object({
-    username: z.string().trim().min(1).max(255),
-    password: loginPasswordParam,
-  });
-
-  const { body, error } = await parseRequest(request, schema, {
+  const { body, error } = await parseRequest(request, loginRequestSchema, {
     skipAuth: true,
     maxBodyBytes: 16 * 1024,
   });
@@ -95,7 +89,7 @@ export async function POST(request: Request) {
     }
 
     const partialToken = createSecureToken(
-      { userId: id, pwd: passwordFingerprint, type: 'partial-auth' },
+      { userId: id, pwd: passwordFingerprint, type: PARTIAL_AUTH_TOKEN_TYPE },
       secret(),
       { expiresIn: '5m' },
     );

@@ -1,3 +1,4 @@
+import { isEnvEnabled } from '@/lib/env';
 import prisma from '@/lib/prisma';
 import { parseRequest } from '@/lib/request';
 import { badRequest, json, notFound, serviceUnavailable } from '@/lib/response';
@@ -14,7 +15,7 @@ import {
 import { getUser } from '@/queries/prisma/user';
 
 export async function POST(request: Request) {
-  if (process.env.CLOUD_MODE) {
+  if (isEnvEnabled('CLOUD_MODE')) {
     return notFound();
   }
 

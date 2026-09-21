@@ -51,7 +51,7 @@ const parseRequestMock = vi.mocked(parseRequest);
 const canEnforceTwoFactorAuthForUserMock = vi.mocked(canEnforceTwoFactorAuthForUser);
 const isTwoFactorConfiguredMock = vi.mocked(isTwoFactorConfigured);
 const updateUserMock = vi.mocked(updateUser);
-const prismaMock = vi.mocked(prisma, true);
+const prismaMock = prisma as any;
 
 beforeEach(() => {
   parseRequestMock.mockReset();

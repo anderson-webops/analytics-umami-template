@@ -22,7 +22,6 @@ const defaultPackage = {
     'lucide-react': '^0.542.0',
     'react-simple-maps': '^2.3.0',
     'react-window': '^1.8.6',
-    'serialize-error': '^12.0.0',
     thenby: '^1.3.4',
     uuid: '^11.1.0',
   },

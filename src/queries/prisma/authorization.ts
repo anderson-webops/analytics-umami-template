@@ -62,11 +62,13 @@ export async function runSerializedUserMutation<T>(
   operation: (transaction: Prisma.TransactionClient) => Promise<T>,
   options: { timeout?: number } = {},
 ): Promise<T> {
-  return prisma.transaction(
+  return runSerializable(
     async transaction => {
       // Account mutations share cross-row invariants such as the final active
       // administrator. Queue them before re-reading authorization state so
-      // concurrent requests cannot race those checks.
+      // concurrent account requests cannot race those checks. Serializable
+      // isolation also detects ownership changes made by entity transactions
+      // while an account deletion is checking for retained resources.
       await transaction.$queryRaw`
         SELECT pg_advisory_xact_lock(hashtext(${USER_MUTATION_LOCK_KEY}))::text
       `;
@@ -74,7 +76,6 @@ export async function runSerializedUserMutation<T>(
       return operation(transaction);
     },
     {
-      isolationLevel: 'ReadCommitted',
       timeout: 30_000,
       ...options,
     },

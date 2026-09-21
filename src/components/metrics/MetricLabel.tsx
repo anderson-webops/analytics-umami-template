@@ -1,4 +1,4 @@
-import { Row } from '@umami/react-zen';
+import { Row, Text } from '@umami/react-zen';
 import { Favicon } from '@/components/common/Favicon';
 import { FilterLink } from '@/components/common/FilterLink';
 import { TypeIcon } from '@/components/common/TypeIcon';
@@ -159,8 +159,9 @@ function PathMetricLabel({ type, data }: MetricLabelProps) {
 function FullPathMetricLabel({ data }: Pick<MetricLabelProps, 'data'>) {
   const { t, labels } = useMessages();
   const { label } = data;
+  const text = label || `(${t(labels.none)})`;
 
-  return label || `(${t(labels.none)})`;
+  return <Text title={text}>{text}</Text>;
 }
 
 function DeviceMetricLabel({ data }: Pick<MetricLabelProps, 'data'>) {

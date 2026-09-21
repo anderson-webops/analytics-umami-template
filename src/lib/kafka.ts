@@ -1,7 +1,6 @@
 import type * as tls from 'node:tls';
 import debug from 'debug';
 import { Kafka, logLevel, type Producer, type RecordMetadata, type SASLOptions } from 'kafkajs';
-import { serializeError } from 'serialize-error';
 import { KAFKA, KAFKA_PRODUCER } from '@/lib/db';
 import { isEnvEnabled } from '@/lib/env';
 
@@ -141,8 +140,13 @@ async function sendMessage(
 
     return result;
   } catch (e) {
+    const name = e instanceof Error ? e.name : typeof e;
+    const rawCode = typeof e === 'object' && e && 'code' in e ? e.code : undefined;
+    const code =
+      typeof rawCode === 'string' && /^[A-Za-z0-9_-]{1,50}$/.test(rawCode) ? rawCode : undefined;
+
     // eslint-disable-next-line no-console
-    console.log('KAFKA ERROR:', serializeError(e));
+    console.error('Kafka send failed', { name, ...(code ? { code } : {}) });
 
     return [];
   }

@@ -2,7 +2,14 @@ import { z } from 'zod';
 import { isValidTimezone, normalizeTimezone } from '@/lib/date';
 import { isAcceptableLoginPassword, isStrongPassword } from '@/lib/password';
 import { isSafeHttpsUrl, isSafeHttpUrl } from '@/lib/security';
-import { DATETIME_REGEX, DOMAIN_REGEX, ENTITY_TYPE, UNIT_TYPES } from './constants';
+import {
+  DATA_TYPE,
+  DATETIME_REGEX,
+  DOMAIN_REGEX,
+  ENTITY_TYPE,
+  FIELD_LENGTH,
+  UNIT_TYPES,
+} from './constants';
 
 export const timezoneParam = z
   .string()
@@ -94,6 +101,14 @@ export const searchParams = {
 export const replayParams = {
   minDuration: z.coerce.number().int().nonnegative().max(31_536_000).optional(),
 };
+
+export const annotationSchema = z
+  .object({
+    date: z.coerce.date(),
+    allDay: z.boolean().optional().default(true),
+    note: z.string().trim().min(1).max(500),
+  })
+  .strict();
 
 export const pagingParams = {
   page: z.coerce.number().int().positive().max(10_000).optional(),
@@ -761,9 +776,27 @@ const segmentActionParam = z
   })
   .strict();
 
+const sessionPropertyFilterParam = z
+  .object({
+    propertyName: z.string().trim().min(1).max(FIELD_LENGTH.dataKey),
+    dataType: z.union([
+      z.literal(DATA_TYPE.string),
+      z.literal(DATA_TYPE.number),
+      z.literal(DATA_TYPE.boolean),
+      z.literal(DATA_TYPE.date),
+      z.literal(DATA_TYPE.array),
+    ]),
+    operator: operatorParam,
+    value: z.string().max(500),
+  })
+  .strict();
+
+const sessionPropertyFiltersParam = z.array(sessionPropertyFilterParam).max(50);
+
 export const segmentParamSchema = z
   .object({
     filters: segmentFiltersParam.optional(),
+    sessionPropertyFilters: sessionPropertyFiltersParam.optional(),
     match: z.enum(['all', 'any']).optional(),
     dateRange: z.string().max(100).optional(),
     action: segmentActionParam.optional(),
@@ -780,6 +813,7 @@ export const savedSegmentSchema = z.discriminatedUnion('type', [
       parameters: z
         .object({
           filters: segmentFiltersParam.optional(),
+          sessionPropertyFilters: sessionPropertyFiltersParam.optional(),
           match: z.enum(['all', 'any']).optional(),
         })
         .strict(),

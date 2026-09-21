@@ -1,0 +1,125 @@
+{
+  "version": 1,
+  "artifactRoot": ".next/standalone",
+  "manifest": "runtime-manifest.json",
+  "entrypoints": ["runtime-scripts/start-production.mjs", "server.js"],
+  "requiredFiles": [
+    ".node-version",
+    ".nvmrc",
+    ".next/BUILD_ID",
+    ".next/required-server-files.json",
+    ".next/server/app/healthz/route.js",
+    ".next/server/app/readyz/route.js",
+    "generated/prisma/client.js",
+    "geo/GeoLite2-City.mmdb",
+    "node_modules/@prisma/client",
+    "node_modules/next",
+    "node_modules/pg",
+    "package.json",
+    "pnpm-lock.yaml",
+    "prisma/migrations/26_add_api_key/migration.sql",
+    "prisma/migrations/migration_lock.toml",
+    "prisma/schema.prisma",
+    "public/openapi.json",
+    "public/script.js",
+    "runtime-scripts/artifact-smoke.mjs",
+    "runtime-scripts/check-db.mjs",
+    "runtime-scripts/check-env.mjs",
+    "runtime-scripts/start-production.mjs",
+    "server.js"
+  ],
+  "requiredDirectories": [".next/cache"],
+  "requiredPatterns": [
+    {
+      "pattern": "prisma/migrations/*/migration.sql",
+      "minimum": 26
+    },
+    {
+      "pattern": "node_modules/.pnpm/@prisma+client@*/node_modules/@prisma/client/package.json",
+      "minimum": 1
+    },
+    {
+      "pattern": "node_modules/.pnpm/next@*/node_modules/next/package.json",
+      "minimum": 1
+    },
+    {
+      "pattern": "node_modules/.pnpm/pg@*/node_modules/pg/package.json",
+      "minimum": 1
+    },
+    {
+      "pattern": "node_modules/.pnpm/@img+sharp-linux-arm64@*/node_modules/@img/sharp-linux-arm64/lib/*.node",
+      "minimum": 1
+    },
+    {
+      "pattern": "node_modules/.pnpm/@img+sharp-libvips-linux-arm64@*/node_modules/@img/sharp-libvips-linux-arm64/lib/*.so.*",
+      "minimum": 1
+    }
+  ],
+  "allowedRoots": [
+    ".next",
+    "generated",
+    "geo",
+    "node_modules",
+    "packages",
+    "prisma",
+    "public",
+    "runtime-scripts"
+  ],
+  "allowedFiles": [
+    ".node-version",
+    ".nvmrc",
+    "package.json",
+    "pnpm-lock.yaml",
+    "prisma.config.ts",
+    "server.js"
+  ],
+  "forbiddenStateTrees": [".data", ".next/cache", "cache", "data", "logs", "spool", "uploads"],
+  "runtime": {
+    "os": "linux",
+    "arch": "arm64",
+    "libc": "glibc",
+    "node": "24.18.1",
+    "packageManager": "pnpm@11.18.0"
+  },
+  "modulesOutsideBuildDirectories": [
+    "generated/prisma",
+    "geo",
+    "prisma/migrations",
+    "runtime-scripts"
+  ],
+  "productionDependencies": ["node_modules/@prisma/client", "node_modules/next", "node_modules/pg"],
+  "generatedClients": ["generated/prisma"],
+  "nativeBindings": [
+    "node_modules/.pnpm/@img+sharp-linux-arm64@*/node_modules/@img/sharp-linux-arm64/lib/*.node",
+    "node_modules/.pnpm/@img+sharp-libvips-linux-arm64@*/node_modules/@img/sharp-libvips-linux-arm64/lib/*.so.*"
+  ],
+  "staticAssets": [".next/static", "geo", "public"],
+  "writableState": [
+    {
+      "name": "Next runtime cache",
+      "location": ".next/cache inside each immutable release",
+      "promotion": "Start empty; never copy from the active release.",
+      "rollback": "Retained releases may reuse only their own disposable cache; deleting it is safe."
+    },
+    {
+      "name": "PostgreSQL data",
+      "location": "Host-managed external database",
+      "promotion": "Back up and migrate before activation; verify every release migration and retained rollback compatibility.",
+      "rollback": "Never restore or overwrite database state from an application artifact."
+    },
+    {
+      "name": "Redis and ClickHouse data",
+      "location": "Optional external services",
+      "promotion": "Preserve outside releases and require readiness when configured.",
+      "rollback": "Never package or overwrite external service state."
+    },
+    {
+      "name": "Temporary files and logs",
+      "location": "PrivateTmp and the system journal",
+      "promotion": "Disposable temporary files; logs remain service-managed.",
+      "rollback": "Never copy temporary files or logs into a release."
+    }
+  ],
+  "privateConfiguration": "Protected environment files, credentials, database contents, uploads, queues, logs, and cache contents remain outside the artifact.",
+  "topology": "One loopback-only Node service per analytics instance behind the existing Nginx IPv4 and IPv6 listeners. Preserve instance ports, users, environment files, databases, certificates, and DNS."
+}

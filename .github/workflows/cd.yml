@@ -16,14 +16,17 @@ concurrency:
 jobs:
   validate:
     name: Validate non-container release
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
     env:
       APP_SECRET: release-validation-only-secret-0000000000000000
-      DATABASE_URL: postgresql://user:pass@localhost:5432/dummy
+      DATABASE_URL: postgresql://umami:release-validation-password-000000000000@127.0.0.1:5432/umami?schema=public
+      RUNTIME_ACCEPTANCE_DATABASE_URL: postgresql://umami:release-validation-password-000000000000@127.0.0.1:5432/umami?schema=public
+      PUBLIC_URL: https://analytics.example.com
+      CLIENT_IP_HEADER: x-real-ip
+      UMAMI_BIND_ADDRESS: 127.0.0.1
       DISABLE_TELEMETRY: "1"
       NEXT_TELEMETRY_DISABLED: "1"
-      SKIP_DB_CHECK: "1"
 
     steps:
       - name: Check out exact release source
@@ -46,6 +49,16 @@ jobs:
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Prepare isolated PostgreSQL acceptance fixture
+        env:
+          PGPASSWORD: release-validation-password-000000000000
+        run: |
+          sudo systemctl start postgresql.service
+          sudo -u postgres psql --set ON_ERROR_STOP=1 --command "CREATE USER umami WITH PASSWORD 'release-validation-password-000000000000';"
+          sudo -u postgres createdb --owner umami umami
+          pnpm db:migrate
+          UMAMI_USERNAME=admin UMAMI_PASSWORD=release-validation-admin-000000000000 pnpm change-password
+
       - name: Audit and validate source
         run: |
           pnpm run audit:all
@@ -55,10 +68,12 @@ jobs:
       - name: Build direct production runtime
         run: pnpm run build:production
 
-      - name: Verify standalone runtime identity
+      - name: Verify exact Linux ARM64 runtime and migration state
         run: |
-          test -f .next/standalone/server.js
-          test -f .next/standalone/public/script.js
-          test -d .next/standalone/.next/static
+          NODE_ENV=production pnpm check:env
+          NODE_ENV=production pnpm check:db
+          node scripts/runtime-artifact.mjs verify .next/standalone --release --expected-commit "$GITHUB_SHA"
+          command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install --yes bubblewrap; }
+          node scripts/test-runtime-artifact.mjs --release --require-isolation --expected-commit "$GITHUB_SHA"
           test ! -e Dockerfile
           test ! -e docker-compose.yml

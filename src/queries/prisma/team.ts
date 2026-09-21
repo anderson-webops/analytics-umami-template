@@ -344,6 +344,9 @@ export async function deleteTeam(teamId: string, actorUserId: string) {
       await transaction.segment.deleteMany({
         where: { websiteId: { in: websiteIds } },
       });
+      await transaction.annotation.deleteMany({
+        where: { websiteId: { in: websiteIds } },
+      });
       await transaction.share.deleteMany({
         where: { entityId: { in: entityIds } },
       });
