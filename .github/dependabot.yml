@@ -33,6 +33,14 @@ updates:
       - dependency-name: typescript
         update-types:
           - version-update:semver-major
+      # Major UI and test-runner changes are reviewed once in this template,
+      # then propagated to downstream analytics repositories as a unit.
+      - dependency-name: react-simple-maps
+        update-types:
+          - version-update:semver-major
+      - dependency-name: vitest
+        update-types:
+          - version-update:semver-major
       # React Zen 0.x minor releases may contain breaking component API
       # changes; 0.246+ requires the upstream UI migration.
       - dependency-name: "@umami/react-zen"
@@ -56,4 +64,3 @@ updates:
       time: "05:35"
       timezone: America/New_York
     open-pull-requests-limit: 5
-
