@@ -56,6 +56,7 @@ jobs:
           sudo systemctl start postgresql.service
           sudo -u postgres psql --set ON_ERROR_STOP=1 --command "CREATE USER umami WITH PASSWORD 'release-validation-password-000000000000';"
           sudo -u postgres createdb --owner umami umami
+          pnpm build:db
           pnpm db:migrate
           UMAMI_USERNAME=admin UMAMI_PASSWORD=release-validation-admin-000000000000 pnpm change-password
 

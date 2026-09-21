@@ -5,9 +5,9 @@
 - Use multiple commits and pushes when that keeps unrelated changes, partial validations, or follow-up fixes clearly separated. Prefer small, logically grouped commits over one mixed commit.
 - Keep `pnpm-lock.yaml` synchronized before every commit or push.
 - Use lowercase annotated semver tags only. Do not invent ad-hoc labels such as `V1`, `torca-r07`, `pre-lfs-migration-*`, or similar one-off names.
-- This repo follows the stable `v3.x` line. Stay on `v3` for routine work; only cut `v4` for an intentional breaking template or runtime change.
-- Before creating a new tag, check the latest tag in the active semver line and decide whether the new commit is still the same release milestone. If it is, move that existing tag forward to the new validated commit instead of minting a new version number.
-- Keep the GitHub release aligned with that decision: when the commit still belongs to the same milestone, update or recreate the existing release so it points at the moved tag/current commit; only create a brand-new release when the change creates a genuinely new milestone.
+- This repo follows the stable `v4.x` line. Stay on `v4` for routine work; only cut `v5` for an intentional breaking template or runtime change.
+- Before creating a new tag, check the latest tag in the active semver line and choose the smallest appropriate version increment. Published tags are immutable; never move or force-update one. If a tagged candidate fails before release publication, preserve that tag without a release and use the next patch version for the corrected candidate.
+- Publish the matching GitHub release only after the exact tagged source passes its release gates. Never retarget an existing release by moving its tag.
 - Cut a fresh semver tag and release only when the work crosses a real release boundary, such as a new deployable milestone, a materially different operator/user-facing state, or a version-line change that deserves its own notes and rollback point.
 - Create an annotated tag when template state changes in ways forks should intentionally consume, especially runtime/build, schema, tracker, auth, packaging, or deploy behavior.
 - Create a GitHub release when that tag is the template version you expect downstream analytics forks to adopt. Release notes should summarize scope, validation, rollout notes, and any migration or recovery steps.
