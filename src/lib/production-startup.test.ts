@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -120,13 +121,36 @@ describe('direct production startup', () => {
     }
   });
 
-  test('keeps the overlapping session-data migrations safe in either upgrade order', () => {
+  test('keeps published migrations immutable and bridges their historical fixes', () => {
+    const boardMigration = read('prisma/migrations/16_boards/migration.sql');
     const hardeningMigration = read('prisma/migrations/21_harden_auth_invariants/migration.sql');
     const upstreamSessionMigration = read('prisma/migrations/23_update_session_data/migration.sql');
-    const idempotentIndex =
-      'CREATE UNIQUE INDEX IF NOT EXISTS "session_data_session_id_data_key_key"';
+    const prepareMigration = read(
+      'prisma/migrations/22_prepare_session_data_index_rebuild/migration.sql',
+    );
+    const finalizeMigration = read(
+      'prisma/migrations/25_finalize_session_data_index_rebuild/migration.sql',
+    );
+    const boardFinalizer = read(
+      'prisma/migrations/27_remove_redundant_board_primary_key_index/migration.sql',
+    );
+    const digest = (value: string) => createHash('sha256').update(value).digest('hex');
 
-    expect(hardeningMigration).toContain(idempotentIndex);
-    expect(upstreamSessionMigration).toContain(idempotentIndex);
+    expect(digest(boardMigration)).toBe(
+      '52df2b4723b1c9e1c2dc66ffb191df56742a23e48a5cd7bc12947fbbc7b420fb',
+    );
+    expect(digest(hardeningMigration)).toBe(
+      'af596c3f844becd9f8382f6aec03d6541612f348aa4921ba8a35cc1d5fc6655b',
+    );
+    expect(digest(upstreamSessionMigration)).toBe(
+      '5fc778b82bb34c3c04d78061e66d7036c3c51d0c506f5279f3c1cfc99f24f694',
+    );
+    expect(prepareMigration).toContain('ALTER INDEX %I.%I RENAME TO %I');
+    expect(finalizeMigration).toContain(
+      'CREATE UNIQUE INDEX IF NOT EXISTS "session_data_session_id_data_key_key"',
+    );
+    expect(finalizeMigration).toContain('DROP INDEX %I.%I');
+    expect(boardFinalizer).toContain("pg_get_indexdef(indexrelid, 1, true) = 'board_id'");
+    expect(boardFinalizer).toContain('DROP INDEX %I.%I');
   });
 });

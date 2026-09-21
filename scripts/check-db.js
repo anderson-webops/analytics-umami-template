@@ -221,7 +221,52 @@ async function checkSchemaCompatibility() {
         FROM information_schema.tables
         WHERE table_schema = current_schema()
           AND table_name = 'heatmap_event'
-      ) AS heatmap_event
+      ) AS heatmap_event,
+      EXISTS (
+        SELECT 1
+        FROM pg_indexes
+        WHERE schemaname = current_schema()
+          AND indexname = 'session_data_session_id_data_key_key'
+          AND indexdef LIKE 'CREATE UNIQUE INDEX%'
+      ) AS session_data_unique_index,
+      NOT EXISTS (
+        SELECT required.name
+        FROM (
+          VALUES
+            ('team_user_team_id_user_id_key'),
+            ('team_user_one_owner_per_team_key'),
+            ('user_username_normalized_key')
+        ) AS required(name)
+        LEFT JOIN pg_indexes index_definition
+          ON index_definition.schemaname = current_schema()
+          AND index_definition.indexname = required.name
+          AND index_definition.indexdef LIKE 'CREATE UNIQUE INDEX%'
+        WHERE index_definition.indexname IS NULL
+      ) AS authorization_unique_indexes,
+      NOT EXISTS (
+        SELECT required.name
+        FROM (
+          VALUES
+            ('user_role_check'),
+            ('team_user_role_check'),
+            ('website_owner_check'),
+            ('link_owner_check'),
+            ('pixel_owner_check'),
+            ('board_owner_check'),
+            ('share_type_check')
+        ) AS required(name)
+        LEFT JOIN pg_constraint constraint_definition
+          ON constraint_definition.connamespace = current_schema()::regnamespace
+          AND constraint_definition.conname = required.name
+          AND constraint_definition.contype = 'c'
+        WHERE constraint_definition.oid IS NULL
+      ) AS authorization_check_constraints,
+      NOT EXISTS (
+        SELECT 1
+        FROM pg_indexes
+        WHERE schemaname = current_schema()
+          AND indexname = 'board_board_id_key'
+      ) AS redundant_board_index_removed
   `;
   const schema = result[0];
 
@@ -230,7 +275,11 @@ async function checkSchemaCompatibility() {
     !schema?.replay_config ||
     !schema?.session_replay ||
     !schema?.session_replay_saved ||
-    !schema?.heatmap_event
+    !schema?.heatmap_event ||
+    !schema?.session_data_unique_index ||
+    !schema?.authorization_unique_indexes ||
+    !schema?.authorization_check_constraints ||
+    !schema?.redundant_board_index_removed
   ) {
     throw new Error(
       'Database schema is incomplete after migration. Ensure every committed Prisma migration is available and can be applied before starting the service.',

@@ -1,6 +1,6 @@
 {
   "name": "umami",
-  "version": "4.2.3",
+  "version": "4.2.4",
   "private": true,
   "description": "A modern, privacy-focused alternative to Google Analytics.",
   "author": "Umami Software, Inc. <hello@umami.is>",
@@ -63,6 +63,7 @@
     "runtime:manifest": "node scripts/runtime-artifact.mjs create .next/standalone",
     "runtime:verify": "node scripts/runtime-artifact.mjs verify .next/standalone",
     "test:runtime-artifact": "node --test scripts/test-runtime-artifact-manifest.mjs && node scripts/test-runtime-artifact.mjs",
+    "test:migration-bridge": "node scripts/test-session-data-migration-bridge.js",
     "pretest": "pnpm generate:db:client",
     "test": "vitest run",
     "test:unit": "vitest run",

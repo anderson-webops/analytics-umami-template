@@ -15,6 +15,9 @@ CREATE TABLE "board" (
 );
 
 -- CreateIndex
+CREATE UNIQUE INDEX "board_board_id_key" ON "board"("board_id");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "board_slug_key" ON "board"("slug");
 
 -- CreateIndex

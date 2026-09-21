@@ -74,6 +74,12 @@ relationship scans on each restart. Those full checks remain mandatory in the
 pre-promotion source step. The Prisma CLI and development dependency tree are
 not runtime requirements.
 
+Published migration bytes and exact checksum matching remain immutable. The
+forward-only repair migrations documented in
+`docs/migration-history-compatibility.md` preserve successful production
+ledgers while keeping fresh database creation valid. Required security
+constraints and unique indexes are verified independently after migration.
+
 Tracker endpoint customization occurs before the manifest is written. Runtime
 startup does not rewrite `public/script.js`, so the service needs no writable
 public-assets exception.

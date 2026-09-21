@@ -123,6 +123,7 @@ jobs:
         run: |
           pnpm run build-db
           pnpm run update-db
+          ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm run test:migration-bridge
           pnpm run change-password
           pnpm run check-env
           pnpm run check-db

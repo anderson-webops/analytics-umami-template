@@ -55,6 +55,7 @@ jobs:
           sudo -u postgres createdb --owner umami umami
           pnpm build:db
           pnpm db:migrate
+          ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm run test:migration-bridge
           UMAMI_USERNAME=admin UMAMI_PASSWORD=release-validation-admin-000000000000 pnpm change-password
 
       - name: Audit and validate source
