@@ -22,9 +22,6 @@ jobs:
       APP_SECRET: release-validation-only-secret-0000000000000000
       DATABASE_URL: postgresql://umami:release-validation-password-000000000000@127.0.0.1:5432/umami?schema=public
       RUNTIME_ACCEPTANCE_DATABASE_URL: postgresql://umami:release-validation-password-000000000000@127.0.0.1:5432/umami?schema=public
-      PUBLIC_URL: https://analytics.example.com
-      CLIENT_IP_HEADER: x-real-ip
-      UMAMI_BIND_ADDRESS: 127.0.0.1
       DISABLE_TELEMETRY: "1"
       NEXT_TELEMETRY_DISABLED: "1"
 
@@ -67,9 +64,17 @@ jobs:
           pnpm run validate
 
       - name: Build direct production runtime
+        env:
+          PUBLIC_URL: https://analytics.example.com
+          CLIENT_IP_HEADER: x-real-ip
+          UMAMI_BIND_ADDRESS: 127.0.0.1
         run: pnpm run build:production
 
       - name: Verify exact Linux ARM64 runtime and migration state
+        env:
+          PUBLIC_URL: https://analytics.example.com
+          CLIENT_IP_HEADER: x-real-ip
+          UMAMI_BIND_ADDRESS: 127.0.0.1
         run: |
           NODE_ENV=production pnpm check:env
           NODE_ENV=production pnpm check:db
