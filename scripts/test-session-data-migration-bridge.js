@@ -156,6 +156,44 @@ async function runBoardScenario(name, setup, expectedError) {
   });
 }
 
+async function runFinalizeRollbackScenario() {
+  await withIsolatedSchema('finalize_rollback', async () => {
+    await client.query(`
+      CREATE TABLE session_data (
+        session_data_id uuid PRIMARY KEY,
+        session_id uuid NOT NULL,
+        data_key varchar(500) NOT NULL,
+        created_at timestamptz
+      )
+    `);
+    await client.query(`
+      INSERT INTO session_data (session_data_id, session_id, data_key, created_at)
+      VALUES
+        ('00000000-0000-4000-8000-000000000041', '00000000-0000-4000-8000-000000000051', 'site', '2026-09-20T00:00:00Z'),
+        ('00000000-0000-4000-8000-000000000042', '00000000-0000-4000-8000-000000000051', 'site', '2026-09-21T00:00:00Z')
+    `);
+    await client.query(
+      `CREATE UNIQUE INDEX ${quoteIdentifier(legacyIndex)} ON session_data(session_data_id)`,
+    );
+
+    await assert.rejects(
+      client.query(finalizeMigration),
+      /retained session-data index is not safe/,
+    );
+    await client.query('ROLLBACK');
+
+    const rows = await client.query(
+      'SELECT session_data_id::text FROM session_data ORDER BY session_data_id',
+    );
+    assert.deepEqual(
+      rows.rows.map(({ session_data_id }) => session_data_id),
+      ['00000000-0000-4000-8000-000000000041', '00000000-0000-4000-8000-000000000042'],
+    );
+    assert.equal(await readIndex(canonicalIndex), null);
+    assert.notEqual(await readIndex(legacyIndex), null);
+  });
+}
+
 function runPrismaMigrate(connectionString) {
   const result = spawnSync('pnpm', ['exec', 'prisma', 'migrate', 'deploy'], {
     cwd: repositoryRoot,
@@ -171,6 +209,21 @@ function runPrismaMigrate(connectionString) {
     0,
     `Prisma migration rehearsal failed.\n${result.stdout || ''}${result.stderr || ''}`,
   );
+}
+
+function assertDatabaseCheckRejects(connectionString) {
+  const result = spawnSync(process.execPath, ['scripts/check-db.js'], {
+    cwd: repositoryRoot,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      DATABASE_URL: connectionString,
+    },
+  });
+  const output = `${result.stdout || ''}\n${result.stderr || ''}`;
+
+  assert.notEqual(result.status, 0, 'Database validation accepted a tampered schema.');
+  assert.match(output, /Database schema is incomplete after migration/);
 }
 
 async function runHistoricalLedgerReplayScenario() {
@@ -275,6 +328,26 @@ async function runHistoricalLedgerReplayScenario() {
     assert.equal(await readIndex(legacyIndex), null);
     assert.equal(await readIndex('board_board_id_key'), null);
     assert.notEqual(await readIndex('board_pkey'), null);
+
+    await client.query(`DROP INDEX ${quoteIdentifier(canonicalIndex)}`);
+    await client.query(
+      `CREATE UNIQUE INDEX ${quoteIdentifier(canonicalIndex)} ON session_data(data_key, session_id)`,
+    );
+    assertDatabaseCheckRejects(rehearsalUrl.toString());
+    await client.query(`DROP INDEX ${quoteIdentifier(canonicalIndex)}`);
+    await client.query(
+      `CREATE UNIQUE INDEX ${quoteIdentifier(canonicalIndex)} ON session_data(session_id, data_key)`,
+    );
+
+    await client.query('ALTER TABLE "user" DROP CONSTRAINT user_role_check');
+    await client.query('ALTER TABLE "user" ADD CONSTRAINT user_role_check CHECK (true)');
+    assertDatabaseCheckRejects(rehearsalUrl.toString());
+    await client.query('ALTER TABLE "user" DROP CONSTRAINT user_role_check');
+    await client.query(`
+      ALTER TABLE "user"
+      ADD CONSTRAINT user_role_check
+      CHECK ("role" IN ('admin', 'user', 'view-only'))
+    `);
   } finally {
     await client.query('SET search_path TO public');
     await client.query(`DROP SCHEMA ${quotedSchema} CASCADE`);
@@ -355,11 +428,12 @@ try {
     () => client.query('CREATE UNIQUE INDEX board_board_id_key ON board(slug)'),
     /does not match the reviewed redundant index/,
   );
+  await runFinalizeRollbackScenario();
 
   await runHistoricalLedgerReplayScenario();
 
   console.log(
-    'Verified the migration repair across seven isolated SQL scenarios and one production-shaped ledger replay.',
+    'Verified the migration repair across eight isolated SQL scenarios and one production-shaped ledger replay.',
   );
 } finally {
   await client.end();

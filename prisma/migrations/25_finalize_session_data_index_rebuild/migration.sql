@@ -1,3 +1,5 @@
+BEGIN;
+
 WITH ranked_session_data AS (
   SELECT
     "session_data_id",
@@ -64,3 +66,5 @@ BEGIN
   END IF;
 END
 $$;
+
+COMMIT;

@@ -28,6 +28,10 @@ Each bridge fails closed on an unexpected table, column order, uniqueness, predi
 validity state. Future schema changes must use new forward migrations. Never edit these published
 migrations again.
 
+The finalizer runs inside an explicit PostgreSQL transaction. If index creation, validation, or
+cleanup fails after duplicate selection begins, the row changes and index changes roll back together.
+The regression suite forces that late failure and verifies that both original duplicate rows remain.
+
 ## Required preflight and rehearsal
 
 1. Record the exact active release, retained rollback application, candidate commit, migration names,

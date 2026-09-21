@@ -13,6 +13,7 @@ const MIN_VERSION = '15.0';
 const MIN_VERSION_NUM = 150_000;
 const VALID_USER_ROLES = new Set(['admin', 'user', 'view-only']);
 const VALID_TEAM_ROLES = ['team-owner', 'team-manager', 'team-member', 'team-view-only'];
+const SAFE_SCHEMA = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const isEnabled = value => ['1', 'true', 'yes', 'on'].includes(value?.trim().toLowerCase() ?? '');
 const verifyOnly = process.argv.includes('--verify-only');
 const scriptDirectory = path.dirname(path.resolve(process.argv[1]));
@@ -45,7 +46,8 @@ function requireDatabaseUrl() {
       !['postgres:', 'postgresql:'].includes(url.protocol) ||
       !url.hostname ||
       !url.username ||
-      !url.pathname.replace(/^\//, '')
+      !url.pathname.replace(/^\//, '') ||
+      (url.searchParams.get('schema') && !SAFE_SCHEMA.test(url.searchParams.get('schema')))
     ) {
       throw new Error();
     }
@@ -63,9 +65,13 @@ async function initialize() {
   }
 
   const url = requireDatabaseUrl();
+  const schema = url.searchParams.get('schema');
   const adapter = new PrismaPg(
-    { connectionString: url.toString() },
-    { schema: url.searchParams.get('schema') },
+    {
+      connectionString: url.toString(),
+      ...(schema ? { options: `-c search_path=${schema}` } : {}),
+    },
+    { schema },
   );
 
   prisma = new PrismaClient({ adapter });
@@ -224,41 +230,109 @@ async function checkSchemaCompatibility() {
       ) AS heatmap_event,
       EXISTS (
         SELECT 1
-        FROM pg_indexes
-        WHERE schemaname = current_schema()
-          AND indexname = 'session_data_session_id_data_key_key'
-          AND indexdef LIKE 'CREATE UNIQUE INDEX%'
+        FROM pg_index index_definition
+        WHERE index_definition.indexrelid = to_regclass(
+            format('%I.%I', current_schema(), 'session_data_session_id_data_key_key')
+          )
+          AND index_definition.indrelid = to_regclass(
+            format('%I.%I', current_schema(), 'session_data')
+          )
+          AND index_definition.indisunique
+          AND index_definition.indisvalid
+          AND index_definition.indisready
+          AND index_definition.indnkeyatts = 2
+          AND index_definition.indnatts = 2
+          AND index_definition.indexprs IS NULL
+          AND index_definition.indpred IS NULL
+          AND pg_get_indexdef(index_definition.indexrelid, 1, true) = 'session_id'
+          AND pg_get_indexdef(index_definition.indexrelid, 2, true) = 'data_key'
       ) AS session_data_unique_index,
+      EXISTS (
+        SELECT 1
+        FROM pg_index index_definition
+        WHERE index_definition.indexrelid = to_regclass(
+            format('%I.%I', current_schema(), 'team_user_team_id_user_id_key')
+          )
+          AND index_definition.indrelid = to_regclass(
+            format('%I.%I', current_schema(), 'team_user')
+          )
+          AND index_definition.indisunique
+          AND index_definition.indisvalid
+          AND index_definition.indisready
+          AND index_definition.indnkeyatts = 2
+          AND index_definition.indnatts = 2
+          AND index_definition.indexprs IS NULL
+          AND index_definition.indpred IS NULL
+          AND pg_get_indexdef(index_definition.indexrelid, 1, true) = 'team_id'
+          AND pg_get_indexdef(index_definition.indexrelid, 2, true) = 'user_id'
+      ) AS authorization_membership_unique_index,
+      EXISTS (
+        SELECT 1
+        FROM pg_index index_definition
+        WHERE index_definition.indexrelid = to_regclass(
+            format('%I.%I', current_schema(), 'team_user_one_owner_per_team_key')
+          )
+          AND index_definition.indrelid = to_regclass(
+            format('%I.%I', current_schema(), 'team_user')
+          )
+          AND index_definition.indisunique
+          AND index_definition.indisvalid
+          AND index_definition.indisready
+          AND index_definition.indnkeyatts = 1
+          AND index_definition.indnatts = 1
+          AND index_definition.indexprs IS NULL
+          AND pg_get_indexdef(index_definition.indexrelid, 1, true) = 'team_id'
+          AND pg_get_expr(index_definition.indpred, index_definition.indrelid)
+            = '((role)::text = ''team-owner''::text)'
+      ) AS authorization_owner_unique_index,
+      EXISTS (
+        SELECT 1
+        FROM pg_index index_definition
+        WHERE index_definition.indexrelid = to_regclass(
+            format('%I.%I', current_schema(), 'user_username_normalized_key')
+          )
+          AND index_definition.indrelid = to_regclass(
+            format('%I.%I', current_schema(), 'user')
+          )
+          AND index_definition.indisunique
+          AND index_definition.indisvalid
+          AND index_definition.indisready
+          AND index_definition.indnkeyatts = 1
+          AND index_definition.indnatts = 1
+          AND index_definition.indexprs IS NOT NULL
+          AND index_definition.indpred IS NULL
+          AND pg_get_indexdef(index_definition.indexrelid, 1, true)
+            = 'lower(btrim(username::text))'
+      ) AS authorization_username_unique_index,
       NOT EXISTS (
-        SELECT required.name
+        SELECT 1
         FROM (
           VALUES
-            ('team_user_team_id_user_id_key'),
-            ('team_user_one_owner_per_team_key'),
-            ('user_username_normalized_key')
-        ) AS required(name)
-        LEFT JOIN pg_indexes index_definition
-          ON index_definition.schemaname = current_schema()
-          AND index_definition.indexname = required.name
-          AND index_definition.indexdef LIKE 'CREATE UNIQUE INDEX%'
-        WHERE index_definition.indexname IS NULL
-      ) AS authorization_unique_indexes,
-      NOT EXISTS (
-        SELECT required.name
-        FROM (
-          VALUES
-            ('user_role_check'),
-            ('team_user_role_check'),
-            ('website_owner_check'),
-            ('link_owner_check'),
-            ('pixel_owner_check'),
-            ('board_owner_check'),
-            ('share_type_check')
-        ) AS required(name)
+            (
+              'user_role_check',
+              'user',
+              'CHECK (role::text = ANY (ARRAY[''admin''::character varying, ''user''::character varying, ''view-only''::character varying]::text[]))'
+            ),
+            (
+              'team_user_role_check',
+              'team_user',
+              'CHECK (role::text = ANY (ARRAY[''team-owner''::character varying, ''team-manager''::character varying, ''team-member''::character varying, ''team-view-only''::character varying]::text[]))'
+            ),
+            ('website_owner_check', 'website', 'CHECK ((user_id IS NULL) <> (team_id IS NULL))'),
+            ('link_owner_check', 'link', 'CHECK ((user_id IS NULL) <> (team_id IS NULL))'),
+            ('pixel_owner_check', 'pixel', 'CHECK ((user_id IS NULL) <> (team_id IS NULL))'),
+            ('board_owner_check', 'board', 'CHECK ((user_id IS NULL) <> (team_id IS NULL))'),
+            ('share_type_check', 'share', 'CHECK (share_type = ANY (ARRAY[1, 2, 3, 4]))')
+        ) AS required(name, table_name, definition)
         LEFT JOIN pg_constraint constraint_definition
           ON constraint_definition.connamespace = current_schema()::regnamespace
           AND constraint_definition.conname = required.name
+          AND constraint_definition.conrelid = to_regclass(
+            format('%I.%I', current_schema(), required.table_name)
+          )
           AND constraint_definition.contype = 'c'
+          AND constraint_definition.convalidated
+          AND pg_get_constraintdef(constraint_definition.oid, true) = required.definition
         WHERE constraint_definition.oid IS NULL
       ) AS authorization_check_constraints,
       NOT EXISTS (
@@ -277,7 +351,9 @@ async function checkSchemaCompatibility() {
     !schema?.session_replay_saved ||
     !schema?.heatmap_event ||
     !schema?.session_data_unique_index ||
-    !schema?.authorization_unique_indexes ||
+    !schema?.authorization_membership_unique_index ||
+    !schema?.authorization_owner_unique_index ||
+    !schema?.authorization_username_unique_index ||
     !schema?.authorization_check_constraints ||
     !schema?.redundant_board_index_removed
   ) {

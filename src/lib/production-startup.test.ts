@@ -93,6 +93,12 @@ describe('direct production startup', () => {
     expect(databaseCheckSource).toContain('async function checkRuntimeSecurityState()');
     expect(databaseCheckSource).toContain('async function checkSecurityState()');
     expect(databaseCheckSource).toContain('HAVING COUNT(u.user_id) <> 1');
+    expect(databaseCheckSource).toContain('index_definition.indrelid = to_regclass');
+    expect(databaseCheckSource).toContain('index_definition.indisvalid');
+    expect(databaseCheckSource).toContain('index_definition.indpred');
+    expect(databaseCheckSource).toContain('constraint_definition.conrelid = to_regclass');
+    expect(databaseCheckSource).toContain('constraint_definition.convalidated');
+    expect(databaseCheckSource).toContain('pg_get_constraintdef');
     expect(read('scripts/start-runtime.mjs')).toContain('timeout: 120_000');
     expect(systemdUnit).toContain(
       'ExecStart=/opt/node-24.18.1/bin/node .next/standalone/runtime-scripts/start-production.mjs',
@@ -149,6 +155,8 @@ describe('direct production startup', () => {
     expect(finalizeMigration).toContain(
       'CREATE UNIQUE INDEX IF NOT EXISTS "session_data_session_id_data_key_key"',
     );
+    expect(finalizeMigration).toMatch(/^BEGIN;/);
+    expect(finalizeMigration).toMatch(/COMMIT;\s*$/);
     expect(finalizeMigration).toContain('DROP INDEX %I.%I');
     expect(boardFinalizer).toContain("pg_get_indexdef(indexrelid, 1, true) = 'board_id'");
     expect(boardFinalizer).toContain('DROP INDEX %I.%I');
