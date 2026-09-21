@@ -1,0 +1,5 @@
+# Deterministic negative-authentication fixture removed in a later commit.
+b185837063f4d63ffe01f565e5791c69b3c9c424:src/lib/mcp/auth.test.ts:generic-api-key:37
+
+# Fixed test-only 2FA key used by the isolated integration environment.
+e18769e8cf65669572bc87522fd53712e738bd35:docker-compose.test.yml:generic-api-key:36

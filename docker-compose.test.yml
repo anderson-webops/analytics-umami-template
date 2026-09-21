@@ -33,7 +33,7 @@ x-umami-service: &umami-service
 x-umami-env: &umami-env
   DATABASE_URL: postgresql://umami:umami@db:5432/umami
   APP_SECRET: umami-api-test-secret
-  TWO_FACTOR_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  TWO_FACTOR_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef # gitleaks:allow -- deterministic test-only key
   # Playwright/curl user agents are classified as bots; without this /api/send silently drops events.
   DISABLE_BOT_CHECK: "1"
   DISABLE_TELEMETRY: "1"
