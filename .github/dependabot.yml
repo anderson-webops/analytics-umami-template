@@ -33,6 +33,15 @@ updates:
       - dependency-name: typescript
         update-types:
           - version-update:semver-major
+      - dependency-name: dotenv
+        update-types:
+          - version-update:semver-major
+      - dependency-name: motion
+        update-types:
+          - version-update:semver-major
+      - dependency-name: postcss-import
+        update-types:
+          - version-update:semver-major
       # Major UI and test-runner changes are reviewed once in this template,
       # then propagated to downstream analytics repositories as a unit.
       - dependency-name: react-simple-maps
