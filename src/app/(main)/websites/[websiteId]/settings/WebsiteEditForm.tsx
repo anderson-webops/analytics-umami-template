@@ -22,7 +22,12 @@ export function WebsiteEditForm({ websiteId, onSave }: { websiteId: string; onSa
   return (
     <Form onSubmit={handleSubmit} error={getErrorMessage(error)} values={website}>
       <FormField name="id" label={t(labels.websiteId)}>
-        <TextField data-test="text-field-websiteId" value={website?.id} isReadOnly allowCopy />
+        <TextField
+          data-test="text-field-websiteId"
+          value={website?.id ?? ''}
+          isReadOnly
+          allowCopy
+        />
       </FormField>
       <FormField
         label={t(labels.name)}

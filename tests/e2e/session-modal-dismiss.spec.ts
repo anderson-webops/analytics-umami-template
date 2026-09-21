@@ -1,6 +1,6 @@
 import { type APIRequestContext, expect, type Page, test } from '@playwright/test';
 import { uuid } from '../../src/lib/crypto';
-import { type Auth, authHeaders, deleteWebsite, loginPage, umamiUser } from './helpers';
+import { type Auth, authHeaders, deleteWebsite, loginPage } from './helpers';
 
 // The session modal is a bottom sheet capped at 1320px and centered, so on a
 // wide viewport there are dark side margins. Clicking those margins must
@@ -14,7 +14,6 @@ async function createWebsite(request: APIRequestContext, auth: Auth, websiteId: 
     headers: authHeaders(auth),
     data: {
       id: websiteId,
-      createdBy: umamiUser.id,
       name: 'Modal dismiss test',
       domain: 'modal-dismiss-test.com',
     },
@@ -31,9 +30,10 @@ async function getSheetBox(page: Page) {
 
 test.describe('SessionModal outside-click dismissal', () => {
   let auth: Auth;
-  const websiteId = uuid();
+  let websiteId: string;
 
   test.beforeEach(async ({ page, request }) => {
+    websiteId = uuid();
     auth = await loginPage(page, request);
     await createWebsite(request, auth, websiteId);
     // The modal opens purely from the `session` query param, so a random id is

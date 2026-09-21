@@ -43,8 +43,8 @@ export async function loginPage(page: Page, _request: APIRequestContext): Promis
 }
 
 export async function logout(page: Page) {
-  await page.getByTestId('button-profile').click();
-  await page.getByTestId('item-logout').click();
+  await page.getByRole('button', { name: /^Profile$/i }).click();
+  await page.getByRole('menuitem', { name: /^Logout$/i }).click();
   await expect(page).toHaveURL(/\/login$/);
 }
 
@@ -58,7 +58,6 @@ export async function addWebsite(
     headers: authHeaders(auth),
     data: {
       id: uuid(),
-      createdBy: umamiUser.id,
       name,
       domain,
     },

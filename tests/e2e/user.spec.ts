@@ -13,10 +13,10 @@ test.describe('User tests', () => {
     await expect(page.getByText(/Create user/i)).toBeVisible();
 
     await page.getByTestId('button-create-user').click();
-    await page.getByTestId('input-username').locator('input').fill('Test-user');
-    await page.getByTestId('input-password').locator('input').fill('testPasswordPlaywright');
-    await page.getByTestId('dropdown-role').click();
-    await page.getByTestId('dropdown-item-user').click();
+    await page.getByLabel(/^Username$/i).fill('Test-user');
+    await page.getByLabel(/^Password$/i).fill('testPasswordPlaywright');
+    await page.getByRole('combobox', { name: /^Role$/i }).click();
+    await page.getByRole('option', { name: /^User$/i }).click();
     await page.getByTestId('button-submit').click();
 
     await expect(page.getByRole('row').filter({ hasText: /Test-user/i })).toContainText('User');
@@ -26,9 +26,9 @@ test.describe('User tests', () => {
     const userRow = page.getByRole('row').filter({ hasText: /Test-user/i });
 
     await userRow.getByRole('link', { name: 'Test-user' }).click();
-    await page.getByTestId('input-password').locator('input').fill('New-test-password-2026-A9');
-    await page.getByTestId('dropdown-role').click();
-    await page.getByTestId('dropdown-item-viewOnly').click();
+    await page.getByLabel(/^Password$/i).fill('New-test-password-2026-A9');
+    await page.getByRole('combobox', { name: /^Role$/i }).click();
+    await page.getByRole('option', { name: /^View only$/i }).click();
     await page.getByTestId('button-submit').click();
 
     await page.goto('/admin/users');
@@ -37,8 +37,8 @@ test.describe('User tests', () => {
     );
 
     await logout(page);
-    await page.getByTestId('input-username').locator('input').fill('Test-user');
-    await page.getByTestId('input-password').locator('input').fill('New-test-password-2026-A9');
+    await page.getByLabel(/^Username$/i).fill('Test-user');
+    await page.getByLabel(/^Password$/i).fill('New-test-password-2026-A9');
     await page.getByTestId('button-submit').click();
 
     await expect(page).toHaveURL(/\/websites$/);

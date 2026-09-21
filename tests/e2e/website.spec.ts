@@ -15,10 +15,10 @@ test.describe('Website tests', () => {
     const websiteRow = page.getByRole('row').filter({ hasText: /Add test/i });
     await expect(websiteRow).toContainText('addtest.com');
 
-    await websiteRow.getByRole('link', { name: /Edit/i }).click();
+    await websiteRow.getByTestId('link-button-edit').click();
     await expect(page.getByTestId('text-field-websiteId')).toBeVisible();
 
-    const websiteId = await page.getByTestId('text-field-websiteId').locator('input').inputValue();
+    const websiteId = await page.getByTestId('text-field-websiteId').inputValue();
 
     await deleteWebsite(request, auth, websiteId);
     await page.goto('/websites');
@@ -34,7 +34,7 @@ test.describe('Website tests', () => {
     await page
       .getByRole('row')
       .filter({ hasText: /Update test/i })
-      .getByRole('link', { name: /Edit/i })
+      .getByTestId('link-button-edit')
       .click();
     await expect(page.getByTestId('text-field-websiteId')).toBeVisible();
     await page.getByTestId('input-name').locator('input').fill('Updated website');
@@ -48,7 +48,7 @@ test.describe('Website tests', () => {
 
     await expect(page.locator('textarea')).toContainText('/script.js');
 
-    const websiteId = await page.getByTestId('text-field-websiteId').locator('input').inputValue();
+    const websiteId = await page.getByTestId('text-field-websiteId').inputValue();
 
     await deleteWebsite(request, auth, websiteId);
     await page.goto('/websites');
@@ -64,7 +64,7 @@ test.describe('Website tests', () => {
     await page
       .getByRole('row')
       .filter({ hasText: /Delete test/i })
-      .getByRole('link', { name: /Edit/i })
+      .getByTestId('link-button-edit')
       .click();
     await expect(page.getByText(/All website data will be deleted./i)).toBeVisible();
     await page.getByTestId('button-delete').click();
