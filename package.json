@@ -103,7 +103,7 @@
     "typecheck": "tsc --noEmit",
     "audit:all": "pnpm audit --audit-level high",
     "audit:prod": "pnpm audit --prod --audit-level high",
-    "prevalidate": "pnpm run build:db",
+    "prevalidate": "npm-run-all build:db build:packages",
     "validate": "npm-run-all check:native-bindings check:peers format:check typecheck test:unit",
     "format": "biome format --write .",
     "check": "biome check ."
