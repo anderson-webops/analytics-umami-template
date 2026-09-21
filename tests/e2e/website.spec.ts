@@ -55,26 +55,25 @@ test.describe('Website tests', () => {
     await expect(page.getByText(/Update test/i)).toHaveCount(0);
   });
 
-  test('deletes a website', async ({ page, request }) => {
+  test('deletes a website', async ({ page, request }, testInfo) => {
     const auth = await loginPage(page, request);
+    const websiteName = `Delete test ${testInfo.retry}`;
+    const websiteId = await addWebsite(
+      request,
+      auth,
+      websiteName,
+      `deletetest-${testInfo.retry}.com`,
+    );
 
-    await addWebsite(request, auth, 'Delete test', 'deletetest.com');
-    await page.goto('/websites');
-
-    await page
-      .getByRole('row')
-      .filter({ hasText: /Delete test/i })
-      .getByTestId('link-button-edit')
-      .click();
+    await page.goto(`/websites/${websiteId}/settings`);
     await expect(page.getByText(/All website data will be deleted./i)).toBeVisible();
     await page.getByTestId('button-delete').click();
-    await expect(page.getByText(/Type DELETE in the box below to confirm./i)).toBeVisible();
-    await page.locator('input[name="confirm"]').fill('DELETE');
-    await page
-      .getByLabel('Dialog')
-      .getByRole('button', { name: /^Delete$/i })
-      .click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByText(/Type DELETE in the box below to confirm./i)).toBeVisible();
+    await dialog.getByRole('textbox', { name: /^Confirm$/i }).fill('DELETE');
+    await dialog.getByRole('button', { name: /^Delete$/i }).click();
 
-    await expect(page.getByText(/Delete test/i)).toHaveCount(0);
+    await expect(page).toHaveURL(/\/websites$/);
+    await expect(page.getByText(websiteName, { exact: true })).toHaveCount(0);
   });
 });

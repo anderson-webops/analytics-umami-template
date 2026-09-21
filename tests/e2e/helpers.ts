@@ -54,16 +54,19 @@ export async function addWebsite(
   name: string,
   domain: string,
 ) {
+  const id = uuid();
   const response = await request.post('/api/websites', {
     headers: authHeaders(auth),
     data: {
-      id: uuid(),
+      id,
       name,
       domain,
     },
   });
 
   expect(response.status()).toBe(200);
+
+  return id;
 }
 
 export async function deleteWebsite(request: APIRequestContext, auth: Auth, websiteId: string) {
