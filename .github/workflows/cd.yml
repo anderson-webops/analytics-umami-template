@@ -75,11 +75,16 @@ jobs:
           PUBLIC_URL: https://analytics.example.com
           CLIENT_IP_HEADER: x-real-ip
           UMAMI_BIND_ADDRESS: 127.0.0.1
+          # Ubuntu 24.04 GitHub-hosted runners restrict unprivileged user
+          # namespaces. Bubblewrap starts via passwordless sudo, then drops to
+          # the original runner uid/gid with all capabilities removed.
+          RUNTIME_ACCEPTANCE_BWRAP_SUDO: "1"
         run: |
           NODE_ENV=production pnpm check:env
           NODE_ENV=production pnpm check:db
           node scripts/runtime-artifact.mjs verify .next/standalone --release --expected-commit "$GITHUB_SHA"
           command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install --yes bubblewrap; }
+          sudo --non-interactive true
           node scripts/test-runtime-artifact.mjs --release --require-isolation --expected-commit "$GITHUB_SHA"
           test ! -e Dockerfile
           test ! -e docker-compose.yml

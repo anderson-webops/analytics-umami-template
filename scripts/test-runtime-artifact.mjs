@@ -78,10 +78,19 @@ async function runPortableSmoke(runtime, port) {
 }
 
 async function runIsolatedSmoke(runtime, cache, port) {
-  const probe = spawnSync('bwrap', ['--version'], { encoding: 'utf8' });
+  const useSudo = process.env.RUNTIME_ACCEPTANCE_BWRAP_SUDO === '1';
+  const bwrapCommand = useSudo ? '/usr/bin/sudo' : 'bwrap';
+  const bwrapPrefix = useSudo ? ['--non-interactive', '/usr/bin/bwrap'] : [];
+  const probe = spawnSync(bwrapCommand, [...bwrapPrefix, '--version'], {
+    encoding: 'utf8',
+  });
 
   if (probe.status !== 0) {
     throw new Error('Bubblewrap is required for isolated release artifact acceptance.');
+  }
+
+  if (useSudo && (typeof process.getuid !== 'function' || typeof process.getgid !== 'function')) {
+    throw new Error('Privileged Bubblewrap setup requires a POSIX runner identity.');
   }
 
   const nodeRoot = path.dirname(path.dirname(await fs.realpath(process.execPath)));
@@ -90,6 +99,9 @@ async function runIsolatedSmoke(runtime, cache, port) {
     '--die-with-parent',
     '--new-session',
     '--unshare-user',
+    ...(useSudo
+      ? ['--uid', String(process.getuid()), '--gid', String(process.getgid()), '--cap-drop', 'ALL']
+      : []),
     '--unshare-pid',
     '--unshare-uts',
     '--unshare-ipc',
@@ -136,7 +148,10 @@ async function runIsolatedSmoke(runtime, cache, port) {
 
   bwrapArgs.push(nodePath, '/app/runtime-scripts/artifact-smoke.mjs');
 
-  return run('bwrap', bwrapArgs, { cwd: repositoryRoot, env: {} });
+  return run(bwrapCommand, [...bwrapPrefix, ...bwrapArgs], {
+    cwd: repositoryRoot,
+    env: useSudo ? { PATH: '/usr/bin:/bin' } : {},
+  });
 }
 
 async function clearRuntimeCache(runtime) {
