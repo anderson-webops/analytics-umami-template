@@ -93,22 +93,17 @@ async function runIsolatedSmoke(runtime, cache, port) {
     throw new Error('Privileged Bubblewrap setup requires a POSIX runner identity.');
   }
 
-  if (useSudo) {
-    // mkdtemp intentionally creates the parent with mode 0700. Bubblewrap
-    // drops back to the runner identity before resolving bind sources, so it
-    // needs traverse-only access to this otherwise private temporary parent.
-    await fs.chmod(path.dirname(runtime), 0o711);
-  }
-
   const nodeRoot = path.dirname(path.dirname(await fs.realpath(process.execPath)));
   const nodePath = '/runtime-node/bin/node';
+  // A sudo-launched sandbox must retain the host user namespace so the copied
+  // artifact's production-like 0640 ownership still maps to the runner. Its
+  // payload nevertheless starts as that runner with every capability dropped.
   const bwrapArgs = [
     '--die-with-parent',
     '--new-session',
-    '--unshare-user',
     ...(useSudo
       ? ['--uid', String(process.getuid()), '--gid', String(process.getgid()), '--cap-drop', 'ALL']
-      : []),
+      : ['--unshare-user']),
     '--unshare-pid',
     '--unshare-uts',
     '--unshare-ipc',
