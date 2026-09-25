@@ -7,7 +7,9 @@ import path from 'node:path';
 import { PrismaPg } from '@prisma/adapter-pg';
 import bcrypt from 'bcryptjs';
 import chalk from 'chalk';
+import { Client } from 'pg';
 import { PrismaClient } from '../generated/prisma/client.js';
+import { verifyMigrationLedgerContract } from './migration-ledger-contract.mjs';
 
 const MIN_VERSION = '15.0';
 const MIN_VERSION_NUM = 150_000;
@@ -16,9 +18,13 @@ const VALID_TEAM_ROLES = ['team-owner', 'team-manager', 'team-member', 'team-vie
 const SAFE_SCHEMA = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const isEnabled = value => ['1', 'true', 'yes', 'on'].includes(value?.trim().toLowerCase() ?? '');
 const verifyOnly = process.argv.includes('--verify-only');
+const migrationOnly = process.argv.includes('--migrate-only');
 const scriptDirectory = path.dirname(path.resolve(process.argv[1]));
 
 let prisma;
+let expectedMigrations;
+let databaseUrl;
+let migrationUrl;
 
 function success(message) {
   console.log(chalk.greenBright(`✓ ${message}`));
@@ -32,11 +38,15 @@ function failure(message) {
   console.log(chalk.redBright(`✗ ${message}`));
 }
 
-function requireDatabaseUrl() {
-  const value = process.env.DATABASE_URL;
+function parseDatabaseUrl(name, { required = false } = {}) {
+  const value = process.env[name];
 
   if (!value) {
-    throw new Error('DATABASE_URL is not defined.');
+    if (required) {
+      throw new Error(`${name} is not defined.`);
+    }
+
+    return null;
   }
 
   try {
@@ -54,25 +64,37 @@ function requireDatabaseUrl() {
 
     return url;
   } catch {
-    throw new Error('DATABASE_URL must be a valid PostgreSQL connection URL.');
+    throw new Error(`${name} must be a valid PostgreSQL connection URL.`);
   }
 }
 
+function databaseConnectionOptions(url) {
+  const schema = url.searchParams.get('schema');
+
+  return {
+    connectionString: url.toString(),
+    ...(schema ? { options: `-c search_path=${schema}` } : {}),
+  };
+}
+
 async function initialize() {
+  if (verifyOnly && migrationOnly) {
+    throw new Error('--verify-only and --migrate-only cannot be used together.');
+  }
+
   if (isEnabled(process.env.SKIP_DB_CHECK)) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('SKIP_DB_CHECK is not permitted in production.');
+    }
+
     console.log('Skipping database check.');
     process.exit(0);
   }
 
-  const url = requireDatabaseUrl();
-  const schema = url.searchParams.get('schema');
-  const adapter = new PrismaPg(
-    {
-      connectionString: url.toString(),
-      ...(schema ? { options: `-c search_path=${schema}` } : {}),
-    },
-    { schema },
-  );
+  databaseUrl = parseDatabaseUrl('DATABASE_URL', { required: true });
+  migrationUrl = parseDatabaseUrl('DIRECT_DATABASE_URL') || databaseUrl;
+  const schema = databaseUrl.searchParams.get('schema');
+  const adapter = new PrismaPg(databaseConnectionOptions(databaseUrl), { schema });
 
   prisma = new PrismaClient({ adapter });
   success('DATABASE_URL is defined.');
@@ -110,6 +132,60 @@ async function checkDatabaseVersion() {
   success('Database version check successful.');
 }
 
+async function readDatabaseIdentity(url, name) {
+  const client = new Client(databaseConnectionOptions(url));
+
+  try {
+    await client.connect();
+    const result = await client.query(`
+      SELECT
+        system_identifier::text,
+        current_database() AS database_name,
+        current_schema() AS schema_name
+      FROM pg_control_system()
+    `);
+    const identity = result.rows[0];
+
+    if (!identity?.system_identifier || !identity.database_name || !identity.schema_name) {
+      throw new Error('the server did not return a complete identity');
+    }
+
+    return identity;
+  } catch (error) {
+    throw new Error(`Unable to verify ${name} database identity: ${error.message}`);
+  } finally {
+    await client.end().catch(() => {});
+  }
+}
+
+async function checkMigrationTargetIdentity() {
+  if (verifyOnly) {
+    return;
+  }
+
+  if (databaseUrl.toString() === migrationUrl.toString()) {
+    success('Migration target matches the preflight database.');
+    return;
+  }
+
+  const [primaryIdentity, migrationIdentity] = await Promise.all([
+    readDatabaseIdentity(databaseUrl, 'DATABASE_URL'),
+    readDatabaseIdentity(migrationUrl, 'DIRECT_DATABASE_URL'),
+  ]);
+
+  if (
+    primaryIdentity.system_identifier !== migrationIdentity.system_identifier ||
+    primaryIdentity.database_name !== migrationIdentity.database_name ||
+    primaryIdentity.schema_name !== migrationIdentity.schema_name
+  ) {
+    throw new Error(
+      'DIRECT_DATABASE_URL must identify the same PostgreSQL cluster, database, and schema as DATABASE_URL before migrations can run.',
+    );
+  }
+
+  success('Migration target identity matches the preflight database.');
+}
+
 async function applyMigration() {
   if (verifyOnly) {
     success('Migration execution is reserved for the pre-promotion deployment step.');
@@ -126,14 +202,12 @@ async function applyMigration() {
   }
 
   const prismaCli = path.join(scriptDirectory, '..', 'node_modules', 'prisma', 'build', 'index.js');
-  const directUrl = process.env.DIRECT_DATABASE_URL || process.env.DATABASE_URL;
-
   try {
     const output = execFileSync(process.execPath, [prismaCli, 'migrate', 'deploy'], {
       encoding: 'utf8',
       env: {
         ...process.env,
-        DATABASE_URL: directUrl,
+        DATABASE_URL: migrationUrl.toString(),
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -154,10 +228,15 @@ async function applyMigration() {
   success('Database is up to date.');
 }
 
-async function checkMigrationState() {
+async function loadExpectedMigrations() {
+  if (expectedMigrations) {
+    return expectedMigrations;
+  }
+
+  await verifyMigrationLedgerContract(path.join(scriptDirectory, '..'));
   const migrationsDirectory = path.join(scriptDirectory, '..', 'prisma', 'migrations');
   const entries = await fs.readdir(migrationsDirectory, { withFileTypes: true });
-  const expectedMigrations = new Map();
+  expectedMigrations = new Map();
 
   for (const entry of entries) {
     if (!entry.isDirectory()) {
@@ -174,13 +253,56 @@ async function checkMigrationState() {
     throw new Error('The release contains no database migrations.');
   }
 
-  const appliedMigrations = await prisma.$queryRaw`
+  return expectedMigrations;
+}
+
+async function readAppliedMigrations() {
+  const [migrationTable] = await prisma.$queryRaw`
+    SELECT to_regclass(format('%I.%I', current_schema(), '_prisma_migrations')) IS NOT NULL AS present
+  `;
+
+  if (!migrationTable?.present) {
+    return [];
+  }
+
+  return prisma.$queryRaw`
     SELECT migration_name, checksum, finished_at, rolled_back_at
     FROM "_prisma_migrations"
   `;
+}
+
+function verifyAppliedMigrations(
+  releaseMigrations,
+  appliedMigrations,
+  { requireAll, rejectUnknown },
+) {
   const appliedByName = new Map(appliedMigrations.map(row => [row.migration_name, row]));
 
-  for (const [migrationName, checksum] of expectedMigrations) {
+  for (const [migrationName, applied] of appliedByName) {
+    const checksum = releaseMigrations.get(migrationName);
+
+    if (!checksum) {
+      if (rejectUnknown) {
+        throw new Error(
+          `Database migration ${migrationName} is not present in this release. Refusing to apply pending migrations from an older or incomplete source tree.`,
+        );
+      }
+
+      continue;
+    }
+
+    if (!applied.finished_at || applied.rolled_back_at || applied.checksum !== checksum) {
+      throw new Error(
+        `Database migration ${migrationName} is incomplete, rolled back, or does not match this release.`,
+      );
+    }
+  }
+
+  if (!requireAll) {
+    return;
+  }
+
+  for (const [migrationName, checksum] of releaseMigrations) {
     const applied = appliedByName.get(migrationName);
 
     if (!applied?.finished_at || applied.rolled_back_at || applied.checksum !== checksum) {
@@ -189,8 +311,42 @@ async function checkMigrationState() {
       );
     }
   }
+}
 
-  success(`Verified ${expectedMigrations.size} release database migrations.`);
+async function checkMigrationSource() {
+  const releaseMigrations = await loadExpectedMigrations();
+
+  success(`Verified ${releaseMigrations.size} release migration files before database mutation.`);
+}
+
+async function checkExistingMigrationState() {
+  if (verifyOnly) {
+    return;
+  }
+
+  const releaseMigrations = await loadExpectedMigrations();
+  const appliedMigrations = await readAppliedMigrations();
+
+  verifyAppliedMigrations(releaseMigrations, appliedMigrations, {
+    requireAll: false,
+    rejectUnknown: true,
+  });
+
+  success(
+    `Verified ${appliedMigrations.length} existing database migration records before applying pending migrations.`,
+  );
+}
+
+async function checkMigrationState() {
+  const releaseMigrations = await loadExpectedMigrations();
+  const appliedMigrations = await readAppliedMigrations();
+
+  verifyAppliedMigrations(releaseMigrations, appliedMigrations, {
+    requireAll: true,
+    rejectUnknown: !verifyOnly,
+  });
+
+  success(`Verified ${releaseMigrations.size} release database migrations.`);
 }
 
 async function checkSchemaCompatibility() {
@@ -812,10 +968,13 @@ async function run() {
     initialize,
     checkConnection,
     checkDatabaseVersion,
+    checkMigrationTargetIdentity,
+    checkMigrationSource,
+    checkExistingMigrationState,
     applyMigration,
     checkMigrationState,
     checkSchemaCompatibility,
-    verifyOnly ? checkRuntimeSecurityState : checkSecurityState,
+    ...(migrationOnly ? [] : [verifyOnly ? checkRuntimeSecurityState : checkSecurityState]),
   ];
 
   try {

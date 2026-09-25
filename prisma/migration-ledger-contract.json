@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "repository": "analytics-umami-template",
+  "migrations": {
+    "16_boards": "52df2b4723b1c9e1c2dc66ffb191df56742a23e48a5cd7bc12947fbbc7b420fb",
+    "21_harden_auth_invariants": "af596c3f844becd9f8382f6aec03d6541612f348aa4921ba8a35cc1d5fc6655b",
+    "23_update_session_data": "5fc778b82bb34c3c04d78061e66d7036c3c51d0c506f5279f3c1cfc99f24f694"
+  }
+}

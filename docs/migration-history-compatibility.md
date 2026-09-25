@@ -28,6 +28,15 @@ Each bridge fails closed on an unexpected table, column order, uniqueness, predi
 validity state. Future schema changes must use new forward migrations. Never edit these published
 migrations again.
 
+`prisma/migration-ledger-contract.json` pins the successful historical checksums for this repository.
+The source validator, migration rehearsal, database preflight, and packaged runtime all consume that
+contract. A downstream database may legitimately have a different successful checksum when that fork
+published different historical bytes before joining this template. In that case, preserve the
+downstream's exact applied bytes and override its contract in a separate site-specific commit. Never
+replace an applied downstream migration merely to make it byte-identical to this template, and never
+rewrite the database ledger to match incoming source. Retain desired schema effects through a new
+forward migration instead.
+
 The finalizer runs inside an explicit PostgreSQL transaction. If index creation, validation, or
 cleanup fails after duplicate selection begins, the row changes and index changes roll back together.
 The regression suite forces that late failure and verifies that both original duplicate rows remain.
@@ -36,10 +45,11 @@ The regression suite forces that late failure and verifies that both original du
 
 1. Record the exact active release, retained rollback application, candidate commit, migration names,
    completion states, rollback states, and checksums without printing credentials or database names.
-2. Stop if any historical checksum differs from the restored values above, any migration is incomplete
-   or rolled back, the database changed after the backup, or an index has an unexpected definition.
+2. Run `pnpm run check:migration-history`, then stop if any database checksum differs from the exact
+   repository contract, any migration is incomplete or rolled back, the database changed after the
+   backup, or an index has an unexpected definition.
 3. Take a protected logical backup and prove it can be restored into an isolated rehearsal database.
-4. Against only that restored copy, run the exact candidate's locked install, Prisma migration deploy,
+4. Against only that restored copy, run the exact candidate's locked install, `pnpm run db:migrate`,
    `pnpm run check:db`, and `ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm run test:migration-bridge`.
 5. Verify the temporary bridge index is absent, the canonical session-data index is valid and unique,
    the redundant board index is absent, all source checksums match the successful ledger, and the
@@ -54,3 +64,9 @@ The migration bridge regression suite also builds a disposable schema, snapshots
 ledger rows, removes only the three new bridge entries to model an already-upgraded production
 ledger, and reruns Prisma deployment. It requires all three late-added migrations to apply without
 changing any historical ledger row, then verifies the exact restored checksums and final indexes.
+It separately creates a database with historical checksum drift and a pending forward migration,
+runs the real source preflight, and proves the pending migration and its schema effect remain absent.
+Every supported migration command routes through that preflight. When `DIRECT_DATABASE_URL` is set,
+the gate proves that it identifies the same PostgreSQL cluster, database, and schema as `DATABASE_URL`
+before Prisma can mutate anything. Distinct network endpoints are allowed only when that identity
+matches; a different database or schema fails closed.

@@ -64,6 +64,22 @@ describe('direct production startup', () => {
     expect(result.stderr).toContain('SKIP_DB_MIGRATION is not permitted in production.');
   });
 
+  test('the database gate independently refuses to skip checks in production', () => {
+    const result = spawnSync(process.execPath, ['scripts/check-db.js'], {
+      cwd: repositoryRoot,
+      encoding: 'utf8',
+      env: {
+        NODE_ENV: 'production',
+        SKIP_DB_CHECK: 'true',
+      },
+    });
+
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      'SKIP_DB_CHECK is not permitted in production.',
+    );
+  });
+
   test('refuses a public production listener', () => {
     const result = spawnSync(process.execPath, ['scripts/check-env.js'], {
       cwd: repositoryRoot,
@@ -119,13 +135,17 @@ describe('direct production startup', () => {
 
     expect(packageJson.scripts['build:production']).toContain('postbuild');
     expect(packageJson.scripts['start:production']).toBe('node scripts/start-production.js');
+    expect(packageJson.scripts['db:migrate']).toBe('node scripts/check-db.js --migrate-only');
     expect(packageJson.scripts['build-docker']).toBeUndefined();
     expect(packageJson.scripts['start-docker']).toBeUndefined();
     expect(startupSource).toMatch(/'scripts\/check-env\.js'[\s\S]+'scripts\/check-db\.js'/);
     expect(startupSource).not.toContain("'scripts/update-tracker.js'");
     expect(databaseCheckSource).toMatch(
-      /checkDatabaseVersion,\s+applyMigration,\s+checkMigrationState,\s+checkSchemaCompatibility,\s+verifyOnly \? checkRuntimeSecurityState : checkSecurityState,/,
+      /checkDatabaseVersion,\s+checkMigrationTargetIdentity,\s+checkMigrationSource,\s+checkExistingMigrationState,\s+applyMigration,\s+checkMigrationState,\s+checkSchemaCompatibility,/,
     );
+    expect(databaseCheckSource).toContain('pg_control_system()');
+    expect(databaseCheckSource).toContain('...(migrationOnly ? [] :');
+    expect(databaseCheckSource).toContain('Refusing to apply pending migrations');
     expect(databaseCheckSource).toContain('async function checkRuntimeSecurityState()');
     expect(databaseCheckSource).toContain('async function checkSecurityState()');
     expect(databaseCheckSource).toContain('HAVING COUNT(u.user_id) <> 1');

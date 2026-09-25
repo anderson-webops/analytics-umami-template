@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { Client } from 'pg';
+import { verifyMigrationLedgerContract } from './migration-ledger-contract.mjs';
 
 if (process.env.ALLOW_DESTRUCTIVE_MIGRATION_TEST !== '1') {
   throw new Error('Set ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 for the isolated migration test.');
@@ -19,6 +21,8 @@ if (
 }
 
 const repositoryRoot = path.resolve(import.meta.dirname, '..');
+const migrationLedgerContract = await verifyMigrationLedgerContract(repositoryRoot);
+const historicalMigrationNames = [...migrationLedgerContract.checksums.keys()].sort();
 const prepareMigration = fs.readFileSync(
   path.join(
     repositoryRoot,
@@ -194,8 +198,14 @@ async function runFinalizeRollbackScenario() {
   });
 }
 
-function runPrismaMigrate(connectionString) {
-  const result = spawnSync('pnpm', ['exec', 'prisma', 'migrate', 'deploy'], {
+function runPrismaMigrate(connectionString, schemaPath) {
+  const args = ['exec', 'prisma', 'migrate', 'deploy'];
+
+  if (schemaPath) {
+    args.push('--schema', schemaPath);
+  }
+
+  const result = spawnSync('pnpm', args, {
     cwd: repositoryRoot,
     encoding: 'utf8',
     env: {
@@ -211,19 +221,120 @@ function runPrismaMigrate(connectionString) {
   );
 }
 
-function assertDatabaseCheckRejects(connectionString) {
-  const result = spawnSync(process.execPath, ['scripts/check-db.js'], {
+function runDatabaseCheck(
+  connectionString,
+  { directConnectionString = connectionString, args = [] } = {},
+) {
+  return spawnSync(process.execPath, ['scripts/check-db.js', ...args], {
     cwd: repositoryRoot,
     encoding: 'utf8',
     env: {
       ...process.env,
       DATABASE_URL: connectionString,
+      DIRECT_DATABASE_URL: directConnectionString,
     },
   });
+}
+
+async function runMigrationTargetIdentityScenario() {
+  const primarySchema = `analytics_migration_primary_${crypto.randomBytes(4).toString('hex')}`;
+  const directSchema = `analytics_migration_direct_${crypto.randomBytes(4).toString('hex')}`;
+  const primaryUrl = new URL(databaseUrl);
+  const equivalentUrl = new URL(databaseUrl);
+  const differentUrl = new URL(databaseUrl);
+
+  primaryUrl.searchParams.set('schema', primarySchema);
+  equivalentUrl.hostname = databaseUrl.hostname === 'localhost' ? '127.0.0.1' : 'localhost';
+  equivalentUrl.searchParams.set('schema', primarySchema);
+  differentUrl.searchParams.set('schema', directSchema);
+
+  await client.query(`CREATE SCHEMA ${quoteIdentifier(primarySchema)}`);
+  await client.query(`CREATE SCHEMA ${quoteIdentifier(directSchema)}`);
+
+  try {
+    runPrismaMigrate(primaryUrl.toString());
+
+    const equivalentResult = runDatabaseCheck(primaryUrl.toString(), {
+      directConnectionString: equivalentUrl.toString(),
+      args: ['--migrate-only'],
+    });
+    assert.equal(
+      equivalentResult.status,
+      0,
+      `Equivalent database endpoints were rejected.\n${equivalentResult.stdout || ''}${equivalentResult.stderr || ''}`,
+    );
+
+    const mismatchedResult = runDatabaseCheck(primaryUrl.toString(), {
+      directConnectionString: differentUrl.toString(),
+      args: ['--migrate-only'],
+    });
+    const mismatchedOutput = `${mismatchedResult.stdout || ''}\n${mismatchedResult.stderr || ''}`;
+    assert.notEqual(mismatchedResult.status, 0, 'A different migration schema was accepted.');
+    assert.match(mismatchedOutput, /same PostgreSQL cluster, database, and schema as DATABASE_URL/);
+
+    const migrationTable = await client.query(
+      `SELECT to_regclass(format('%I.%I', $1::text, '_prisma_migrations'::text)) AS relation`,
+      [directSchema],
+    );
+    assert.equal(migrationTable.rows[0].relation, null);
+  } finally {
+    await client.query('SET search_path TO public');
+    await client.query(`DROP SCHEMA ${quoteIdentifier(primarySchema)} CASCADE`);
+    await client.query(`DROP SCHEMA ${quoteIdentifier(directSchema)} CASCADE`);
+  }
+}
+
+function assertDatabaseCheckRejects(connectionString) {
+  const result = runDatabaseCheck(connectionString);
   const output = `${result.stdout || ''}\n${result.stderr || ''}`;
 
   assert.notEqual(result.status, 0, 'Database validation accepted a tampered schema.');
   assert.match(output, /Database schema is incomplete after migration/);
+}
+
+async function runPreMigrationLedgerGuardScenario() {
+  const schema = `analytics_migration_preflight_${crypto.randomBytes(4).toString('hex')}`;
+  const quotedSchema = quoteIdentifier(schema);
+  const rehearsalUrl = new URL(databaseUrl);
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'umami-migration-preflight-'));
+  const fixturePrisma = path.join(fixtureRoot, 'prisma');
+
+  rehearsalUrl.searchParams.set('schema', schema);
+  fs.cpSync(path.join(repositoryRoot, 'prisma'), fixturePrisma, { recursive: true });
+  fs.rmSync(path.join(fixturePrisma, 'migrations/27_remove_redundant_board_primary_key_index'), {
+    force: true,
+    recursive: true,
+  });
+  await client.query(`CREATE SCHEMA ${quotedSchema}`);
+
+  try {
+    runPrismaMigrate(rehearsalUrl.toString(), path.join(fixturePrisma, 'schema.prisma'));
+    await client.query(`SET search_path TO ${quotedSchema}, public`);
+    await client.query(
+      `UPDATE _prisma_migrations SET checksum = $1 WHERE migration_name = '16_boards'`,
+      ['0'.repeat(64)],
+    );
+    assert.notEqual(await readIndex('board_board_id_key'), null);
+    await client.query('SET search_path TO public');
+
+    const result = runDatabaseCheck(rehearsalUrl.toString());
+    const output = `${result.stdout || ''}\n${result.stderr || ''}`;
+
+    assert.notEqual(result.status, 0, 'Database validation accepted mismatched applied history.');
+    assert.match(output, /does not match this release/);
+
+    await client.query(`SET search_path TO ${quotedSchema}, public`);
+    const pendingMigration = await client.query(
+      `SELECT 1 FROM _prisma_migrations WHERE migration_name = $1`,
+      ['27_remove_redundant_board_primary_key_index'],
+    );
+    assert.equal(pendingMigration.rowCount, 0);
+    assert.notEqual(await readIndex('board_board_id_key'), null);
+  } finally {
+    await client.query('SET search_path TO public');
+    await client.query(`DROP SCHEMA ${quotedSchema} CASCADE`);
+    fs.rmSync(fixtureRoot, { force: true, recursive: true });
+  }
 }
 
 async function runHistoricalLedgerReplayScenario() {
@@ -285,22 +396,15 @@ async function runHistoricalLedgerReplayScenario() {
       WHERE migration_name = ANY($1::text[])
       ORDER BY migration_name
     `,
-      [['16_boards', '21_harden_auth_invariants', '23_update_session_data']],
+      [historicalMigrationNames],
     );
-    assert.deepEqual(restoredChecksums.rows, [
-      {
-        migration_name: '16_boards',
-        checksum: '52df2b4723b1c9e1c2dc66ffb191df56742a23e48a5cd7bc12947fbbc7b420fb',
-      },
-      {
-        migration_name: '21_harden_auth_invariants',
-        checksum: 'af596c3f844becd9f8382f6aec03d6541612f348aa4921ba8a35cc1d5fc6655b',
-      },
-      {
-        migration_name: '23_update_session_data',
-        checksum: '5fc778b82bb34c3c04d78061e66d7036c3c51d0c506f5279f3c1cfc99f24f694',
-      },
-    ]);
+    assert.deepEqual(
+      restoredChecksums.rows,
+      historicalMigrationNames.map(migrationName => ({
+        migration_name: migrationName,
+        checksum: migrationLedgerContract.checksums.get(migrationName),
+      })),
+    );
 
     const appliedBridges = await client.query(
       `
@@ -430,10 +534,12 @@ try {
   );
   await runFinalizeRollbackScenario();
 
+  await runMigrationTargetIdentityScenario();
+  await runPreMigrationLedgerGuardScenario();
   await runHistoricalLedgerReplayScenario();
 
   console.log(
-    'Verified the migration repair across eight isolated SQL scenarios and one production-shaped ledger replay.',
+    'Verified the migration repair across eight isolated SQL scenarios, one target-identity guard, one pre-migration ledger guard, and one production-shaped ledger replay.',
   );
 } finally {
   await client.end();

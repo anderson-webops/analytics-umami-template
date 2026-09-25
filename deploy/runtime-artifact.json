@@ -17,6 +17,7 @@
     "node_modules/pg",
     "package.json",
     "pnpm-lock.yaml",
+    "prisma/migration-ledger-contract.json",
     "prisma/migrations/26_add_api_key/migration.sql",
     "prisma/migrations/migration_lock.toml",
     "prisma/schema.prisma",

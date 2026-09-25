@@ -7,7 +7,8 @@ New analytics sites must start from an empty PostgreSQL database that Prisma can
 1. Provision a dedicated PostgreSQL role/user for the site.
 2. Provision an empty PostgreSQL database owned by that role/user.
 3. Write the runtime env file so `DATABASE_URL` points at that empty database and `APP_SECRET` is set.
-4. Deploy the app normally and let `prisma migrate deploy` create the schema.
+4. Deploy the app normally and let `pnpm run db:migrate` create the schema through the repository's
+   migration-history and exact-target gate.
 5. After migrations succeed, create only the required initial data:
    - admin user
    - website row
@@ -33,13 +34,17 @@ The script is idempotent:
 Do not bootstrap a new analytics site by copying tables from another analytics database.
 
 That creates a database whose schema exists, but whose Prisma migration history does not. The next
-`prisma migrate deploy` then fails when it tries to apply the initial migration to tables that already exist.
+`pnpm run db:migrate` then fails when Prisma tries to apply the initial migration to tables that
+already exist.
 
 The correct bootstrap path is:
 
 - empty database
-- `prisma migrate deploy`
+- `pnpm run db:migrate`
 - targeted post-migration provisioning
+
+Do not invoke `prisma migrate deploy` directly. The package command is the supported entrypoint and
+must retain its source-contract, existing-ledger, and database-identity checks.
 
 ## About `_prisma_migrations`
 

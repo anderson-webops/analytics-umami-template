@@ -65,7 +65,13 @@ obtain isolation fails the release gate; there is no fallback release approval.
 ## Migration and startup boundary
 
 The deployment step runs source `scripts/check-db.js` before promotion. That step
-owns Prisma migration execution. The artifact bundles `check-env.js` and
+first verifies the repository contract and every existing database-ledger row,
+then owns Prisma migration execution, and finally requires the complete migrated
+ledger and schema to match the release. No pending migration is allowed to run
+after historical drift is detected. All supported migration commands use this
+gate. If `DIRECT_DATABASE_URL` is configured, the gate also proves it resolves
+to the same PostgreSQL cluster, database, and schema as `DATABASE_URL` before
+mutation. The artifact bundles `check-env.js` and
 `check-db.js`; runtime startup passes `--verify-only`, verifies every included
 migration name and checksum plus required schema, active-administrator, role,
 and team-owner invariants, then starts `server.js`. Runtime checks have bounded
@@ -75,10 +81,11 @@ pre-promotion source step. The Prisma CLI and development dependency tree are
 not runtime requirements.
 
 Published migration bytes and exact checksum matching remain immutable. The
-forward-only repair migrations documented in
-`docs/migration-history-compatibility.md` preserve successful production
-ledgers while keeping fresh database creation valid. Required security
-constraints and unique indexes are verified independently after migration.
+packaged `prisma/migration-ledger-contract.json` and forward-only repair
+migrations documented in `docs/migration-history-compatibility.md` preserve
+successful production ledgers while keeping fresh database creation valid.
+Required security constraints and unique indexes are verified independently
+after migration.
 
 Tracker endpoint customization occurs before the manifest is written. Runtime
 startup does not rewrite `public/script.js`, so the service needs no writable

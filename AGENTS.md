@@ -21,6 +21,8 @@
 - Merge the reviewed template change into every structurally compatible downstream fork. Preserve genuine site-specific identity, branding, provisioning, secrets boundaries, and runtime configuration while resolving conflicts; apply site-specific edits only afterward and separately where practical.
 - Do not independently copy a shared fix into one downstream fork and leave the template or peer forks behind. If an urgent downstream discovery is generally applicable, backport it here first and then propagate the resulting template change.
 - If a downstream repository intentionally follows a different major line, structure, or upstream history, document why this template is inapplicable instead of forcing unrelated histories together.
+- Treat a downstream's successfully applied Prisma migration bytes as site-specific state. Merge the shared contract mechanism first, but preserve a downstream-specific historical migration and `prisma/migration-ledger-contract.json` when its production ledger differs from the template. Add desired SQL effects through a new forward migration; never normalize source by rewriting the database ledger.
+- Route every supported migration command through `scripts/check-db.js`. When `DIRECT_DATABASE_URL` is configured, prove it identifies the same PostgreSQL cluster, database, and schema as `DATABASE_URL` before any migration; production skip flags must fail closed inside the database gate itself.
 
 ## Dependency & Lockfile Discipline
 
