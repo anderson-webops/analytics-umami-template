@@ -310,6 +310,7 @@ async function runPreMigrationLedgerGuardScenario() {
   try {
     runPrismaMigrate(rehearsalUrl.toString(), path.join(fixturePrisma, 'schema.prisma'));
     await client.query(`SET search_path TO ${quotedSchema}, public`);
+    await client.query('CREATE UNIQUE INDEX IF NOT EXISTS board_board_id_key ON board(board_id)');
     await client.query(
       `UPDATE _prisma_migrations SET checksum = $1 WHERE migration_name = '16_boards'`,
       ['0'.repeat(64)],
