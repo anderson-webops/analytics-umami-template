@@ -107,7 +107,8 @@ try {
   await client.query(`CREATE SCHEMA "${schema}"`);
   schemaCreated = true;
   await client.query(`SET search_path TO "${schema}"`);
-  assert.equal(migrate().status, 0, 'Fresh guarded migration failed.');
+  const fresh = migrate();
+  assert.equal(fresh.status, 0, fresh.output);
 
   await fs.mkdir(runtimeScripts);
   await fs.cp(path.join(root, 'prisma'), path.join(fixture, 'prisma'), { recursive: true });
