@@ -84,9 +84,10 @@ port 3000, alter a serving listener, or relax an installed template check.
 
 1. Record the exact active release, retained rollback application, candidate commit, migration names,
    completion states, rollback states, and checksums without printing credentials or database names.
-2. Run `pnpm run check:migration-history`, then stop if any database checksum differs from the exact
-   repository contract, any migration is incomplete or rolled back, the database changed after the
-   backup, or an index has an unexpected definition.
+2. Run `pnpm run check:migration-history`, then stop if a successful checksum differs from the exact
+   repository contract, an attempt is unresolved, successful history is ambiguous, an unknown
+   migration is present, the database changed after the backup, or an index has an unexpected
+   definition. Retain explicitly rolled-back attempts alongside their matching successful retry.
 3. Take a protected logical backup and prove it can be restored into an isolated rehearsal database.
 4. Against only that restored copy, run the exact candidate's locked install, `pnpm run db:migrate`,
    `pnpm run check:db`, and `ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm run test:migration-bridge`.
