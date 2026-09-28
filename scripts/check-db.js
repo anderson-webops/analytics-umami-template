@@ -424,19 +424,25 @@ async function checkSchemaCompatibility() {
             (
               'user_role_check',
               'user',
-              'CHECK (role::text = ANY (ARRAY[''admin''::character varying, ''user''::character varying, ''view-only''::character varying]::text[]))'
+              ARRAY[
+                'CHECK (role::text = ANY (ARRAY[''admin''::character varying, ''user''::character varying, ''view-only''::character varying]::text[]))',
+                'CHECK (role::text = ANY (ARRAY[''admin''::character varying::text, ''user''::character varying::text, ''view-only''::character varying::text]))'
+              ]
             ),
             (
               'team_user_role_check',
               'team_user',
-              'CHECK (role::text = ANY (ARRAY[''team-owner''::character varying, ''team-manager''::character varying, ''team-member''::character varying, ''team-view-only''::character varying]::text[]))'
+              ARRAY[
+                'CHECK (role::text = ANY (ARRAY[''team-owner''::character varying, ''team-manager''::character varying, ''team-member''::character varying, ''team-view-only''::character varying]::text[]))',
+                'CHECK (role::text = ANY (ARRAY[''team-owner''::character varying::text, ''team-manager''::character varying::text, ''team-member''::character varying::text, ''team-view-only''::character varying::text]))'
+              ]
             ),
-            ('website_owner_check', 'website', 'CHECK ((user_id IS NULL) <> (team_id IS NULL))'),
-            ('link_owner_check', 'link', 'CHECK ((user_id IS NULL) <> (team_id IS NULL))'),
-            ('pixel_owner_check', 'pixel', 'CHECK ((user_id IS NULL) <> (team_id IS NULL))'),
-            ('board_owner_check', 'board', 'CHECK ((user_id IS NULL) <> (team_id IS NULL))'),
-            ('share_type_check', 'share', 'CHECK (share_type = ANY (ARRAY[1, 2, 3, 4]))')
-        ) AS required(name, table_name, definition)
+            ('website_owner_check', 'website', ARRAY['CHECK ((user_id IS NULL) <> (team_id IS NULL))']),
+            ('link_owner_check', 'link', ARRAY['CHECK ((user_id IS NULL) <> (team_id IS NULL))']),
+            ('pixel_owner_check', 'pixel', ARRAY['CHECK ((user_id IS NULL) <> (team_id IS NULL))']),
+            ('board_owner_check', 'board', ARRAY['CHECK ((user_id IS NULL) <> (team_id IS NULL))']),
+            ('share_type_check', 'share', ARRAY['CHECK (share_type = ANY (ARRAY[1, 2, 3, 4]))'])
+        ) AS required(name, table_name, definitions)
         LEFT JOIN pg_constraint constraint_definition
           ON constraint_definition.connamespace = current_schema()::regnamespace
           AND constraint_definition.conname = required.name
@@ -445,7 +451,7 @@ async function checkSchemaCompatibility() {
           )
           AND constraint_definition.contype = 'c'
           AND constraint_definition.convalidated
-          AND pg_get_constraintdef(constraint_definition.oid, true) = required.definition
+          AND pg_get_constraintdef(constraint_definition.oid, true) = ANY(required.definitions)
         WHERE constraint_definition.oid IS NULL
       ) AS authorization_check_constraints,
       NOT EXISTS (

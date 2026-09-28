@@ -59,6 +59,21 @@ jobs:
           ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm run test:migration-attempts
           UMAMI_USERNAME=admin UMAMI_PASSWORD=release-validation-admin-000000000000 pnpm change-password
 
+      - name: Install PostgreSQL 17 test tools
+        run: |
+          if [[ ! -x /usr/lib/postgresql/17/bin/pg_dump ]]; then
+            sudo apt-get update
+            sudo apt-get install --yes postgresql-common
+            sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+            sudo apt-get update
+            sudo apt-get install --yes postgresql-17 postgresql-client-17
+          fi
+
+      - name: PostgreSQL 17 restored-ledger startup regression
+        env:
+          PG17_BINDIR: /usr/lib/postgresql/17/bin
+        run: pnpm run test:postgres17-restore
+
       - name: Audit and validate source
         run: |
           pnpm run audit:all

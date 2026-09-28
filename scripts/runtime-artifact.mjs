@@ -386,6 +386,40 @@ export async function copyRuntimeArtifact(source, destination, options = {}) {
   return verifyRuntimeArtifact(destination, options);
 }
 
+// Called only with the builder stopped and the tree inaccessible to writers.
+// Hashes and source identity always come from the already verified manifest.
+export async function sealRuntimeArtifact(root, options = {}) {
+  root = await fs.realpath(path.resolve(root));
+  const before = await verifyRuntimeArtifact(root, options);
+  const { contract } = await readContract(options.contractPath ?? defaultContractPath);
+  const expected = structuredClone(before);
+  for (const entry of Object.values(expected.entries)) {
+    if (entry.type !== 'symlink') {
+      const executable = entry.type === 'directory' || Number.parseInt(entry.mode, 8) & 0o111;
+      entry.mode = executable ? '0555' : '0444';
+    }
+  }
+  // Children first: remove write access from their containing directories last.
+  for (const [relative, entry] of Object.entries(expected.entries).reverse()) {
+    if (entry.type !== 'symlink')
+      await fs.chmod(path.join(root, relative), Number.parseInt(entry.mode, 8));
+  }
+  const actual = await collectEntries(root, contract, contract.manifest);
+  if (JSON.stringify(actual) !== JSON.stringify(expected.entries)) {
+    throw new Error('Immutable permission transition changed the verified runtime payload.');
+  }
+  const manifestPath = path.join(root, contract.manifest);
+  const temporary = `${manifestPath}.sealing-${crypto.randomUUID()}`;
+  await fs.writeFile(temporary, `${JSON.stringify(expected, null, 2)}\n`, {
+    flag: 'wx',
+    mode: 0o444,
+  });
+  await fs.rename(temporary, manifestPath);
+  await fs.chmod(manifestPath, 0o444);
+  await fs.chmod(root, 0o555);
+  return verifyRuntimeArtifact(root, options);
+}
+
 async function main() {
   const [command, root, ...args] = process.argv.slice(2);
   const release = args.includes('--release');
@@ -400,8 +434,13 @@ async function main() {
     return;
   }
 
-  if (command === 'verify' && root) {
-    const manifest = await verifyRuntimeArtifact(root, { release, expectedCommit });
+  if ((command === 'verify' || command === 'seal') && root) {
+    const contractIndex = args.indexOf('--contract');
+    const contractPath = contractIndex >= 0 ? args[contractIndex + 1] : undefined;
+    if (command === 'seal') {
+      await sealRuntimeArtifact(root, { release, expectedCommit, contractPath });
+    }
+    const manifest = await verifyRuntimeArtifact(root, { release, expectedCommit, contractPath });
     console.log(
       `Verified runtime artifact ${manifest.source.version} at ${manifest.source.commit}.`,
     );

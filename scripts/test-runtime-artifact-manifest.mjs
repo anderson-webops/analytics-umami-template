@@ -8,6 +8,7 @@ import {
   copyRuntimeArtifact,
   createRuntimeManifest,
   getSourceIdentity,
+  sealRuntimeArtifact,
   verifyRuntimeArtifact,
 } from './runtime-artifact.mjs';
 
@@ -44,11 +45,83 @@ async function createFixture() {
 }
 
 afterEach(async () => {
+  async function writable(directory) {
+    const stat = await fs.lstat(directory);
+    if (stat.isDirectory()) {
+      await fs.chmod(directory, 0o700);
+      for (const child of await fs.readdir(directory)) await writable(path.join(directory, child));
+    }
+  }
+  for (const directory of temporaryDirectories) await writable(directory);
   await Promise.all(
     temporaryDirectories
       .splice(0)
       .map(directory => fs.rm(directory, { recursive: true, force: true })),
   );
+});
+
+test('sealing preserves verified hashes, identity and links while declaring only immutable modes', async () => {
+  const { root, contractPath } = await createFixture();
+  await fs.chmod(path.join(root, 'server.js'), 0o750);
+  const before = await createRuntimeManifest(root, { contractPath, source });
+  const after = await sealRuntimeArtifact(root, { contractPath, expectedCommit: source.commit });
+  assert.deepEqual(after.source, before.source);
+  assert.equal(after.createdAt, before.createdAt);
+  for (const [name, original] of Object.entries(before.entries)) {
+    const { mode: _originalMode, ...originalPayload } = original;
+    const { mode: _finalMode, ...finalPayload } = after.entries[name];
+    assert.deepEqual(finalPayload, originalPayload);
+  }
+  assert.equal(after.entries['server.js'].mode, '0555');
+  assert.equal(after.entries['package.json'].mode, '0444');
+  assert.equal((await fs.stat(path.join(root, 'runtime-manifest.json'))).mode & 0o777, 0o444);
+  await verifyRuntimeArtifact(root, { contractPath });
+});
+
+test('sealing never blesses a changed payload or an unexpected source identity', async () => {
+  const { root, contractPath } = await createFixture();
+  await createRuntimeManifest(root, { contractPath, source });
+  await assert.rejects(
+    sealRuntimeArtifact(root, { contractPath, expectedCommit: 'b'.repeat(40) }),
+    /source commit/,
+  );
+  await fs.appendFile(path.join(root, 'server.js'), 'changed');
+  await assert.rejects(sealRuntimeArtifact(root, { contractPath }), /inventory or file hashes/);
+});
+
+test('canonical materialization supplies genuine clean Git metadata with independent objects', async () => {
+  const { root } = await createFixture();
+  const fixture = path.dirname(root);
+  execFileSync('git', ['init', '-q', root]);
+  execFileSync('git', ['add', '.'], { cwd: root });
+  execFileSync(
+    'git',
+    [
+      '-c',
+      'user.name=Synthetic Test',
+      '-c',
+      'user.email=test@example.invalid',
+      'commit',
+      '-qm',
+      'fixture',
+    ],
+    { cwd: root },
+  );
+  const revision = execFileSync('git', ['rev-parse', 'HEAD'], {
+    cwd: root,
+    encoding: 'utf8',
+  }).trim();
+  const bare = path.join(fixture, 'canonical.git');
+  execFileSync('git', ['clone', '--quiet', '--bare', '--no-hardlinks', root, bare]);
+  const checkout = path.join(fixture, 'checkout');
+  await fs.mkdir(checkout);
+  execFileSync('bash', ['scripts/materialize-canonical-source.sh', bare, revision, checkout]);
+  assert.deepEqual(getSourceIdentity(checkout), { commit: revision, dirty: false });
+  await fs.rm(bare, { recursive: true });
+  assert.deepEqual(getSourceIdentity(checkout), { commit: revision, dirty: false });
+  await assert.rejects(fs.stat(path.join(checkout, '.git/objects/info/alternates')), {
+    code: 'ENOENT',
+  });
 });
 
 test('creates and verifies an exact hashed runtime inventory', async () => {

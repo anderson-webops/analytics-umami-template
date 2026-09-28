@@ -1,6 +1,6 @@
 {
   "name": "umami",
-  "version": "4.2.11",
+  "version": "4.2.12",
   "private": true,
   "description": "A modern, privacy-focused alternative to Google Analytics.",
   "author": "Umami Software, Inc. <hello@umami.is>",
@@ -107,10 +107,12 @@
     "audit:all": "pnpm audit --audit-level high",
     "audit:prod": "pnpm audit --prod --audit-level high",
     "prevalidate": "npm-run-all build:db build:packages",
-    "validate": "npm-run-all check:migration-history test:migration-history check:native-bindings check:peers format:check typecheck test:unit",
+    "validate": "npm-run-all check:migration-history test:migration-history test:packaging check:native-bindings check:peers format:check typecheck test:unit",
     "format": "biome format --write .",
     "check": "biome check .",
-    "test:migration-attempts": "node scripts/test-migration-attempt-paths.mjs"
+    "test:migration-attempts": "node scripts/test-migration-attempt-paths.mjs",
+    "test:postgres17-restore": "bash scripts/test-postgres17-restore.sh",
+    "test:packaging": "node --test scripts/test-runtime-artifact-manifest.mjs scripts/test-runtime-workspaces.mjs"
   },
   "cacheDirectories": [
     ".next/cache"
