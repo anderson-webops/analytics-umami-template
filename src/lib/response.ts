@@ -105,20 +105,108 @@ export function serviceUnavailable(error?: Record<string, any>) {
   );
 }
 
+type ErrorRecord = Record<string, unknown>;
+
+const SAFE_IDENTIFIER = /^[A-Za-z0-9_.$:-]{1,100}$/;
+
+function asRecord(value: unknown): ErrorRecord | undefined {
+  return typeof value === 'object' && value !== null ? (value as ErrorRecord) : undefined;
+}
+
+function readProperty(record: ErrorRecord | undefined, key: string): unknown {
+  if (!record) {
+    return undefined;
+  }
+
+  try {
+    return record[key];
+  } catch {
+    return undefined;
+  }
+}
+
+function safeIdentifier(value: unknown): string | undefined {
+  return typeof value === 'string' && SAFE_IDENTIFIER.test(value) ? value : undefined;
+}
+
+function safeFieldList(value: unknown): string | undefined {
+  if (typeof value === 'string') {
+    return safeIdentifier(value);
+  }
+
+  if (!Array.isArray(value) || value.length === 0 || value.length > 8) {
+    return undefined;
+  }
+
+  const fields = value.map(safeIdentifier);
+
+  return fields.every((field): field is string => Boolean(field)) ? fields.join(',') : undefined;
+}
+
+function getPrismaConstraint(meta: ErrorRecord | undefined): string | undefined {
+  const classicTarget = safeFieldList(readProperty(meta, 'target'));
+
+  if (classicTarget) {
+    return classicTarget;
+  }
+
+  const adapter = asRecord(readProperty(meta, 'driverAdapterError'));
+  const cause = asRecord(readProperty(adapter, 'cause'));
+  const constraint = readProperty(cause, 'constraint');
+
+  if (typeof constraint === 'string') {
+    return safeIdentifier(constraint);
+  }
+
+  const constraintRecord = asRecord(constraint);
+
+  return (
+    safeIdentifier(readProperty(constraintRecord, 'index')) ??
+    safeFieldList(readProperty(constraintRecord, 'fields'))
+  );
+}
+
+export function classifyServerError(error: unknown) {
+  const record = asRecord(error);
+  const rawName = error instanceof Error ? error.name : readProperty(record, 'name');
+  const name = safeIdentifier(rawName) ?? (error instanceof Error ? 'Error' : typeof error);
+  const code = safeIdentifier(readProperty(record, 'code'));
+  const diagnostics: {
+    name: string;
+    code?: string;
+    model?: string;
+    constraint?: string;
+  } = { name };
+
+  if (code) {
+    diagnostics.code = code;
+  }
+
+  if (code === 'P2002') {
+    const meta = asRecord(readProperty(record, 'meta'));
+    const model = safeIdentifier(readProperty(meta, 'modelName'));
+    const constraint = getPrismaConstraint(meta);
+
+    if (model) {
+      diagnostics.model = model;
+    }
+
+    if (constraint) {
+      diagnostics.constraint = constraint;
+    }
+  }
+
+  return diagnostics;
+}
+
 export function serverError(error?: unknown) {
   if (error) {
-    const name = error instanceof Error ? error.name : typeof error;
-    const rawCode =
-      typeof error === 'object' && error && 'code' in error
-        ? (error as { code?: unknown }).code
-        : undefined;
-    const code =
-      typeof rawCode === 'string' && /^[A-Za-z0-9_-]{1,50}$/.test(rawCode) ? rawCode : undefined;
-
     // Messages, stacks, query text, and parameters can include credentials or
-    // private analytics, so log only a bounded error classification.
+    // private analytics. Prisma P2002 model and constraint identifiers are
+    // bounded schema metadata that let operators identify the conflicting
+    // write without exposing request or row values.
     // eslint-disable-next-line no-console
-    console.error('Unhandled request error', { name, ...(code ? { code } : {}) });
+    console.error('Unhandled request error', classifyServerError(error));
   }
 
   return Response.json(
