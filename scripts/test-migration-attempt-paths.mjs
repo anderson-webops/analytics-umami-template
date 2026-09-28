@@ -22,6 +22,10 @@ rehearsalUrl.searchParams.set('schema', schema);
 const env = {
   PATH: process.env.PATH,
   HOME: process.env.HOME,
+  // Keep pnpm's CI-dependent installation layout consistent with the frozen install.
+  // Dropping CI makes pnpm try to reinstall the already validated dependencies.
+  CI: process.env.CI,
+  PNPM_HOME: process.env.PNPM_HOME,
   NODE_ENV: 'production',
   DATABASE_URL: rehearsalUrl.toString(),
   DATABASE_TYPE: 'postgresql',
