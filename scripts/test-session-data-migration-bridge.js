@@ -313,7 +313,7 @@ async function runPreMigrationLedgerGuardScenario() {
     await client.query('CREATE UNIQUE INDEX IF NOT EXISTS board_board_id_key ON board(board_id)');
     await client.query(
       `UPDATE _prisma_migrations SET checksum = $1 WHERE migration_name = '16_boards'`,
-      ['0'.repeat(64)],
+      ['5cef1484333ad14bcbbc3e1b2262601d3274a072d9656fb422530d112f98b447'],
     );
     assert.notEqual(await readIndex('board_board_id_key'), null);
     await client.query('SET search_path TO public');

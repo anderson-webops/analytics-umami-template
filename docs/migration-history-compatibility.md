@@ -64,8 +64,9 @@ The migration bridge regression suite also builds a disposable schema, snapshots
 ledger rows, removes only the three new bridge entries to model an already-upgraded production
 ledger, and reruns Prisma deployment. It requires all three late-added migrations to apply without
 changing any historical ledger row, then verifies the exact restored checksums and final indexes.
-It separately creates a database with historical checksum drift and a pending forward migration,
-runs the real source preflight, and proves the pending migration and its schema effect remain absent.
+It separately replaces the successful `16_boards` ledger checksum with the exact superseded
+`5cef148...` variant while a forward migration is pending, runs the real source preflight, and proves
+the pending migration and its schema effect remain absent.
 Every supported migration command routes through that preflight. When `DIRECT_DATABASE_URL` is set,
 the gate proves that it identifies the same PostgreSQL cluster, database, and schema as `DATABASE_URL`
 before Prisma can mutate anything. Distinct network endpoints are allowed only when that identity
