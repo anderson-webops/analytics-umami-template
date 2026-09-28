@@ -9,6 +9,7 @@ import bcrypt from 'bcryptjs';
 import chalk from 'chalk';
 import { Client } from 'pg';
 import { PrismaClient } from '../generated/prisma/client.js';
+import { verifyAppliedMigrations } from './applied-migrations.mjs';
 import { verifyMigrationLedgerContract } from './migration-ledger-contract.mjs';
 
 const MIN_VERSION = '15.0';
@@ -271,48 +272,6 @@ async function readAppliedMigrations() {
   `;
 }
 
-function verifyAppliedMigrations(
-  releaseMigrations,
-  appliedMigrations,
-  { requireAll, rejectUnknown },
-) {
-  const appliedByName = new Map(appliedMigrations.map(row => [row.migration_name, row]));
-
-  for (const [migrationName, applied] of appliedByName) {
-    const checksum = releaseMigrations.get(migrationName);
-
-    if (!checksum) {
-      if (rejectUnknown) {
-        throw new Error(
-          `Database migration ${migrationName} is not present in this release. Refusing to apply pending migrations from an older or incomplete source tree.`,
-        );
-      }
-
-      continue;
-    }
-
-    if (!applied.finished_at || applied.rolled_back_at || applied.checksum !== checksum) {
-      throw new Error(
-        `Database migration ${migrationName} is incomplete, rolled back, or does not match this release.`,
-      );
-    }
-  }
-
-  if (!requireAll) {
-    return;
-  }
-
-  for (const [migrationName, checksum] of releaseMigrations) {
-    const applied = appliedByName.get(migrationName);
-
-    if (!applied?.finished_at || applied.rolled_back_at || applied.checksum !== checksum) {
-      throw new Error(
-        `Database migration ${migrationName} is missing, incomplete, rolled back, or does not match this release.`,
-      );
-    }
-  }
-}
-
 async function checkMigrationSource() {
   const releaseMigrations = await loadExpectedMigrations();
 
@@ -329,7 +288,6 @@ async function checkExistingMigrationState() {
 
   verifyAppliedMigrations(releaseMigrations, appliedMigrations, {
     requireAll: false,
-    rejectUnknown: true,
   });
 
   success(
@@ -343,7 +301,6 @@ async function checkMigrationState() {
 
   verifyAppliedMigrations(releaseMigrations, appliedMigrations, {
     requireAll: true,
-    rejectUnknown: !verifyOnly,
   });
 
   success(`Verified ${releaseMigrations.size} release database migrations.`);

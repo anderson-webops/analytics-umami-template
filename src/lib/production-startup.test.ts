@@ -145,7 +145,7 @@ describe('direct production startup', () => {
     );
     expect(databaseCheckSource).toContain('pg_control_system()');
     expect(databaseCheckSource).toContain('...(migrationOnly ? [] :');
-    expect(databaseCheckSource).toContain('Refusing to apply pending migrations');
+    expect(databaseCheckSource).toContain("from './applied-migrations.mjs'");
     expect(databaseCheckSource).toContain('async function checkRuntimeSecurityState()');
     expect(databaseCheckSource).toContain('async function checkSecurityState()');
     expect(databaseCheckSource).toContain('HAVING COUNT(u.user_id) <> 1');

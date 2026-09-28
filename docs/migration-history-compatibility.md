@@ -43,6 +43,45 @@ The regression suite forces that late failure and verifies that both original du
 
 ## Required preflight and rehearsal
 
+For the Avasan overlay, run `pnpm run test:migration-attempts --classroom` to
+exercise its production privacy configuration with synthetic values. This test
+does not call the classroom summary provider or enable accounts or collection.
+
+### Multiple attempts for the same migration
+
+The migration gate validates every attempt grouped by migration name, without
+depending on SQL row order. Exactly one completed attempt with the source
+checksum is accepted alongside any number of explicitly rolled-back attempts.
+Rolled-back attempts keep their original checksums and metadata; they do not
+count as successful applications. A rollback-only or absent migration can be
+applied by `db:migrate`, but cannot satisfy startup readiness.
+
+Unfinished attempts, contradictory finished/rolled-back states, unknown
+migrations in any state, successful checksum drift, and multiple successful
+attempts are rejected. This applies to both the migration gate and the bundled
+`--verify-only` startup gate. Diagnostics contain fixed bounded classifications
+without database-provided names, checksums, logs, or connection information.
+No ledger row is repaired, deleted, selected away, or overwritten by validation.
+
+`pnpm run test:migration-history` checks all 3,914 subset/order/phase combinations
+of success, rollback, pending, unknown, checksum-drift and contradictory states,
+plus duplicate-success and multiple-rollback cases.
+`ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm run test:migration-attempts` requires an
+explicit loopback PostgreSQL test URL and creates only a fresh random schema.
+It executes the real `db:migrate` command and production startup supervisor with
+freshly bundled checks, verifies that invalid histories cannot reach the app,
+and compares all historical ledger columns before and after every invocation.
+It also proves a rollback-only pending migration can be retried without changing
+the retained attempts. Full runtime acceptance separately exercises the real app.
+
+The new startup gate rejects migrations absent from its own release. An older
+runtime's compatibility with a newer schema must still be rehearsed against that
+exact retained runtime. This source change does not revise a reverse-schema
+contract, certify annotation/API-key ownership when splitting instances, or
+authorize production migration. Avasan's existing `127.0.0.1:3111` listener and
+the reviewed host finalizer transition remain operator gates; do not substitute
+port 3000, alter a serving listener, or relax an installed template check.
+
 1. Record the exact active release, retained rollback application, candidate commit, migration names,
    completion states, rollback states, and checksums without printing credentials or database names.
 2. Run `pnpm run check:migration-history`, then stop if any database checksum differs from the exact
