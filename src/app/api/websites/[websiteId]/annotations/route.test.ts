@@ -1,6 +1,6 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { parseRequest } from '@/lib/request';
-import { canUpdateWebsite, canViewSharedWebsiteFilters } from '@/permissions';
+import { canUpdateWebsite, canViewWebsiteAnnotations } from '@/permissions';
 import { createAnnotation, getWebsiteAnnotations } from '@/queries/prisma';
 import { GET, POST } from './route';
 
@@ -10,7 +10,7 @@ vi.mock('@/lib/request', () => ({
 
 vi.mock('@/permissions', () => ({
   canUpdateWebsite: vi.fn(),
-  canViewSharedWebsiteFilters: vi.fn(),
+  canViewWebsiteAnnotations: vi.fn(),
 }));
 
 vi.mock('@/queries/prisma', () => ({
@@ -20,7 +20,7 @@ vi.mock('@/queries/prisma', () => ({
 
 const parseRequestMock = vi.mocked(parseRequest);
 const canUpdateWebsiteMock = vi.mocked(canUpdateWebsite);
-const canViewSharedWebsiteFiltersMock = vi.mocked(canViewSharedWebsiteFilters);
+const canViewWebsiteAnnotationsMock = vi.mocked(canViewWebsiteAnnotations);
 const createAnnotationMock = vi.mocked(createAnnotation);
 const getWebsiteAnnotationsMock = vi.mocked(getWebsiteAnnotations);
 
@@ -29,7 +29,7 @@ const params = Promise.resolve({ websiteId: 'website-1' });
 beforeEach(() => {
   parseRequestMock.mockReset();
   canUpdateWebsiteMock.mockReset();
-  canViewSharedWebsiteFiltersMock.mockReset();
+  canViewWebsiteAnnotationsMock.mockReset();
   createAnnotationMock.mockReset();
   getWebsiteAnnotationsMock.mockReset();
 });
@@ -115,7 +115,7 @@ test('GET passes the date window through to the query only when both bounds are 
     query: { startAt: 1000, endAt: 2000, search: 'deploy', page: 2, pageSize: 20 },
     error: undefined,
   } as any);
-  canViewSharedWebsiteFiltersMock.mockResolvedValue(true);
+  canViewWebsiteAnnotationsMock.mockResolvedValue(true);
   getWebsiteAnnotationsMock.mockResolvedValue({ data: [], count: 0 } as any);
 
   await GET(new Request('http://localhost/api/websites/website-1/annotations'), { params });

@@ -1,4 +1,6 @@
-import { beforeEach, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import prisma from '@/lib/prisma';
+import redis from '@/lib/redis';
 
 const mocks = vi.hoisted(() => ({
   parseRequest: vi.fn(),
@@ -84,6 +86,9 @@ vi.mock('@/lib/two-factor/crypto', () => ({
 import { POST } from './route';
 
 beforeEach(() => {
+  vi.stubEnv('CLOUD_MODE', '0');
+  redis.enabled = false;
+  delete (prisma.client as any).$primary;
   mocks.parseRequest.mockReset();
   mocks.getUserByUsername.mockReset();
   mocks.checkPassword.mockReset();
@@ -118,6 +123,86 @@ beforeEach(() => {
   mocks.passwordNeedsRehash.mockReturnValue(false);
   mocks.findTwoFactorAuth.mockResolvedValue({ userId: 'user-1', isEnabled: true });
   mocks.isTwoFactorConfigured.mockReturnValue(true);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+function loginRequest() {
+  return new Request('http://localhost/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: 'http://localhost' },
+  });
+}
+
+test.each([false, true])(
+  'enrolled cloud login cannot create a session (Redis %s)',
+  async enabled => {
+    vi.stubEnv('CLOUD_MODE', '1');
+    redis.enabled = enabled;
+
+    const response = await POST(loginRequest());
+
+    expect(response.status).toBe(503);
+    expect(response.headers.has('set-cookie')).toBe(false);
+    expect(mocks.findTwoFactorAuth).toHaveBeenCalledWith({ where: { userId: 'user-1' } });
+    expect(mocks.saveAuth).not.toHaveBeenCalled();
+    expect(mocks.createSecureToken).not.toHaveBeenCalled();
+    expect(mocks.replacePasswordIfCurrent).not.toHaveBeenCalled();
+    expect(mocks.clearFailedLogins).not.toHaveBeenCalled();
+  },
+);
+
+test.each([false, true])(
+  'unenrolled cloud login retains its existing session flow (Redis %s)',
+  async enabled => {
+    vi.stubEnv('CLOUD_MODE', '1');
+    redis.enabled = enabled;
+    mocks.findTwoFactorAuth.mockResolvedValue(null);
+    mocks.createSecureToken.mockReturnValue('fixture-token');
+    mocks.saveAuth.mockResolvedValue('fixture-token');
+    mocks.getAllUserTeams.mockResolvedValue([]);
+
+    const response = await POST(loginRequest());
+
+    expect(response.status).toBe(200);
+    expect(response.headers.has('set-cookie')).toBe(true);
+    expect(await response.json()).toMatchObject({ token: 'fixture-token' });
+    expect(mocks.saveAuth).toHaveBeenCalledTimes(enabled ? 1 : 0);
+    expect(mocks.createSecureToken).toHaveBeenCalledTimes(enabled ? 0 : 1);
+  },
+);
+
+test('self-hosted enrolled login still requires a partial two-factor challenge', async () => {
+  mocks.createSecureToken.mockReturnValue('partial-fixture');
+
+  const response = await POST(loginRequest());
+
+  expect(response.status).toBe(200);
+  expect(response.headers.has('set-cookie')).toBe(false);
+  expect(await response.json()).toEqual({
+    requiresTwoFactor: true,
+    partialToken: 'partial-fixture',
+  });
+  expect(mocks.saveAuth).not.toHaveBeenCalled();
+});
+
+test('cloud enrollment decisions use the primary instead of stale replica state', async () => {
+  vi.stubEnv('CLOUD_MODE', '1');
+  mocks.findTwoFactorAuth.mockResolvedValue(null);
+  const findPrimaryEnrollment = vi.fn().mockResolvedValue({ isEnabled: true });
+  (prisma.client as any).$primary = () => ({
+    twoFactorAuth: { findUnique: findPrimaryEnrollment },
+  });
+
+  const response = await POST(loginRequest());
+
+  expect(response.status).toBe(503);
+  expect(findPrimaryEnrollment).toHaveBeenCalledWith({ where: { userId: 'user-1' } });
+  expect(mocks.findTwoFactorAuth).not.toHaveBeenCalled();
+  expect(mocks.createSecureToken).not.toHaveBeenCalled();
+  expect(mocks.saveAuth).not.toHaveBeenCalled();
 });
 
 test('POST returns a configuration error instead of partial auth when 2FA is enabled but unavailable', async () => {

@@ -174,3 +174,16 @@ export async function canViewAuthenticatedWebsite(
 
   return canViewWebsite(auth, websiteId);
 }
+
+export async function canViewWebsiteAnnotations(auth: Auth | null | undefined, websiteId: string) {
+  if (auth?.user && (await canViewWebsite({ user: auth.user }, websiteId))) {
+    return true;
+  }
+
+  const shareAuth = { shareToken: auth?.shareToken };
+
+  return (
+    (await canViewSharedWebsiteFilters(shareAuth, websiteId)) &&
+    (await canViewWebsiteSection(shareAuth, websiteId, ['overview', 'compare']))
+  );
+}

@@ -146,6 +146,10 @@ describe('checkAuth api keys', () => {
       '/api/auth/logout',
       '/api/users',
       '/api/admin/users',
+      '/teams/team-1/api/me/password',
+      '/teams/team-1/api/me/api-keys',
+      '/teams/team-1/api/2fa/status',
+      '/teams/team-1/api/admin/users',
     ]) {
       expect(await checkAuth(apiKeyRequest(path))).toBeNull();
     }
@@ -164,6 +168,7 @@ describe('checkAuth api keys', () => {
       '/analytics/data/2fa/setup/initiate',
       '/analytics/data/admin/users',
       '/api/%32fa/setup/initiate',
+      '/analytics/teams/team-1/data/users',
     ]) {
       expect(await checkAuth(apiKeyRequest(path))).toBeNull();
     }

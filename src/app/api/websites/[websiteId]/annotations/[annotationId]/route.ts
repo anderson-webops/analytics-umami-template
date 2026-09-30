@@ -1,7 +1,7 @@
 import { parseRequest } from '@/lib/request';
 import { json, notFound, ok, unauthorized } from '@/lib/response';
 import { annotationSchema } from '@/lib/schema';
-import { canUpdateWebsite, canViewSharedWebsiteFilters } from '@/permissions';
+import { canUpdateWebsite, canViewWebsiteAnnotations } from '@/permissions';
 import { deleteAnnotation, getWebsiteAnnotation, updateAnnotation } from '@/queries/prisma';
 
 export async function GET(
@@ -16,7 +16,7 @@ export async function GET(
 
   const { websiteId, annotationId } = await params;
 
-  if (!(await canViewSharedWebsiteFilters(auth, websiteId))) {
+  if (!(await canViewWebsiteAnnotations(auth, websiteId))) {
     return unauthorized();
   }
 

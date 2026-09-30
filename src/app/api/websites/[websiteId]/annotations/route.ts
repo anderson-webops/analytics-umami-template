@@ -3,7 +3,7 @@ import { uuid } from '@/lib/crypto';
 import { parseRequest } from '@/lib/request';
 import { json, unauthorized } from '@/lib/response';
 import { annotationSchema, pagingParams, searchParams } from '@/lib/schema';
-import { canUpdateWebsite, canViewSharedWebsiteFilters } from '@/permissions';
+import { canUpdateWebsite, canViewWebsiteAnnotations } from '@/permissions';
 import { createAnnotation, getWebsiteAnnotations } from '@/queries/prisma';
 
 export async function GET(
@@ -26,7 +26,7 @@ export async function GET(
   const { websiteId } = await params;
   const { startAt, endAt, search, page, pageSize } = query;
 
-  if (!(await canViewSharedWebsiteFilters(auth, websiteId))) {
+  if (!(await canViewWebsiteAnnotations(auth, websiteId))) {
     return unauthorized();
   }
 

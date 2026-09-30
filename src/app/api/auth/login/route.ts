@@ -57,6 +57,16 @@ export async function POST(request: Request) {
   }
 
   const { id, role, createdAt } = user;
+  const authClient = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
+  const twoFactor = await authClient.twoFactorAuth.findUnique({ where: { userId: id } });
+
+  if (twoFactor?.isEnabled && isEnvEnabled('CLOUD_MODE')) {
+    return serviceUnavailable({
+      code: 'two-factor-error-cloud-mode',
+      message: 'Use the configured cloud sign-in flow for this account.',
+    });
+  }
+
   let passwordHash = user.password;
 
   if (passwordNeedsRehash(passwordHash)) {
@@ -77,10 +87,6 @@ export async function POST(request: Request) {
 
   const passwordFingerprint = hash(passwordHash);
   const sessionTtl = getAuthSessionTtlSeconds();
-  const twoFactor = !isEnvEnabled('CLOUD_MODE')
-    ? await prisma.client.twoFactorAuth.findUnique({ where: { userId: id } })
-    : null;
-
   await clearFailedLogins(request, username);
 
   if (twoFactor?.isEnabled) {

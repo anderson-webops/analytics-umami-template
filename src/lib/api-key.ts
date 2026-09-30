@@ -34,18 +34,18 @@ export function isApiKey(token?: string | null): token is string {
   return typeof token === 'string' && token.startsWith(API_KEY_PREFIX);
 }
 
-function normalizePath(pathname: string) {
-  let decoded = pathname;
-
+function decodePath(pathname: string) {
   try {
-    decoded = decodeURIComponent(pathname);
+    return decodeURIComponent(pathname);
   } catch {
-    // A malformed encoded path will not match a valid application route.
+    return pathname;
   }
+}
 
+function normalizePath(pathname: string) {
   const segments: string[] = [];
 
-  for (const segment of decoded.split('/')) {
+  for (const segment of decodePath(pathname).split('/')) {
     if (!segment || segment === '.') {
       continue;
     }
@@ -65,7 +65,7 @@ function normalizeConfiguredPath(value?: string) {
     return '';
   }
 
-  return normalizePath(value);
+  return `/${value.replace(/^\/+|\/+$/g, '')}`;
 }
 
 function removePrefix(pathname: string, prefix: string) {
@@ -73,39 +73,58 @@ function removePrefix(pathname: string, prefix: string) {
     return pathname;
   }
 
-  if (pathname === prefix) {
+  if (pathname.toLowerCase() === prefix.toLowerCase()) {
     return '/';
   }
 
-  return pathname.startsWith(`${prefix}/`) ? pathname.slice(prefix.length) : pathname;
+  return pathname.toLowerCase().startsWith(`${prefix.toLowerCase()}/`)
+    ? pathname.slice(prefix.length)
+    : pathname;
+}
+
+function resolveApiPath(pathname: string, options: { basePath?: string; apiUrl?: string } = {}) {
+  const basePath = normalizeConfiguredPath(options.basePath ?? process.env.BASE_PATH);
+  const apiUrl = normalizeConfiguredPath(options.apiUrl ?? process.env.API_URL);
+  let canonical = removePrefix(pathname.replace(/\/{2,}/g, '/'), basePath);
+
+  for (;;) {
+    if (apiUrl && !['/', '/api'].includes(apiUrl)) {
+      const rewritten = removePrefix(canonical, apiUrl);
+
+      if (rewritten !== canonical) {
+        return `/api${rewritten === '/' ? '' : rewritten}`;
+      }
+    }
+
+    const teamPrefix = /^\/teams\/[^/]+(?=\/|$)/i.exec(canonical);
+
+    if (!teamPrefix) {
+      break;
+    }
+
+    canonical = canonical.slice(teamPrefix[0].length) || '/';
+  }
+
+  return canonical;
 }
 
 export function getCanonicalApiPath(
   pathname: string,
   options: { basePath?: string; apiUrl?: string } = {},
 ) {
-  const basePath = normalizeConfiguredPath(options.basePath ?? process.env.BASE_PATH);
-  const apiUrl = normalizeConfiguredPath(options.apiUrl ?? process.env.API_URL);
-  let canonical = removePrefix(normalizePath(pathname), basePath);
-
-  if (apiUrl && !['/', '/api'].includes(apiUrl)) {
-    const rewritten = removePrefix(canonical, apiUrl);
-
-    if (rewritten !== canonical) {
-      canonical = `/api${rewritten === '/' ? '' : rewritten}`;
-    }
-  }
-
-  return normalizePath(canonical);
+  return normalizePath(resolveApiPath(pathname, options));
 }
 
 export function isApiKeyBlockedPath(
   pathname: string,
   options?: { basePath?: string; apiUrl?: string },
 ) {
-  const canonical = getCanonicalApiPath(pathname, options);
+  const resolved = resolveApiPath(pathname, options);
+  const candidates = [resolved, decodePath(resolved), normalizePath(resolved)];
 
-  return API_KEY_BLOCKED_PATHS.some(path => canonical === path || canonical.startsWith(`${path}/`));
+  return candidates.some(canonical =>
+    API_KEY_BLOCKED_PATHS.some(path => canonical === path || canonical.startsWith(`${path}/`)),
+  );
 }
 
 export function isApiKeyEnabled() {

@@ -1,3 +1,4 @@
+import { getPathMatch } from 'next/dist/shared/lib/router/utils/path-match';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import {
   API_KEY_PREFIX,
@@ -87,6 +88,59 @@ describe('isApiKeyBlockedPath', () => {
     expect(isApiKeyBlockedPath('/api/%32fa/setup/initiate')).toBe(true);
     expect(isApiKeyBlockedPath('/api/websites/../admin/users')).toBe(true);
     expect(getCanonicalApiPath('//api///me/password/')).toBe('/api/me/password');
+  });
+
+  test('canonicalizes team navigation prefixes before classifying API permissions', () => {
+    for (const prefix of ['/teams/team-1', '/TEAMS/team-1', '/teams/team-1/teams/team-2']) {
+      expect(getCanonicalApiPath(`${prefix}/api/websites`)).toBe('/api/websites');
+      expect(isApiKeyBlockedPath(`${prefix}/api/me/password`)).toBe(true);
+      expect(isApiKeyBlockedPath(`${prefix}/api/me/api-keys`)).toBe(true);
+      expect(isApiKeyBlockedPath(`${prefix}/api/2fa/status`)).toBe(true);
+      expect(isApiKeyBlockedPath(`${prefix}/api/users`)).toBe(true);
+      expect(isApiKeyBlockedPath(`${prefix}/api/websites`)).toBe(false);
+    }
+
+    const options = { basePath: '/analytics', apiUrl: '/data' };
+    expect(isApiKeyBlockedPath('/analytics/teams/team-1/data/admin/users', options)).toBe(true);
+    expect(getCanonicalApiPath('/teams/team-1/api/teams/team-2')).toBe('/api/teams/team-2');
+    expect(isApiKeyBlockedPath('/api/teams/team-1')).toBe(false);
+  });
+
+  test('matches rewrite ordering without decoding the discarded team identifier', () => {
+    expect(getCanonicalApiPath('/teams/team%2Fone/api/websites')).toBe('/api/websites');
+    expect(getCanonicalApiPath('/teams/team%5Cone/api/websites')).toBe('/api/websites');
+    expect(getCanonicalApiPath('/teams/team-1/websites', { apiUrl: '/teams/team-1' })).toBe(
+      '/api/websites',
+    );
+    expect(getCanonicalApiPath('/TEAMS/team-1/websites', { apiUrl: '/teams/team-1' })).toBe(
+      '/api/websites',
+    );
+    expect(
+      getCanonicalApiPath('/analytics/teams/team-1/websites', {
+        basePath: '/analytics',
+        apiUrl: '/teams/team-1',
+      }),
+    ).toBe('/api/websites');
+  });
+
+  test('team canonicalization agrees with the installed router on synthetic data paths', () => {
+    const matchTeam = getPathMatch('/teams/:teamId/:path*');
+
+    for (const teamId of ['team-1', 'team%2Fone', 'team%5Cone', 'team%252Fone']) {
+      const pathname = `/teams/${teamId}/api/websites`;
+      const match = matchTeam(pathname);
+      expect(match).not.toBe(false);
+      if (match) {
+        expect(getCanonicalApiPath(pathname)).toBe(`/${match.path.join('/')}`);
+      }
+    }
+  });
+
+  test('normalizing a later parameter cannot erase a restricted route prefix', () => {
+    for (const prefix of ['/api/users', '/teams/team-1/api/users', '/api/%75sers']) {
+      expect(isApiKeyBlockedPath(`${prefix}/%2e%2e%2Fwebsites`)).toBe(true);
+    }
+    expect(isApiKeyBlockedPath('/api/websites/site-1')).toBe(false);
   });
 });
 

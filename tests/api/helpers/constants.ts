@@ -8,7 +8,7 @@
 export const ADMIN_USER = {
   id: '41e2b680-648e-4b09-bcd7-3e2b10c06264',
   username: 'admin',
-  password: 'umami',
+  password: process.env.API_TEST_ADMIN_PASSWORD || 'umami',
   role: 'admin',
 } as const;
 
