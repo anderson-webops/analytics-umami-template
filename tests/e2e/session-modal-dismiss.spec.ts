@@ -2,9 +2,6 @@ import { type APIRequestContext, expect, type Page, test } from '@playwright/tes
 import { uuid } from '../../src/lib/crypto';
 import { type Auth, authHeaders, deleteWebsite, loginPage } from './helpers';
 
-// The session modal is a bottom sheet capped at 1320px and centered, so on a
-// wide viewport there are dark side margins. Clicking those margins must
-// dismiss the modal (regression test for the full-width click-catcher bug).
 const VIEWPORT = { width: 1600, height: 900 };
 
 test.use({ viewport: VIEWPORT });
@@ -36,10 +33,21 @@ test.describe('SessionModal outside-click dismissal', () => {
     websiteId = uuid();
     auth = await loginPage(page, request);
     await createWebsite(request, auth, websiteId);
-    // The modal opens purely from the `session` query param, so a random id is
-    // enough to render it — no seeded session data required.
-    await page.goto(`/websites/${websiteId}/sessions?session=${uuid()}`);
-    await expect(page.getByRole('dialog')).toBeVisible();
+    const sessionId = uuid();
+    const sessionPath = `/api/websites/${websiteId}/sessions/${sessionId}`;
+    const sessionResponse = page.waitForResponse(
+      response => response.url().endsWith(sessionPath) && response.request().method() === 'GET',
+      { timeout: 30_000 },
+    );
+
+    await page.goto(`/websites/${websiteId}/sessions?session=${sessionId}`);
+    expect((await sessionResponse).status()).toBe(404);
+
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible({ timeout: 20_000 });
+    await expect(dialog.getByRole('status', { name: 'Loading' })).toHaveCount(0, {
+      timeout: 30_000,
+    });
   });
 
   test.afterEach(async ({ request }) => {
