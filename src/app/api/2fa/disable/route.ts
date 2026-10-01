@@ -11,6 +11,7 @@ import {
 } from '@/lib/two-factor/crypto';
 import { checkRateLimit, recordFailedAttempt, resetRateLimit } from '@/lib/two-factor/rate-limit';
 import { consumeOtp } from '@/lib/two-factor/replay-prevention';
+import { getTwoFactorRequirement } from '@/lib/two-factor/requirement';
 import { verifyTotp } from '@/lib/two-factor/totp';
 import { getUser } from '@/queries/prisma/user';
 
@@ -37,31 +38,9 @@ export async function POST(request: Request) {
   const userId = auth.user.id;
   const { password, token } = body;
 
-  // Globally required
-  const globalSetting = await prisma.client.appSetting.findUnique({
-    where: { key: 'twoFactorRequiredGlobal' },
-  });
-  const isGlobalRequired = globalSetting?.value === 'true';
+  const requirement = await getTwoFactorRequirement(userId);
 
-  // Required for this user
-  const userRecord = await prisma.client.user.findUnique({
-    where: { id: userId },
-    select: { twoFactorRequired: true },
-  });
-  const isUserRequired = userRecord?.twoFactorRequired ?? false;
-
-  // Required for this user's teams
-  const userTeams = await prisma.client.teamUser.findMany({ where: { userId } });
-  const teamIds = userTeams.map(t => t.teamId);
-  const teamsWithRequirement = teamIds.length
-    ? await prisma.client.team.findMany({
-        where: { id: { in: teamIds }, twoFactorRequired: true },
-      })
-    : [];
-  const isTeamRequired = teamsWithRequirement.length > 0;
-
-  // Cannot disable 2FA if required
-  if (isGlobalRequired || isUserRequired || isTeamRequired) {
+  if (requirement.reason !== null) {
     return forbidden({
       code: 'two-factor-error-disable-not-allowed',
       message: '2FA is required and cannot be disabled',

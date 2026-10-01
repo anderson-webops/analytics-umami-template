@@ -12,7 +12,7 @@ const operation1 = defineOperation({
     operationId: 'confirmTwoFactorSetup',
     summary: 'Confirm two-factor authentication setup',
     description:
-      'Verifies an authenticator code, enables two-factor authentication, and returns a new set of backup codes.',
+      'Verifies the current pending authenticator, enables two-factor authentication, returns new backup codes, and replaces the session cookie with a verified session.',
     tags: ['Two-factor authentication'],
     requestBody: {
       required: true,

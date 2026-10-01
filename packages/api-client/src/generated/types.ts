@@ -53,7 +53,7 @@ export interface paths {
     put?: never;
     /**
      * Confirm two-factor authentication setup
-     * @description Verifies an authenticator code, enables two-factor authentication, and returns a new set of backup codes.
+     * @description Verifies the current pending authenticator, enables two-factor authentication, returns new backup codes, and replaces the session cookie with a verified session.
      */
     post: operations['confirmTwoFactorSetup'];
     delete?: never;
@@ -73,7 +73,7 @@ export interface paths {
     put?: never;
     /**
      * Set up two-factor authentication
-     * @description Starts or replaces the current user's pending setup and returns a QR code and manual setup key for an authenticator app.
+     * @description Starts or replaces only the current user's still-pending setup and returns a QR code and manual setup key for an authenticator app.
      */
     post: operations['initiateTwoFactorSetup'];
     delete?: never;
@@ -261,7 +261,7 @@ export interface paths {
     put?: never;
     /**
      * Log in
-     * @description Authenticates a user with a username and password. Users with two-factor authentication receive a short-lived partial token to complete sign-in.
+     * @description Authenticates a self-hosted user with a username and password. Enabled two-factor authentication requires a short-lived partial token; users required to enroll receive a setup-only session until they confirm a factor.
      */
     post: operations['login'];
     delete?: never;
@@ -341,7 +341,7 @@ export interface paths {
     put?: never;
     /**
      * Verify the current sign-in
-     * @description Validates the current authentication credentials and returns the user and their team memberships.
+     * @description Validates the current authentication credentials and returns the user. Team memberships are omitted from setup-only sessions until two-factor enrollment is confirmed.
      */
     post: operations['verify'];
     delete?: never;
@@ -3810,7 +3810,7 @@ export interface operations {
                 /** @description Whether two-factor authentication is required for this user. */
                 isRequired: boolean;
                 /** @description Reason two-factor authentication is required. */
-                requiredReason: string;
+                requiredReason: 'user' | 'team' | 'global';
               };
         };
       };

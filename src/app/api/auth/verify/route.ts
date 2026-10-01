@@ -9,7 +9,7 @@ export async function POST(request: Request) {
     return error();
   }
 
-  const teams = await getAllUserTeams(auth.user.id);
+  const teams = auth.enrollmentOnly ? [] : await getAllUserTeams(auth.user.id);
 
   return json({ ...auth.user, teams });
 }

@@ -12,7 +12,7 @@ const operation1 = defineOperation({
     operationId: 'initiateTwoFactorSetup',
     summary: 'Set up two-factor authentication',
     description:
-      "Starts or replaces the current user's pending setup and returns a QR code and manual setup key for an authenticator app.",
+      "Starts or replaces only the current user's still-pending setup and returns a QR code and manual setup key for an authenticator app.",
     tags: ['Two-factor authentication'],
     responses: {
       '200': {

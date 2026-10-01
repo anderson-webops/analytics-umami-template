@@ -95,3 +95,25 @@ test('GET does not require 2FA when the encryption key is missing', async () => 
   });
   expect(response.status).toBe(200);
 });
+
+test('GET reports user and team requirements from the shared policy', async () => {
+  vi.stubEnv('TWO_FACTOR_ENCRYPTION_KEY', KEY);
+  mocks.findAppSetting.mockResolvedValue(null);
+  mocks.findUser.mockResolvedValue({ twoFactorRequired: true });
+
+  const userResponse = await GET(new Request('http://localhost/api/2fa/status'));
+  await expect(userResponse.json()).resolves.toMatchObject({
+    isRequired: true,
+    requiredReason: 'user',
+  });
+
+  mocks.findUser.mockResolvedValue({ twoFactorRequired: false });
+  mocks.findTeamUsers.mockResolvedValue([{ teamId: 'team-1' }]);
+  mocks.findTeams.mockResolvedValue([{ id: 'team-1', twoFactorRequired: true }]);
+
+  const teamResponse = await GET(new Request('http://localhost/api/2fa/status'));
+  await expect(teamResponse.json()).resolves.toMatchObject({
+    isRequired: true,
+    requiredReason: 'team',
+  });
+});

@@ -4,7 +4,7 @@
 import type { RequestOptions } from '../types';
 import type { components, operations as OperationTypes } from './types';
 
-export const API_VERSION = '4.2.16';
+export const API_VERSION = '4.2.17';
 
 export type HttpMethod = 'get' | 'post' | 'put' | 'patch' | 'delete';
 
@@ -3249,7 +3249,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Confirm two-factor authentication setup
-   * Verifies an authenticator code, enables two-factor authentication, and returns a new set of backup codes.
+   * Verifies the current pending authenticator, enables two-factor authentication, returns new backup codes, and replaces the session cookie with a verified session.
    * `POST /api/2fa/setup/confirm`
    */
   confirmTwoFactorSetup(
@@ -4872,7 +4872,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Set up two-factor authentication
-   * Starts or replaces the current user's pending setup and returns a QR code and manual setup key for an authenticator app.
+   * Starts or replaces only the current user's still-pending setup and returns a QR code and manual setup key for an authenticator app.
    * `POST /api/2fa/setup/initiate`
    */
   initiateTwoFactorSetup(
@@ -4908,7 +4908,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Log in
-   * Authenticates a user with a username and password. Users with two-factor authentication receive a short-lived partial token to complete sign-in.
+   * Authenticates a self-hosted user with a username and password. Enabled two-factor authentication requires a short-lived partial token; users required to enroll receive a setup-only session until they confirm a factor.
    * `POST /api/auth/login`
    */
   login(
@@ -5163,7 +5163,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Verify the current sign-in
-   * Validates the current authentication credentials and returns the user and their team memberships.
+   * Validates the current authentication credentials and returns the user. Team memberships are omitted from setup-only sessions until two-factor enrollment is confirmed.
    * `POST /api/auth/verify`
    */
   verify(

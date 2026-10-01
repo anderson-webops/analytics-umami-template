@@ -12,7 +12,7 @@ const operation1 = defineOperation({
     operationId: 'verify',
     summary: 'Verify the current sign-in',
     description:
-      'Validates the current authentication credentials and returns the user and their team memberships.',
+      'Validates the current authentication credentials and returns the user. Team memberships are omitted from setup-only sessions until two-factor enrollment is confirmed.',
     tags: ['Authentication'],
     responses: {
       '200': {

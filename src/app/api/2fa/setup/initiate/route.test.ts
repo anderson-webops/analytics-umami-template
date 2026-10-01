@@ -5,7 +5,8 @@ const mocks = vi.hoisted(() => ({
   parseRequest: vi.fn(),
   getUser: vi.fn(),
   findUnique: vi.fn(),
-  upsert: vi.fn(),
+  createMany: vi.fn(),
+  updateMany: vi.fn(),
   generateTotpSecret: vi.fn(),
   encryptSecret: vi.fn(),
   isTwoFactorConfigured: vi.fn(),
@@ -26,7 +27,8 @@ vi.mock('@/lib/prisma', () => ({
     client: {
       twoFactorAuth: {
         findUnique: mocks.findUnique,
-        upsert: mocks.upsert,
+        createMany: mocks.createMany,
+        updateMany: mocks.updateMany,
       },
     },
   },
@@ -51,7 +53,8 @@ beforeEach(() => {
   mocks.parseRequest.mockReset();
   mocks.getUser.mockReset();
   mocks.findUnique.mockReset();
-  mocks.upsert.mockReset();
+  mocks.createMany.mockReset();
+  mocks.updateMany.mockReset();
   mocks.generateTotpSecret.mockReset();
   mocks.encryptSecret.mockReset();
   mocks.isTwoFactorConfigured.mockReset();
@@ -69,7 +72,8 @@ beforeEach(() => {
   mocks.encryptSecret.mockReturnValue('encrypted-secret');
   mocks.generateOtpAuthUri.mockReturnValue('otpauth://alice');
   mocks.generateQrCodeDataUrl.mockResolvedValue('data:image/png;base64,qr');
-  mocks.upsert.mockResolvedValue(undefined);
+  mocks.createMany.mockResolvedValue({ count: 1 });
+  mocks.updateMany.mockResolvedValue({ count: 1 });
 });
 
 test('POST creates a pending 2FA setup and returns the manual key and QR data', async () => {
@@ -78,10 +82,9 @@ test('POST creates a pending 2FA setup and returns the manual key and QR data', 
   );
 
   expect(mocks.findUnique).toHaveBeenCalledWith({ where: { userId: 'user-1' } });
-  expect(mocks.upsert).toHaveBeenCalledWith({
-    where: { userId: 'user-1' },
-    update: { secret: 'encrypted-secret', isEnabled: false },
-    create: { userId: 'user-1', secret: 'encrypted-secret', isEnabled: false },
+  expect(mocks.createMany).toHaveBeenCalledWith({
+    data: [{ userId: 'user-1', secret: 'encrypted-secret', isEnabled: false }],
+    skipDuplicates: true,
   });
   await expect(response.json()).resolves.toEqual({
     manualKey: 'plain-secret',
@@ -97,7 +100,8 @@ test('POST reports a configuration error when the encryption key is missing', as
     new Request('http://localhost/api/2fa/setup/initiate', { method: 'POST' }),
   );
 
-  expect(mocks.upsert).not.toHaveBeenCalled();
+  expect(mocks.createMany).not.toHaveBeenCalled();
+  expect(mocks.updateMany).not.toHaveBeenCalled();
   await expect(response.json()).resolves.toMatchObject({
     error: {
       code: 'two-factor-error-not-configured',
@@ -113,7 +117,8 @@ test('POST rejects setup when 2FA is already enabled for the user', async () => 
     new Request('http://localhost/api/2fa/setup/initiate', { method: 'POST' }),
   );
 
-  expect(mocks.upsert).not.toHaveBeenCalled();
+  expect(mocks.createMany).not.toHaveBeenCalled();
+  expect(mocks.updateMany).not.toHaveBeenCalled();
   await expect(response.json()).resolves.toMatchObject({
     error: {
       code: 'two-factor-error-already-enabled',
@@ -121,3 +126,52 @@ test('POST rejects setup when 2FA is already enabled for the user', async () => 
   });
   expect(response.status).toBe(400);
 });
+
+test('POST replaces only the same still-pending setup', async () => {
+  mocks.findUnique.mockResolvedValue({
+    id: 'enrollment-1',
+    userId: 'user-1',
+    secret: 'prior-secret',
+    isEnabled: false,
+  });
+
+  const response = await POST(
+    new Request('http://localhost/api/2fa/setup/initiate', { method: 'POST' }),
+  );
+
+  expect(mocks.updateMany).toHaveBeenCalledWith({
+    where: {
+      id: 'enrollment-1',
+      userId: 'user-1',
+      secret: 'prior-secret',
+      isEnabled: false,
+    },
+    data: { secret: 'encrypted-secret' },
+  });
+  expect(mocks.createMany).not.toHaveBeenCalled();
+  expect(response.status).toBe(200);
+});
+
+test.each(['createMany', 'updateMany'])(
+  'POST rejects a setup changed during %s without exposing its unused secret',
+  async write => {
+    if (write === 'updateMany') {
+      mocks.findUnique.mockResolvedValue({
+        id: 'enrollment-1',
+        userId: 'user-1',
+        secret: 'prior-secret',
+        isEnabled: false,
+      });
+    }
+    mocks[write].mockResolvedValue({ count: 0 });
+
+    const response = await POST(
+      new Request('http://localhost/api/2fa/setup/initiate', { method: 'POST' }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: 'two-factor-error-setup-changed' },
+    });
+  },
+);

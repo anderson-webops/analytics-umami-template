@@ -145,11 +145,16 @@ export async function POST(request: Request) {
   const sessionTtl = getAuthSessionTtlSeconds();
   let fullToken: string;
   if (redis.enabled) {
-    fullToken = await saveAuth({ userId: id, role, pwd: passwordFingerprint }, sessionTtl);
+    fullToken = await saveAuth(
+      { userId: id, role, pwd: passwordFingerprint, mfa: true, mfaId: twoFactor.id },
+      sessionTtl,
+    );
   } else {
-    fullToken = createSecureToken({ userId: id, role, pwd: passwordFingerprint }, secret(), {
-      expiresIn: sessionTtl,
-    });
+    fullToken = createSecureToken(
+      { userId: id, role, pwd: passwordFingerprint, mfa: true, mfaId: twoFactor.id },
+      secret(),
+      { expiresIn: sessionTtl },
+    );
   }
 
   const teams = await getAllUserTeams(id);

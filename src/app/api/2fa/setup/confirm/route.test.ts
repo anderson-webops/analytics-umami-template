@@ -4,7 +4,7 @@ import { POST } from './route';
 const mocks = vi.hoisted(() => {
   const tx = {
     twoFactorAuth: {
-      update: vi.fn(),
+      updateMany: vi.fn(),
     },
     twoFactorBackupCode: {
       deleteMany: vi.fn(),
@@ -25,11 +25,36 @@ const mocks = vi.hoisted(() => {
     resetRateLimit: vi.fn(),
     consumeOtp: vi.fn(),
     verifyTotp: vi.fn(),
+    getUser: vi.fn(),
+    hash: vi.fn(),
+    secret: vi.fn(),
+    createSecureToken: vi.fn(),
   };
 });
 
 vi.mock('@/lib/request', () => ({
   parseRequest: mocks.parseRequest,
+}));
+
+vi.mock('@/queries/prisma/user', () => ({
+  getUser: mocks.getUser,
+}));
+
+vi.mock('@/lib/crypto', () => ({
+  hash: mocks.hash,
+  secret: mocks.secret,
+}));
+
+vi.mock('@/lib/jwt', () => ({
+  createSecureToken: mocks.createSecureToken,
+}));
+
+vi.mock('@/lib/redis', () => ({
+  default: { enabled: false },
+}));
+
+vi.mock('@/lib/auth', () => ({
+  saveAuth: vi.fn(),
 }));
 
 vi.mock('@/lib/prisma', () => ({
@@ -74,7 +99,7 @@ beforeEach(() => {
   mocks.parseRequest.mockReset();
   mocks.findUnique.mockReset();
   mocks.transaction.mockReset();
-  mocks.tx.twoFactorAuth.update.mockReset();
+  mocks.tx.twoFactorAuth.updateMany.mockReset();
   mocks.tx.twoFactorBackupCode.deleteMany.mockReset();
   mocks.tx.twoFactorBackupCode.createMany.mockReset();
   mocks.generateBackupCodes.mockReset();
@@ -85,13 +110,22 @@ beforeEach(() => {
   mocks.resetRateLimit.mockReset();
   mocks.consumeOtp.mockReset();
   mocks.verifyTotp.mockReset();
+  mocks.getUser.mockReset();
+  mocks.hash.mockReset();
+  mocks.secret.mockReset();
+  mocks.createSecureToken.mockReset();
 
   mocks.parseRequest.mockResolvedValue({
     auth: { user: { id: 'user-1' } },
     body: { token: '123456' },
     error: undefined,
   });
-  mocks.findUnique.mockResolvedValue({ userId: 'user-1', isEnabled: false, secret: 'encrypted' });
+  mocks.findUnique.mockResolvedValue({
+    id: 'enrollment-1',
+    userId: 'user-1',
+    isEnabled: false,
+    secret: 'encrypted',
+  });
   mocks.transaction.mockImplementation(async callback => callback(mocks.tx));
   mocks.generateBackupCodes.mockResolvedValue({
     plaintext: ['code-1', 'code-2'],
@@ -104,9 +138,13 @@ beforeEach(() => {
   mocks.resetRateLimit.mockResolvedValue(undefined);
   mocks.consumeOtp.mockResolvedValue(true);
   mocks.verifyTotp.mockResolvedValue(true);
-  mocks.tx.twoFactorAuth.update.mockResolvedValue(undefined);
+  mocks.tx.twoFactorAuth.updateMany.mockResolvedValue({ count: 1 });
   mocks.tx.twoFactorBackupCode.deleteMany.mockResolvedValue(undefined);
   mocks.tx.twoFactorBackupCode.createMany.mockResolvedValue(undefined);
+  mocks.getUser.mockResolvedValue({ id: 'user-1', role: 'user', password: 'hashed-password' });
+  mocks.hash.mockReturnValue('password-fingerprint');
+  mocks.secret.mockReturnValue('app-secret');
+  mocks.createSecureToken.mockReturnValue('verified-session-token');
 });
 
 test('POST confirms setup, enables 2FA, stores backup codes, and resets the rate limit', async () => {
@@ -117,8 +155,13 @@ test('POST confirms setup, enables 2FA, stores backup codes, and resets the rate
   expect(mocks.checkRateLimit).toHaveBeenCalledWith('user-1');
   expect(mocks.decryptSecret).toHaveBeenCalledWith('encrypted');
   expect(mocks.verifyTotp).toHaveBeenCalledWith('123456', 'plain-secret');
-  expect(mocks.tx.twoFactorAuth.update).toHaveBeenCalledWith({
-    where: { userId: 'user-1' },
+  expect(mocks.tx.twoFactorAuth.updateMany).toHaveBeenCalledWith({
+    where: {
+      id: 'enrollment-1',
+      userId: 'user-1',
+      secret: 'encrypted',
+      isEnabled: false,
+    },
     data: { isEnabled: true },
   });
   expect(mocks.tx.twoFactorBackupCode.deleteMany).toHaveBeenCalledWith({
@@ -132,6 +175,18 @@ test('POST confirms setup, enables 2FA, stores backup codes, and resets the rate
   });
   expect(mocks.consumeOtp).toHaveBeenCalledWith('user-1', '123456', mocks.tx);
   expect(mocks.resetRateLimit).toHaveBeenCalledWith('user-1');
+  expect(mocks.createSecureToken).toHaveBeenCalledWith(
+    {
+      userId: 'user-1',
+      role: 'user',
+      pwd: 'password-fingerprint',
+      mfa: true,
+      mfaId: 'enrollment-1',
+    },
+    'app-secret',
+    expect.any(Object),
+  );
+  expect(response.headers.get('set-cookie')).toContain('verified-session-token');
   await expect(response.json()).resolves.toEqual({
     backupCodes: ['code-1', 'code-2'],
   });
@@ -149,8 +204,24 @@ test('POST leaves setup pending when another request consumes the TOTP first', a
   await expect(response.json()).resolves.toMatchObject({
     error: { code: 'two-factor-error-code-used' },
   });
-  expect(mocks.tx.twoFactorAuth.update).not.toHaveBeenCalled();
+  expect(mocks.tx.twoFactorAuth.updateMany).toHaveBeenCalled();
   expect(mocks.resetRateLimit).not.toHaveBeenCalled();
+});
+
+test('POST rejects a replaced or completed setup before consuming an OTP or issuing a session', async () => {
+  mocks.tx.twoFactorAuth.updateMany.mockResolvedValue({ count: 0 });
+
+  const response = await POST(
+    new Request('http://localhost/api/2fa/setup/confirm', { method: 'POST' }),
+  );
+
+  expect(response.status).toBe(409);
+  await expect(response.json()).resolves.toMatchObject({
+    error: { code: 'two-factor-error-setup-changed' },
+  });
+  expect(mocks.consumeOtp).not.toHaveBeenCalled();
+  expect(mocks.tx.twoFactorBackupCode.deleteMany).not.toHaveBeenCalled();
+  expect(mocks.createSecureToken).not.toHaveBeenCalled();
 });
 
 test('POST reports a configuration error when the encryption key is missing', async () => {

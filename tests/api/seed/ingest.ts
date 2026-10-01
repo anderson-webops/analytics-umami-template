@@ -6,7 +6,7 @@ export interface IngestResult {
   replay: { sessionId: string; visitId: string };
 }
 
-const BATCH_LIMIT = 500;
+const BATCH_LIMIT = 20;
 
 function chunk<T>(items: T[], size: number) {
   const chunks: T[][] = [];

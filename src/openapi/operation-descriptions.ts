@@ -21,12 +21,12 @@ export const operationDescriptions: Record<string, OperationDescription> = {
   'POST /api/2fa/setup/confirm': {
     summary: 'Confirm two-factor authentication setup',
     description:
-      'Verifies an authenticator code, enables two-factor authentication, and returns a new set of backup codes.',
+      'Verifies the current pending authenticator, enables two-factor authentication, returns new backup codes, and replaces the session cookie with a verified session.',
   },
   'POST /api/2fa/setup/initiate': {
     summary: 'Set up two-factor authentication',
     description:
-      "Starts or replaces the current user's pending setup and returns a QR code and manual setup key for an authenticator app.",
+      "Starts or replaces only the current user's still-pending setup and returns a QR code and manual setup key for an authenticator app.",
   },
   'GET /api/2fa/status': {
     summary: 'Get two-factor authentication status',
@@ -80,7 +80,7 @@ export const operationDescriptions: Record<string, OperationDescription> = {
   'POST /api/auth/login': {
     summary: 'Log in',
     description:
-      'Authenticates a user with a username and password. Users with two-factor authentication receive a short-lived partial token to complete sign-in.',
+      'Authenticates a self-hosted user with a username and password. Enabled two-factor authentication requires a short-lived partial token; users required to enroll receive a setup-only session until they confirm a factor.',
   },
   'POST /api/auth/logout': {
     summary: 'Log out',
@@ -100,7 +100,7 @@ export const operationDescriptions: Record<string, OperationDescription> = {
   'POST /api/auth/verify': {
     summary: 'Verify the current sign-in',
     description:
-      'Validates the current authentication credentials and returns the user and their team memberships.',
+      'Validates the current authentication credentials and returns the user. Team memberships are omitted from setup-only sessions until two-factor enrollment is confirmed.',
   },
   'POST /api/batch': {
     summary: 'Send a batch of tracking requests',

@@ -1,5 +1,5 @@
 import { expect, test } from './fixtures';
-import { login } from './helpers/auth';
+import { login, sessionTokenFromCookie } from './helpers/auth';
 import { createUser, deleteUser } from './helpers/entities';
 import { nextCode, wrongCode } from './helpers/totp';
 
@@ -151,13 +151,19 @@ test.describe('Two-factor authentication', () => {
     }
 
     backupCodes = response.body.backupCodes;
+    const oldToken = sessionToken;
+    sessionToken = sessionTokenFromCookie(response);
 
-    const status = await session.get('/api/2fa/status');
+    expect((await api.bearer(oldToken).get('/api/me')).status).toBe(401);
+    expect((await api.bearer(sessionToken).get('/api/me')).status).toBe(200);
+
+    const verifiedSession = api.bearer(sessionToken);
+    const status = await verifiedSession.get('/api/2fa/status');
 
     expect(status.body).toMatchObject({ isEnabled: true, isRequired: false });
 
     // Confirming again is rejected: there is no longer a pending setup.
-    const again = await session.post('/api/2fa/setup/confirm', { token: lastCode });
+    const again = await verifiedSession.post('/api/2fa/setup/confirm', { token: lastCode });
 
     expect(again.status).toBe(400);
     expect(again.body.error.code).toBe('two-factor-error-no-pending-setup');
@@ -178,10 +184,7 @@ test.describe('Two-factor authentication', () => {
     expect(response.body).toEqual({ requiresTwoFactor: true, partialToken: expect.any(String) });
 
     partialToken = response.body.partialToken;
-
-    // NOTE: the partial token is currently accepted as a full session by
-    // checkAuth (it only looks at payload.userId, not payload.type), which
-    // bypasses the second factor. Not asserted here; reported as a bug.
+    expect((await api.bearer(partialToken).get('/api/me')).status).toBe(401);
   });
 
   test('POST /api/2fa/verify rejects missing, invalid and non-partial tokens', async ({
@@ -345,4 +348,45 @@ test.describe('Two-factor authentication', () => {
     expect(again.status).toBe(400);
     expect(again.body.error.code).toBe('two-factor-error-not-enabled');
   });
+});
+
+test('required enrollment rejects older sessions and upgrades a freshly logged-in session', async ({
+  admin,
+  api,
+}) => {
+  const created = await createUser(admin);
+
+  try {
+    const oldToken = await login(api, created);
+    const required = await admin.post(`/api/admin/users/${created.id}/2fa`, { required: true });
+
+    expect(required.status).toBe(200);
+    expect((await api.bearer(oldToken).get('/api/websites')).status).toBe(401);
+    expect((await api.bearer(oldToken).post('/api/2fa/setup/initiate')).status).toBe(401);
+
+    const enrollmentToken = await login(api, created);
+    const enrollmentSession = api.bearer(enrollmentToken);
+
+    expect((await enrollmentSession.get('/api/websites')).status).toBe(401);
+    expect((await enrollmentSession.get('/api/2fa/status')).body).toMatchObject({
+      isEnabled: false,
+      isRequired: true,
+      requiredReason: 'user',
+    });
+
+    const initiated = await enrollmentSession.post('/api/2fa/setup/initiate');
+    expect(initiated.status).toBe(200);
+
+    const code = await nextCode(initiated.body.manualKey);
+    const confirmed = await enrollmentSession.post('/api/2fa/setup/confirm', { token: code });
+    expect(confirmed.status).toBe(200);
+
+    const verifiedToken = sessionTokenFromCookie(confirmed);
+    expect((await api.bearer(verifiedToken).get('/api/me')).status).toBe(200);
+    expect((await enrollmentSession.get('/api/me')).status).toBe(401);
+  } finally {
+    await admin.post(`/api/admin/users/${created.id}/2fa`, { required: false });
+    await admin.del(`/api/admin/users/${created.id}/2fa`);
+    await deleteUser(admin, created.id);
+  }
 });

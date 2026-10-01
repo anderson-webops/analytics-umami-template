@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   hashPassword: vi.fn(),
   passwordNeedsRehash: vi.fn(),
   replacePasswordIfCurrent: vi.fn(),
+  getTwoFactorRequirement: vi.fn(),
 }));
 
 vi.mock('@/lib/request', () => ({
@@ -83,6 +84,10 @@ vi.mock('@/lib/two-factor/crypto', () => ({
   isTwoFactorConfigured: mocks.isTwoFactorConfigured,
 }));
 
+vi.mock('@/lib/two-factor/requirement', () => ({
+  getTwoFactorRequirement: mocks.getTwoFactorRequirement,
+}));
+
 import { POST } from './route';
 
 beforeEach(() => {
@@ -104,6 +109,7 @@ beforeEach(() => {
   mocks.hashPassword.mockReset();
   mocks.passwordNeedsRehash.mockReset();
   mocks.replacePasswordIfCurrent.mockReset();
+  mocks.getTwoFactorRequirement.mockReset();
 
   mocks.parseRequest.mockResolvedValue({
     body: { username: 'alice', password: 'secret' },
@@ -123,6 +129,7 @@ beforeEach(() => {
   mocks.passwordNeedsRehash.mockReturnValue(false);
   mocks.findTwoFactorAuth.mockResolvedValue({ userId: 'user-1', isEnabled: true });
   mocks.isTwoFactorConfigured.mockReturnValue(true);
+  mocks.getTwoFactorRequirement.mockResolvedValue({ reason: null, globalRequired: false });
 });
 
 afterEach(() => {
@@ -136,43 +143,19 @@ function loginRequest() {
   });
 }
 
-test.each([false, true])(
-  'enrolled cloud login cannot create a session (Redis %s)',
-  async enabled => {
-    vi.stubEnv('CLOUD_MODE', '1');
-    redis.enabled = enabled;
+test.each([false, true])('cloud mode rejects local password login (Redis %s)', async enabled => {
+  vi.stubEnv('CLOUD_MODE', '1');
+  redis.enabled = enabled;
 
-    const response = await POST(loginRequest());
+  const response = await POST(loginRequest());
 
-    expect(response.status).toBe(503);
-    expect(response.headers.has('set-cookie')).toBe(false);
-    expect(mocks.findTwoFactorAuth).toHaveBeenCalledWith({ where: { userId: 'user-1' } });
-    expect(mocks.saveAuth).not.toHaveBeenCalled();
-    expect(mocks.createSecureToken).not.toHaveBeenCalled();
-    expect(mocks.replacePasswordIfCurrent).not.toHaveBeenCalled();
-    expect(mocks.clearFailedLogins).not.toHaveBeenCalled();
-  },
-);
-
-test.each([false, true])(
-  'unenrolled cloud login retains its existing session flow (Redis %s)',
-  async enabled => {
-    vi.stubEnv('CLOUD_MODE', '1');
-    redis.enabled = enabled;
-    mocks.findTwoFactorAuth.mockResolvedValue(null);
-    mocks.createSecureToken.mockReturnValue('fixture-token');
-    mocks.saveAuth.mockResolvedValue('fixture-token');
-    mocks.getAllUserTeams.mockResolvedValue([]);
-
-    const response = await POST(loginRequest());
-
-    expect(response.status).toBe(200);
-    expect(response.headers.has('set-cookie')).toBe(true);
-    expect(await response.json()).toMatchObject({ token: 'fixture-token' });
-    expect(mocks.saveAuth).toHaveBeenCalledTimes(enabled ? 1 : 0);
-    expect(mocks.createSecureToken).toHaveBeenCalledTimes(enabled ? 0 : 1);
-  },
-);
+  expect(response.status).toBe(404);
+  expect(response.headers.has('set-cookie')).toBe(false);
+  expect(mocks.parseRequest).not.toHaveBeenCalled();
+  expect(mocks.findTwoFactorAuth).not.toHaveBeenCalled();
+  expect(mocks.saveAuth).not.toHaveBeenCalled();
+  expect(mocks.createSecureToken).not.toHaveBeenCalled();
+});
 
 test('self-hosted enrolled login still requires a partial two-factor challenge', async () => {
   mocks.createSecureToken.mockReturnValue('partial-fixture');
@@ -188,20 +171,71 @@ test('self-hosted enrolled login still requires a partial two-factor challenge',
   expect(mocks.saveAuth).not.toHaveBeenCalled();
 });
 
-test('cloud enrollment decisions use the primary instead of stale replica state', async () => {
-  vi.stubEnv('CLOUD_MODE', '1');
+test.each([false, true])(
+  'self-hosted required enrollment receives a short-lived limited session (Redis %s)',
+  async enabled => {
+    redis.enabled = enabled;
+    mocks.findTwoFactorAuth.mockResolvedValue(null);
+    mocks.getTwoFactorRequirement.mockResolvedValue({ reason: 'user', globalRequired: false });
+    mocks.createSecureToken.mockReturnValue('enrollment-token');
+    mocks.saveAuth.mockResolvedValue('enrollment-token');
+    mocks.getAllUserTeams.mockResolvedValue([{ id: 'private-team', name: 'Private team' }]);
+
+    const response = await POST(loginRequest());
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('set-cookie')).toContain('Max-Age=900');
+    expect(await response.json()).toMatchObject({
+      token: 'enrollment-token',
+      user: { teams: [] },
+    });
+    expect(mocks.getAllUserTeams).not.toHaveBeenCalled();
+    if (enabled) {
+      expect(mocks.saveAuth).toHaveBeenCalledWith(
+        { userId: 'user-1', role: 'admin', pwd: 'password-fingerprint', type: 'enrollment-auth' },
+        900,
+      );
+    } else {
+      expect(mocks.createSecureToken).toHaveBeenCalledWith(
+        { userId: 'user-1', role: 'admin', pwd: 'password-fingerprint', type: 'enrollment-auth' },
+        undefined,
+        { expiresIn: 900 },
+      );
+    }
+  },
+);
+
+test('required enrollment cannot mint a session without the 2FA key', async () => {
+  mocks.findTwoFactorAuth.mockResolvedValue(null);
+  mocks.getTwoFactorRequirement.mockResolvedValue({ reason: 'user', globalRequired: false });
+  mocks.isTwoFactorConfigured.mockReturnValue(false);
+
+  const response = await POST(loginRequest());
+
+  expect(response.status).toBe(503);
+  expect(response.headers.has('set-cookie')).toBe(false);
+  expect(mocks.saveAuth).not.toHaveBeenCalled();
+  expect(mocks.createSecureToken).not.toHaveBeenCalled();
+});
+
+test('self-hosted enrollment decisions use the primary instead of stale replica state', async () => {
   mocks.findTwoFactorAuth.mockResolvedValue(null);
   const findPrimaryEnrollment = vi.fn().mockResolvedValue({ isEnabled: true });
   (prisma.client as any).$primary = () => ({
     twoFactorAuth: { findUnique: findPrimaryEnrollment },
   });
+  mocks.createSecureToken.mockReturnValue('partial-fixture');
 
   const response = await POST(loginRequest());
 
-  expect(response.status).toBe(503);
+  expect(response.status).toBe(200);
   expect(findPrimaryEnrollment).toHaveBeenCalledWith({ where: { userId: 'user-1' } });
   expect(mocks.findTwoFactorAuth).not.toHaveBeenCalled();
-  expect(mocks.createSecureToken).not.toHaveBeenCalled();
+  expect(mocks.createSecureToken).toHaveBeenCalledWith(
+    { userId: 'user-1', pwd: 'password-fingerprint', type: 'partial-auth' },
+    undefined,
+    { expiresIn: '5m' },
+  );
   expect(mocks.saveAuth).not.toHaveBeenCalled();
 });
 

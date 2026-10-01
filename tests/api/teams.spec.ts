@@ -19,10 +19,15 @@ test.describe('Teams', () => {
     const response = await admin.post('/api/teams', { name });
 
     expect(response.status).toBe(200);
-    expect(response.body[0]).toMatchObject({ name });
-    expect(response.body[1]).toMatchObject({ userId: seed.admin.id, role: 'team-owner' });
+    expect(response.body).toMatchObject({ name });
 
-    teamId = response.body[0].id;
+    teamId = response.body.id;
+    const detail = await admin.get(`/api/teams/${teamId}`);
+
+    expect(detail.status).toBe(200);
+    expect(detail.body.members).toContainEqual(
+      expect.objectContaining({ userId: seed.admin.id, role: 'team-owner' }),
+    );
   });
 
   test('POST /api/teams validates the body and requires authentication', async ({ admin, api }) => {

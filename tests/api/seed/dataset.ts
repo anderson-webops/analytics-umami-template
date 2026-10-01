@@ -1,4 +1,4 @@
-import { SEED_IDS } from './ids';
+import { SEED_IDS, SEED_WEBSITES } from './ids';
 
 /**
  * Deterministic analytics dataset ingested through the real collection
@@ -163,12 +163,14 @@ function customEvent(
   name: string,
   data: Record<string, unknown>,
   timestamp: number,
+  hostname = HOSTNAME,
 ): SendPayload {
   return {
     type: 'event',
     payload: {
       website,
       ...client(persona),
+      hostname,
       ...identity(persona, index),
       url: '/',
       title: 'Home',
@@ -307,7 +309,10 @@ export function buildDataset(now = Date.now()): Dataset {
 
       visits.push({
         events: [
-          pageview(SEED_IDS.website2, persona, index, PAGES[day % PAGES.length], { timestamp }),
+          pageview(SEED_IDS.website2, persona, index, PAGES[day % PAGES.length], {
+            hostname: SEED_WEBSITES.secondary.domain,
+            timestamp,
+          }),
         ],
       });
       website2Pageviews += 1;
@@ -322,6 +327,7 @@ export function buildDataset(now = Date.now()): Dataset {
       'purchase',
       { revenue: 19.99, currency: CURRENCY, quantity: 1 },
       dayAnchor(2),
+      SEED_WEBSITES.secondary.domain,
     ),
   );
 

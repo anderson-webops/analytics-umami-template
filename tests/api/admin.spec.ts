@@ -1,5 +1,5 @@
 import { expect, test } from './fixtures';
-import { login } from './helpers/auth';
+import { enrollTwoFactor, login } from './helpers/auth';
 import { UNKNOWN_UUID } from './helpers/constants';
 import { createTeam, createUser, deleteTeam, deleteUser } from './helpers/entities';
 
@@ -207,21 +207,35 @@ test.describe('Admin', () => {
       expect((await apiKey.post('/api/admin/2fa/global', { required: false })).status).toBe(401);
     });
 
-    test('POST /api/admin/2fa/global toggles the global requirement', async ({ admin, user }) => {
+    test('POST /api/admin/2fa/global toggles the global requirement', async ({
+      admin,
+      api,
+      seed,
+      user,
+    }) => {
       const before = await user.get('/api/2fa/status');
 
       expect(before.status).toBe(200);
       expect(before.body.globalRequired).toBe(false);
 
-      const enabled = await admin.post('/api/admin/2fa/global', { required: true });
+      const created = await createUser(admin, { role: 'admin' });
+      let enrolledAdmin = admin;
 
       try {
+        enrolledAdmin = api.bearer(await enrollTwoFactor(api, created));
+        const enabled = await enrolledAdmin.post('/api/admin/2fa/global', { required: true });
+
         expect(enabled.status).toBe(200);
         expect(enabled.body).toEqual({ ok: true, required: true });
+        expect((await user.get('/api/websites')).status).toBe(401);
 
-        const status = await user.get('/api/2fa/status');
+        const enrollmentToken = await login(api, seed.user);
+        const status = await api.bearer(enrollmentToken).get('/api/2fa/status');
+        const verified = await api.bearer(enrollmentToken).post('/api/auth/verify');
 
         expect(status.status).toBe(200);
+        expect(verified.status).toBe(200);
+        expect(verified.body.teams).toEqual([]);
         expect(status.body).toMatchObject({
           isRequired: true,
           requiredReason: 'global',
@@ -229,10 +243,11 @@ test.describe('Admin', () => {
           globalRequired: true,
         });
       } finally {
-        const disabled = await admin.post('/api/admin/2fa/global', { required: false });
+        const disabled = await enrolledAdmin.post('/api/admin/2fa/global', { required: false });
 
         expect(disabled.status).toBe(200);
         expect(disabled.body).toEqual({ ok: true, required: false });
+        await deleteUser(admin, created.id);
       }
 
       const after = await user.get('/api/2fa/status');
@@ -278,23 +293,37 @@ test.describe('Admin', () => {
       expect((await apiKey.post(`/api/admin/teams/${teamId}/2fa`, body)).status).toBe(401);
     });
 
-    test('POST /api/admin/teams/{teamId}/2fa toggles the team requirement', async ({ admin }) => {
-      const enabled = await admin.post(`/api/admin/teams/${teamId}/2fa`, { required: true });
+    test('POST /api/admin/teams/{teamId}/2fa toggles the team requirement', async ({
+      admin,
+      api,
+      seed,
+    }) => {
+      const created = await createUser(admin, { role: 'admin' });
+      let enrolledAdmin = admin;
 
       try {
+        enrolledAdmin = api.bearer(await enrollTwoFactor(api, created));
+        const enabled = await enrolledAdmin.post(`/api/admin/teams/${teamId}/2fa`, {
+          required: true,
+        });
+
         expect(enabled.status).toBe(200);
         expect(enabled.body).toEqual({ ok: true, teamId, twoFactorRequired: true });
 
-        // The admin owns the throwaway team, so their status now reports the team reason.
-        const status = await admin.get('/api/2fa/status');
+        expect((await admin.get('/api/2fa/status')).status).toBe(401);
+        const enrollmentToken = await login(api, seed.admin);
+        const status = await api.bearer(enrollmentToken).get('/api/2fa/status');
 
         expect(status.status).toBe(200);
         expect(status.body).toMatchObject({ isRequired: true, requiredReason: 'team' });
       } finally {
-        const disabled = await admin.post(`/api/admin/teams/${teamId}/2fa`, { required: false });
+        const disabled = await enrolledAdmin.post(`/api/admin/teams/${teamId}/2fa`, {
+          required: false,
+        });
 
         expect(disabled.status).toBe(200);
         expect(disabled.body).toEqual({ ok: true, teamId, twoFactorRequired: false });
+        await deleteUser(admin, created.id);
       }
 
       const after = await admin.get('/api/2fa/status');
@@ -308,12 +337,14 @@ test.describe('Admin', () => {
 
     let userId = '';
     let userToken = '';
+    let userCredentials: { username: string; password: string };
 
     test.beforeAll(async ({ admin, api }) => {
       const created = await createUser(admin);
 
       userId = created.id;
-      userToken = await login(api, { username: created.username, password: created.password });
+      userCredentials = { username: created.username, password: created.password };
+      userToken = await login(api, userCredentials);
     });
 
     test.afterAll(async ({ admin }) => {
@@ -373,7 +404,11 @@ test.describe('Admin', () => {
       expect(enabled.status).toBe(200);
       expect(enabled.body).toEqual({ ok: true, userId, twoFactorRequired: true });
 
-      const status = await throwaway.get('/api/2fa/status');
+      expect((await throwaway.get('/api/2fa/status')).status).toBe(401);
+      expect((await throwaway.get('/api/me')).status).toBe(401);
+
+      const enrollmentToken = await login(api, userCredentials);
+      const status = await api.bearer(enrollmentToken).get('/api/2fa/status');
       const me = await throwaway.get('/api/me');
       const listed = await admin.get('/api/admin/users', { params: { search: userId } });
 
@@ -383,7 +418,7 @@ test.describe('Admin', () => {
         requiredReason: 'user',
         globalRequired: false,
       });
-      expect(me.body.user.twoFactorRequired).toBe(true);
+      expect(me.status).toBe(401);
       expect(listed.status).toBe(200);
 
       const disabled = await admin.post(`/api/admin/users/${userId}/2fa`, { required: false });

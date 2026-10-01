@@ -62,6 +62,13 @@ export async function POST(request: Request) {
 
   const sessionTtl = getAuthSessionTtlSeconds();
   const passwordFingerprint = hash(password);
+  const sessionData = {
+    userId,
+    role: updated.role,
+    pwd: passwordFingerprint,
+    mfa: auth.mfaVerified === true,
+    ...(auth.mfaVerified ? { mfaId: auth.mfaId } : {}),
+  };
   let token: string;
 
   if (redis.enabled) {
@@ -69,9 +76,9 @@ export async function POST(request: Request) {
       await redis.client.del(auth.authKey);
     }
 
-    token = await saveAuth({ userId, role: updated.role, pwd: passwordFingerprint }, sessionTtl);
+    token = await saveAuth(sessionData, sessionTtl);
   } else {
-    token = createSecureToken({ userId, role: updated.role, pwd: passwordFingerprint }, secret(), {
+    token = createSecureToken(sessionData, secret(), {
       expiresIn: sessionTtl,
     });
   }

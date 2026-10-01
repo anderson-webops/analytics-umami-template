@@ -70,3 +70,18 @@ test('provides one main landmark for authenticated page content', () => {
     screen.getByRole('heading', { name: 'Analytics overview' }),
   );
 });
+
+test('keeps required two-factor setup available while hiding the main content', () => {
+  mockUseTwoFactorStatusQuery.mockReturnValue({
+    data: { isRequired: true, isEnabled: false },
+  });
+
+  render(
+    <App>
+      <h1>Analytics overview</h1>
+    </App>,
+  );
+
+  expect(screen.getByText('Two-factor setup')).toBeInTheDocument();
+  expect(screen.getByRole('main', { hidden: true })).toHaveAttribute('aria-hidden', 'true');
+});

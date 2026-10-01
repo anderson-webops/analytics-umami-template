@@ -1,8 +1,21 @@
 import { z } from 'zod';
+import { saveAuth } from '@/lib/auth';
+import { hash, secret } from '@/lib/crypto';
 import { isEnvEnabled } from '@/lib/env';
+import { createSecureToken } from '@/lib/jwt';
 import prisma from '@/lib/prisma';
+import redis from '@/lib/redis';
 import { parseRequest } from '@/lib/request';
-import { badRequest, json, notFound, serviceUnavailable } from '@/lib/response';
+import {
+  badRequest,
+  conflict,
+  json,
+  notFound,
+  serviceUnavailable,
+  unauthorized,
+} from '@/lib/response';
+import { getAuthSessionTtlSeconds } from '@/lib/security';
+import { setSessionCookie } from '@/lib/session';
 import { generateBackupCodes } from '@/lib/two-factor/backup-codes';
 import {
   decryptSecret,
@@ -12,6 +25,11 @@ import {
 import { checkRateLimit, recordFailedAttempt, resetRateLimit } from '@/lib/two-factor/rate-limit';
 import { consumeOtp } from '@/lib/two-factor/replay-prevention';
 import { verifyTotp } from '@/lib/two-factor/totp';
+import { getUser } from '@/queries/prisma/user';
+
+class SetupChangedError extends Error {}
+
+class CodeAlreadyUsedError extends Error {}
 
 export async function POST(request: Request) {
   if (isEnvEnabled('CLOUD_MODE')) {
@@ -59,8 +77,8 @@ export async function POST(request: Request) {
   }
 
   // Verify TOTP
-  const secret = decryptSecret(twoFactor.secret);
-  if (!(await verifyTotp(token, secret))) {
+  const totpSecret = decryptSecret(twoFactor.secret);
+  if (!(await verifyTotp(token, totpSecret))) {
     const { lockedUntil } = await recordFailedAttempt(userId);
     return badRequest({
       code: 'two-factor-error-invalid-code',
@@ -71,24 +89,60 @@ export async function POST(request: Request) {
 
   const { plaintext, hashed } = await generateBackupCodes();
 
-  const consumed = await prisma.transaction(async tx => {
-    if (!(await consumeOtp(userId, token, tx))) {
-      return false;
+  try {
+    await prisma.transaction(async tx => {
+      const updated = await tx.twoFactorAuth.updateMany({
+        where: { id: twoFactor.id, userId, secret: twoFactor.secret, isEnabled: false },
+        data: { isEnabled: true },
+      });
+
+      if (updated.count !== 1) {
+        throw new SetupChangedError();
+      }
+
+      if (!(await consumeOtp(userId, token, tx))) {
+        throw new CodeAlreadyUsedError();
+      }
+
+      await tx.twoFactorBackupCode.deleteMany({ where: { userId } });
+      await tx.twoFactorBackupCode.createMany({
+        data: hashed.map(codeHash => ({ userId, codeHash })),
+      });
+    });
+  } catch (error) {
+    if (error instanceof SetupChangedError) {
+      return conflict({
+        code: 'two-factor-error-setup-changed',
+        message: '2FA setup changed; start again',
+      });
     }
 
-    await tx.twoFactorAuth.update({ where: { userId }, data: { isEnabled: true } });
-    await tx.twoFactorBackupCode.deleteMany({ where: { userId } });
-    await tx.twoFactorBackupCode.createMany({
-      data: hashed.map(codeHash => ({ userId, codeHash })),
-    });
-    return true;
-  });
+    if (error instanceof CodeAlreadyUsedError) {
+      return badRequest({ code: 'two-factor-error-code-used', message: 'Code already used' });
+    }
 
-  if (!consumed) {
-    return badRequest({ code: 'two-factor-error-code-used', message: 'Code already used' });
+    throw error;
   }
 
   await resetRateLimit(userId);
 
-  return json({ backupCodes: plaintext });
+  const user = await getUser(userId, { includePassword: true });
+
+  if (!user) {
+    return unauthorized();
+  }
+
+  const sessionTtl = getAuthSessionTtlSeconds();
+  const sessionData = {
+    userId,
+    role: user.role,
+    pwd: hash(user.password),
+    mfa: true,
+    mfaId: twoFactor.id,
+  };
+  const sessionToken = redis.enabled
+    ? await saveAuth(sessionData, sessionTtl)
+    : createSecureToken(sessionData, secret(), { expiresIn: sessionTtl });
+
+  return setSessionCookie(json({ backupCodes: plaintext }), sessionToken, sessionTtl);
 }

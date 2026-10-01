@@ -89,7 +89,7 @@ async function ensureTeam(admin: ApiClient, memberId: string) {
 
   if (!team) {
     const created = assertStatus(await admin.post('/api/teams', SEED_TEAM), 200, 'create team');
-    team = created.body[0];
+    team = created.body;
   }
 
   const detail = assertStatus(await admin.get(`/api/teams/${team.id}`), 200, 'get team').body;
@@ -200,10 +200,14 @@ export async function seedEnvironment(api: ApiClient): Promise<SeedState> {
   const admin = api.bearer(await login(api, ADMIN_USER));
   const user = await ensureUser(admin, SEED_USERS.user);
   const viewer = await ensureUser(admin, SEED_USERS.viewer);
-  const userApi = api.bearer(await login(api, SEED_USERS.user));
 
   const website = await recreateWebsite(admin, SEED_IDS.website, SEED_WEBSITES.primary);
-  const website2 = await recreateWebsite(userApi, SEED_IDS.website2, SEED_WEBSITES.secondary);
+  const website2 = await recreateWebsite(admin, SEED_IDS.website2, SEED_WEBSITES.secondary);
+  assertStatus(
+    await admin.post(`/api/websites/${website2.id}/transfer`, { userId: user.id }),
+    200,
+    'transfer secondary website',
+  );
 
   assertStatus(
     await admin.post(`/api/websites/${website.id}`, {

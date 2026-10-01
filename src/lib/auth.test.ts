@@ -7,6 +7,26 @@ import { getUser } from '@/queries/prisma/user';
 import { hashApiKey } from './api-key';
 import { checkAuth } from './auth';
 
+const twoFactorMocks = vi.hoisted(() => ({
+  findTwoFactorAuth: vi.fn(),
+  findGlobalSetting: vi.fn(),
+  findUser: vi.fn(),
+  findTeamUsers: vi.fn(),
+  findRequiredTeams: vi.fn(),
+}));
+
+vi.mock('@/lib/prisma', () => ({
+  default: {
+    client: {
+      twoFactorAuth: { findUnique: twoFactorMocks.findTwoFactorAuth },
+      appSetting: { findUnique: twoFactorMocks.findGlobalSetting },
+      user: { findUnique: twoFactorMocks.findUser },
+      teamUser: { findMany: twoFactorMocks.findTeamUsers },
+      team: { findMany: twoFactorMocks.findRequiredTeams },
+    },
+  },
+}));
+
 vi.mock('@/lib/jwt', () => ({
   parseSecureToken: vi.fn(),
   parseToken: vi.fn(() => null),
@@ -51,8 +71,9 @@ const redisMock = redis as unknown as {
 
 const PASSWORD_HASH = '$2b$10$currentpasswordhashvalue';
 
-function authedRequest() {
-  return new Request('http://localhost/api/test', {
+function authedRequest(path = '/api/test', method = 'GET') {
+  return new Request(`http://localhost${path}`, {
+    method,
     headers: { authorization: 'Bearer secure-token' },
   });
 }
@@ -71,23 +92,181 @@ function cookieRequest(options: { method?: string; origin?: string } = {}) {
 }
 
 function mockUser() {
-  getUserMock.mockResolvedValue({
-    id: 'user-1',
-    username: 'bob',
-    role: 'user',
-    password: PASSWORD_HASH,
-  } as any);
+  getUserMock.mockImplementation(
+    async () =>
+      ({
+        id: 'user-1',
+        username: 'bob',
+        role: 'user',
+        password: PASSWORD_HASH,
+        twoFactorRequired: false,
+      }) as any,
+  );
 }
 
 beforeEach(() => {
   vi.unstubAllEnvs();
   vi.stubEnv('CLOUD_MODE', '');
+  vi.stubEnv('TWO_FACTOR_ENCRYPTION_KEY', '');
   parseSecureTokenMock.mockReset();
   getUserMock.mockReset();
   getApiKeyByHashMock.mockReset();
   updateApiKeyLastUsedMock.mockClear();
   redisMock.enabled = false;
   redisMock.client.get.mockReset();
+  twoFactorMocks.findTwoFactorAuth.mockReset().mockResolvedValue(null);
+  twoFactorMocks.findGlobalSetting.mockReset().mockResolvedValue(null);
+  twoFactorMocks.findUser.mockReset().mockResolvedValue({ twoFactorRequired: false });
+  twoFactorMocks.findTeamUsers.mockReset().mockResolvedValue([]);
+  twoFactorMocks.findRequiredTeams.mockReset().mockResolvedValue([]);
+});
+
+describe('checkAuth required 2FA enrollment', () => {
+  function mockSession(enrollmentOnly = false) {
+    parseSecureTokenMock.mockReturnValue({
+      userId: 'user-1',
+      role: 'user',
+      pwd: hash(PASSWORD_HASH),
+      ...(enrollmentOnly ? { type: 'enrollment-auth' } : {}),
+    } as any);
+    mockUser();
+    vi.stubEnv('TWO_FACTOR_ENCRYPTION_KEY', 'a'.repeat(64));
+  }
+
+  test('denies ordinary API access when a required user has not enrolled', async () => {
+    mockSession();
+    twoFactorMocks.findUser.mockResolvedValue({ twoFactorRequired: true });
+
+    expect(await checkAuth(authedRequest('/api/websites'))).toBeNull();
+    expect(await checkAuth(authedRequest('/api/2fa/setup/initiate', 'POST'))).toBeNull();
+  });
+
+  test('keeps required enrollment enforced when its encryption key is unavailable', async () => {
+    mockSession();
+    vi.stubEnv('TWO_FACTOR_ENCRYPTION_KEY', '');
+    twoFactorMocks.findUser.mockResolvedValue({ twoFactorRequired: true });
+
+    expect(await checkAuth(authedRequest('/api/websites'))).toBeNull();
+
+    const enrollmentToken = {
+      userId: 'user-1',
+      role: 'user',
+      pwd: hash(PASSWORD_HASH),
+      type: 'enrollment-auth',
+    };
+    parseSecureTokenMock.mockReturnValue(enrollmentToken as any);
+    expect(await checkAuth(authedRequest('/api/websites'))).toBeNull();
+  });
+
+  test('denies ordinary API access when global or team policy requires enrollment', async () => {
+    mockSession();
+    twoFactorMocks.findGlobalSetting.mockResolvedValue({ value: 'true' });
+    expect(await checkAuth(authedRequest('/api/websites'))).toBeNull();
+
+    twoFactorMocks.findGlobalSetting.mockResolvedValue(null);
+    twoFactorMocks.findTeamUsers.mockResolvedValue([{ teamId: 'team-1' }]);
+    twoFactorMocks.findRequiredTeams.mockResolvedValue([{ id: 'team-1' }]);
+    expect(await checkAuth(authedRequest('/api/websites'))).toBeNull();
+  });
+
+  test('permits only the enrollment, status, session bootstrap and logout endpoints', async () => {
+    mockSession(true);
+    twoFactorMocks.findUser.mockResolvedValue({ twoFactorRequired: true });
+
+    for (const [method, path] of [
+      ['GET', '/api/2fa/status'],
+      ['POST', '/api/2fa/setup/initiate'],
+      ['POST', '/api/2fa/setup/confirm'],
+      ['POST', '/api/2fa/setup/cancel'],
+      ['POST', '/api/auth/verify'],
+      ['POST', '/api/auth/logout'],
+    ]) {
+      expect(await checkAuth(authedRequest(path, method))).not.toBeNull();
+    }
+
+    for (const [method, path] of [
+      ['POST', '/api/websites'],
+      ['GET', '/api/me'],
+      ['GET', '/api/2fa/setup/initiate'],
+      ['POST', '/api/2fa/disable'],
+      ['GET', '/api/2fa/status/extra'],
+    ]) {
+      expect(await checkAuth(authedRequest(path, method))).toBeNull();
+    }
+  });
+
+  test('allows ordinary access without a requirement and after verified enrollment', async () => {
+    mockSession();
+    expect(await checkAuth(authedRequest('/api/websites'))).not.toBeNull();
+
+    twoFactorMocks.findGlobalSetting.mockResolvedValue({ value: 'true' });
+    twoFactorMocks.findTwoFactorAuth.mockResolvedValue({ id: 'enrollment-1', isEnabled: true });
+    expect(await checkAuth(authedRequest('/api/websites'))).toBeNull();
+
+    parseSecureTokenMock.mockReturnValue({
+      userId: 'user-1',
+      role: 'user',
+      pwd: hash(PASSWORD_HASH),
+      mfa: true,
+      mfaId: 'enrollment-1',
+    } as any);
+    expect(await checkAuth(authedRequest('/api/websites'))).not.toBeNull();
+
+    twoFactorMocks.findTwoFactorAuth.mockResolvedValue({ id: 'enrollment-2', isEnabled: true });
+    expect(await checkAuth(authedRequest('/api/websites'))).toBeNull();
+  });
+
+  test('rejects a pre-enrollment session after optional 2FA is enabled', async () => {
+    mockSession();
+    twoFactorMocks.findTwoFactorAuth.mockResolvedValue({ id: 'enrollment-1', isEnabled: true });
+
+    expect(await checkAuth(authedRequest('/api/websites'))).toBeNull();
+    expect(await checkAuth(authedRequest('/api/auth/verify', 'POST'))).toBeNull();
+  });
+
+  test('requires verified assurance on Redis sessions too', async () => {
+    mockSession();
+    redisMock.enabled = true;
+    parseSecureTokenMock.mockReturnValue({ authKey: 'auth:session-key' } as any);
+    redisMock.client.get.mockResolvedValue({
+      userId: 'user-1',
+      role: 'user',
+      pwd: hash(PASSWORD_HASH),
+    });
+    twoFactorMocks.findTwoFactorAuth.mockResolvedValue({ id: 'enrollment-1', isEnabled: true });
+
+    expect(await checkAuth(authedRequest('/api/websites'))).toBeNull();
+
+    redisMock.client.get.mockResolvedValue({
+      userId: 'user-1',
+      role: 'user',
+      pwd: hash(PASSWORD_HASH),
+      mfa: true,
+      mfaId: 'enrollment-1',
+    });
+    expect(await checkAuth(authedRequest('/api/websites'))).not.toBeNull();
+  });
+
+  test('canonicalizes enrollment routes without allowing nearby aliases', async () => {
+    mockSession(true);
+    twoFactorMocks.findUser.mockResolvedValue({ twoFactorRequired: true });
+    vi.stubEnv('BASE_PATH', '/analytics');
+    vi.stubEnv('API_URL', '/data');
+
+    expect(
+      await checkAuth(authedRequest('/analytics/teams/team-1/data/2fa/status')),
+    ).not.toBeNull();
+    expect(await checkAuth(authedRequest('/analytics/data/2fa/disable', 'POST'))).toBeNull();
+    expect(await checkAuth(authedRequest('/analytics/data/2fa/status/extra'))).toBeNull();
+  });
+
+  test('does not promote an enrollment session when cloud mode is enabled', async () => {
+    mockSession(true);
+    vi.stubEnv('CLOUD_MODE', '1');
+
+    expect(await checkAuth(authedRequest('/api/websites'))).toBeNull();
+    expect(await checkAuth(authedRequest('/api/2fa/status'))).toBeNull();
+  });
 });
 
 describe('checkAuth api keys', () => {
@@ -194,6 +373,19 @@ describe('checkAuth api keys', () => {
     mockApiKey(new Date());
     await checkAuth(apiKeyRequest());
     expect(updateApiKeyLastUsedMock).not.toHaveBeenCalled();
+  });
+
+  test('rejects API keys for users who have not enrolled in required 2FA', async () => {
+    vi.stubEnv('TWO_FACTOR_ENCRYPTION_KEY', 'a'.repeat(64));
+    mockApiKey();
+    mockUser();
+    twoFactorMocks.findGlobalSetting.mockResolvedValue({ value: 'true' });
+
+    expect(await checkAuth(apiKeyRequest())).toBeNull();
+    expect(updateApiKeyLastUsedMock).not.toHaveBeenCalled();
+
+    twoFactorMocks.findTwoFactorAuth.mockResolvedValue({ isEnabled: true });
+    expect(await checkAuth(apiKeyRequest())).not.toBeNull();
   });
 });
 

@@ -1,5 +1,5 @@
 import { saveAuth } from '@/lib/auth';
-import { PARTIAL_AUTH_TOKEN_TYPE, ROLES } from '@/lib/constants';
+import { ENROLLMENT_AUTH_TOKEN_TYPE, PARTIAL_AUTH_TOKEN_TYPE, ROLES } from '@/lib/constants';
 import { hash, secret } from '@/lib/crypto';
 import { isEnvEnabled } from '@/lib/env';
 import { createSecureToken } from '@/lib/jwt';
@@ -8,10 +8,11 @@ import { checkPassword, hashPassword, passwordNeedsRehash } from '@/lib/password
 import prisma from '@/lib/prisma';
 import redis from '@/lib/redis';
 import { parseRequest } from '@/lib/request';
-import { json, serviceUnavailable, tooManyRequests, unauthorized } from '@/lib/response';
+import { json, notFound, serviceUnavailable, tooManyRequests, unauthorized } from '@/lib/response';
 import { getAuthSessionTtlSeconds } from '@/lib/security';
 import { isSameOriginMutation, setSessionCookie } from '@/lib/session';
 import { getTwoFactorConfigurationError, isTwoFactorConfigured } from '@/lib/two-factor/crypto';
+import { getTwoFactorRequirement } from '@/lib/two-factor/requirement';
 import { getAllUserTeams, getUserByUsername } from '@/queries/prisma';
 import { replacePasswordIfCurrent } from '@/queries/prisma/user';
 import { loginRequestSchema } from './schema';
@@ -19,6 +20,10 @@ import { loginRequestSchema } from './schema';
 const DUMMY_PASSWORD_HASH = '$2b$12$dzX/8VLqsHliwcW1P2rlnuxNhqzhg00Jqq7s6vi/PNkMuBsbgJHGi';
 
 export async function POST(request: Request) {
+  if (isEnvEnabled('CLOUD_MODE')) {
+    return notFound();
+  }
+
   const contentType = request.headers.get('content-type')?.toLowerCase() ?? '';
   const origin = request.headers.get('origin');
   const fetchSite = request.headers.get('sec-fetch-site')?.toLowerCase();
@@ -60,13 +65,6 @@ export async function POST(request: Request) {
   const authClient = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
   const twoFactor = await authClient.twoFactorAuth.findUnique({ where: { userId: id } });
 
-  if (twoFactor?.isEnabled && isEnvEnabled('CLOUD_MODE')) {
-    return serviceUnavailable({
-      code: 'two-factor-error-cloud-mode',
-      message: 'Use the configured cloud sign-in flow for this account.',
-    });
-  }
-
   let passwordHash = user.password;
 
   if (passwordNeedsRehash(passwordHash)) {
@@ -86,7 +84,6 @@ export async function POST(request: Request) {
   }
 
   const passwordFingerprint = hash(passwordHash);
-  const sessionTtl = getAuthSessionTtlSeconds();
   await clearFailedLogins(request, username);
 
   if (twoFactor?.isEnabled) {
@@ -103,12 +100,24 @@ export async function POST(request: Request) {
     return json({ requiresTwoFactor: true, partialToken });
   }
 
+  const enrollmentRequired = (await getTwoFactorRequirement(id)).reason !== null;
+  if (enrollmentRequired && !isTwoFactorConfigured()) {
+    return serviceUnavailable(getTwoFactorConfigurationError());
+  }
+
+  const sessionTtl = enrollmentRequired ? 15 * 60 : getAuthSessionTtlSeconds();
+  const sessionData = {
+    userId: id,
+    role,
+    pwd: passwordFingerprint,
+    ...(enrollmentRequired ? { type: ENROLLMENT_AUTH_TOKEN_TYPE } : {}),
+  };
   const token = redis.enabled
-    ? await saveAuth({ userId: id, role, pwd: passwordFingerprint }, sessionTtl)
-    : createSecureToken({ userId: id, role, pwd: passwordFingerprint }, secret(), {
+    ? await saveAuth(sessionData, sessionTtl)
+    : createSecureToken(sessionData, secret(), {
         expiresIn: sessionTtl,
       });
-  const teams = await getAllUserTeams(id);
+  const teams = enrollmentRequired ? [] : await getAllUserTeams(id);
 
   return setSessionCookie(
     json({

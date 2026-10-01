@@ -1,7 +1,7 @@
 import { isEnvEnabled } from '@/lib/env';
 import prisma from '@/lib/prisma';
 import { parseRequest } from '@/lib/request';
-import { badRequest, json, notFound, serviceUnavailable } from '@/lib/response';
+import { badRequest, conflict, json, notFound, serviceUnavailable } from '@/lib/response';
 import {
   encryptSecret,
   getTwoFactorConfigurationError,
@@ -51,11 +51,22 @@ export async function POST(request: Request) {
   const otpAuthUri = generateOtpAuthUri(secret, user.username);
   const qrCodeDataUrl = await generateQrCodeDataUrl(otpAuthUri);
 
-  await prisma.client.twoFactorAuth.upsert({
-    where: { userId },
-    update: { secret: encryptedSecret, isEnabled: false },
-    create: { userId, secret: encryptedSecret, isEnabled: false },
-  });
+  const written = existing
+    ? await prisma.client.twoFactorAuth.updateMany({
+        where: { id: existing.id, userId, secret: existing.secret, isEnabled: false },
+        data: { secret: encryptedSecret },
+      })
+    : await prisma.client.twoFactorAuth.createMany({
+        data: [{ userId, secret: encryptedSecret, isEnabled: false }],
+        skipDuplicates: true,
+      });
+
+  if (written.count !== 1) {
+    return conflict({
+      code: 'two-factor-error-setup-changed',
+      message: '2FA setup changed; start again',
+    });
+  }
 
   /*
   `manualKey` is intentionally plaintext as the user needs it once for manual entry.

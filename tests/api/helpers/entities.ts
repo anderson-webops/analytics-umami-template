@@ -60,12 +60,9 @@ export async function deleteUser(admin: ApiClient, userId: string) {
   await admin.del(`/api/users/${userId}`);
 }
 
-/** POST /api/teams responds with `[team, teamUser]`. */
 export async function createTeam(client: ApiClient, overrides: Record<string, unknown> = {}) {
   const response = await client.post('/api/teams', { name: uniqueName('team'), ...overrides });
-  const [team, teamUser] = assertStatus(response, 200, 'create team').body;
-
-  return { ...team, teamUser };
+  return assertStatus(response, 200, 'create team').body;
 }
 
 export async function deleteTeam(client: ApiClient, teamId: string) {

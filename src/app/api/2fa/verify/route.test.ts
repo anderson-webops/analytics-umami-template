@@ -129,6 +129,7 @@ beforeEach(() => {
   });
   mocks.getAllUserTeams.mockResolvedValue([]);
   mocks.findTwoFactorAuth.mockResolvedValue({
+    id: 'enrollment-1',
     userId: 'user-1',
     isEnabled: true,
     secret: 'encrypted',
@@ -161,6 +162,17 @@ test('POST accepts a token-only payload and completes 2FA verification', async (
   expect(mocks.verifyTotp).toHaveBeenCalledWith('123456', 'plain-secret');
   expect(mocks.consumeOtp).toHaveBeenCalledWith('user-1', '123456');
   expect(mocks.resetRateLimit).toHaveBeenCalledWith('user-1');
+  expect(mocks.createSecureToken).toHaveBeenCalledWith(
+    {
+      userId: 'user-1',
+      role: 'admin',
+      pwd: 'password-fingerprint',
+      mfa: true,
+      mfaId: 'enrollment-1',
+    },
+    'app-secret',
+    expect.any(Object),
+  );
   await expect(response.json()).resolves.toMatchObject({
     token: 'full-auth-token',
     user: {
