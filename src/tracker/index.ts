@@ -645,7 +645,7 @@ type MetricEntry = PerformanceEntry & {
   let identity = distinctId;
   let flushPerformance: (() => void) | undefined;
 
-  if (distinctId) {
+  if (autoTrack && distinctId) {
     void identify(distinctId);
   }
 
