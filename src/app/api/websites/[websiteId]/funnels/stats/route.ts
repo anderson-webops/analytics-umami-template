@@ -14,6 +14,11 @@ export async function GET(
   const { websiteId } = await params;
   if (!(await canViewWebsiteSection(auth, websiteId, 'funnels'))) return unauthorized();
   const filters = await getQueryFilters(query, websiteId);
-  const parameters = { ...query, ...filters } as FunnelParameters;
+  const parameters = {
+    startDate: filters.startDate,
+    endDate: filters.endDate,
+    window: query.window,
+    steps: query.steps,
+  } as FunnelParameters;
   return json(await getFunnel(websiteId, parameters, filters));
 }

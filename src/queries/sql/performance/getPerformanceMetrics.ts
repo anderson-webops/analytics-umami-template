@@ -4,6 +4,7 @@ import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
 import prisma from '@/lib/prisma';
 import type { QueryFilters } from '@/lib/types';
 import type { PerformanceParameters } from './getPerformance';
+import { getPerformanceMetricColumn } from './performanceMetric';
 
 export interface PerformanceMetricsData {
   name: string;
@@ -35,7 +36,8 @@ async function relationalQuery(
   column: string,
   limit?: number,
 ): Promise<PerformanceMetricsData[]> {
-  const { startDate, endDate, metric = 'lcp' } = parameters;
+  const { startDate, endDate, metric } = parameters;
+  const metricColumn = getPerformanceMetricColumn(metric);
   const { rawQuery, parseFilters } = prisma;
   const { filterQuery, joinSessionQuery, cohortQuery, queryParams } = parseFilters(
     { ...filters, websiteId },
@@ -46,9 +48,9 @@ async function relationalQuery(
     `
     select
       ${column} as "name",
-      percentile_cont(0.5) within group (order by ${metric}) as p50,
-      percentile_cont(0.75) within group (order by ${metric}) as p75,
-      percentile_cont(0.95) within group (order by ${metric}) as p95,
+      percentile_cont(0.5) within group (order by ${metricColumn}) as p50,
+      percentile_cont(0.75) within group (order by ${metricColumn}) as p75,
+      percentile_cont(0.95) within group (order by ${metricColumn}) as p95,
       count(*) as count
     from website_event
     ${cohortQuery}
@@ -72,7 +74,8 @@ async function clickhouseQuery(
   column: string,
   limit?: number,
 ): Promise<PerformanceMetricsData[]> {
-  const { startDate, endDate, metric = 'lcp' } = parameters;
+  const { startDate, endDate, metric } = parameters;
+  const metricColumn = getPerformanceMetricColumn(metric);
   const { rawQuery, parseFilters } = clickhouse;
   const { filterQuery, cohortQuery, queryParams } = parseFilters({ ...filters, websiteId });
 
@@ -80,9 +83,9 @@ async function clickhouseQuery(
     `
     select
       ${column} as "name",
-      quantile(0.5)(${metric}) as p50,
-      quantile(0.75)(${metric}) as p75,
-      quantile(0.95)(${metric}) as p95,
+      quantile(0.5)(${metricColumn}) as p50,
+      quantile(0.75)(${metricColumn}) as p75,
+      quantile(0.95)(${metricColumn}) as p95,
       count() as count
     from website_event
     ${cohortQuery}

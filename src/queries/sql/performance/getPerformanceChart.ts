@@ -4,6 +4,7 @@ import prisma from '@/lib/prisma';
 import type { QueryFilters } from '@/lib/types';
 
 import type { PerformanceParameters, PerformanceResult } from './getPerformance';
+import { getPerformanceMetricColumn } from './performanceMetric';
 
 export async function getPerformanceChart(
   ...args: [websiteId: string, parameters: PerformanceParameters, filters: QueryFilters]
@@ -19,7 +20,8 @@ async function relationalQuery(
   parameters: PerformanceParameters,
   filters: QueryFilters,
 ): Promise<Pick<PerformanceResult, 'chart'>> {
-  const { startDate, endDate, unit = 'day', timezone = 'utc', metric = 'lcp' } = parameters;
+  const { startDate, endDate, unit = 'day', timezone = 'utc', metric } = parameters;
+  const metricColumn = getPerformanceMetricColumn(metric);
   const { getDateSQL, rawQuery, parseFilters } = prisma;
   const { filterQuery, joinSessionQuery, cohortQuery, queryParams } = parseFilters({
     ...filters,
@@ -30,9 +32,9 @@ async function relationalQuery(
     `
     select
       ${getDateSQL('website_event.created_at', unit, timezone)} t,
-      percentile_cont(0.5) within group (order by ${metric}) as p50,
-      percentile_cont(0.75) within group (order by ${metric}) as p75,
-      percentile_cont(0.95) within group (order by ${metric}) as p95
+      percentile_cont(0.5) within group (order by ${metricColumn}) as p50,
+      percentile_cont(0.75) within group (order by ${metricColumn}) as p75,
+      percentile_cont(0.95) within group (order by ${metricColumn}) as p95
     from website_event
     ${cohortQuery}
     ${joinSessionQuery}
@@ -54,7 +56,8 @@ async function clickhouseQuery(
   parameters: PerformanceParameters,
   filters: QueryFilters,
 ): Promise<Pick<PerformanceResult, 'chart'>> {
-  const { startDate, endDate, unit = 'day', timezone = 'utc', metric = 'lcp' } = parameters;
+  const { startDate, endDate, unit = 'day', timezone = 'utc', metric } = parameters;
+  const metricColumn = getPerformanceMetricColumn(metric);
   const { getDateSQL, rawQuery, parseFilters } = clickhouse;
   const { filterQuery, cohortQuery, queryParams } = parseFilters({ ...filters, websiteId });
 
@@ -62,9 +65,9 @@ async function clickhouseQuery(
     `
     select
       ${getDateSQL('created_at', unit, timezone)} t,
-      quantile(0.5)(${metric}) as p50,
-      quantile(0.75)(${metric}) as p75,
-      quantile(0.95)(${metric}) as p95
+      quantile(0.5)(${metricColumn}) as p50,
+      quantile(0.75)(${metricColumn}) as p75,
+      quantile(0.95)(${metricColumn}) as p95
     from website_event
     ${cohortQuery}
     where website_event.website_id = {websiteId:UUID}

@@ -194,3 +194,38 @@ test("combines a saved segment's session property filters with active filters", 
     { propertyName: 'plan', dataType: 1, operator: 'eq', value: 'pro' },
   ]);
 });
+
+test.each(['metric', 'window', 'metric0', '__proto__'])(
+  'rejects a stored segment filter named %s before applying it',
+  async name => {
+    getWebsiteSegmentMock.mockResolvedValue({
+      type: 'segment',
+      name: 'Unsafe filter',
+      parameters: { filters: [{ name, operator: 'eq', value: 'lcp' }] },
+    } as any);
+
+    await expect(
+      getQueryFilters(
+        { startAt: '1788220800000', endAt: '1788307200000', segment: 'segment-1' },
+        'website-1',
+      ),
+    ).rejects.toThrow('INVALID_SAVED_SEGMENT');
+  },
+);
+
+test('applies an allowed saved segment filter without changing request controls', async () => {
+  getWebsiteSegmentMock.mockResolvedValue({
+    type: 'segment',
+    name: 'US visitors',
+    parameters: { filters: [{ name: 'country', operator: 'eq', value: 'US' }] },
+  } as any);
+
+  const filters = await getQueryFilters(
+    { startAt: '1788220800000', endAt: '1788307200000', segment: 'segment-1' },
+    'website-1',
+  );
+
+  expect(filters.country).toBe('eq.US');
+  expect(filters).not.toHaveProperty('metric');
+  expect(filters).not.toHaveProperty('window');
+});

@@ -8,6 +8,7 @@ import {
   DOMAIN_REGEX,
   ENTITY_TYPE,
   FIELD_LENGTH,
+  FILTER_COLUMNS,
   UNIT_TYPES,
 } from './constants';
 
@@ -761,7 +762,10 @@ const segmentFiltersParam = z
   .array(
     z
       .object({
-        name: z.string().max(100),
+        name: z
+          .string()
+          .max(100)
+          .refine(value => Object.hasOwn(FILTER_COLUMNS, value), 'Unknown filter name'),
         operator: operatorParam,
         value: z.string().max(500),
       })

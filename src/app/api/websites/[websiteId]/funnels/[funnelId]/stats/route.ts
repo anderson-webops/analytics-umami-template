@@ -19,6 +19,11 @@ export async function GET(
   const parsed = funnelParametersSchema.safeParse(report.parameters);
   if (!parsed.success) return badRequest();
   const filters = await getQueryFilters(query, websiteId);
-  const parameters = { ...parsed.data, ...filters } as FunnelParameters;
+  const parameters = {
+    startDate: filters.startDate,
+    endDate: filters.endDate,
+    window: parsed.data.window,
+    steps: parsed.data.steps,
+  } as FunnelParameters;
   return json(await getFunnel(websiteId, parameters, filters));
 }

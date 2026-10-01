@@ -71,6 +71,17 @@ beforeEach(() => {
   clickhouseRawQuery.mockResolvedValue([{ count: 100 }, { count: 40 }]);
 });
 
+test.each([0, 525_601, Number.NaN, '0); DROP TABLE users; --'])(
+  'rejects an invalid funnel window before SQL construction',
+  async window => {
+    await expect(getFunnel('website-1', { ...baseParameters, window } as any, {})).rejects.toThrow(
+      'INVALID_FUNNEL_WINDOW',
+    );
+    expect(prismaRawQuery).not.toHaveBeenCalled();
+    expect(clickhouseRawQuery).not.toHaveBeenCalled();
+  },
+);
+
 describe('getFunnel postgres branch', () => {
   test('builds level CTEs and a UNION sum query, one per step', async () => {
     await getFunnel('website-1', baseParameters, {});

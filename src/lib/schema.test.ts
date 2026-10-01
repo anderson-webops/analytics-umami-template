@@ -8,6 +8,7 @@ import {
   pagingParams,
   reportBaseSchema,
   reportTypeSchema,
+  savedSegmentSchema,
   segmentTypeParam,
   sortingParams,
   teamRoleParam,
@@ -19,6 +20,31 @@ import {
 } from './schema';
 
 const UUID = '11111111-1111-4111-8111-111111111111';
+
+describe('savedSegmentSchema', () => {
+  test.each(['metric', 'window', 'metric0', '__proto__'])(
+    'rejects the unsupported filter name %s at creation',
+    name => {
+      expect(
+        savedSegmentSchema.safeParse({
+          type: 'segment',
+          name: 'Unsafe segment',
+          parameters: { filters: [{ name, operator: 'eq', value: 'lcp' }] },
+        }).success,
+      ).toBe(false);
+    },
+  );
+
+  test('accepts supported filter fields', () => {
+    expect(
+      savedSegmentSchema.safeParse({
+        type: 'segment',
+        name: 'US visitors',
+        parameters: { filters: [{ name: 'country', operator: 'eq', value: 'US' }] },
+      }).success,
+    ).toBe(true);
+  });
+});
 
 describe('timezoneParam', () => {
   test('accepts a valid timezone', () => {

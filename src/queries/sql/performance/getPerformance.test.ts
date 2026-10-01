@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { getPerformance } from './getPerformance';
 import { getPerformanceChart } from './getPerformanceChart';
+import { getPerformanceMetrics } from './getPerformanceMetrics';
 import { getPerformanceStats } from './getPerformanceStats';
 
 const mocks = vi.hoisted(() => ({
@@ -65,5 +66,17 @@ describe.each(['prisma', 'clickhouse'])('%s performance datasets', backend => {
     const result = await getPerformance('website', parameters, {});
     expect(mocks.rawQuery).toHaveBeenCalledTimes(2);
     expect(result).toMatchObject({ chart: [], summary: { count: 0 } });
+  });
+
+  test('rejects an untrusted metric at both SQL interpolation sinks', async () => {
+    const unsafeParameters = { ...parameters, metric: 'lcp) FROM users --' };
+
+    await expect(getPerformanceChart('website', unsafeParameters, {})).rejects.toThrow(
+      'INVALID_PERFORMANCE_METRIC',
+    );
+    await expect(
+      getPerformanceMetrics('website', unsafeParameters, {}, 'url_path'),
+    ).rejects.toThrow('INVALID_PERFORMANCE_METRIC');
+    expect(mocks.rawQuery).not.toHaveBeenCalled();
   });
 });

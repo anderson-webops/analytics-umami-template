@@ -94,7 +94,7 @@ export async function parseRequest(
 
       for (const key of Object.keys(rawQuery)) {
         const baseName = key.replace(/\d+$/, '');
-        const isSuffixedFilter = /\d+$/.test(key) && baseName in FILTER_COLUMNS;
+        const isSuffixedFilter = /\d+$/.test(key) && Object.hasOwn(FILTER_COLUMNS, baseName);
         const isPropertyFilter = /^pf_[A-Za-z0-9_-]+$/.test(key);
         const isUniversalPropertyFilter = /^(?:epf|spf)\d+$/.test(key);
 
@@ -168,7 +168,7 @@ export function getRequestFilters(query: Record<string, any>) {
 
   for (const key of Object.keys(query)) {
     const baseName = key.replace(/\d+$/, '');
-    if (baseName in FILTER_COLUMNS) {
+    if (Object.hasOwn(FILTER_COLUMNS, baseName)) {
       result[key] = query[key];
     }
   }

@@ -14,6 +14,11 @@ export async function GET(
   const { websiteId } = await params;
   if (!(await canViewWebsiteSection(auth, websiteId, 'performance'))) return unauthorized();
   const filters = await getQueryFilters(query, websiteId);
-  const parameters = { ...query, ...filters } as PerformanceParameters;
+  const parameters = {
+    startDate: filters.startDate,
+    endDate: filters.endDate,
+    unit: filters.unit,
+    timezone: filters.timezone,
+  } as PerformanceParameters;
   return json(await getPerformanceStats(websiteId, parameters, filters));
 }

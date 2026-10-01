@@ -33,6 +33,12 @@ export interface FunnelResult extends FunnelStep {
 export async function getFunnel(
   ...args: [websiteId: string, parameters: FunnelParameters, filters: QueryFilters]
 ): Promise<FunnelResult[]> {
+  const { window } = args[1];
+
+  if (!Number.isSafeInteger(window) || window < 1 || window > 525_600) {
+    throw new Error('INVALID_FUNNEL_WINDOW');
+  }
+
   return runQuery({
     [PRISMA]: () => relationalQuery(...args),
     [CLICKHOUSE]: () => clickhouseQuery(...args),
