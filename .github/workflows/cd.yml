@@ -43,6 +43,16 @@ jobs:
           node-version: 24.18.1
           cache: pnpm
 
+      - name: Check source deployment identity before building
+        run: |
+          EXPECTED_APP_ID="${GITHUB_REPOSITORY#*/}" node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const contract = JSON.parse(readFileSync("deploy/runtime-artifact.json", "utf8"));
+            if (contract.deployment?.applicationId !== process.env.EXPECTED_APP_ID) {
+              throw new Error("Source deployment identity does not match the release repository.");
+            }
+          '
+
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
 
@@ -95,7 +105,7 @@ jobs:
         run: |
           NODE_ENV=production pnpm check:env
           NODE_ENV=production pnpm check:db
-          node scripts/runtime-artifact.mjs verify .next/standalone --release --expected-commit "$GITHUB_SHA"
+          node scripts/runtime-artifact.mjs verify .next/standalone --release --expected-commit "$GITHUB_SHA" --expected-application "${GITHUB_REPOSITORY#*/}"
           command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install --yes bubblewrap; }
           userns_key=kernel.apparmor_restrict_unprivileged_userns
           previous_userns="$(sysctl -n "$userns_key" 2>/dev/null || true)"

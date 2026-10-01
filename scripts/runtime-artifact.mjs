@@ -6,6 +6,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const defaultContractPath = path.join(repositoryRoot, 'deploy', 'runtime-artifact.json');
@@ -96,6 +97,74 @@ function globRegex(pattern) {
   return new RegExp(`${expression}$`);
 }
 
+function validateDeploymentContract(deployment) {
+  if (deployment === undefined) return;
+
+  const capabilities = deployment?.requiredAdapterCapabilities;
+  const probes = deployment?.probes;
+  const database = deployment?.database;
+  const hostControlled = deployment?.hostControlled;
+  const requiredCapabilities = [
+    'artifact-only-promotion-v1',
+    'verified-source-and-payload-v1',
+    'guarded-forward-migrations-v1',
+    'retained-artifact-rollback-v1',
+    'version-aware-readiness-v1',
+  ];
+  const knownCapabilities = new Set([
+    ...requiredCapabilities,
+    'coordinated-listener-transition-v1',
+    'classroom-2fa-privacy-acceptance-v1',
+  ]);
+  const knownHostControls = new Set([
+    'service-user',
+    'listener',
+    'reverse-proxy',
+    'protected-environment',
+    'database',
+  ]);
+  const exactArray = (values, known) =>
+    Array.isArray(values) &&
+    values.length === known.size &&
+    new Set(values).size === known.size &&
+    values.every(value => known.has(value));
+  const exactFields = (actual, expected) =>
+    actual !== null &&
+    typeof actual === 'object' &&
+    !Array.isArray(actual) &&
+    Object.keys(actual).length === Object.keys(expected).length &&
+    Object.entries(expected).every(([key, value]) => isDeepStrictEqual(actual[key], value));
+
+  if (
+    !exactFields(deployment, {
+      schemaVersion: 1,
+      applicationId: deployment?.applicationId,
+      requiredAdapterCapabilities: capabilities,
+      probes,
+      database,
+      hostControlled,
+    }) ||
+    typeof deployment.applicationId !== 'string' ||
+    !/^[a-z0-9][a-z0-9.-]{2,100}$/.test(deployment.applicationId) ||
+    !Array.isArray(capabilities) ||
+    new Set(capabilities).size !== capabilities.length ||
+    !capabilities.every(value => knownCapabilities.has(value)) ||
+    !requiredCapabilities.every(value => capabilities.includes(value)) ||
+    !exactArray(hostControlled, knownHostControls) ||
+    !exactFields(probes, {
+      health: { path: '/healthz', methods: ['GET', 'HEAD'], success: 200 },
+      readiness: { path: '/readyz', methods: ['GET', 'HEAD'], success: 200, failure: 503 },
+    }) ||
+    !exactFields(database, {
+      prePromotionGate: 'scripts/check-db.js',
+      migrationMode: 'forward-only',
+      rollback: 'rehearse-retained-runtime-against-migrated-copy',
+    })
+  ) {
+    throw new Error('Unsupported or incomplete deployment compatibility contract.');
+  }
+}
+
 async function readContract(contractPath = defaultContractPath) {
   const contents = await fs.readFile(contractPath);
   const contract = JSON.parse(contents.toString());
@@ -108,6 +177,8 @@ async function readContract(contractPath = defaultContractPath) {
   ) {
     throw new Error('Unsupported or incomplete runtime artifact contract.');
   }
+
+  validateDeploymentContract(contract.deployment);
 
   for (const key of [
     'allowedFiles',
@@ -295,6 +366,7 @@ export async function createRuntimeManifest(
       lockfileSha256: entries['pnpm-lock.yaml'].sha256,
     },
     runtime: runtimeIdentity(),
+    ...(contract.deployment ? { deployment: contract.deployment } : {}),
     contractSha256: contractDigest,
     entries,
   };
@@ -306,7 +378,12 @@ export async function createRuntimeManifest(
 
 export async function verifyRuntimeArtifact(
   root,
-  { contractPath = defaultContractPath, expectedCommit, release = false } = {},
+  {
+    contractPath = defaultContractPath,
+    expectedCommit,
+    expectedApplicationId,
+    release = false,
+  } = {},
 ) {
   root = await fs.realpath(path.resolve(root));
   const { contract, contractDigest } = await readContract(contractPath);
@@ -319,6 +396,19 @@ export async function verifyRuntimeArtifact(
 
   if (manifest.contractSha256 !== contractDigest) {
     throw new Error('Runtime artifact contract digest does not match the trusted source contract.');
+  }
+
+  if (!isDeepStrictEqual(manifest.deployment, contract.deployment)) {
+    throw new Error(
+      'Runtime artifact deployment requirements do not match the trusted source contract.',
+    );
+  }
+
+  if (
+    expectedApplicationId !== undefined &&
+    manifest.deployment?.applicationId !== expectedApplicationId
+  ) {
+    throw new Error('Runtime artifact application identity does not match the expected site.');
   }
 
   if (expectedCommit && manifest.source?.commit !== expectedCommit) {
@@ -425,6 +515,12 @@ async function main() {
   const release = args.includes('--release');
   const expectedIndex = args.indexOf('--expected-commit');
   const expectedCommit = expectedIndex >= 0 ? args[expectedIndex + 1] : undefined;
+  const applicationIndex = args.indexOf('--expected-application');
+  const expectedApplicationId = applicationIndex >= 0 ? args[applicationIndex + 1] : undefined;
+
+  if (applicationIndex >= 0 && !expectedApplicationId) {
+    throw new Error('--expected-application requires a nonempty application ID.');
+  }
 
   if (command === 'create' && root) {
     const manifest = await createRuntimeManifest(root);
@@ -438,9 +534,19 @@ async function main() {
     const contractIndex = args.indexOf('--contract');
     const contractPath = contractIndex >= 0 ? args[contractIndex + 1] : undefined;
     if (command === 'seal') {
-      await sealRuntimeArtifact(root, { release, expectedCommit, contractPath });
+      await sealRuntimeArtifact(root, {
+        release,
+        expectedCommit,
+        expectedApplicationId,
+        contractPath,
+      });
     }
-    const manifest = await verifyRuntimeArtifact(root, { release, expectedCommit, contractPath });
+    const manifest = await verifyRuntimeArtifact(root, {
+      release,
+      expectedCommit,
+      expectedApplicationId,
+      contractPath,
+    });
     console.log(
       `Verified runtime artifact ${manifest.source.version} at ${manifest.source.commit}.`,
     );
@@ -454,17 +560,25 @@ async function main() {
     const copyExpectedIndex = remainingArgs.indexOf('--expected-commit');
     const copyExpectedCommit =
       copyExpectedIndex >= 0 ? remainingArgs[copyExpectedIndex + 1] : undefined;
+    const copyApplicationIndex = remainingArgs.indexOf('--expected-application');
+    const copyExpectedApplicationId =
+      copyApplicationIndex >= 0 ? remainingArgs[copyApplicationIndex + 1] : undefined;
+
+    if (copyApplicationIndex >= 0 && !copyExpectedApplicationId) {
+      throw new Error('--expected-application requires a nonempty application ID.');
+    }
 
     await copyRuntimeArtifact(root, destination, {
       release: copyRelease,
       expectedCommit: copyExpectedCommit,
+      expectedApplicationId: copyExpectedApplicationId,
     });
     console.log(`Copied and reverified runtime artifact at ${destination}.`);
     return;
   }
 
   throw new Error(
-    'Usage: runtime-artifact.mjs create ROOT | verify ROOT [--release] [--expected-commit SHA] | copy SOURCE DEST [--release] [--expected-commit SHA]',
+    'Usage: runtime-artifact.mjs create ROOT | verify ROOT [--release] [--expected-commit SHA] [--expected-application ID] | copy SOURCE DEST [--release] [--expected-commit SHA] [--expected-application ID]',
   );
 }
 

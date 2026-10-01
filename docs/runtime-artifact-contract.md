@@ -14,6 +14,66 @@ Symlinks must be relative, remain inside the artifact, and resolve successfully.
 Private configuration, credentials, databases, logs, uploads, queues, and cache
 contents are rejected.
 
+## Source and host compatibility
+
+The versioned `deployment` object in `deploy/runtime-artifact.json` declares
+the application identity, required host-adapter capabilities, GET/HEAD health
+and readiness behavior, the guarded forward-migration entrypoint, and the
+retained-runtime rollback gate. Each downstream fork must replace the template
+`applicationId` with its exact repository name. Tagged release CI checks that
+identity before dependency installation and verifies it again in the built
+manifest.
+It is copied into the runtime manifest and checked against the trusted source
+contract, whose SHA-256 is already bound to that manifest. The runtime artifact
+verifier rejects a weakened or altered declaration. The object contains no
+listener port, service user, proxy route, environment value, or database address;
+those remain host policy.
+
+Before building or migrating a candidate, the privileged host adapter should
+independently fetch its canonical source identity and parse this contract as
+data. It should compare the declared capabilities with its own supported set,
+runtime platform and retained release. A missing capability is a **host adapter
+update required** state, not an application failure or a reason to skip checks.
+The adapter must not execute candidate-supplied preflight code as root or trust
+an unverified manifest from builder-writable staging. Existing deployed releases
+must retain their own version-specific probe and rollback policies.
+
+The capability names have narrow meanings:
+
+- `artifact-only-promotion-v1`: promote the verified, unchanged release payload;
+  never rebuild source in the privileged activation path.
+- `verified-source-and-payload-v1`: independently bind canonical Git commit,
+  trusted contract digest, artifact inventory and final staged bytes.
+- `guarded-forward-migrations-v1`: verify historical ledgers before mutation,
+  rehearse pending forward migrations on a restored copy, then use the guarded
+  source migration entrypoint without editing applied migration history.
+- `retained-artifact-rollback-v1`: keep the exact prior artifact and its host
+  configuration, and restore those bytes without a network fetch or rebuild.
+- `version-aware-readiness-v1`: apply the candidate's health and readiness rules
+  to the candidate, and the retained release's own rules during recovery.
+- `coordinated-listener-transition-v1`: rehearse a changed loopback listener,
+  then switch service, protected environment, proxy, and monitor as one guarded
+  transition with restoration of the prior configuration on failure.
+- `classroom-2fa-privacy-acceptance-v1`: prove mandatory classroom 2FA and
+  privacy constraints against the candidate before activation.
+
+These are requirements, not claims of current host support. A host adapter
+should advertise its implemented capabilities under root-controlled policy and
+refuse a candidate before building when any requirement is absent. Report that
+case as `host_update_required`; report transient registry transport as
+`retry_scheduled`, identity/artifact/migration failures as `release_rejected`,
+and a failed activation restored from retained bytes as `rolled_back`. Keep the
+failing stage in the record and distinguish each from an unhealthy serving site.
+
+This source declaration does not attest that any production host has adopted
+these capabilities. CI's isolated exact-artifact acceptance remains required;
+upgrade from a retained production release, deliberately failed promotion, and
+rollback require separate host-controlled rehearsal against that release and a
+restored database copy. A release is not activation approval merely because its
+source and artifact checks pass. Temporary registry/network failures should be
+reported as retryable by the host; invalid identity, migration history, payload,
+or host compatibility must remain blocked with a specific stage and reason.
+
 ## Build and verify
 
 Build from the exact release commit under Node 24.18.1 and pnpm 11.18.0:
@@ -22,16 +82,19 @@ Build from the exact release commit under Node 24.18.1 and pnpm 11.18.0:
 pnpm install --frozen-lockfile
 pnpm build:production
 node scripts/runtime-artifact.mjs verify .next/standalone \
-  --release --expected-commit FULL_40_CHARACTER_COMMIT
+  --release --expected-commit FULL_40_CHARACTER_COMMIT \
+  --expected-application EXPECTED_REPOSITORY_NAME
 ```
 
 Verify the exact staged tree again after any host copier:
 
 ```sh
 node scripts/runtime-artifact.mjs copy .next/standalone STAGED_RUNTIME \
-  --release --expected-commit FULL_40_CHARACTER_COMMIT
+  --release --expected-commit FULL_40_CHARACTER_COMMIT \
+  --expected-application EXPECTED_REPOSITORY_NAME
 node scripts/runtime-artifact.mjs verify STAGED_RUNTIME \
-  --release --expected-commit FULL_40_CHARACTER_COMMIT
+  --release --expected-commit FULL_40_CHARACTER_COMMIT \
+  --expected-application EXPECTED_REPOSITORY_NAME
 ```
 
 The copy command removes only its explicit destination, copies the complete

@@ -82,6 +82,33 @@
     "node": "24.18.1",
     "packageManager": "pnpm@11.18.0"
   },
+  "deployment": {
+    "schemaVersion": 1,
+    "applicationId": "analytics-umami-template",
+    "requiredAdapterCapabilities": [
+      "artifact-only-promotion-v1",
+      "verified-source-and-payload-v1",
+      "guarded-forward-migrations-v1",
+      "retained-artifact-rollback-v1",
+      "version-aware-readiness-v1"
+    ],
+    "probes": {
+      "health": { "path": "/healthz", "methods": ["GET", "HEAD"], "success": 200 },
+      "readiness": { "path": "/readyz", "methods": ["GET", "HEAD"], "success": 200, "failure": 503 }
+    },
+    "database": {
+      "prePromotionGate": "scripts/check-db.js",
+      "migrationMode": "forward-only",
+      "rollback": "rehearse-retained-runtime-against-migrated-copy"
+    },
+    "hostControlled": [
+      "service-user",
+      "listener",
+      "reverse-proxy",
+      "protected-environment",
+      "database"
+    ]
+  },
   "modulesOutsideBuildDirectories": [
     "generated/prisma",
     "geo",

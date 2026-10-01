@@ -19,6 +19,9 @@ async function createFixture() {
   const fixture = await fs.mkdtemp(path.join(os.tmpdir(), 'umami-runtime-artifact-'));
   const root = path.join(fixture, 'runtime');
   const contractPath = path.join(fixture, 'contract.json');
+  const templateContract = JSON.parse(
+    await fs.readFile(new URL('../deploy/runtime-artifact.json', import.meta.url), 'utf8'),
+  );
   const contract = {
     version: 1,
     manifest: 'runtime-manifest.json',
@@ -30,6 +33,7 @@ async function createFixture() {
     allowedFiles: ['package.json', 'pnpm-lock.yaml', 'server.js'],
     forbiddenStateTrees: ['.next/cache', 'uploads'],
     runtime: { os: 'linux', arch: 'arm64', libc: 'glibc', node: '24.18.1' },
+    deployment: templateContract.deployment,
   };
 
   temporaryDirectories.push(fixture);
@@ -137,7 +141,61 @@ test('creates and verifies an exact hashed runtime inventory', async () => {
     { commit: source.commit, dirty: false, version: '1.0.0' },
   );
   const verified = await verifyRuntimeArtifact(root, { contractPath });
+  const expectedApplicationId = JSON.parse(await fs.readFile(contractPath, 'utf8')).deployment
+    .applicationId;
   assert.equal(verified.source.commit, source.commit);
+  assert.equal(verified.deployment.schemaVersion, 1);
+  assert.equal(verified.deployment.applicationId, expectedApplicationId);
+  await assert.rejects(
+    verifyRuntimeArtifact(root, {
+      contractPath,
+      expectedApplicationId: `${expectedApplicationId}-other`,
+    }),
+    /application identity/,
+  );
+  assert.deepEqual(verified.deployment.probes.readiness, {
+    path: '/readyz',
+    methods: ['GET', 'HEAD'],
+    success: 200,
+    failure: 503,
+  });
+});
+
+test('rejects weakened deployment requirements in either the contract or manifest', async () => {
+  const { root, contractPath } = await createFixture();
+  await createRuntimeManifest(root, { contractPath, source });
+  const manifestPath = path.join(root, 'runtime-manifest.json');
+  const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+  manifest.deployment.requiredAdapterCapabilities.pop();
+  await fs.writeFile(manifestPath, JSON.stringify(manifest));
+  await assert.rejects(verifyRuntimeArtifact(root, { contractPath }), /deployment requirements/);
+
+  const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
+  contract.deployment.probes.readiness.failure = 200;
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await assert.rejects(
+    createRuntimeManifest(root, { contractPath, source }),
+    /deployment compatibility contract/,
+  );
+});
+
+test('accepts reviewed site-specific adapter gates but rejects unknown capabilities', async () => {
+  const { root, contractPath } = await createFixture();
+  const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
+  contract.deployment.requiredAdapterCapabilities.push('coordinated-listener-transition-v1');
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  const manifest = await createRuntimeManifest(root, { contractPath, source });
+  assert.ok(
+    manifest.deployment.requiredAdapterCapabilities.includes('coordinated-listener-transition-v1'),
+  );
+  await verifyRuntimeArtifact(root, { contractPath });
+
+  contract.deployment.requiredAdapterCapabilities.push('disable-authentication-v1');
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await assert.rejects(
+    createRuntimeManifest(root, { contractPath, source }),
+    /deployment compatibility contract/,
+  );
 });
 
 test('rejects a changed file even when the manifest itself is untouched', async () => {
