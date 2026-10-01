@@ -137,3 +137,34 @@ test('canViewReport falls back to website access for authenticated users', async
     ),
   ).resolves.toBe(true);
 });
+
+test('canViewReport does not upgrade a share into authenticated report access', async () => {
+  vi.mocked(canViewWebsite).mockImplementation(async auth => !!auth.shareToken?.websiteId);
+
+  const user = {
+    id: 'unrelated-user',
+    username: 'unrelated',
+    role: 'user',
+    isAdmin: false,
+  };
+
+  await expect(
+    canViewReport(
+      {
+        user,
+        shareToken: {
+          shareType: ENTITY_TYPE.website,
+          websiteId: 'website-1',
+          parameters: {},
+        },
+      },
+      {
+        id: 'report-1',
+        userId: 'owner-1',
+        websiteId: 'website-1',
+        type: 'heatmap',
+      } as any,
+    ),
+  ).resolves.toBe(false);
+  expect(canViewWebsite).toHaveBeenCalledWith({ user }, 'website-1');
+});

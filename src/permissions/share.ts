@@ -114,21 +114,26 @@ function shareTokenIncludesWebsite(auth: Auth | null | undefined, websiteId: str
   );
 }
 
+async function canViewWebsiteAsUser(auth: Auth | null | undefined, websiteId: string) {
+  return auth?.user ? canViewWebsite({ user: auth.user }, websiteId) : false;
+}
+
 export async function canViewWebsiteSection(
   auth: Auth | null | undefined,
   websiteId: string,
   section: ShareSectionInput,
 ) {
-  if (auth?.user) {
-    return canViewWebsite(auth, websiteId);
+  if (await canViewWebsiteAsUser(auth, websiteId)) {
+    return true;
   }
 
-  const { shareToken } = auth || {};
+  const shareAuth = { shareToken: auth?.shareToken };
+  const { shareToken } = shareAuth;
 
   if (
     !shareToken ||
-    !shareTokenIncludesWebsite(auth, websiteId) ||
-    !(await canViewWebsite(auth || {}, websiteId))
+    !shareTokenIncludesWebsite(shareAuth, websiteId) ||
+    !(await canViewWebsite(shareAuth, websiteId))
   ) {
     return false;
   }
@@ -153,14 +158,16 @@ export async function canViewSharedWebsiteFilters(
   auth: Auth | null | undefined,
   websiteId: string,
 ) {
-  if (auth?.user) {
-    return canViewWebsite(auth, websiteId);
+  if (await canViewWebsiteAsUser(auth, websiteId)) {
+    return true;
   }
 
+  const shareAuth = { shareToken: auth?.shareToken };
+
   return (
-    shareTokenIncludesWebsite(auth, websiteId) &&
-    auth?.shareToken?.parameters?.allowFilter !== false &&
-    (await canViewWebsite(auth || {}, websiteId))
+    shareTokenIncludesWebsite(shareAuth, websiteId) &&
+    shareAuth.shareToken?.parameters?.allowFilter !== false &&
+    (await canViewWebsite(shareAuth, websiteId))
   );
 }
 
@@ -168,11 +175,7 @@ export async function canViewAuthenticatedWebsite(
   auth: Auth | null | undefined,
   websiteId: string,
 ) {
-  if (!auth?.user) {
-    return false;
-  }
-
-  return canViewWebsite(auth, websiteId);
+  return canViewWebsiteAsUser(auth, websiteId);
 }
 
 export async function canViewWebsiteAnnotations(auth: Auth | null | undefined, websiteId: string) {

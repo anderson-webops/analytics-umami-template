@@ -1,6 +1,11 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { ENTITY_TYPE } from '@/lib/constants';
-import { canViewSharedWebsite, canViewSharedWebsiteFilters, canViewWebsiteSection } from './share';
+import {
+  canViewAuthenticatedWebsite,
+  canViewSharedWebsite,
+  canViewSharedWebsiteFilters,
+  canViewWebsiteSection,
+} from './share';
 import { canViewWebsite } from './website';
 
 vi.mock('./board', () => ({
@@ -28,7 +33,78 @@ vi.mock('./website', () => ({
 }));
 
 beforeEach(() => {
+  vi.mocked(canViewWebsite).mockReset();
   vi.mocked(canViewWebsite).mockResolvedValue(true);
+});
+
+const unrelatedUser = {
+  id: 'unrelated-user',
+  username: 'unrelated',
+  role: 'user',
+  isAdmin: false,
+};
+
+test('signed-in share holders cannot bypass section restrictions', async () => {
+  vi.mocked(canViewWebsite).mockImplementation(async auth => !!auth.shareToken?.websiteId);
+
+  const auth = {
+    user: unrelatedUser,
+    shareToken: {
+      shareType: ENTITY_TYPE.website,
+      websiteId: 'website-1',
+      parameters: { overview: true, goals: false },
+    },
+  };
+
+  await expect(canViewWebsiteSection(auth, 'website-1', 'goals')).resolves.toBe(false);
+  await expect(canViewWebsiteSection(auth, 'website-1', 'overview')).resolves.toBe(true);
+});
+
+test('independent website access is not limited by a share section', async () => {
+  vi.mocked(canViewWebsite).mockImplementation(async auth => auth.user?.id === 'owner-user');
+
+  await expect(
+    canViewWebsiteSection(
+      {
+        user: { ...unrelatedUser, id: 'owner-user' },
+        shareToken: {
+          shareType: ENTITY_TYPE.website,
+          websiteId: 'website-1',
+          parameters: { overview: true, goals: false },
+        },
+      },
+      'website-1',
+      'goals',
+    ),
+  ).resolves.toBe(true);
+});
+
+test('signed-in share holders cannot bypass filter restrictions or authenticated-only access', async () => {
+  vi.mocked(canViewWebsite).mockImplementation(async auth => !!auth.shareToken?.websiteId);
+
+  const auth = {
+    user: unrelatedUser,
+    shareToken: {
+      shareType: ENTITY_TYPE.website,
+      websiteId: 'website-1',
+      parameters: { allowFilter: false },
+    },
+  };
+
+  await expect(canViewSharedWebsiteFilters(auth, 'website-1')).resolves.toBe(false);
+  await expect(canViewAuthenticatedWebsite(auth, 'website-1')).resolves.toBe(false);
+  await expect(
+    canViewSharedWebsiteFilters(
+      {
+        ...auth,
+        shareToken: {
+          ...auth.shareToken,
+          parameters: { allowFilter: true },
+        },
+      },
+      'website-1',
+    ),
+  ).resolves.toBe(true);
 });
 
 test('canViewWebsiteSection allows board shares for included websites', async () => {

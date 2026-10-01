@@ -11,7 +11,11 @@ test('recognizes every supported public-share filter form', () => {
     'excludeBounce',
     'match',
     'trafficType',
+    'search',
+    'minDuration',
     'pf_plan',
+    'epf0',
+    'spf1',
   ]) {
     expect(excludeShareFilterParam(key), key).toBe(true);
   }

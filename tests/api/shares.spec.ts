@@ -1,5 +1,10 @@
 import { expect, test } from './fixtures';
-import { ENTITY_TYPE, UNKNOWN_UUID } from './helpers/constants';
+import {
+  ENTITY_TYPE,
+  SHARE_CONTEXT_HEADER,
+  SHARE_TOKEN_HEADER,
+  UNKNOWN_UUID,
+} from './helpers/constants';
 import { dateRange } from './helpers/dates';
 import { createWebsite, deleteWebsite, uniqueName, uniqueSlug } from './helpers/entities';
 
@@ -223,6 +228,7 @@ test.describe('Shares', () => {
     api,
     share,
     seed,
+    viewer,
   }) => {
     gatedSlug = uniqueSlug('gated');
     const created = await admin.post('/api/share', {
@@ -230,7 +236,7 @@ test.describe('Shares', () => {
       shareType: ENTITY_TYPE.website,
       name: uniqueName('gated'),
       slug: gatedSlug,
-      parameters: { overview: true, events: false },
+      parameters: { overview: true, events: false, allowFilter: false },
     });
 
     expect(created.status).toBe(200);
@@ -242,7 +248,7 @@ test.describe('Shares', () => {
     expect(resolved.body).toMatchObject({
       shareId: gatedShareId,
       websiteId: seed.website.id,
-      parameters: { overview: true, events: false },
+      parameters: { overview: true, events: false, allowFilter: false },
     });
 
     const client = await share(gatedSlug);
@@ -250,9 +256,30 @@ test.describe('Shares', () => {
     const denied = await client.get(`/api/websites/${seed.website.id}/events`, {
       params: dateRange(seed),
     });
+    const mixedHeaders = {
+      [SHARE_TOKEN_HEADER]: resolved.body.token,
+      [SHARE_CONTEXT_HEADER]: '1',
+    };
+    const viewerWithShare = viewer.with(mixedHeaders);
+    const adminWithShare = admin.with(mixedHeaders);
+    const mixedAllowed = await viewerWithShare.get(`/api/websites/${seed.website.id}/active`);
+    const mixedDenied = await viewerWithShare.get(`/api/websites/${seed.website.id}/events`, {
+      params: dateRange(seed),
+    });
+    const filtered = await viewerWithShare.get(`/api/websites/${seed.website.id}/stats`, {
+      params: dateRange(seed, { epf0: '1.eq.plan.pro' }),
+    });
+    const ownerAllowed = await adminWithShare.get(`/api/websites/${seed.website.id}/events`, {
+      params: dateRange(seed),
+    });
 
     expect(allowed.status).toBe(200);
     expect(denied.status).toBe(401);
+    expect(mixedAllowed.status).toBe(200);
+    expect(mixedDenied.status).toBe(401);
+    expect(filtered.status).toBe(403);
+    expect(filtered.body).toMatchObject({ error: { code: 'share-filters-disabled' } });
+    expect(ownerAllowed.status).toBe(200);
   });
 
   test('DELETE /api/share/id/{shareId} deletes a share', async ({ admin, viewer, api }) => {

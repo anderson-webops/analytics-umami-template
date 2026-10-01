@@ -54,6 +54,32 @@ test('rejects direct query filters when a public share disables filters', async 
   });
 });
 
+test.each(['epf0=1.eq.plan.pro', 'spf0=1.eq.plan.pro', 'search=plan', 'minDuration=30'])(
+  'rejects %s for a signed-in public-share holder',
+  async filter => {
+    checkAuthMock.mockResolvedValue({
+      user: { id: 'unrelated-user', role: 'user' },
+      shareToken: {
+        websiteId: '00000000-0000-4000-8000-000000000001',
+        parameters: { allowFilter: false },
+      },
+    } as any);
+
+    const schema = z.object({
+      startAt: z.coerce.number(),
+      endAt: z.coerce.number(),
+      search: z.string().optional(),
+      minDuration: z.coerce.number().optional(),
+    });
+    const result = await parseRequest(
+      new Request(`https://analytics.example/api/test?startAt=1&endAt=2&${filter}`),
+      schema,
+    );
+
+    expect(result.error?.().status).toBe(403);
+  },
+);
+
 test('allows date and paging parameters when a public share disables filters', async () => {
   checkAuthMock.mockResolvedValue({
     shareToken: {

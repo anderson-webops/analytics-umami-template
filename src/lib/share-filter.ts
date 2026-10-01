@@ -4,6 +4,8 @@ const SHARE_FILTER_QUERY_PARAMS = new Set([
   'cohort',
   'excludeBounce',
   'match',
+  'minDuration',
+  'search',
   'segment',
   'trafficType',
 ]);
@@ -14,7 +16,8 @@ export function excludeShareFilterParam(key: string): boolean {
   return (
     baseName in FILTER_COLUMNS ||
     SHARE_FILTER_QUERY_PARAMS.has(key) ||
-    /^pf_[A-Za-z0-9_-]+$/.test(key)
+    /^pf_[A-Za-z0-9_-]+$/.test(key) ||
+    /^(?:epf|spf)\d+$/.test(key)
   );
 }
 
