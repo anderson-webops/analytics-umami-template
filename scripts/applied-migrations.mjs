@@ -1,3 +1,9 @@
+const publishedFinalizer = {
+  name: '25_finalize_session_data_index_rebuild',
+  currentChecksum: '5b2483cc6abeebc482c48411da790cda22e8c75828b305e9d58a1c7394279f4b',
+  priorChecksum: 'f0cc6caeef1b1b586513b1f52f1a5d5dd71d2f6d5f03279bcfb751690044f282',
+};
+
 // Inspect every Prisma attempt. Query order must never choose the authoritative row.
 export function verifyAppliedMigrations(releaseMigrations, appliedMigrations, { requireAll }) {
   const attemptsByName = new Map();
@@ -31,7 +37,12 @@ export function verifyAppliedMigrations(releaseMigrations, appliedMigrations, { 
         issues.add('unresolved');
       } else {
         successes += 1;
-        if (attempt.checksum !== releaseMigrations.get(name)) issues.add('drift');
+        const releaseChecksum = releaseMigrations.get(name);
+        const compatiblePriorFinalizer =
+          name === publishedFinalizer.name &&
+          releaseChecksum === publishedFinalizer.currentChecksum &&
+          attempt.checksum === publishedFinalizer.priorChecksum;
+        if (attempt.checksum !== releaseChecksum && !compatiblePriorFinalizer) issues.add('drift');
       }
     }
 

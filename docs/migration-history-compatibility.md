@@ -37,9 +37,16 @@ replace an applied downstream migration merely to make it byte-identical to this
 rewrite the database ledger to match incoming source. Retain desired schema effects through a new
 forward migration instead.
 
-The finalizer runs inside an explicit PostgreSQL transaction. If index creation, validation, or
-cleanup fails after duplicate selection begins, the row changes and index changes roll back together.
-The regression suite forces that late failure and verifies that both original duplicate rows remain.
+The current finalizer runs inside an explicit PostgreSQL transaction. If index creation, validation,
+or cleanup fails after duplicate selection begins, the row changes and index changes roll back
+together. The regression suite forces that late failure and verifies that both original duplicate
+rows remain. An earlier published version of migration 25 contained the same SQL statements without
+the transaction wrapper. Its successful checksum is
+`f0cc6caeef1b1b586513b1f52f1a5d5dd71d2f6d5f03279bcfb751690044f282`; the current source
+checksum is `5b2483cc6abeebc482c48411da790cda22e8c75828b305e9d58a1c7394279f4b`. The database
+gate accepts either exact successful checksum only while the current source retains the pinned bytes,
+then applies the same schema and index checks. It never edits an applied ledger entry or accepts an
+unfinished, unknown, or other drifted migration.
 
 ## Required preflight and rehearsal
 

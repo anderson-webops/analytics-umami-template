@@ -81,6 +81,47 @@ test('multiple rolled-back attempts and one successful retry are accepted in eve
   }
 });
 
+test('accepts only the exact published predecessor of the pinned session-data finalizer', () => {
+  const name = '25_finalize_session_data_index_rebuild';
+  const currentChecksum = '5b2483cc6abeebc482c48411da790cda22e8c75828b305e9d58a1c7394279f4b';
+  const priorChecksum = 'f0cc6caeef1b1b586513b1f52f1a5d5dd71d2f6d5f03279bcfb751690044f282';
+  const currentMigrations = new Map([[name, currentChecksum]]);
+  const priorSuccess = { ...success, migration_name: name, checksum: priorChecksum };
+
+  for (const requireAll of [false, true]) {
+    assert.doesNotThrow(() =>
+      verifyAppliedMigrations(currentMigrations, [priorSuccess], { requireAll }),
+    );
+    assert.throws(
+      () =>
+        verifyAppliedMigrations(
+          currentMigrations,
+          [{ ...priorSuccess, checksum: 'c'.repeat(64) }],
+          {
+            requireAll,
+          },
+        ),
+      /checksum does not match/,
+    );
+    assert.throws(
+      () =>
+        verifyAppliedMigrations(new Map([[name, 'd'.repeat(64)]]), [priorSuccess], {
+          requireAll,
+        }),
+      /checksum does not match/,
+    );
+    assert.throws(
+      () =>
+        verifyAppliedMigrations(
+          currentMigrations,
+          [priorSuccess, { ...priorSuccess, checksum: currentChecksum }],
+          { requireAll },
+        ),
+      /multiple successful/,
+    );
+  }
+});
+
 test('unknown attempts are rejected in every state, including rolled back', () => {
   for (const state of [success, rollback, pending, contradictory]) {
     assert.throws(

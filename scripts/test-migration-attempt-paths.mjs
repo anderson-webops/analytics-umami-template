@@ -194,6 +194,42 @@ try {
     }
   }
 
+  const finalizer = baseline.find(
+    row => row.migration_name === '25_finalize_session_data_index_rebuild',
+  );
+  assert.ok(finalizer);
+  await client.query('TRUNCATE _prisma_migrations');
+  for (const row of baseline) {
+    await insert(
+      row.id === finalizer.id
+        ? {
+            ...row,
+            checksum: 'f0cc6caeef1b1b586513b1f52f1a5d5dd71d2f6d5f03279bcfb751690044f282',
+          }
+        : row,
+    );
+  }
+  const publishedBefore = await snapshot();
+  for (const execute of [migrate, startup]) {
+    const result = execute();
+    assert.equal(result.status, 0, result.output);
+    if (execute === startup) assert.ok(result.output.includes('SYNTHETIC_SERVER_STARTED'));
+    assert.deepEqual(await snapshot(), publishedBefore, 'Published migration history changed.');
+    executions += 1;
+  }
+  await client.query(`UPDATE _prisma_migrations SET checksum = $1 WHERE id = $2`, [
+    'c'.repeat(64),
+    finalizer.id,
+  ]);
+  const driftedBefore = await snapshot();
+  for (const execute of [migrate, startup]) {
+    const result = execute();
+    assert.notEqual(result.status, 0, 'An unrecognized finalizer checksum was accepted.');
+    assert.match(result.output, /successful database migration checksum does not match/);
+    assert.deepEqual(await snapshot(), driftedBefore, 'Drifted migration history changed.');
+    executions += 1;
+  }
+
   // A missing successful application blocks startup, while db:migrate may retry a resolved failure.
   await client.query('TRUNCATE _prisma_migrations');
   const finalMigration = baseline.find(row =>
