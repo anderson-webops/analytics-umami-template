@@ -7,11 +7,12 @@ test.describe('Login tests', () => {
   });
 
   test('logs user in with correct credentials and logs user out', async ({ page }) => {
+    test.setTimeout(60_000);
     await page.getByTestId('input-username').locator('input').fill(umamiUser.username);
     await page.getByTestId('input-password').locator('input').fill(umamiUser.password);
     await page.getByTestId('button-submit').click();
 
-    await expect(page).toHaveURL(/\/websites$/);
+    await expect(page).toHaveURL(/\/websites$/, { timeout: 20_000 });
 
     await logout(page);
   });

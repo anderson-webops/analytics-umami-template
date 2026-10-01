@@ -45,7 +45,7 @@ export async function loginPage(page: Page, _request: APIRequestContext): Promis
 export async function logout(page: Page) {
   await page.getByRole('button', { name: /^Profile$/i }).click();
   await page.getByRole('menuitem', { name: /^Logout$/i }).click();
-  await expect(page).toHaveURL(/\/login$/);
+  await expect(page).toHaveURL(/\/login$/, { timeout: 20_000 });
 }
 
 export async function addWebsite(

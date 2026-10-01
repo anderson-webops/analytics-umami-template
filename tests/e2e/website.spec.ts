@@ -1,19 +1,23 @@
+import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import { addWebsite, deleteWebsite, loginPage } from './helpers';
 
 test.describe('Website tests', () => {
   test('adds a website', async ({ page, request }) => {
     const auth = await loginPage(page, request);
+    const suffix = randomUUID().slice(0, 8);
+    const websiteName = `Add test ${suffix}`;
+    const websiteDomain = `addtest-${suffix}.com`;
 
     await page.goto('/websites');
     await page.getByRole('button', { name: /Add website/i }).click();
     await expect(page.getByRole('heading', { name: /Add website/i })).toBeVisible();
-    await page.getByTestId('input-name').locator('input').fill('Add test');
-    await page.getByTestId('input-domain').locator('input').fill('addtest.com');
+    await page.getByTestId('input-name').locator('input').fill(websiteName);
+    await page.getByTestId('input-domain').locator('input').fill(websiteDomain);
     await page.getByTestId('button-submit').click();
 
-    const websiteRow = page.getByRole('row').filter({ hasText: /Add test/i });
-    await expect(websiteRow).toContainText('addtest.com');
+    const websiteRow = page.getByRole('row').filter({ hasText: websiteName });
+    await expect(websiteRow).toContainText(websiteDomain);
 
     await websiteRow.getByTestId('link-button-edit').click();
     await expect(page.getByTestId('text-field-websiteId')).toBeVisible();
@@ -22,28 +26,31 @@ test.describe('Website tests', () => {
 
     await deleteWebsite(request, auth, websiteId);
     await page.goto('/websites');
-    await expect(page.getByText(/Add test/i)).toHaveCount(0);
+    await expect(page.getByText(websiteName, { exact: true })).toHaveCount(0);
   });
 
   test('edits a website', async ({ page, request }) => {
     const auth = await loginPage(page, request);
+    const suffix = randomUUID().slice(0, 8);
+    const websiteName = `Update test ${suffix}`;
+    const updatedName = `Updated website ${suffix}`;
 
-    await addWebsite(request, auth, 'Update test', 'updatetest.com');
+    await addWebsite(request, auth, websiteName, `updatetest-${suffix}.com`);
     await page.goto('/websites');
 
     await page
       .getByRole('row')
-      .filter({ hasText: /Update test/i })
+      .filter({ hasText: websiteName })
       .getByTestId('link-button-edit')
       .click();
     await expect(page.getByTestId('text-field-websiteId')).toBeVisible();
-    await page.getByTestId('input-name').locator('input').fill('Updated website');
-    await page.getByTestId('input-domain').locator('input').fill('updatedwebsite.com');
+    await page.getByTestId('input-name').locator('input').fill(updatedName);
+    await page.getByTestId('input-domain').locator('input').fill(`updatedwebsite-${suffix}.com`);
     await page.getByTestId('button-submit').click();
 
-    await expect(page.getByTestId('input-name').locator('input')).toHaveValue('Updated website');
+    await expect(page.getByTestId('input-name').locator('input')).toHaveValue(updatedName);
     await expect(page.getByTestId('input-domain').locator('input')).toHaveValue(
-      'updatedwebsite.com',
+      `updatedwebsite-${suffix}.com`,
     );
 
     await expect(page.locator('textarea')).toContainText('/script.js');
@@ -52,7 +59,7 @@ test.describe('Website tests', () => {
 
     await deleteWebsite(request, auth, websiteId);
     await page.goto('/websites');
-    await expect(page.getByText(/Update test/i)).toHaveCount(0);
+    await expect(page.getByText(updatedName, { exact: true })).toHaveCount(0);
   });
 
   test('deletes a website', async ({ page, request }, testInfo) => {
