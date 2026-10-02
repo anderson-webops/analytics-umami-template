@@ -10,7 +10,7 @@
 #   clickhouse  umami + Postgres + ClickHouse -> pnpm test:api:clickhouse
 #
 # Environment overrides:
-#   UMAMI_TEST_PORT   host port for the app (default 3100, avoids the dev server on 3000)
+#   UMAMI_TEST_PORT   loopback host port for the app (default 3100, avoids the dev server on 3000)
 #   UMAMI_TEST_IMAGE  image tag to run/build (default umami-test:local)
 #   SKIP_BUILD_GEO    "1" (default) skips the MaxMind download during the image build
 
@@ -21,7 +21,7 @@ x-umami-service: &umami-service
     args:
       SKIP_BUILD_GEO: ${SKIP_BUILD_GEO:-1}
   ports:
-    - "${UMAMI_TEST_PORT:-3100}:3000"
+    - "127.0.0.1:${UMAMI_TEST_PORT:-3100}:3000"
   init: true
   healthcheck:
     test: ["CMD-SHELL", "curl -fsS http://localhost:3000/api/heartbeat || exit 1"]
