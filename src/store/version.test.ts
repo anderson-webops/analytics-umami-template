@@ -45,7 +45,13 @@ describe('checkVersion', () => {
     vi.mocked(getItem).mockReturnValue(null);
     vi.stubGlobal(
       'fetch',
-      mockFetch({ ok: true, body: { latest: '2.0.0', url: 'https://release' } }),
+      mockFetch({
+        ok: true,
+        body: {
+          latest: '2.0.0',
+          url: 'https://github.com/umami-software/umami/releases/tag/v2.0.0',
+        },
+      }),
     );
 
     await checkVersion();
@@ -54,7 +60,41 @@ describe('checkVersion', () => {
     expect(state.checked).toBe(true);
     expect(state.latest).toBe('2.0.0');
     expect(state.hasUpdate).toBe(true);
-    expect(state.releaseUrl).toBe('https://release');
+    expect(state.releaseUrl).toBe('https://github.com/umami-software/umami/releases/tag/v2.0.0');
+  });
+
+  test.each([
+    'javascript:alert(1)',
+    'https://github.com.evil.example/umami-software/umami/releases/tag/v2.0.0',
+    'https://github.com/other/repo/releases/tag/v2.0.0',
+    'https://user@github.com/umami-software/umami/releases/tag/v2.0.0',
+    'https://github.com/umami-software/umami/releases/tag/v2.0.0?next=evil',
+    'https://github.com/umami-software/umami/releases/tag/v2.0.0%2F..%2F..',
+  ])('does not retain an untrusted release URL: %s', async url => {
+    vi.mocked(getItem).mockReturnValue(null);
+    vi.stubGlobal('fetch', mockFetch({ ok: true, body: { latest: '2.0.0', url } }));
+
+    await checkVersion();
+
+    const state = useVersion.getState();
+    expect(state.hasUpdate).toBe(true);
+    expect(state.releaseUrl).toBeNull();
+  });
+
+  test('does not flag an update for invalid version metadata', async () => {
+    vi.mocked(getItem).mockReturnValue(null);
+    vi.stubGlobal(
+      'fetch',
+      mockFetch({ ok: true, body: { latest: 'not-a-version', url: 'https://release' } }),
+    );
+
+    await checkVersion();
+
+    expect(useVersion.getState()).toMatchObject({
+      latest: null,
+      hasUpdate: false,
+      releaseUrl: null,
+    });
   });
 
   test('does not flag an update when latest is not newer', async () => {

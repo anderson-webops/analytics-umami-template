@@ -1,8 +1,35 @@
 import { produce } from 'immer';
 import semver from 'semver';
 import { create } from 'zustand';
-import { CURRENT_VERSION, UPDATES_URL, VERSION_CHECK } from '@/lib/constants';
+import { CURRENT_VERSION, REPO_URL, UPDATES_URL, VERSION_CHECK } from '@/lib/constants';
 import { getItem } from '@/lib/storage';
+
+function getReleaseUrl(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  try {
+    const url = new URL(value);
+    const repository = new URL(REPO_URL);
+    const tagPath = `${repository.pathname}/releases/tag/`;
+    const tag = url.pathname.startsWith(tagPath) ? url.pathname.slice(tagPath.length) : null;
+    const isRelease =
+      url.pathname === `${repository.pathname}/releases/latest` ||
+      (tag !== null && semver.valid(tag) !== null);
+
+    return url.origin === repository.origin &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash &&
+      isRelease
+      ? url.href
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 const initialState = {
   current: CURRENT_VERSION,
@@ -36,7 +63,8 @@ export async function checkVersion() {
 
   store.setState(
     produce(state => {
-      const { latest, url } = data;
+      const latest =
+        typeof data.latest === 'string' && semver.valid(data.latest) ? data.latest : null;
       const lastCheck = getItem(VERSION_CHECK);
 
       const hasUpdate = !!(latest && lastCheck?.version !== latest && semver.gt(latest, current));
@@ -45,7 +73,7 @@ export async function checkVersion() {
       state.latest = latest;
       state.hasUpdate = hasUpdate;
       state.checked = true;
-      state.releaseUrl = url;
+      state.releaseUrl = getReleaseUrl(data.url);
 
       return state;
     }),

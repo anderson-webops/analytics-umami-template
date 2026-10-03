@@ -28,7 +28,7 @@ export function UpdateNotice({ user, config }) {
   function handleViewClick() {
     updateCheck();
     setDismissed(true);
-    open(releaseUrl || REPO_URL, '_blank');
+    open(releaseUrl || REPO_URL, '_blank', 'noopener,noreferrer');
   }
 
   function handleDismissClick() {
