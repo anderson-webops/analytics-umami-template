@@ -26,9 +26,12 @@ CI installs PostgreSQL 17 through the [official PostgreSQL Apt repository](https
 2. Before production pruning, use `package-runtime-workspaces.mjs capture` to
    record built distributions and the reachable production graph. After pruning,
    `package` places declared workspace files and dependency links inside
-   node_modules. Only previously verified non-production dangling hoists are
-   removed. Only unchanged, Git-untracked workspace distribution/dependency
-   outputs are removed from the source tree. Unexpected links or changes fail.
+   node_modules. Remove only captured non-production dangling hoists and the
+   exact dev-only `braces@3.0.4-webops.1` link to tracked `vendor/braces` after
+   rechecking its path, version, and file hashes. Unknown external links and
+   production dependencies still fail closed. Only unchanged, Git-untracked
+   workspace distribution/dependency outputs are removed from the source tree.
+   Unexpected links or changes fail.
 3. Stop the builder and exclude every writer before sealing. Verify the compiled
    manifest against the trusted contract and expected commit. The shared
    `sealRuntimeArtifact` transition preserves all hashes, sizes, link targets and

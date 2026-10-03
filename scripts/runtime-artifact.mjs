@@ -104,6 +104,8 @@ function validateDeploymentContract(deployment) {
   const probes = deployment?.probes;
   const database = deployment?.database;
   const hostControlled = deployment?.hostControlled;
+  const rollback = database?.rollback;
+  const databaseAwareRecovery = rollback === 'protected-pre-traffic-database-restore-v1';
   const requiredCapabilities = [
     'artifact-only-promotion-v1',
     'verified-source-and-payload-v1',
@@ -115,6 +117,7 @@ function validateDeploymentContract(deployment) {
     ...requiredCapabilities,
     'coordinated-listener-transition-v1',
     'classroom-2fa-privacy-acceptance-v1',
+    'database-aware-recovery-v1',
   ]);
   const knownHostControls = new Set([
     'service-user',
@@ -150,6 +153,11 @@ function validateDeploymentContract(deployment) {
     new Set(capabilities).size !== capabilities.length ||
     !capabilities.every(value => knownCapabilities.has(value)) ||
     !requiredCapabilities.every(value => capabilities.includes(value)) ||
+    capabilities.includes('database-aware-recovery-v1') !== databaseAwareRecovery ||
+    ![
+      'rehearse-retained-runtime-against-migrated-copy',
+      'protected-pre-traffic-database-restore-v1',
+    ].includes(rollback) ||
     !exactArray(hostControlled, knownHostControls) ||
     !exactFields(probes, {
       health: { path: '/healthz', methods: ['GET', 'HEAD'], success: 200 },
@@ -158,7 +166,7 @@ function validateDeploymentContract(deployment) {
     !exactFields(database, {
       prePromotionGate: 'scripts/check-db.js',
       migrationMode: 'forward-only',
-      rollback: 'rehearse-retained-runtime-against-migrated-copy',
+      rollback,
     })
   ) {
     throw new Error('Unsupported or incomplete deployment compatibility contract.');

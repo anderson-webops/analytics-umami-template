@@ -70,6 +70,81 @@ test('packs both workspace distributions and production dependencies internally,
     assert.equal(await fs.readFile(path.join(root, 'packages/api/README.md'), 'utf8'), 'synthetic');
   });
 });
+test('removes a captured dev-only braces hoist without changing its vendored source', async () => {
+  await fixture(async ({ root, file, link }) => {
+    await file('vendor/braces/package.json', { name: 'braces', version: '3.0.4-webops.1' });
+    await file('vendor/braces/index.js', 'module.exports = "braces";');
+    await link(
+      'vendor/braces/node_modules/dep',
+      '../../../node_modules/.pnpm/dep/node_modules/dep',
+    );
+    await link('node_modules/.pnpm/node_modules/braces', '../../../vendor/braces');
+
+    const captured = await captureWorkspacePackaging(root);
+    await packageRuntimeWorkspaces(root, captured);
+
+    await assert.rejects(fs.lstat(path.join(root, 'node_modules/.pnpm/node_modules/braces')), {
+      code: 'ENOENT',
+    });
+    assert.equal(
+      await fs.readFile(path.join(root, 'vendor/braces/index.js'), 'utf8'),
+      'module.exports = "braces";',
+    );
+  });
+});
+test('rejects a changed vendored hoist or an undeclared external link', async () => {
+  for (const mutation of ['bytes', 'target', 'extra']) {
+    await fixture(async ({ root, file, link }) => {
+      await file('vendor/braces/package.json', { name: 'braces', version: '3.0.4-webops.1' });
+      await file('vendor/braces/index.js', 'original');
+      await link('node_modules/.pnpm/node_modules/braces', '../../../vendor/braces');
+
+      const captured = await captureWorkspacePackaging(root);
+      if (mutation === 'bytes') await file('vendor/braces/index.js', 'changed');
+      if (mutation === 'target') {
+        await file('vendor/other/package.json', { name: 'braces', version: '3.0.4-webops.1' });
+        await fs.unlink(path.join(root, 'node_modules/.pnpm/node_modules/braces'));
+        await link('node_modules/.pnpm/node_modules/braces', '../../../vendor/other');
+      }
+      if (mutation === 'extra') {
+        await link('node_modules/.pnpm/node_modules/other', '../../../vendor/braces');
+      }
+
+      await assert.rejects(packageRuntimeWorkspaces(root, captured));
+      if (mutation !== 'extra') {
+        assert.ok(await fs.lstat(path.join(root, 'node_modules/.pnpm/node_modules/braces')));
+      }
+    });
+  }
+});
+test('does not discard a vendored package in the production dependency graph', async () => {
+  await fixture(async ({ root, file, link }) => {
+    await file('package.json', {
+      dependencies: {
+        '@test/api': 'workspace:*',
+        '@test/mcp': 'workspace:*',
+        braces: 'file:vendor/braces',
+      },
+    });
+    await file('vendor/braces/package.json', { name: 'braces', version: '3.0.4-webops.1' });
+    await link('node_modules/braces', '../vendor/braces');
+    await link('node_modules/.pnpm/node_modules/braces', '../../../vendor/braces');
+
+    const captured = await captureWorkspacePackaging(root);
+
+    assert.equal(captured.vendoredHoists['.pnpm/node_modules/braces'], undefined);
+    await assert.rejects(packageRuntimeWorkspaces(root, captured));
+    assert.ok(await fs.lstat(path.join(root, 'node_modules/.pnpm/node_modules/braces')));
+  });
+});
+test('rejects an unreviewed version of the vendored braces hoist', async () => {
+  await fixture(async ({ root, file, link }) => {
+    await file('vendor/braces/package.json', { name: 'braces', version: '3.0.5' });
+    await link('node_modules/.pnpm/node_modules/braces', '../../../vendor/braces');
+
+    await assert.rejects(captureWorkspacePackaging(root));
+  });
+});
 test('rejects changed build bytes, tracked distribution files, missing production links and new dangling links', async () => {
   for (const mutation of ['bytes', 'tracked', 'production', 'untracked-link'])
     await fixture(async ({ root, file, link }) => {

@@ -49,6 +49,10 @@ The capability names have narrow meanings:
   source migration entrypoint without editing applied migration history.
 - `retained-artifact-rollback-v1`: keep the exact prior artifact and its host
   configuration, and restore those bytes without a network fetch or rebuild.
+- `database-aware-recovery-v1`: when the retained runtime cannot start against
+  the candidate's migrated database, require a protected, independently verified
+  pre-migration backup and a rehearsed database restore before restoring the
+  retained artifact. This is a host capability, not an application backup.
 - `version-aware-readiness-v1`: apply the candidate's health and readiness rules
   to the candidate, and the retained release's own rules during recovery.
 - `coordinated-listener-transition-v1`: rehearse a changed loopback listener,
@@ -64,6 +68,23 @@ case as `host_update_required`; report transient registry transport as
 `retry_scheduled`, identity/artifact/migration failures as `release_rejected`,
 and a failed activation restored from retained bytes as `rolled_back`. Keep the
 failing stage in the record and distinguish each from an unhealthy serving site.
+
+The default `rehearse-retained-runtime-against-migrated-copy` policy requires
+the exact retained runtime to pass startup against a migrated database copy.
+If it cannot, a downstream may instead declare
+`protected-pre-traffic-database-restore-v1` together with
+`database-aware-recovery-v1`. The host must then prove a complete restore of
+the exact pre-migration database and old artifact/configuration after an
+injected candidate activation failure, before any public write is admitted.
+All application writers, including other instances sharing the data, must be
+quiesced from the backup through acceptance. The host must verify the backup,
+unchanged historical ledger, ownership/routing, and restored old-runtime
+readiness. If it cannot prove write quiescence or exact restore, activation
+stops. Once public writes resume on the new schema, restoring the old database
+would discard them: automatic rollback to the old runtime is forbidden then.
+Keep the candidate serving while investigating or ship a compatible forward
+repair; do not silently restore a stale database. The source contract never
+grants the host permission to mutate production or clears a migration hold.
 
 This source declaration does not attest that any production host has adopted
 these capabilities. CI's isolated exact-artifact acceptance remains required;
@@ -162,7 +183,10 @@ public-assets exception.
 - PostgreSQL, optional Redis/ClickHouse data, and protected environment files are
   external state. Back them up separately and keep them out of artifacts.
 - Review migrations against the exact retained application before activation.
-  Application rollback never reverses a database migration.
+  With the default policy, application rollback never reverses a database
+  migration. The opt-in database-aware policy requires a protected host restore
+  only during a verified write-quiesced, pre-traffic failure window; it does not
+  permit restoring a stale backup after production writes resume.
 - Temporary files use systemd `PrivateTmp`; logs remain in the system journal.
 - Preserve each instance's existing service user, loopback port, Nginx policy,
   certificate, IPv4/IPv6 listeners, database, and environment file. This contract

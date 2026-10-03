@@ -29,10 +29,11 @@ async function links(root) {
   await visit(root);
   return result;
 }
-async function payload(root, allowLinks = false) {
+async function payload(root, allowLinks = false, excludeRootNodeModules = false) {
   const inventory = {};
   async function visit(directory) {
     for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
+      if (excludeRootNodeModules && directory === root && entry.name === 'node_modules') continue;
       const absolute = path.join(directory, entry.name);
       if (entry.isSymbolicLink() && allowLinks) {
         inventory[path.relative(root, absolute)] = `link:${await fs.readlink(absolute)}`;
@@ -122,17 +123,28 @@ export async function captureWorkspacePackaging(root) {
   }
   await visit(root);
   const disposableHoists = {};
+  const vendoredHoists = {};
   for (const [relative, target] of Object.entries(await links(modules))) {
     const absolute = path.join(modules, relative);
     const resolved = await fs.realpath(absolute); // Pre-existing broken links are an error.
-    if (
-      relative.startsWith('.pnpm/node_modules/') &&
-      inside(modules, resolved) &&
-      !production.has(resolved)
-    )
+    if (!relative.startsWith('.pnpm/node_modules/') || production.has(resolved)) continue;
+    if (inside(modules, resolved)) {
       disposableHoists[relative] = target;
+    } else if (
+      relative === '.pnpm/node_modules/braces' &&
+      path.relative(root, resolved) === 'vendor/braces'
+    ) {
+      const manifest = await json(path.join(resolved, 'package.json'));
+      assert.equal(manifest.name, 'braces');
+      assert.equal(manifest.version, '3.0.4-webops.1');
+      vendoredHoists[relative] = {
+        target,
+        source: 'vendor/braces',
+        files: await payload(resolved, false, true),
+      };
+    }
   }
-  return { version: 1, workspaces, disposableHoists };
+  return { version: 1, workspaces, disposableHoists, vendoredHoists };
 }
 export async function packageRuntimeWorkspaces(root, captured) {
   root = await fs.realpath(root);
@@ -177,9 +189,20 @@ export async function packageRuntimeWorkspaces(root, captured) {
     const link = path.join(modules, relative);
     const resolved = path.resolve(path.dirname(link), target);
     const workspace = destinations.get(path.relative(root, resolved));
+    const vendor = captured.vendoredHoists?.[relative];
     if (workspace) {
       await fs.unlink(link);
       await fs.symlink(path.relative(path.dirname(link), workspace), link);
+    } else if (vendor) {
+      assert.equal(relative, '.pnpm/node_modules/braces');
+      assert.equal(vendor.source, 'vendor/braces');
+      assert.equal(target, vendor.target);
+      assert.equal(await fs.realpath(link), path.join(root, vendor.source));
+      const manifest = await json(path.join(root, vendor.source, 'package.json'));
+      assert.equal(manifest.name, 'braces');
+      assert.equal(manifest.version, '3.0.4-webops.1');
+      assert.deepEqual(await payload(path.join(root, vendor.source), false, true), vendor.files);
+      await fs.unlink(link);
     } else if (!(await exists(link))) {
       assert.equal(
         captured.disposableHoists[relative],

@@ -198,6 +198,37 @@ test('accepts reviewed site-specific adapter gates but rejects unknown capabilit
   );
 });
 
+test('database-aware recovery requires its exact host capability and policy', async () => {
+  const { root, contractPath } = await createFixture();
+  const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
+  contract.deployment.database.rollback = 'protected-pre-traffic-database-restore-v1';
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await assert.rejects(
+    createRuntimeManifest(root, { contractPath, source }),
+    /deployment compatibility contract/,
+  );
+
+  contract.deployment.requiredAdapterCapabilities.push('database-aware-recovery-v1');
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  const manifest = await createRuntimeManifest(root, { contractPath, source });
+  assert.equal(manifest.deployment.database.rollback, 'protected-pre-traffic-database-restore-v1');
+  await verifyRuntimeArtifact(root, { contractPath });
+
+  contract.deployment.database.rollback = 'rehearse-retained-runtime-against-migrated-copy';
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await assert.rejects(
+    createRuntimeManifest(root, { contractPath, source }),
+    /deployment compatibility contract/,
+  );
+
+  contract.deployment.database.rollback = 'restore-arbitrary-backup';
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await assert.rejects(
+    createRuntimeManifest(root, { contractPath, source }),
+    /deployment compatibility contract/,
+  );
+});
+
 test('rejects a changed file even when the manifest itself is untouched', async () => {
   const { root, contractPath } = await createFixture();
   await createRuntimeManifest(root, { contractPath, source });
