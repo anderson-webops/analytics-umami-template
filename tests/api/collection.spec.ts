@@ -201,6 +201,77 @@ test.describe('Collection', () => {
     expect(heatmap.body).toEqual({ ok: true });
   });
 
+  test('POST /api/record deduplicates a retried replay chunk', async ({ api, admin, seed }) => {
+    const visit = await api.post('/api/send', pageview(seed.website.id));
+    const chunkIndex = Math.floor(Date.now() / 1000);
+    const payload = {
+      type: 'record',
+      payload: {
+        website: seed.website.id,
+        timestamp: chunkIndex,
+        events: [{ type: 4, timestamp: Date.now(), data: { width: 100, height: 100 } }],
+      },
+    };
+    const headers = { [CACHE_HEADER]: visit.body.cache };
+
+    expect((await api.post('/api/record', payload, { headers })).status).toBe(200);
+    expect((await api.post('/api/record', payload, { headers })).status).toBe(200);
+
+    const replay = await admin.get(
+      `/api/websites/${seed.website.id}/replays/${visit.body.visitId}`,
+    );
+
+    expect(replay.status).toBe(200);
+    expect(replay.body.chunkCount).toBe(1);
+    expect(replay.body.eventCount).toBe(1);
+  });
+
+  test('POST /api/record rejects a cumulative oversized visit', async ({ api, admin, seed }) => {
+    const visit = await api.post('/api/send', pageview(seed.website.id));
+    const headers = { [CACHE_HEADER]: visit.body.cache };
+    const chunkIndex = Math.floor(Date.now() / 1000);
+    const eventData = 'x'.repeat(950_000);
+
+    for (let index = 0; index < 8; index++) {
+      const response = await api.post(
+        '/api/record',
+        {
+          type: 'record',
+          payload: {
+            website: seed.website.id,
+            timestamp: chunkIndex + index,
+            events: [{ type: 3, timestamp: Date.now(), data: { value: eventData } }],
+          },
+        },
+        { headers },
+      );
+
+      expect(response.status).toBe(200);
+    }
+
+    const rejected = await api.post(
+      '/api/record',
+      {
+        type: 'record',
+        payload: {
+          website: seed.website.id,
+          timestamp: chunkIndex + 8,
+          events: [{ type: 3, timestamp: Date.now(), data: { value: eventData } }],
+        },
+      },
+      { headers },
+    );
+    const replay = await admin.get(
+      `/api/websites/${seed.website.id}/replays/${visit.body.visitId}`,
+    );
+
+    expect(rejected.status).toBe(413);
+    expect(rejected.body.error.code).toBe('payload-too-large');
+    expect(replay.status).toBe(200);
+    expect(replay.body.chunkCount).toBe(8);
+    expect(replay.body.eventCount).toBe(8);
+  });
+
   test('POST /api/record requires a session token', async ({ api, seed }) => {
     const response = await api.post('/api/record', {
       type: 'record',

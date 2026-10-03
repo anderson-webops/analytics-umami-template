@@ -877,7 +877,7 @@ export interface paths {
     put?: never;
     /**
      * Send session recordings or heatmap data
-     * @description Stores session replay events or heatmap clicks and scrolls for a website, using a valid tracking cache token to identify the session and visit.
+     * @description Stores session replay events or heatmap clicks and scrolls for a website, using a valid tracking cache token to identify the session and visit. Replay intake has cumulative visit and website budgets; exceeding them returns 413 or 429.
      */
     post: operations['record'];
     delete?: never;
@@ -2137,7 +2137,7 @@ export interface paths {
     };
     /**
      * Get a session replay recording
-     * @description Returns the merged recording events, session details, and event and chunk counts for a replay, with optional stopping points by timestamp, chunk, or event index.
+     * @description Returns the merged recording events, session details, and event and chunk counts for a replay, with optional stopping points by timestamp, chunk, or event index. Oversized legacy recordings return 413 instead of being decoded.
      */
     get: operations['getWebsiteReplay'];
     put?: never;

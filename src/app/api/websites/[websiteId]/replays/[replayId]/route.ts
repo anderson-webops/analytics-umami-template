@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { restoreReplayEventFragments } from '@/lib/replay';
+import { ReplayBudgetExceededError } from '@/lib/replay-budget';
 import { parseRequest } from '@/lib/request';
-import { badRequest, json, unauthorized } from '@/lib/response';
+import { badRequest, json, payloadTooLarge, unauthorized } from '@/lib/response';
 import { canViewAuthenticatedWebsite } from '@/permissions';
 import { getReplayChunks } from '@/queries/sql';
 
@@ -100,7 +101,17 @@ export async function GET(
     return unauthorized();
   }
 
-  const chunks = await getReplayChunks(websiteId, replayId, { endAt, endChunkIndex });
+  let chunks: Awaited<ReturnType<typeof getReplayChunks>>;
+
+  try {
+    chunks = await getReplayChunks(websiteId, replayId, { endAt, endChunkIndex });
+  } catch (error) {
+    if (error instanceof ReplayBudgetExceededError) {
+      return payloadTooLarge({ message: 'Replay budget exceeded.' });
+    }
+
+    throw error;
+  }
   const allEvents = restoreReplayEventFragments(
     mergeReplayEvents(chunks, { until, endChunkIndex, endEventIndex }),
   );

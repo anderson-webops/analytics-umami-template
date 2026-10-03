@@ -11,8 +11,16 @@ import { parseToken } from '@/lib/jwt';
 import { fetchAccount, fetchTeam } from '@/lib/load';
 import { getRecorderConfig } from '@/lib/recorder';
 import { getReplayEventCount } from '@/lib/replay';
+import { ReplayBudgetExceededError, reserveReplayBudget } from '@/lib/replay-budget';
 import { parseRequest } from '@/lib/request';
-import { badRequest, forbidden, json, serverError, tooManyRequests } from '@/lib/response';
+import {
+  badRequest,
+  forbidden,
+  json,
+  payloadTooLarge,
+  serverError,
+  tooManyRequests,
+} from '@/lib/response';
 import { replayObjectParam, urlOrPathParam } from '@/lib/schema';
 import { getWebsite, withActiveCollectionSource } from '@/queries/prisma';
 import { saveRecording } from '@/queries/sql';
@@ -218,12 +226,26 @@ export async function POST(request: Request) {
           const minTimestamp = eventTimestamps.length ? Math.min(...eventTimestamps) : fallbackMs;
           const maxTimestamp = eventTimestamps.length ? Math.max(...eventTimestamps) : fallbackMs;
 
+          const chunkIndex = timestamp || Math.floor(Date.now() / 1000);
+          const isNewChunk = await reserveReplayBudget(transaction, {
+            websiteId,
+            visitId,
+            chunkIndex,
+            idempotent: timestamp !== undefined,
+            bytes: Buffer.byteLength(JSON.stringify(events), 'utf8'),
+            events: events.length,
+          });
+
+          if (!isNewChunk) {
+            return;
+          }
+
           await saveRecording(
             {
               websiteId,
               sessionId,
               visitId,
-              chunkIndex: timestamp || Math.floor(Date.now() / 1000),
+              chunkIndex,
               events,
               eventCount: getReplayEventCount(events),
               startedAt: new Date(minTimestamp),
@@ -274,6 +296,14 @@ export async function POST(request: Request) {
 
       if (error?.message === 'COLLECTION_SOURCE_NOT_FOUND') {
         return withCorsHeaders(badRequest({ message: 'Website not found.' }));
+      }
+
+      if (error instanceof ReplayBudgetExceededError) {
+        return withCorsHeaders(
+          error.retryAfter
+            ? tooManyRequests(error.retryAfter)
+            : payloadTooLarge({ message: 'Replay budget exceeded.' }),
+        );
       }
 
       throw error;

@@ -4,7 +4,7 @@
 import type { RequestOptions } from '../types';
 import type { components, operations as OperationTypes } from './types';
 
-export const API_VERSION = '4.2.22';
+export const API_VERSION = '4.2.23';
 
 export type HttpMethod = 'get' | 'post' | 'put' | 'patch' | 'delete';
 
@@ -4576,7 +4576,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Get a session replay recording
-   * Returns the merged recording events, session details, and event and chunk counts for a replay, with optional stopping points by timestamp, chunk, or event index.
+   * Returns the merged recording events, session details, and event and chunk counts for a replay, with optional stopping points by timestamp, chunk, or event index. Oversized legacy recordings return 413 instead of being decoded.
    * `GET /api/websites/{websiteId}/replays/{replayId}`
    */
   getWebsiteReplay(
@@ -4943,7 +4943,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Send session recordings or heatmap data
-   * Stores session replay events or heatmap clicks and scrolls for a website, using a valid tracking cache token to identify the session and visit.
+   * Stores session replay events or heatmap clicks and scrolls for a website, using a valid tracking cache token to identify the session and visit. Replay intake has cumulative visit and website budgets; exceeding them returns 413 or 429.
    * `POST /api/record`
    */
   record(

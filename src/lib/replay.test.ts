@@ -10,6 +10,7 @@ import {
   REPLAY_EVENT_FRAGMENT_TYPE,
   restoreReplayEventFragments,
 } from './replay';
+import { MAX_REPLAY_EVENTS } from './replay-budget';
 
 const fullSnapshot = {
   type: 2,
@@ -117,6 +118,18 @@ test('restoreReplayEventFragments restores fragmented events', () => {
     { type: 3, timestamp: 1781553116160 },
   ]);
   expect(hasReplayFullSnapshot(events)).toBe(true);
+});
+
+test('restoreReplayEventFragments ignores impossible fragment groups', () => {
+  expect(
+    restoreReplayEventFragments([
+      {
+        type: REPLAY_EVENT_FRAGMENT_TYPE,
+        data: { id: 'oversized', index: 0, total: MAX_REPLAY_EVENTS + 1, value: '{}' },
+      },
+      { type: 4 },
+    ]),
+  ).toEqual([{ type: 4 }]);
 });
 
 test('getReplayEventCount counts a fragment group as one event', () => {

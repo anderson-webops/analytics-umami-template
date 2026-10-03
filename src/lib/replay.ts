@@ -1,3 +1,5 @@
+import { MAX_REPLAY_BYTES, MAX_REPLAY_EVENTS } from '@/lib/replay-budget';
+
 export const RRWEB_EVENT_TYPE = {
   Meta: 4,
   FullSnapshot: 2,
@@ -56,6 +58,7 @@ export function restoreReplayEventFragments(events: any[] | null | undefined) {
       total: number;
       values: Map<number, string>;
       received: number;
+      bytes: number;
     }
   >();
 
@@ -66,6 +69,11 @@ export function restoreReplayEventFragments(events: any[] | null | undefined) {
     }
 
     const { id, index, total, value } = event.data;
+
+    if (total > MAX_REPLAY_EVENTS) {
+      continue;
+    }
+
     let fragment = pending.get(id);
 
     if (!fragment || fragment.total !== total) {
@@ -73,11 +81,19 @@ export function restoreReplayEventFragments(events: any[] | null | undefined) {
         total,
         values: new Map(),
         received: 0,
+        bytes: 0,
       };
       pending.set(id, fragment);
     }
 
     if (!fragment.values.has(index)) {
+      fragment.bytes += Buffer.byteLength(value, 'utf8');
+
+      if (fragment.bytes > MAX_REPLAY_BYTES) {
+        pending.delete(id);
+        continue;
+      }
+
       fragment.values.set(index, value);
       fragment.received += 1;
     }
@@ -86,13 +102,13 @@ export function restoreReplayEventFragments(events: any[] | null | undefined) {
       pending.delete(id);
 
       try {
-        let serialized = '';
-
-        for (let i = 0; i < fragment.total; i++) {
-          serialized += fragment.values.get(i) || '';
-        }
-
-        restored.push(JSON.parse(serialized));
+        restored.push(
+          JSON.parse(
+            Array.from({ length: fragment.total }, (_, index) => fragment.values.get(index)).join(
+              '',
+            ),
+          ),
+        );
       } catch {
         // Ignore malformed fragment groups. A partial replay is better than failing the whole response.
       }

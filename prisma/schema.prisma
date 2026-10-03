@@ -125,6 +125,7 @@ model Website {
   sessionData         SessionData[]
   sessionReplays      SessionReplay[]
   sessionReplaysSaved SessionReplaySaved[]
+  replayIngestBudgets ReplayIngestBudget[]
   heatmapEvents       HeatmapEvent[]
 
   @@index([userId])
@@ -460,6 +461,23 @@ model SessionReplaySaved {
   @@index([visitId])
   @@index([websiteId, createdAt])
   @@map("session_replay_saved")
+}
+
+model ReplayIngestBudget {
+  websiteId    String   @map("website_id") @db.Uuid
+  scope        String   @db.VarChar(6)
+  scopeKey     String   @map("scope_key") @db.VarChar(64)
+  bytes        BigInt   @default(0)
+  events       Int      @default(0)
+  chunks       Int      @default(0)
+  chunkIndices Int[]    @default([]) @map("chunk_indices")
+  expiresAt    DateTime? @map("expires_at") @db.Timestamptz(6)
+
+  website Website @relation(fields: [websiteId], references: [id], onDelete: Cascade)
+
+  @@id([websiteId, scope, scopeKey])
+  @@index([expiresAt])
+  @@map("replay_ingest_budget")
 }
 
 model HeatmapEvent {
