@@ -6,7 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!!**/dist", "!!public/openapi.json"]
+    "includes": ["**", "!!**/dist", "!!public/openapi.json", "!!vendor/braces"]
   },
   "formatter": {
     "enabled": true,
