@@ -118,10 +118,6 @@ const operation1 = defineOperation({
                         type: 'string',
                         description: 'Display name of the resource.',
                       },
-                      accessCode: {
-                        type: 'string',
-                        description: 'Code used to join the team.',
-                      },
                     },
                     required: [
                       'id',
@@ -131,7 +127,6 @@ const operation1 = defineOperation({
                       'twoFactorRequired',
                       'deletedAt',
                       'name',
-                      'accessCode',
                     ],
                   },
                   description: 'Data returned by the operation.',

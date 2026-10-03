@@ -1,5 +1,5 @@
 import { hasPermission } from '@/lib/auth';
-import { PERMISSIONS } from '@/lib/constants';
+import { PERMISSIONS, ROLES } from '@/lib/constants';
 import type { Auth } from '@/lib/types';
 import { getTeam, getTeamUser } from '@/queries/prisma';
 
@@ -34,6 +34,10 @@ export async function canUpdateTeam({ user }: Auth, teamId: string) {
 
   if (user.isAdmin) {
     return !!(await getTeam(teamId));
+  }
+
+  if (user.role !== ROLES.user) {
+    return false;
   }
 
   const teamUser = await getTeamUser(teamId, user.id);

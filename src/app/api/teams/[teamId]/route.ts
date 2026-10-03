@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { parseRequest } from '@/lib/request';
 import { json, notFound, ok, unauthorized } from '@/lib/response';
 import { canDeleteTeam, canUpdateTeam, canViewTeam } from '@/permissions';
-import { deleteTeam, getTeam, updateTeam } from '@/queries/prisma';
+import { deleteTeam, getTeam, getTeamAccessCodeForActor, updateTeam } from '@/queries/prisma';
 
 export async function GET(request: Request, { params }: { params: Promise<{ teamId: string }> }) {
   const { auth, error } = await parseRequest(request);
@@ -23,7 +23,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ team
     return notFound({ message: 'Team not found.' });
   }
 
-  return json(team);
+  return json({
+    ...team,
+    accessCode: await getTeamAccessCodeForActor(teamId, auth.user.id),
+  });
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ teamId: string }> }) {

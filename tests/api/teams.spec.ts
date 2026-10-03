@@ -38,14 +38,25 @@ test.describe('Teams', () => {
     expect(anonymous.status).toBe(401);
   });
 
-  test('GET /api/teams lists the caller teams', async ({ admin, viewer }) => {
+  test('team list APIs do not expose invitation codes', async ({ admin, viewer, seed }) => {
     const response = await admin.get('/api/teams');
     const none = await viewer.get('/api/teams');
+    const myTeams = await admin.get('/api/me/teams');
+    const userTeams = await admin.get(`/api/users/${seed.admin.id}/teams`);
+    const adminTeams = await admin.get('/api/admin/teams');
 
     expect(response.status).toBe(200);
     expect(response.body.data.map((t: any) => t.id)).toContain(teamId);
     expect(none.status).toBe(200);
     expect(none.body.data.map((t: any) => t.id)).not.toContain(teamId);
+
+    for (const list of [response, myTeams, userTeams, adminTeams]) {
+      expect(list.status).toBe(200);
+      const listedTeam = list.body.data.find((team: any) => team.id === teamId);
+
+      expect(listedTeam).toBeDefined();
+      expect(listedTeam).not.toHaveProperty('accessCode');
+    }
   });
 
   test('GET /api/teams/{teamId} returns the team', async ({ admin, viewer }) => {
@@ -84,6 +95,16 @@ test.describe('Teams', () => {
     expect(again.status).toBe(400);
     expect(unknown.status).toBe(404);
     expect(unknown.body.error.code).toBe('team-not-found');
+
+    const memberDetail = await viewer.get(`/api/teams/${teamId}`);
+    const memberList = await viewer.get('/api/teams');
+
+    expect(memberDetail.status).toBe(200);
+    expect(memberDetail.body).not.toHaveProperty('accessCode');
+    const listedTeam = memberList.body.data.find((team: any) => team.id === teamId);
+
+    expect(listedTeam).toBeDefined();
+    expect(listedTeam).not.toHaveProperty('accessCode');
   });
 
   test('GET /api/teams/{teamId}/users lists the members', async ({ admin, viewer, user }) => {
@@ -134,6 +155,11 @@ test.describe('Teams', () => {
     expect(response.body).toMatchObject({ userId: seed.viewer.id, role: 'team-view-only' });
     expect(notMember.status).toBe(400);
     expect(denied.status).toBe(401);
+
+    const viewerDetail = await viewer.get(`/api/teams/${teamId}`);
+
+    expect(viewerDetail.status).toBe(200);
+    expect(viewerDetail.body).not.toHaveProperty('accessCode');
   });
 
   test('DELETE /api/teams/{teamId}/users/{userId} removes a member', async ({ admin, seed }) => {

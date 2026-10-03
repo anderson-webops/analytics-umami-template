@@ -4134,8 +4134,6 @@ export interface operations {
             count: number;
             /** @description Data returned by the operation. */
             data: {
-              /** @description Code used to join the team. */
-              accessCode: string;
               /**
                * Format: date-time
                * @description Date and time the record was created.
@@ -7334,8 +7332,6 @@ export interface operations {
             count: number;
             /** @description Data returned by the operation. */
             data: {
-              /** @description Code used to join the team. */
-              accessCode: string;
               /**
                * Format: date-time
                * @description Date and time the record was created.
@@ -9107,8 +9103,6 @@ export interface operations {
             count: number;
             /** @description Data returned by the operation. */
             data: {
-              /** @description Code used to join the team. */
-              accessCode: string;
               /**
                * Format: date-time
                * @description Date and time the record was created.
@@ -9270,8 +9264,8 @@ export interface operations {
         };
         content: {
           'application/json': {
-            /** @description Code used to join the team. */
-            accessCode: string;
+            /** @description Code used to join the team, returned only to authorized managers, owners, and administrators. */
+            accessCode?: string | null;
             /**
              * Format: date-time
              * @description Date and time the record was created.
@@ -11093,8 +11087,6 @@ export interface operations {
             count: number;
             /** @description Data returned by the operation. */
             data: {
-              /** @description Code used to join the team. */
-              accessCode: string;
               /**
                * Format: date-time
                * @description Date and time the record was created.

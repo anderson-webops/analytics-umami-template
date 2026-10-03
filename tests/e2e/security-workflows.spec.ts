@@ -165,6 +165,35 @@ test.describe('Authorization and role-transition security', () => {
     });
     expect(addMember.status()).toBe(200);
 
+    const memberAuth = await loginViaApi(request, MEMBER_USERNAME, MEMBER_PASSWORD);
+    const memberTeam = await request.get(`/api/teams/${teamId}`, {
+      headers: authHeaders(memberAuth),
+    });
+    const managerTeam = await request.get(`/api/teams/${teamId}`, {
+      headers: authHeaders(managerAuth),
+    });
+
+    expect(memberTeam.status()).toBe(200);
+    expect(await memberTeam.json()).not.toHaveProperty('accessCode');
+    expect(managerTeam.status()).toBe(200);
+    expect(await managerTeam.json()).toHaveProperty('accessCode', team.accessCode);
+
+    for (const path of [
+      '/api/teams',
+      '/api/me/teams',
+      `/api/users/${umamiUser.id}/teams`,
+      '/api/admin/teams',
+    ]) {
+      const list = await request.get(path, { headers: authHeaders(primaryAuth) });
+      const listedTeam = (await list.json()).data.find(
+        (item: { id: string }) => item.id === teamId,
+      );
+
+      expect(list.status()).toBe(200);
+      expect(listedTeam).toBeDefined();
+      expect(listedTeam).not.toHaveProperty('accessCode');
+    }
+
     const demoteOwner = await request.post(`/api/teams/${teamId}/users/${umamiUser.id}`, {
       headers: authHeaders(managerAuth),
       data: { role: 'team-view-only' },
@@ -187,5 +216,24 @@ test.describe('Authorization and role-transition security', () => {
       data: { userId: umamiUser.id },
     });
     expect(transferBack.status()).toBe(200);
+
+    const globalDemotion = await request.post(`/api/users/${managerId}`, {
+      headers: authHeaders(primaryAuth),
+      data: { role: 'view-only' },
+    });
+    expect(globalDemotion.status()).toBe(200);
+
+    const downgradedAuth = await loginViaApi(request, MANAGER_USERNAME, MANAGER_PASSWORD);
+    const downgradedDetail = await request.get(`/api/teams/${teamId}`, {
+      headers: authHeaders(downgradedAuth),
+    });
+    const deniedUpdate = await request.post(`/api/teams/${teamId}`, {
+      headers: authHeaders(downgradedAuth),
+      data: {},
+    });
+
+    expect(downgradedDetail.status()).toBe(200);
+    expect(await downgradedDetail.json()).not.toHaveProperty('accessCode');
+    expect(deniedUpdate.status()).toBe(401);
   });
 });

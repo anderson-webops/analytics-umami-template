@@ -96,6 +96,12 @@ describe('canUpdateTeam', () => {
     await expect(canUpdateTeam({ user: normalUser }, 'team-1')).resolves.toBe(true);
   });
 
+  test('denies a globally view-only team manager', async () => {
+    vi.mocked(getTeamUser).mockResolvedValue({ role: 'team-manager' } as any);
+    await expect(canUpdateTeam({ user: viewOnlyUser }, 'team-1')).resolves.toBe(false);
+    expect(getTeamUser).not.toHaveBeenCalled();
+  });
+
   test('denies a team member (lacks team:update)', async () => {
     vi.mocked(getTeamUser).mockResolvedValue({ role: 'team-member' } as any);
     await expect(canUpdateTeam({ user: normalUser }, 'team-1')).resolves.toBe(false);

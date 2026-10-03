@@ -42,10 +42,46 @@ export async function getTeam(
   });
 }
 
+export async function getTeamAccessCodeForActor(teamId: string, actorUserId: string) {
+  if (!isUuid(teamId) || !isUuid(actorUserId)) {
+    return undefined;
+  }
+
+  return prisma.transaction(async transaction => {
+    const actor = await getActiveUserRole(transaction, actorUserId);
+
+    if (!actor || (actor.role !== ROLES.admin && actor.role !== ROLES.user)) {
+      return undefined;
+    }
+
+    const team = await transaction.team.findFirst({
+      where: { id: teamId, deletedAt: null },
+      select: {
+        accessCode: true,
+        members: {
+          where: { userId: actorUserId, user: { deletedAt: null } },
+          select: { role: true },
+        },
+      },
+    });
+
+    if (!team) {
+      return undefined;
+    }
+
+    const membershipRole = team.members[0]?.role;
+    const canManage =
+      actor.role === ROLES.admin ||
+      (TEAM_ROLE_RANK[membershipRole] ?? -1) >= TEAM_ROLE_RANK[ROLES.teamManager];
+
+    return canManage ? team.accessCode : undefined;
+  });
+}
+
 export async function getTeams(
   criteria: TeamFindManyArgs,
   filters: QueryFilters,
-): Promise<PageResult<Team[]>> {
+): Promise<PageResult<Omit<Team, 'accessCode'>[]>> {
   const { getSearchParameters } = prisma;
   const sortFilters = sanitizeSortFilters(filters, TEAM_SORT_FIELDS);
   const { search } = sortFilters;
@@ -60,6 +96,7 @@ export async function getTeams(
     {
       ...criteria,
       where,
+      omit: { ...criteria.omit, accessCode: true },
     },
     sortFilters,
   );
@@ -234,7 +271,8 @@ export async function updateTeam(
 
     const canUpdate =
       actor?.role === ROLES.admin ||
-      (actor && (TEAM_ROLE_RANK[membership?.role] ?? -1) >= TEAM_ROLE_RANK[ROLES.teamManager]);
+      (actor?.role === ROLES.user &&
+        (TEAM_ROLE_RANK[membership?.role] ?? -1) >= TEAM_ROLE_RANK[ROLES.teamManager]);
 
     if (!canUpdate) {
       throw new Error('TEAM_ACTOR_NOT_AUTHORIZED');
