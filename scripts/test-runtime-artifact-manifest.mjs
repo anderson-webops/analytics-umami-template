@@ -202,6 +202,10 @@ test('database-aware recovery requires its exact host capability and policy', as
   const { root, contractPath } = await createFixture();
   const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
   contract.deployment.database.rollback = 'protected-pre-traffic-database-restore-v1';
+  contract.deployment.requiredAdapterCapabilities =
+    contract.deployment.requiredAdapterCapabilities.filter(
+      capability => capability !== 'database-aware-recovery-v1',
+    );
   await fs.writeFile(contractPath, JSON.stringify(contract));
   await assert.rejects(
     createRuntimeManifest(root, { contractPath, source }),
