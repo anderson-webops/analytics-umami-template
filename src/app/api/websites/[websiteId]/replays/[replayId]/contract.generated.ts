@@ -12,7 +12,7 @@ const operation1 = defineOperation({
     operationId: 'getWebsiteReplay',
     summary: 'Get a session replay recording',
     description:
-      'Returns the merged recording events, session details, and event and chunk counts for a replay, with optional stopping points by timestamp, chunk, or event index.',
+      'Returns the merged recording events, session details, and event and chunk counts for a replay, with optional stopping points by timestamp, chunk, or event index. Oversized legacy recordings return 413 instead of being decoded.',
     tags: ['Websites'],
     parameters: [
       {
@@ -129,6 +129,23 @@ const operation1 = defineOperation({
                 message: 'Unauthorized.',
                 code: 'unauthorized',
                 status: 401,
+              },
+            },
+            schema: {
+              $ref: '#/components/schemas/ApiError',
+            },
+          },
+        },
+      },
+      '413': {
+        description: 'Payload too large.',
+        content: {
+          'application/json': {
+            example: {
+              error: {
+                message: 'Payload too large.',
+                code: 'payload-too-large',
+                status: 413,
               },
             },
             schema: {

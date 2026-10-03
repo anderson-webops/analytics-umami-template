@@ -137,7 +137,7 @@ export const operationDescriptions: Record<string, OperationDescription> = {
   },
   'GET /api/boards/{boardId}/shares': {
     summary: 'List shares for a board',
-    description: 'Returns a paginated list of shares for the specified board.',
+    description: 'Returns a paginated list of shares for a board the caller may manage.',
   },
   'POST /api/boards/{boardId}/shares': {
     summary: 'Create a share for a board',
@@ -187,7 +187,7 @@ export const operationDescriptions: Record<string, OperationDescription> = {
   },
   'GET /api/links/{linkId}/shares': {
     summary: 'List shares for a link',
-    description: 'Returns a paginated list of shares for the specified link.',
+    description: 'Returns a paginated list of shares for a link the caller may manage.',
   },
   'POST /api/links/{linkId}/shares': {
     summary: 'Create a share for a link',
@@ -256,7 +256,7 @@ export const operationDescriptions: Record<string, OperationDescription> = {
   },
   'GET /api/pixels/{pixelId}/shares': {
     summary: 'List shares for a tracking pixel',
-    description: 'Returns a paginated list of shares for the specified tracking pixel.',
+    description: 'Returns a paginated list of shares for a tracking pixel the caller may manage.',
   },
   'POST /api/pixels/{pixelId}/shares': {
     summary: 'Create a share for a tracking pixel',
@@ -299,8 +299,7 @@ export const operationDescriptions: Record<string, OperationDescription> = {
   },
   'GET /api/share/id/{shareId}': {
     summary: 'Get a share',
-    description:
-      "Returns a share's configuration by its ID after checking access to the shared resource.",
+    description: "Returns a share's configuration by its ID to a caller allowed to manage it.",
   },
   'POST /api/share/id/{shareId}': {
     summary: 'Update a share',
@@ -718,7 +717,7 @@ export const operationDescriptions: Record<string, OperationDescription> = {
   },
   'GET /api/websites/{websiteId}/shares': {
     summary: 'List shares for a website',
-    description: 'Returns a paginated list of shares for the specified website.',
+    description: 'Returns a paginated list of shares for a website the caller may manage.',
   },
   'POST /api/websites/{websiteId}/shares': {
     summary: 'Create a share for a website',

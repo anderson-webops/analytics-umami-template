@@ -4,7 +4,7 @@
 import type { RequestOptions } from '../types';
 import type { components, operations as OperationTypes } from './types';
 
-export const API_VERSION = '4.2.24';
+export const API_VERSION = '4.2.25';
 
 export type HttpMethod = 'get' | 'post' | 'put' | 'patch' | 'delete';
 
@@ -3677,7 +3677,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * List shares for a board
-   * Returns a paginated list of shares for the specified board.
+   * Returns a paginated list of shares for a board the caller may manage.
    * `GET /api/boards/{boardId}/shares`
    */
   getBoardShares(
@@ -3881,7 +3881,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * List shares for a link
-   * Returns a paginated list of shares for the specified link.
+   * Returns a paginated list of shares for a link the caller may manage.
    * `GET /api/links/{linkId}/shares`
    */
   getLinkShares(
@@ -3977,7 +3977,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * List shares for a tracking pixel
-   * Returns a paginated list of shares for the specified tracking pixel.
+   * Returns a paginated list of shares for a tracking pixel the caller may manage.
    * `GET /api/pixels/{pixelId}/shares`
    */
   getPixelShares(
@@ -4109,7 +4109,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Get a share
-   * Returns a share's configuration by its ID after checking access to the shared resource.
+   * Returns a share's configuration by its ID to a caller allowed to manage it.
    * `GET /api/share/id/{shareId}`
    */
   getShare(
@@ -4825,7 +4825,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * List shares for a website
-   * Returns a paginated list of shares for the specified website.
+   * Returns a paginated list of shares for a website the caller may manage.
    * `GET /api/websites/{websiteId}/shares`
    */
   getWebsiteShares(

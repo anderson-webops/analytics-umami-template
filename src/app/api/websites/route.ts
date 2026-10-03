@@ -26,14 +26,14 @@ export async function GET(request: Request) {
     const websites = await getAllUserWebsitesIncludingTeamAccess(userId, filters);
     return json({
       ...websites,
-      data: websites.data.map(website => redactWebsiteShareId(website, auth.authType)),
+      data: websites.data.map(website => redactWebsiteShareId(website, auth.authType, true)),
     });
   }
 
   const websites = await getUserWebsites(userId, filters);
   return json({
     ...websites,
-    data: websites.data.map(website => redactWebsiteShareId(website, auth.authType)),
+    data: websites.data.map(website => redactWebsiteShareId(website, auth.authType, true)),
   });
 }
 

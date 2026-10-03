@@ -451,7 +451,7 @@ export interface paths {
     };
     /**
      * List shares for a board
-     * @description Returns a paginated list of shares for the specified board.
+     * @description Returns a paginated list of shares for a board the caller may manage.
      */
     get: operations['getBoardShares'];
     put?: never;
@@ -591,7 +591,7 @@ export interface paths {
     };
     /**
      * List shares for a link
-     * @description Returns a paginated list of shares for the specified link.
+     * @description Returns a paginated list of shares for a link the caller may manage.
      */
     get: operations['getLinkShares'];
     put?: never;
@@ -811,7 +811,7 @@ export interface paths {
     };
     /**
      * List shares for a tracking pixel
-     * @description Returns a paginated list of shares for the specified tracking pixel.
+     * @description Returns a paginated list of shares for a tracking pixel the caller may manage.
      */
     get: operations['getPixelShares'];
     put?: never;
@@ -955,7 +955,7 @@ export interface paths {
     };
     /**
      * Get a share
-     * @description Returns a share's configuration by its ID after checking access to the shared resource.
+     * @description Returns a share's configuration by its ID to a caller allowed to manage it.
      */
     get: operations['getShare'];
     put?: never;
@@ -2694,7 +2694,7 @@ export interface paths {
     };
     /**
      * List shares for a website
-     * @description Returns a paginated list of shares for the specified website.
+     * @description Returns a paginated list of shares for a website the caller may manage.
      */
     get: operations['getWebsiteShares'];
     put?: never;
@@ -8538,6 +8538,24 @@ export interface operations {
            *         "code": "forbidden",
            *         "message": "Forbidden.",
            *         "status": 403
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+      /** @description Payload too large. */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "payload-too-large",
+           *         "message": "Payload too large.",
+           *         "status": 413
            *       }
            *     }
            */
@@ -17751,6 +17769,24 @@ export interface operations {
            *         "code": "unauthorized",
            *         "message": "Unauthorized.",
            *         "status": 401
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+      /** @description Payload too large. */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "payload-too-large",
+           *         "message": "Payload too large.",
+           *         "status": 413
            *       }
            *     }
            */

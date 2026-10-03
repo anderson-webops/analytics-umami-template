@@ -6,7 +6,7 @@ import { parseRequest } from '@/lib/request';
 import { conflict, json, notFound, unauthorized } from '@/lib/response';
 import { filterParams, pagingParams, shareParametersParam } from '@/lib/schema';
 import { publicSharesDisabled } from '@/lib/security';
-import { canUpdateBoard, canViewBoard } from '@/permissions';
+import { canUpdateBoard } from '@/permissions';
 import { createShare, getSharesByEntityId } from '@/queries/prisma';
 
 export async function GET(request: Request, { params }: { params: Promise<{ boardId: string }> }) {
@@ -24,7 +24,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ boar
   const { boardId } = await params;
   const { page, pageSize, search } = query;
 
-  if (!(await canViewBoard(auth, boardId))) {
+  if (!(await canUpdateBoard(auth, boardId))) {
     return unauthorized();
   }
 

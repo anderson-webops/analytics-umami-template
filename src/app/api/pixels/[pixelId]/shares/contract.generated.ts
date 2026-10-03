@@ -7,11 +7,11 @@ const operation1 = defineOperation({
   method: 'get',
   path: '/api/pixels/{pixelId}/shares',
   audience: 'public',
-  auth: 'bearer-or-share',
+  auth: 'bearer',
   operation: {
     operationId: 'getPixelShares',
     summary: 'List shares for a tracking pixel',
-    description: 'Returns a paginated list of shares for the specified tracking pixel.',
+    description: 'Returns a paginated list of shares for a tracking pixel the caller may manage.',
     tags: ['Pixels'],
     parameters: [
       {

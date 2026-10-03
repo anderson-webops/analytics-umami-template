@@ -3,7 +3,7 @@ import { parseRequest } from '@/lib/request';
 import { conflict, json, notFound, ok, unauthorized } from '@/lib/response';
 import { routeSlugParam, shareParametersParam } from '@/lib/schema';
 import { publicSharesDisabled } from '@/lib/security';
-import { canDeleteShareEntity, canUpdateShareEntity, canViewShareEntity } from '@/permissions';
+import { canDeleteShareEntity, canUpdateShareEntity } from '@/permissions';
 import { deleteShare, getShare, updateShare } from '@/queries/prisma';
 
 export async function GET(request: Request, { params }: { params: Promise<{ shareId: string }> }) {
@@ -20,7 +20,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ shar
     return notFound();
   }
 
-  if (!(await canViewShareEntity(auth, share.shareType, share.entityId))) {
+  if (!(await canUpdateShareEntity(auth, share.shareType, share.entityId))) {
     return unauthorized();
   }
 

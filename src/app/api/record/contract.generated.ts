@@ -12,7 +12,7 @@ const operation1 = defineOperation({
     operationId: 'record',
     summary: 'Send session recordings or heatmap data',
     description:
-      'Stores session replay events or heatmap clicks and scrolls for a website, using a valid tracking cache token to identify the session and visit.',
+      'Stores session replay events or heatmap clicks and scrolls for a website, using a valid tracking cache token to identify the session and visit. Replay intake has cumulative visit and website budgets; exceeding them returns 413 or 429.',
     tags: ['Collection'],
     requestBody: {
       required: true,
@@ -248,6 +248,23 @@ const operation1 = defineOperation({
                 message: 'Forbidden.',
                 code: 'forbidden',
                 status: 403,
+              },
+            },
+            schema: {
+              $ref: '#/components/schemas/ApiError',
+            },
+          },
+        },
+      },
+      '413': {
+        description: 'Payload too large.',
+        content: {
+          'application/json': {
+            example: {
+              error: {
+                message: 'Payload too large.',
+                code: 'payload-too-large',
+                status: 413,
               },
             },
             schema: {

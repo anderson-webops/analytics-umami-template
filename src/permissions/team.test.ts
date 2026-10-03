@@ -7,6 +7,7 @@ import {
   canDeleteTeamUser,
   canEnforceTwoFactorAuthForTeam,
   canUpdateTeam,
+  canUpdateTeamWebsites,
   canViewAllTeams,
   canViewTeam,
 } from './team';
@@ -110,6 +111,27 @@ describe('canUpdateTeam', () => {
   test('returns falsy for a non-member', async () => {
     vi.mocked(getTeamUser).mockResolvedValue(null as any);
     await expect(canUpdateTeam({ user: normalUser }, 'team-1')).resolves.toBeNull();
+  });
+});
+
+describe('canUpdateTeamWebsites', () => {
+  test('requires an active user and a website-update membership', async () => {
+    await expect(canUpdateTeamWebsites({}, 'team-1')).resolves.toBe(false);
+    vi.mocked(getTeamUser).mockResolvedValue(null);
+    await expect(canUpdateTeamWebsites({ user: normalUser }, 'team-1')).resolves.toBe(false);
+
+    for (const role of ['team-view-only', 'team-member', 'team-manager']) {
+      vi.mocked(getTeamUser).mockResolvedValue({ role } as any);
+      await expect(canUpdateTeamWebsites({ user: normalUser }, 'team-1')).resolves.toBe(
+        role !== 'team-view-only',
+      );
+    }
+  });
+
+  test('allows an administrator only for an existing team', async () => {
+    await expect(canUpdateTeamWebsites({ user: adminUser }, 'team-1')).resolves.toBe(true);
+    vi.mocked(getTeam).mockResolvedValue(null);
+    await expect(canUpdateTeamWebsites({ user: adminUser }, 'team-1')).resolves.toBe(false);
   });
 });
 

@@ -7,11 +7,11 @@ const operation1 = defineOperation({
   method: 'get',
   path: '/api/boards/{boardId}/shares',
   audience: 'public',
-  auth: 'bearer-or-share',
+  auth: 'bearer',
   operation: {
     operationId: 'getBoardShares',
     summary: 'List shares for a board',
-    description: 'Returns a paginated list of shares for the specified board.',
+    description: 'Returns a paginated list of shares for a board the caller may manage.',
     tags: ['Boards'],
     parameters: [
       {

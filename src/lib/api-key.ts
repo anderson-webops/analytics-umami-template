@@ -160,8 +160,12 @@ export function isApiKeyBlockedRequest(
   );
 }
 
-export function redactWebsiteShareId<T extends object>(website: T, authType: string) {
-  return authType === 'api-key' ? { ...website, shareId: null } : website;
+export function redactWebsiteShareId<T extends object>(
+  website: T,
+  authType: string,
+  canManageShares = false,
+) {
+  return authType === 'api-key' || !canManageShares ? { ...website, shareId: null } : website;
 }
 
 export function isApiKeyEnabled() {

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { Annotation } from '@/generated/prisma/client';
 import { uuid } from '@/lib/crypto';
 import { parseRequest } from '@/lib/request';
 import { json, unauthorized } from '@/lib/response';
@@ -58,7 +59,7 @@ export async function POST(
     return unauthorized();
   }
 
-  let result;
+  let result: Annotation;
 
   try {
     result = await createAnnotation(

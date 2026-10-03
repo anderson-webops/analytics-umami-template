@@ -1,3 +1,4 @@
+import type { Annotation } from '@/generated/prisma/client';
 import { parseRequest } from '@/lib/request';
 import { json, notFound, ok, unauthorized } from '@/lib/response';
 import { annotationSchema } from '@/lib/schema';
@@ -52,7 +53,7 @@ export async function POST(
     return notFound();
   }
 
-  let result;
+  let result: Annotation;
 
   try {
     result = await updateAnnotation(websiteId, annotationId, { date, allDay, note }, auth.user.id);

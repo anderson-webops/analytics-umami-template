@@ -7,11 +7,11 @@ const operation1 = defineOperation({
   method: 'get',
   path: '/api/links/{linkId}/shares',
   audience: 'public',
-  auth: 'bearer-or-share',
+  auth: 'bearer',
   operation: {
     operationId: 'getLinkShares',
     summary: 'List shares for a link',
-    description: 'Returns a paginated list of shares for the specified link.',
+    description: 'Returns a paginated list of shares for a link the caller may manage.',
     tags: ['Links'],
     parameters: [
       {

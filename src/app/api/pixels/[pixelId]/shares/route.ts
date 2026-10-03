@@ -6,7 +6,7 @@ import { parseRequest } from '@/lib/request';
 import { conflict, json, notFound, unauthorized } from '@/lib/response';
 import { filterParams, pagingParams, shareParametersParam } from '@/lib/schema';
 import { publicSharesDisabled } from '@/lib/security';
-import { canUpdatePixel, canViewPixel } from '@/permissions';
+import { canUpdatePixel } from '@/permissions';
 import { createShare, getSharesByEntityId } from '@/queries/prisma';
 
 export async function GET(request: Request, { params }: { params: Promise<{ pixelId: string }> }) {
@@ -24,7 +24,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ pixe
   const { pixelId } = await params;
   const { page, pageSize, search } = query;
 
-  if (!(await canViewPixel(auth, pixelId))) {
+  if (!(await canUpdatePixel(auth, pixelId))) {
     return unauthorized();
   }
 

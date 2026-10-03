@@ -85,12 +85,11 @@ const operation2 = defineOperation({
   method: 'get',
   path: '/api/share/id/{shareId}',
   audience: 'public',
-  auth: 'bearer-or-share',
+  auth: 'bearer',
   operation: {
     operationId: 'getShare',
     summary: 'Get a share',
-    description:
-      "Returns a share's configuration by its ID after checking access to the shared resource.",
+    description: "Returns a share's configuration by its ID to a caller allowed to manage it.",
     tags: ['Shares'],
     parameters: [
       {

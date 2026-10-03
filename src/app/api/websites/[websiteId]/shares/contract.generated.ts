@@ -7,11 +7,11 @@ const operation1 = defineOperation({
   method: 'get',
   path: '/api/websites/{websiteId}/shares',
   audience: 'public',
-  auth: 'bearer-or-share',
+  auth: 'bearer',
   operation: {
     operationId: 'getWebsiteShares',
     summary: 'List shares for a website',
-    description: 'Returns a paginated list of shares for the specified website.',
+    description: 'Returns a paginated list of shares for a website the caller may manage.',
     tags: ['Websites'],
     parameters: [
       {

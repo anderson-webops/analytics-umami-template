@@ -39,7 +39,9 @@ export async function GET(
     });
   }
 
-  return json(redactWebsiteShareId(website, auth.authType));
+  const canManageShares = auth.authType === 'session' && (await canUpdateWebsite(auth, websiteId));
+
+  return json(redactWebsiteShareId(website, auth.authType, canManageShares));
 }
 
 export async function POST(

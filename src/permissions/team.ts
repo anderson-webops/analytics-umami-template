@@ -105,6 +105,20 @@ export async function canCreateTeamWebsite({ user }: Auth, teamId: string) {
   return teamUser && hasPermission(teamUser.role, PERMISSIONS.websiteCreate);
 }
 
+export async function canUpdateTeamWebsites({ user }: Auth, teamId: string) {
+  if (!user) {
+    return false;
+  }
+
+  if (user.isAdmin) {
+    return !!(await getTeam(teamId));
+  }
+
+  const teamUser = await getTeamUser(teamId, user.id);
+
+  return !!teamUser && hasPermission(teamUser.role, PERMISSIONS.websiteUpdate);
+}
+
 export async function canViewAllTeams({ user }: Auth) {
   return user?.isAdmin ?? false;
 }

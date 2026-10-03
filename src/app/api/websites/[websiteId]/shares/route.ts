@@ -6,7 +6,7 @@ import { parseRequest } from '@/lib/request';
 import { conflict, json, notFound, unauthorized } from '@/lib/response';
 import { filterParams, pagingParams, shareParametersParam } from '@/lib/schema';
 import { publicSharesDisabled } from '@/lib/security';
-import { canUpdateWebsite, canViewAuthenticatedWebsite } from '@/permissions';
+import { canUpdateWebsite } from '@/permissions';
 import { createShare, getSharesByEntityId } from '@/queries/prisma';
 
 export async function GET(
@@ -27,7 +27,7 @@ export async function GET(
   const { websiteId } = await params;
   const { page, pageSize, search } = query;
 
-  if (!(await canViewAuthenticatedWebsite(auth, websiteId))) {
+  if (!(await canUpdateWebsite(auth, websiteId))) {
     return unauthorized();
   }
 

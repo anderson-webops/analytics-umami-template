@@ -3,7 +3,7 @@ import { redactWebsiteShareId } from '@/lib/api-key';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import { json, unauthorized } from '@/lib/response';
 import { pagingParams, searchParams, sortingParams } from '@/lib/schema';
-import { canViewTeam } from '@/permissions';
+import { canUpdateTeamWebsites, canViewTeam } from '@/permissions';
 import { getTeamWebsites } from '@/queries/prisma';
 
 export async function GET(request: Request, { params }: { params: Promise<{ teamId: string }> }) {
@@ -26,9 +26,13 @@ export async function GET(request: Request, { params }: { params: Promise<{ team
   const filters = await getQueryFilters(query);
 
   const websites = await getTeamWebsites(teamId, filters);
+  const canManageShares =
+    auth.authType === 'session' && (await canUpdateTeamWebsites(auth, teamId));
 
   return json({
     ...websites,
-    data: websites.data.map(website => redactWebsiteShareId(website, auth.authType)),
+    data: websites.data.map(website =>
+      redactWebsiteShareId(website, auth.authType, canManageShares),
+    ),
   });
 }

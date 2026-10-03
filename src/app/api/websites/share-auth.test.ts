@@ -2,6 +2,7 @@ import { beforeEach, expect, test, vi } from 'vitest';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import {
   canCreateWebsite,
+  canUpdateTeamWebsites,
   canUpdateWebsite,
   canViewSharedWebsite,
   canViewTeam,
@@ -22,6 +23,7 @@ vi.mock('@/lib/load', () => ({ fetchAccount: vi.fn(), fetchTeam: vi.fn() }));
 vi.mock('@/lib/request', () => ({ getQueryFilters: vi.fn(), parseRequest: vi.fn() }));
 vi.mock('@/permissions', () => ({
   canCreateWebsite: vi.fn(),
+  canUpdateTeamWebsites: vi.fn(),
   canUpdateWebsite: vi.fn(),
   canViewSharedWebsite: vi.fn(),
   canViewTeam: vi.fn(),
@@ -39,6 +41,7 @@ vi.mock('@/queries/prisma/website', () => websiteListMocks);
 const getQueryFiltersMock = vi.mocked(getQueryFilters);
 const parseRequestMock = vi.mocked(parseRequest);
 const canCreateWebsiteMock = vi.mocked(canCreateWebsite);
+const canUpdateTeamWebsitesMock = vi.mocked(canUpdateTeamWebsites);
 const canUpdateWebsiteMock = vi.mocked(canUpdateWebsite);
 const canViewSharedWebsiteMock = vi.mocked(canViewSharedWebsite);
 const canViewTeamMock = vi.mocked(canViewTeam);
@@ -62,6 +65,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.unstubAllEnvs();
   canCreateWebsiteMock.mockResolvedValue(true);
+  canUpdateTeamWebsitesMock.mockResolvedValue(true);
   canUpdateWebsiteMock.mockResolvedValue(true);
   canViewSharedWebsiteMock.mockResolvedValue(true);
   canViewTeamMock.mockResolvedValue(true);
@@ -159,6 +163,25 @@ test.each(['api-key', 'session'] as const)(
     }
   },
 );
+
+test('read-only website access does not reveal a public share slug', async () => {
+  setAuth('session');
+  canUpdateWebsiteMock.mockResolvedValue(false);
+  canUpdateTeamWebsitesMock.mockResolvedValue(false);
+
+  const detail = await getWebsiteRoute(new Request(`http://localhost/api/websites/${websiteId}`), {
+    params: Promise.resolve({ websiteId }),
+  });
+  const teamList = await getTeamWebsitesRoute(
+    new Request('http://localhost/api/teams/team-1/websites'),
+    { params: Promise.resolve({ teamId: 'team-1' }) },
+  );
+
+  expect(detail.status).toBe(200);
+  expect((await detail.json()).shareId).toBeNull();
+  expect(teamList.status).toBe(200);
+  expect((await teamList.json()).data[0].shareId).toBeNull();
+});
 
 test('interactive sessions retain website share management', async () => {
   setAuth('session', 'public-slug');

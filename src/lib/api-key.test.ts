@@ -77,7 +77,12 @@ test('API-key website responses hide durable public-share slugs', () => {
   const website = { id: 'site-1', shareId: 'public-slug' };
 
   expect(redactWebsiteShareId(website, 'api-key')).toEqual({ id: 'site-1', shareId: null });
-  expect(redactWebsiteShareId(website, 'session')).toEqual(website);
+  expect(redactWebsiteShareId(website, 'session', false)).toEqual({
+    id: 'site-1',
+    shareId: null,
+  });
+  expect(redactWebsiteShareId(website, 'session')).toEqual({ id: 'site-1', shareId: null });
+  expect(redactWebsiteShareId(website, 'session', true)).toEqual(website);
   expect(website.shareId).toBe('public-slug');
 });
 
