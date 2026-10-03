@@ -39,9 +39,18 @@ export function resolveClientOptions(env: StdioEnvironment = process.env): Umami
 
   if (apiUrl) {
     baseUrl = trimSlashes(apiUrl);
+    if (!baseUrl) {
+      throw new Error('UMAMI_API_URL must specify an API endpoint.');
+    }
   } else if (instanceUrl) {
     const trimmed = trimSlashes(instanceUrl);
     baseUrl = /\/api$/.test(trimmed) ? trimmed : `${trimmed}/api`;
+  }
+
+  const cloudKeyOnly = apiKey?.startsWith('api_') === true && (!token || token === apiKey);
+
+  if (!baseUrl && !cloudKeyOnly) {
+    throw new Error('A bearer token or non-Cloud API key requires UMAMI_URL or UMAMI_API_URL.');
   }
 
   return { baseUrl, token, apiKey };

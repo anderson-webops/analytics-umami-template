@@ -96,6 +96,11 @@ MCP is disabled by default. Set `MCP_ENABLED=1` to enable the endpoint.
 | `UMAMI_API_TOKEN` | API key or login token (self-hosted).                              |
 | `UMAMI_API_KEY`   | Umami Cloud API key.                                               |
 
+When using `UMAMI_API_TOKEN`, set `UMAMI_URL` or `UMAMI_API_URL`. The stdio server rejects a bearer
+token without an explicit endpoint rather than sending it to the default Umami Cloud API.
+An `UMAMI_API_KEY` without an endpoint must be a Cloud key (`api_…`); self-hosted keys (`umami_…`)
+also require an explicit endpoint.
+
 For Cloud stdio, set `UMAMI_API_KEY` and omit `UMAMI_URL` and `UMAMI_API_TOKEN`:
 
 ```json
