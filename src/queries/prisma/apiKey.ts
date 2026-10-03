@@ -19,7 +19,9 @@ export async function createApiKey(data: {
 }
 
 export async function getApiKeyByHash(keyHash: string) {
-  return prisma.client.apiKey.findUnique({
+  const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
+
+  return client.apiKey.findUnique({
     where: { keyHash },
   });
 }

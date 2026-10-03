@@ -22,8 +22,9 @@ export interface GetUserOptions {
 
 async function findUser(criteria: Prisma.UserFindUniqueArgs, options: GetUserOptions = {}) {
   const { includePassword = false, showDeleted = false } = options;
+  const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
 
-  return prisma.client.user.findUnique({
+  return client.user.findUnique({
     ...criteria,
     where: {
       ...criteria.where,
