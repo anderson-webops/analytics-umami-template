@@ -16,7 +16,7 @@ import {
   getTwoFactorConfigurationError,
   isTwoFactorConfigured,
 } from '@/lib/two-factor/crypto';
-import { checkRateLimit, recordFailedAttempt, resetRateLimit } from '@/lib/two-factor/rate-limit';
+import { reserveTwoFactorAttempt, resetRateLimit } from '@/lib/two-factor/rate-limit';
 import { consumeOtp } from '@/lib/two-factor/replay-prevention';
 import { verifyTotp } from '@/lib/two-factor/totp';
 import { getAllUserTeams, getUser } from '@/queries/prisma';
@@ -73,14 +73,14 @@ export async function POST(request: Request) {
     });
   }
 
-  const rateCheck = await checkRateLimit(userId);
-  if (!rateCheck.allowed) {
+  const attempt = await reserveTwoFactorAttempt(userId);
+  if (!attempt.allowed) {
     return Response.json(
       {
         error: {
           code: 'two-factor-error-too-many-attempts',
           message: 'Too many failed attempts',
-          lockedUntil: rateCheck.lockedUntil,
+          lockedUntil: attempt.lockedUntil,
         },
       },
       { status: 429 },
@@ -95,11 +95,10 @@ export async function POST(request: Request) {
     const matchIndex = await verifyBackupCode(body.backupCode, hashes);
 
     if (matchIndex === null) {
-      const { lockedUntil } = await recordFailedAttempt(userId);
       return badRequest({
         code: 'two-factor-error-invalid-backup-code',
         message: 'Invalid backup code',
-        ...(lockedUntil && { lockedUntil }),
+        ...(attempt.lockedUntil && { lockedUntil: attempt.lockedUntil }),
       });
     }
 
@@ -109,11 +108,10 @@ export async function POST(request: Request) {
     });
 
     if (consumed.count === 0) {
-      const { lockedUntil } = await recordFailedAttempt(userId);
       return badRequest({
         code: 'two-factor-error-invalid-backup-code',
         message: 'Invalid backup code',
-        ...(lockedUntil && { lockedUntil }),
+        ...(attempt.lockedUntil && { lockedUntil: attempt.lockedUntil }),
       });
     }
 
@@ -124,11 +122,10 @@ export async function POST(request: Request) {
     const decryptedSecret = decryptSecret(twoFactor.secret);
 
     if (!(await verifyTotp(token, decryptedSecret))) {
-      const { lockedUntil } = await recordFailedAttempt(userId);
       return badRequest({
         code: 'two-factor-error-invalid-code',
         message: 'Invalid verification code',
-        ...(lockedUntil && { lockedUntil }),
+        ...(attempt.lockedUntil && { lockedUntil: attempt.lockedUntil }),
       });
     }
 

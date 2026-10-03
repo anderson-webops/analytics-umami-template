@@ -13,8 +13,7 @@ const mocks = vi.hoisted(() => ({
   verifyBackupCode: vi.fn(),
   decryptSecret: vi.fn(),
   isTwoFactorConfigured: vi.fn(),
-  checkRateLimit: vi.fn(),
-  recordFailedAttempt: vi.fn(),
+  reserveTwoFactorAttempt: vi.fn(),
   resetRateLimit: vi.fn(),
   consumeOtp: vi.fn(),
   verifyTotp: vi.fn(),
@@ -70,8 +69,7 @@ vi.mock('@/lib/two-factor/crypto', () => ({
 }));
 
 vi.mock('@/lib/two-factor/rate-limit', () => ({
-  checkRateLimit: mocks.checkRateLimit,
-  recordFailedAttempt: mocks.recordFailedAttempt,
+  reserveTwoFactorAttempt: mocks.reserveTwoFactorAttempt,
   resetRateLimit: mocks.resetRateLimit,
 }));
 
@@ -104,8 +102,7 @@ beforeEach(() => {
   mocks.verifyBackupCode.mockReset();
   mocks.decryptSecret.mockReset();
   mocks.isTwoFactorConfigured.mockReset();
-  mocks.checkRateLimit.mockReset();
-  mocks.recordFailedAttempt.mockReset();
+  mocks.reserveTwoFactorAttempt.mockReset();
   mocks.resetRateLimit.mockReset();
   mocks.consumeOtp.mockReset();
   mocks.verifyTotp.mockReset();
@@ -137,8 +134,7 @@ beforeEach(() => {
   mocks.createSecureToken.mockReturnValue('full-auth-token');
   mocks.decryptSecret.mockReturnValue('plain-secret');
   mocks.isTwoFactorConfigured.mockReturnValue(true);
-  mocks.checkRateLimit.mockResolvedValue({ allowed: true });
-  mocks.recordFailedAttempt.mockResolvedValue({ lockedUntil: undefined });
+  mocks.reserveTwoFactorAttempt.mockResolvedValue({ allowed: true });
   mocks.resetRateLimit.mockResolvedValue(undefined);
   mocks.consumeOtp.mockResolvedValue(true);
   mocks.verifyTotp.mockResolvedValue(true);
@@ -160,6 +156,10 @@ test('POST accepts a token-only payload and completes 2FA verification', async (
   );
 
   expect(mocks.verifyTotp).toHaveBeenCalledWith('123456', 'plain-secret');
+  expect(mocks.reserveTwoFactorAttempt).toHaveBeenCalledWith('user-1');
+  expect(mocks.reserveTwoFactorAttempt.mock.invocationCallOrder[0]).toBeLessThan(
+    mocks.verifyTotp.mock.invocationCallOrder[0],
+  );
   expect(mocks.consumeOtp).toHaveBeenCalledWith('user-1', '123456');
   expect(mocks.resetRateLimit).toHaveBeenCalledWith('user-1');
   expect(mocks.createSecureToken).toHaveBeenCalledWith(
@@ -203,6 +203,49 @@ test('POST rejects a valid TOTP already consumed by a concurrent request', async
   });
   expect(mocks.createSecureToken).not.toHaveBeenCalled();
   expect(mocks.resetRateLimit).not.toHaveBeenCalled();
+  expect(mocks.reserveTwoFactorAttempt).toHaveBeenCalledWith('user-1');
+});
+
+test('POST denies exhausted attempts before checking a TOTP', async () => {
+  const lockedUntil = new Date('2026-10-03T12:15:00.000Z');
+  mocks.reserveTwoFactorAttempt.mockResolvedValue({ allowed: false, lockedUntil });
+
+  const response = await POST(
+    new Request('http://localhost/api/2fa/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer partial-token' },
+      body: JSON.stringify({ token: '123456' }),
+    }),
+  );
+
+  expect(response.status).toBe(429);
+  await expect(response.json()).resolves.toMatchObject({
+    error: { code: 'two-factor-error-too-many-attempts', lockedUntil: lockedUntil.toISOString() },
+  });
+  expect(mocks.verifyTotp).not.toHaveBeenCalled();
+  expect(mocks.createSecureToken).not.toHaveBeenCalled();
+});
+
+test('POST bounds concurrent TOTP checks to reserved attempts', async () => {
+  let reserved = 0;
+  mocks.reserveTwoFactorAttempt.mockImplementation(async () => ({ allowed: ++reserved <= 5 }));
+  mocks.verifyTotp.mockResolvedValue(false);
+
+  const responses = await Promise.all(
+    Array.from({ length: 12 }, () =>
+      POST(
+        new Request('http://localhost/api/2fa/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer partial-token' },
+          body: JSON.stringify({ token: '123456' }),
+        }),
+      ),
+    ),
+  );
+
+  expect(responses.filter(response => response.status === 400)).toHaveLength(5);
+  expect(responses.filter(response => response.status === 429)).toHaveLength(7);
+  expect(mocks.verifyTotp).toHaveBeenCalledTimes(5);
 });
 
 test('POST returns a configuration error when the encryption key is missing', async () => {

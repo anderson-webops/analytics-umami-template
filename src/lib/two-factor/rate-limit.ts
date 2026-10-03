@@ -1,57 +1,53 @@
-import { Prisma } from '@/generated/prisma/client';
+import { uuid } from '@/lib/crypto';
 import prisma from '@/lib/prisma';
 
 const MAX_ATTEMPTS = 5;
 const LOCKOUT_MINUTES = 15;
-const MAX_RETRIES = 3;
 
-export async function checkRateLimit(
-  userId: string,
-): Promise<{ allowed: boolean; lockedUntil?: Date }> {
-  const record = await prisma.client.twoFactorRateLimit.findUnique({ where: { userId } });
-  if (!record) return { allowed: true };
-  if (record.lockedUntil && record.lockedUntil > new Date()) {
-    return { allowed: false, lockedUntil: record.lockedUntil };
-  }
-  return { allowed: true };
+function lockExpiry(epoch?: number | null) {
+  return epoch == null ? undefined : new Date(epoch * 1000);
 }
 
-export async function recordFailedAttempt(userId: string): Promise<{ lockedUntil?: Date }> {
-  let retries = 0;
-  while (retries < MAX_RETRIES) {
-    try {
-      /*
-      prisma.transaction accepts `any` to support both batch and callback forms,
-      so TypeScript resolves to the batch overload and infers `any[]`. Cast is safe:
-      the callback form always returns the callback's return type.
-       */
-      return await (prisma.transaction(
-        async (tx: Prisma.TransactionClient): Promise<{ lockedUntil?: Date }> => {
-          const record = await tx.twoFactorRateLimit.upsert({
-            where: { userId },
-            update: { attempts: { increment: 1 } },
-            create: { userId, attempts: 1 },
-          });
-          if (record.attempts >= MAX_ATTEMPTS) {
-            const lockedUntil = new Date(Date.now() + LOCKOUT_MINUTES * 60 * 1000);
-            await tx.twoFactorRateLimit.update({ where: { userId }, data: { lockedUntil } });
-            return { lockedUntil };
-          }
-          return {};
-        },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-      ) as Promise<{ lockedUntil?: Date }>);
-    } catch (err: any) {
-      if (err.code === 'P2034') {
-        retries++;
-        continue;
-      }
-      throw err;
-    }
+export async function reserveTwoFactorAttempt(
+  userId: string,
+): Promise<{ allowed: boolean; lockedUntil?: Date }> {
+  const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
+  const rows = await client.$queryRaw<Array<{ lockedUntilEpoch: number | null }>>`
+    INSERT INTO "two_factor_rate_limit" ("id", "user_id", "attempts", "locked_until", "updated_at")
+    VALUES (${uuid()}, ${userId}::uuid, 1, NULL, clock_timestamp())
+    ON CONFLICT ("user_id") DO UPDATE SET
+      "attempts" = CASE
+        WHEN "two_factor_rate_limit"."locked_until" <= clock_timestamp() THEN 1
+        ELSE "two_factor_rate_limit"."attempts" + 1
+      END,
+      "locked_until" = CASE
+        WHEN "two_factor_rate_limit"."locked_until" <= clock_timestamp() THEN NULL
+        WHEN "two_factor_rate_limit"."attempts" + 1 >= ${MAX_ATTEMPTS}
+          THEN clock_timestamp() + (${LOCKOUT_MINUTES} * interval '1 minute')
+        ELSE NULL
+      END,
+      "updated_at" = clock_timestamp()
+    WHERE (
+      "two_factor_rate_limit"."locked_until" IS NULL
+      AND "two_factor_rate_limit"."attempts" < ${MAX_ATTEMPTS}
+    ) OR "two_factor_rate_limit"."locked_until" <= clock_timestamp()
+    RETURNING EXTRACT(EPOCH FROM "locked_until")::float8 AS "lockedUntilEpoch"
+  `;
+
+  if (rows.length === 1) {
+    return { allowed: true, lockedUntil: lockExpiry(rows[0].lockedUntilEpoch) };
   }
-  throw new Error('recordFailedAttempt: max retries exceeded');
+
+  const lock = await client.$queryRaw<Array<{ lockedUntilEpoch: number | null }>>`
+    SELECT EXTRACT(EPOCH FROM "locked_until")::float8 AS "lockedUntilEpoch"
+    FROM "two_factor_rate_limit"
+    WHERE "user_id" = ${userId}::uuid
+  `;
+
+  return { allowed: false, lockedUntil: lockExpiry(lock[0]?.lockedUntilEpoch) };
 }
 
 export async function resetRateLimit(userId: string): Promise<void> {
-  await prisma.client.twoFactorRateLimit.deleteMany({ where: { userId } });
+  const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
+  await client.twoFactorRateLimit.deleteMany({ where: { userId } });
 }

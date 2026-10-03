@@ -20,8 +20,7 @@ const mocks = vi.hoisted(() => {
     generateBackupCodes: vi.fn(),
     decryptSecret: vi.fn(),
     isTwoFactorConfigured: vi.fn(),
-    checkRateLimit: vi.fn(),
-    recordFailedAttempt: vi.fn(),
+    reserveTwoFactorAttempt: vi.fn(),
     resetRateLimit: vi.fn(),
     consumeOtp: vi.fn(),
     verifyTotp: vi.fn(),
@@ -82,8 +81,7 @@ vi.mock('@/lib/two-factor/crypto', () => ({
 }));
 
 vi.mock('@/lib/two-factor/rate-limit', () => ({
-  checkRateLimit: mocks.checkRateLimit,
-  recordFailedAttempt: mocks.recordFailedAttempt,
+  reserveTwoFactorAttempt: mocks.reserveTwoFactorAttempt,
   resetRateLimit: mocks.resetRateLimit,
 }));
 
@@ -105,8 +103,7 @@ beforeEach(() => {
   mocks.generateBackupCodes.mockReset();
   mocks.decryptSecret.mockReset();
   mocks.isTwoFactorConfigured.mockReset();
-  mocks.checkRateLimit.mockReset();
-  mocks.recordFailedAttempt.mockReset();
+  mocks.reserveTwoFactorAttempt.mockReset();
   mocks.resetRateLimit.mockReset();
   mocks.consumeOtp.mockReset();
   mocks.verifyTotp.mockReset();
@@ -133,8 +130,7 @@ beforeEach(() => {
   });
   mocks.decryptSecret.mockReturnValue('plain-secret');
   mocks.isTwoFactorConfigured.mockReturnValue(true);
-  mocks.checkRateLimit.mockResolvedValue({ allowed: true });
-  mocks.recordFailedAttempt.mockResolvedValue({ lockedUntil: undefined });
+  mocks.reserveTwoFactorAttempt.mockResolvedValue({ allowed: true });
   mocks.resetRateLimit.mockResolvedValue(undefined);
   mocks.consumeOtp.mockResolvedValue(true);
   mocks.verifyTotp.mockResolvedValue(true);
@@ -152,7 +148,7 @@ test('POST confirms setup, enables 2FA, stores backup codes, and resets the rate
     new Request('http://localhost/api/2fa/setup/confirm', { method: 'POST' }),
   );
 
-  expect(mocks.checkRateLimit).toHaveBeenCalledWith('user-1');
+  expect(mocks.reserveTwoFactorAttempt).toHaveBeenCalledWith('user-1');
   expect(mocks.decryptSecret).toHaveBeenCalledWith('encrypted');
   expect(mocks.verifyTotp).toHaveBeenCalledWith('123456', 'plain-secret');
   expect(mocks.tx.twoFactorAuth.updateMany).toHaveBeenCalledWith({
@@ -231,7 +227,7 @@ test('POST reports a configuration error when the encryption key is missing', as
     new Request('http://localhost/api/2fa/setup/confirm', { method: 'POST' }),
   );
 
-  expect(mocks.checkRateLimit).not.toHaveBeenCalled();
+  expect(mocks.reserveTwoFactorAttempt).not.toHaveBeenCalled();
   expect(mocks.decryptSecret).not.toHaveBeenCalled();
   await expect(response.json()).resolves.toMatchObject({
     error: {
@@ -241,14 +237,14 @@ test('POST reports a configuration error when the encryption key is missing', as
   expect(response.status).toBe(503);
 });
 
-test('POST records a failed attempt and skips writes when the token is invalid', async () => {
+test('POST reserves an attempt and skips writes when the token is invalid', async () => {
   mocks.verifyTotp.mockResolvedValue(false);
 
   const response = await POST(
     new Request('http://localhost/api/2fa/setup/confirm', { method: 'POST' }),
   );
 
-  expect(mocks.recordFailedAttempt).toHaveBeenCalledWith('user-1');
+  expect(mocks.reserveTwoFactorAttempt).toHaveBeenCalledWith('user-1');
   expect(mocks.transaction).not.toHaveBeenCalled();
   expect(mocks.resetRateLimit).not.toHaveBeenCalled();
   await expect(response.json()).resolves.toMatchObject({

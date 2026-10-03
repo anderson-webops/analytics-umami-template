@@ -22,7 +22,7 @@ import {
   getTwoFactorConfigurationError,
   isTwoFactorConfigured,
 } from '@/lib/two-factor/crypto';
-import { checkRateLimit, recordFailedAttempt, resetRateLimit } from '@/lib/two-factor/rate-limit';
+import { reserveTwoFactorAttempt, resetRateLimit } from '@/lib/two-factor/rate-limit';
 import { consumeOtp } from '@/lib/two-factor/replay-prevention';
 import { verifyTotp } from '@/lib/two-factor/totp';
 import { getUser } from '@/queries/prisma/user';
@@ -62,14 +62,14 @@ export async function POST(request: Request) {
   }
 
   // Verify rate limit
-  const rateCheck = await checkRateLimit(userId);
-  if (!rateCheck.allowed) {
+  const attempt = await reserveTwoFactorAttempt(userId);
+  if (!attempt.allowed) {
     return Response.json(
       {
         error: {
           code: 'two-factor-error-too-many-attempts',
           message: 'Too many failed attempts',
-          lockedUntil: rateCheck.lockedUntil,
+          lockedUntil: attempt.lockedUntil,
         },
       },
       { status: 429 },
@@ -79,11 +79,10 @@ export async function POST(request: Request) {
   // Verify TOTP
   const totpSecret = decryptSecret(twoFactor.secret);
   if (!(await verifyTotp(token, totpSecret))) {
-    const { lockedUntil } = await recordFailedAttempt(userId);
     return badRequest({
       code: 'two-factor-error-invalid-code',
       message: 'Invalid verification code',
-      ...(lockedUntil && { lockedUntil }),
+      ...(attempt.lockedUntil && { lockedUntil: attempt.lockedUntil }),
     });
   }
 
