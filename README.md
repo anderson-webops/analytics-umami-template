@@ -73,6 +73,7 @@ The exact artifact and clean-runtime acceptance rules are documented in
 - When 2FA is required for an unenrolled user, a fresh password login grants only a 15-minute setup session. It exposes no team memberships. Existing sessions cannot enroll a factor after the requirement changes. Confirming setup issues a new verified session; older unverified or prior-enrollment sessions stop working once 2FA is enabled. Concurrent or stale setup attempts cannot reset an enabled factor. API keys remain unavailable for users who have not enrolled in required 2FA.
 - Cloud mode uses its configured SSO flow; the local password-login API is unavailable there.
 - MCP remains disabled by default. Set `MCP_ENABLED=1` only for an intentional deployment, then authenticate it with a user-bound API key created under Settings. MCP tools are read-only and retain that user's website/team permissions; enabling MCP does not weaken the normal browser-session boundary.
+- API keys can read authorized team and analytics data, but cannot manage team membership, ownership, website transfers, or public shares. Team invitation codes and existing public-share slugs are not returned to API keys; website `shareId` appears as `null` for those callers. Rotate any invitation code disclosed to an API key before this restriction is deployed.
 - Rotate the seeded administrator password before public promotion:
 
   ```bash

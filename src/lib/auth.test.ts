@@ -272,8 +272,9 @@ describe('checkAuth required 2FA enrollment', () => {
 describe('checkAuth api keys', () => {
   const API_KEY = 'umami_abcdefghijklmnopqrstuvwxyz012345';
 
-  function apiKeyRequest(path = '/api/websites') {
+  function apiKeyRequest(path = '/api/websites', method = 'GET') {
     return new Request(`http://localhost${path}`, {
+      method,
       headers: { authorization: `Bearer ${API_KEY}` },
     });
   }
@@ -353,6 +354,55 @@ describe('checkAuth api keys', () => {
     }
 
     expect(getApiKeyByHashMock).not.toHaveBeenCalled();
+  });
+
+  test('rejects team and share authority operations before looking up an API key', async () => {
+    mockApiKey();
+    mockUser();
+
+    for (const [method, path] of [
+      ['POST', '/api/teams/team-1/users'],
+      ['POST', '/api/teams/team-1/owner'],
+      ['POST', '/api/teams/join'],
+      ['POST', '/api/share'],
+      ['POST', '/api/websites/site-1/shares'],
+      ['POST', '/api/websites/site-1/transfer'],
+      ['GET', '/api/share/id/share-1'],
+      ['GET', '/api/boards/board-1/shares'],
+    ]) {
+      expect(await checkAuth(apiKeyRequest(path, method))).toBeNull();
+    }
+
+    expect(getApiKeyByHashMock).not.toHaveBeenCalled();
+    expect(await checkAuth(apiKeyRequest('/api/teams', 'GET'))).not.toBeNull();
+    expect(await checkAuth(apiKeyRequest('/api/websites/site-1/stats', 'GET'))).not.toBeNull();
+  });
+
+  test('rejects rewritten team and share mutations but keeps session authority', async () => {
+    vi.stubEnv('BASE_PATH', '/analytics');
+    vi.stubEnv('API_URL', '/data');
+    mockApiKey();
+    mockUser();
+
+    for (const path of [
+      '/analytics/data/teams/team-1/users',
+      '/analytics/teams/nav/data/teams/team-1/owner',
+      '/analytics/data/%73hare',
+      '/analytics/data/pixels/pixel-1/shares',
+      '/analytics/data/websites/site-1/transfer',
+    ]) {
+      expect(await checkAuth(apiKeyRequest(path, 'POST'))).toBeNull();
+    }
+
+    expect(getApiKeyByHashMock).not.toHaveBeenCalled();
+
+    parseSecureTokenMock.mockReturnValue({
+      userId: 'user-1',
+      role: 'user',
+      pwd: hash(PASSWORD_HASH),
+    } as any);
+    expect(await checkAuth(authedRequest('/api/teams/team-1/users', 'POST'))).not.toBeNull();
+    expect(await checkAuth(authedRequest('/api/share', 'POST'))).not.toBeNull();
   });
 
   test('ignores API keys in cloud mode', async () => {

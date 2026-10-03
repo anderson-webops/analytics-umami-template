@@ -1,3 +1,4 @@
+import { redactWebsiteShareId } from '@/lib/api-key';
 import { parseRequest } from '@/lib/request';
 import { badRequest, json, notFound, ok, serverError, unauthorized } from '@/lib/response';
 import { publicSharesDisabled } from '@/lib/security';
@@ -38,7 +39,7 @@ export async function GET(
     });
   }
 
-  return json(website);
+  return json(redactWebsiteShareId(website, auth.authType));
 }
 
 export async function POST(
@@ -53,6 +54,10 @@ export async function POST(
 
   const { websiteId } = await params;
   const { name, domain, shareId, replayConfig } = body;
+
+  if (auth.authType === 'api-key' && shareId !== undefined) {
+    return unauthorized({ message: 'An interactive session is required to manage public shares.' });
+  }
 
   if (shareId && publicSharesDisabled()) {
     return badRequest({ message: 'Public analytics shares are disabled.' });
@@ -78,7 +83,7 @@ export async function POST(
 
     return json({
       ...website,
-      shareId: share?.slug ?? null,
+      shareId: auth.authType === 'api-key' ? null : (share?.slug ?? null),
     });
   } catch (e: any) {
     if (e.message === 'ENTITY_NOT_FOUND') {

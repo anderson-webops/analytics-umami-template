@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { redactWebsiteShareId } from '@/lib/api-key';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import { json, unauthorized } from '@/lib/response';
 import { pagingParams, searchParams, sortingParams } from '@/lib/schema';
@@ -26,5 +27,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ team
 
   const websites = await getTeamWebsites(teamId, filters);
 
-  return json(websites);
+  return json({
+    ...websites,
+    data: websites.data.map(website => redactWebsiteShareId(website, auth.authType)),
+  });
 }

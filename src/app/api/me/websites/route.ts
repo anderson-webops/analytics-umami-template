@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { redactWebsiteShareId } from '@/lib/api-key';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import { json } from '@/lib/response';
 import { pagingParams, sortingParams } from '@/lib/schema';
@@ -20,8 +21,16 @@ export async function GET(request: Request) {
   const filters = await getQueryFilters(query);
 
   if (query.includeTeams) {
-    return json(await getAllUserWebsitesIncludingTeamAccess(auth.user.id, filters));
+    const websites = await getAllUserWebsitesIncludingTeamAccess(auth.user.id, filters);
+    return json({
+      ...websites,
+      data: websites.data.map(website => redactWebsiteShareId(website, auth.authType)),
+    });
   }
 
-  return json(await getUserWebsites(auth.user.id, filters));
+  const websites = await getUserWebsites(auth.user.id, filters);
+  return json({
+    ...websites,
+    data: websites.data.map(website => redactWebsiteShareId(website, auth.authType)),
+  });
 }

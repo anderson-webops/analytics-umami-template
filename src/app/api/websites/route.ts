@@ -1,3 +1,4 @@
+import { redactWebsiteShareId } from '@/lib/api-key';
 import { uuid } from '@/lib/crypto';
 import { isEnvEnabled } from '@/lib/env';
 import { fetchAccount, fetchTeam } from '@/lib/load';
@@ -22,10 +23,18 @@ export async function GET(request: Request) {
   const filters = await getQueryFilters(query);
 
   if (query.includeTeams) {
-    return json(await getAllUserWebsitesIncludingTeamAccess(userId, filters));
+    const websites = await getAllUserWebsitesIncludingTeamAccess(userId, filters);
+    return json({
+      ...websites,
+      data: websites.data.map(website => redactWebsiteShareId(website, auth.authType)),
+    });
   }
 
-  return json(await getUserWebsites(userId, filters));
+  const websites = await getUserWebsites(userId, filters);
+  return json({
+    ...websites,
+    data: websites.data.map(website => redactWebsiteShareId(website, auth.authType)),
+  });
 }
 
 export async function POST(request: Request) {
@@ -36,6 +45,10 @@ export async function POST(request: Request) {
   }
 
   const { id, name, domain, shareId, teamId } = body;
+
+  if (auth.authType === 'api-key' && shareId) {
+    return unauthorized({ message: 'An interactive session is required to manage public shares.' });
+  }
 
   if (id && !auth.user.isAdmin) {
     return unauthorized({ message: 'Only an administrator can supply an entity ID.' });

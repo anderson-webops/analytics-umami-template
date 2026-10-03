@@ -8,11 +8,77 @@ import {
   hashApiKey,
   isApiKey,
   isApiKeyBlockedPath,
+  isApiKeyBlockedRequest,
   isApiKeyEnabled,
+  redactWebsiteShareId,
 } from './api-key';
 
 afterEach(() => {
   vi.unstubAllEnvs();
+});
+
+describe('isApiKeyBlockedRequest', () => {
+  test.each([
+    ['POST', '/api/teams'],
+    ['POST', '/api/teams/join'],
+    ['POST', '/api/teams/team-1'],
+    ['DELETE', '/api/teams/team-1'],
+    ['POST', '/api/teams/team-1/users'],
+    ['POST', '/api/teams/team-1/users/user-2'],
+    ['DELETE', '/api/teams/team-1/users/user-2'],
+    ['POST', '/api/teams/team-1/owner'],
+    ['POST', '/api/share'],
+    ['GET', '/api/share/id/share-1'],
+    ['POST', '/api/share/id/share-1'],
+    ['DELETE', '/api/share/id/share-1'],
+    ['POST', '/api/websites/site-1/shares'],
+    ['POST', '/api/boards/board-1/shares'],
+    ['POST', '/api/links/link-1/shares'],
+    ['POST', '/api/pixels/pixel-1/shares'],
+    ['GET', '/api/websites/site-1/shares'],
+    ['POST', '/api/websites/site-1/transfer'],
+  ])('rejects %s %s for an ordinary API key', (method, path) => {
+    expect(isApiKeyBlockedRequest(path, method)).toBe(true);
+  });
+
+  test('allows unrelated reads and data operations', () => {
+    for (const [method, path] of [
+      ['GET', '/api/teams'],
+      ['GET', '/api/teams/team-1'],
+      ['GET', '/api/teams/team-1/users'],
+      ['GET', '/api/websites/site-1/stats'],
+      ['POST', '/api/websites/site-1/annotations'],
+      ['POST', '/api/authors'],
+    ]) {
+      expect(isApiKeyBlockedRequest(path, method)).toBe(false);
+    }
+  });
+
+  test('rejects aliases and encoded sensitive routes without matching neighbors', () => {
+    const options = { basePath: '/analytics', apiUrl: '/data' };
+
+    for (const path of [
+      '/analytics/data/teams/team-1/users',
+      '/analytics/teams/nav/data/teams/team-1/owner',
+      '/analytics/data/websites/site-1/shares',
+      '/analytics/data/%73hare/id/share-1',
+      '/analytics/data/boards/board-1/shares/../shares',
+      '/analytics/data/websites/site-1/transfer',
+    ]) {
+      expect(isApiKeyBlockedRequest(path, 'POST', options)).toBe(true);
+    }
+
+    expect(isApiKeyBlockedRequest('/api/teamsters', 'POST')).toBe(false);
+    expect(isApiKeyBlockedRequest('/api/websites/site-1/shared', 'POST')).toBe(false);
+  });
+});
+
+test('API-key website responses hide durable public-share slugs', () => {
+  const website = { id: 'site-1', shareId: 'public-slug' };
+
+  expect(redactWebsiteShareId(website, 'api-key')).toEqual({ id: 'site-1', shareId: null });
+  expect(redactWebsiteShareId(website, 'session')).toEqual(website);
+  expect(website.shareId).toBe('public-slug');
 });
 
 describe('generateApiKey', () => {

@@ -4,7 +4,7 @@ import {
   getCanonicalApiPath,
   hashApiKey,
   isApiKey,
-  isApiKeyBlockedPath,
+  isApiKeyBlockedRequest,
   isApiKeyEnabled,
 } from '@/lib/api-key';
 import {
@@ -58,8 +58,8 @@ async function needsTwoFactorEnrollment(userId: string) {
 export async function checkApiKeyAuth(request: Request, token: string) {
   const { pathname } = new URL(request.url);
 
-  if (isApiKeyBlockedPath(pathname)) {
-    log('API key not allowed for path', pathname);
+  if (isApiKeyBlockedRequest(pathname, request.method)) {
+    log('API key not allowed for request', request.method, pathname);
     return null;
   }
 

@@ -25,7 +25,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ team
 
   return json({
     ...team,
-    accessCode: await getTeamAccessCodeForActor(teamId, auth.user.id),
+    accessCode:
+      auth.authType === 'session'
+        ? await getTeamAccessCodeForActor(teamId, auth.user.id)
+        : undefined,
   });
 }
 

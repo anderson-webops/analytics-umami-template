@@ -77,12 +77,13 @@ test('API-key reads do not expose the access code to non-managing accounts', asy
   expect(response).not.toHaveProperty('accessCode');
 });
 
-test('API-key reads follow team management permissions', async () => {
+test('API-key reads omit the invitation code even for a manager', async () => {
   getTeamAccessCodeForActorMock.mockResolvedValue(team.accessCode);
 
   const response = await readTeam('api-key');
 
-  expect(response.accessCode).toBe(team.accessCode);
+  expect(response).not.toHaveProperty('accessCode');
+  expect(getTeamAccessCodeForActorMock).not.toHaveBeenCalled();
 });
 
 test('non-members cannot view the team or its access code', async () => {

@@ -127,6 +127,43 @@ export function isApiKeyBlockedPath(
   );
 }
 
+export function isApiKeyBlockedRequest(
+  pathname: string,
+  method: string,
+  options?: { basePath?: string; apiUrl?: string },
+) {
+  if (isApiKeyBlockedPath(pathname, options)) {
+    return true;
+  }
+
+  const resolved = resolveApiPath(pathname, options);
+  const candidates = [resolved, decodePath(resolved), normalizePath(resolved)].map(path =>
+    path.toLowerCase(),
+  );
+  const isTeamRequest = candidates.some(
+    path => path === '/api/teams' || path.startsWith('/api/teams/'),
+  );
+  const isShareRequest = candidates.some(
+    path =>
+      path === '/api/share' ||
+      path.startsWith('/api/share/') ||
+      /^\/api\/(?:websites|boards|links|pixels)\/[^/]+\/shares(?:\/|$)/.test(path),
+  );
+  const isTransferRequest = candidates.some(path =>
+    /^\/api\/websites\/[^/]+\/transfer(?:\/|$)/.test(path),
+  );
+
+  return (
+    isShareRequest ||
+    isTransferRequest ||
+    (isTeamRequest && !['GET', 'HEAD'].includes(method.toUpperCase()))
+  );
+}
+
+export function redactWebsiteShareId<T extends object>(website: T, authType: string) {
+  return authType === 'api-key' ? { ...website, shareId: null } : website;
+}
+
 export function isApiKeyEnabled() {
   return !isEnvEnabled('CLOUD_MODE');
 }
