@@ -1,11 +1,36 @@
 import { describe, expect, test } from 'vitest';
 import { DATA_TYPE, OPERATORS } from './constants';
 import {
+  filtersObjectToArray,
   parseSessionPropertyFilters,
   parseUniversalEventPropertyFilters,
   serializeSessionPropertyFilters,
   serializeUniversalEventPropertyFilters,
 } from './params';
+
+describe('structured filter metadata', () => {
+  test('derives SQL metadata from the filter key and trusted options', () => {
+    const filters = filtersObjectToArray({
+      path1: {
+        name: 'referrer',
+        operator: OPERATORS.equals,
+        value: ['/articles'],
+        prefix: 'OR TRUE OR ',
+        paramName: 'path}} OR TRUE --',
+      },
+    } as any);
+
+    expect(filters).toEqual([
+      {
+        name: 'path',
+        column: 'url_path',
+        operator: OPERATORS.equals,
+        value: ['/articles'],
+        paramName: 'path1',
+      },
+    ]);
+  });
+});
 
 describe('session property filter params', () => {
   test('serializes and parses session property filters', () => {

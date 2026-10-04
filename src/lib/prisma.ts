@@ -197,32 +197,30 @@ function getFilterQuery(filters: Record<string, any>, options: QueryOptions = {}
   const orClauses: string[] = [];
   const andClauses: string[] = [];
 
-  filtersObjectToArray(filters, options).forEach(
-    ({ name, column, operator, prefix = '', paramName }) => {
-      if (isCohort) {
-        column = FILTER_COLUMNS[name.slice('cohort_'.length)];
+  filtersObjectToArray(filters, options).forEach(({ name, column, operator, paramName }) => {
+    if (isCohort) {
+      column = FILTER_COLUMNS[name.slice('cohort_'.length)];
+    }
+
+    if (column) {
+      const clause = mapFilter(column, operator, name, '', paramName);
+      const isAlwaysAnd = name === 'eventType' || (isCohort && name === cohortActionName);
+
+      if (isAlwaysAnd) {
+        andClauses.push(`and ${clause}`);
+      } else if (isOr) {
+        orClauses.push(clause);
+      } else {
+        andClauses.push(`and ${clause}`);
       }
 
-      if (column) {
-        const clause = mapFilter(`${prefix}${column}`, operator, name, '', paramName);
-        const isAlwaysAnd = name === 'eventType' || (isCohort && name === cohortActionName);
-
-        if (isAlwaysAnd) {
-          andClauses.push(`and ${clause}`);
-        } else if (isOr) {
-          orClauses.push(clause);
-        } else {
-          andClauses.push(`and ${clause}`);
-        }
-
-        if (name === 'referrer') {
-          andClauses.push(
-            `and (website_event.referrer_domain != regexp_replace(website_event.hostname, '^www.', '') or website_event.referrer_domain is null)`,
-          );
-        }
+      if (name === 'referrer') {
+        andClauses.push(
+          `and (website_event.referrer_domain != regexp_replace(website_event.hostname, '^www.', '') or website_event.referrer_domain is null)`,
+        );
       }
-    },
-  );
+    }
+  });
 
   const parts: string[] = [];
 

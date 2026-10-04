@@ -83,6 +83,23 @@ describe('getRawQueryClient', () => {
   });
 });
 
+describe('report filter SQL', () => {
+  test('does not interpolate untrusted structured filter metadata', () => {
+    const filters = prisma.parseFilters({
+      path1: {
+        name: 'path',
+        operator: 'eq',
+        value: ['/articles'],
+        prefix: "url_path = ANY(ARRAY['x']) OR TRUE OR website_event.",
+        paramName: 'path}} OR TRUE --',
+      },
+    });
+
+    expect(filters.filterQuery).toBe('and website_event.url_path = ANY({{path1}})');
+    expect(filters.queryParams).toMatchObject({ path1: ['/articles'] });
+  });
+});
+
 describe('bounded raw regex queries', () => {
   const client = () => prisma.client as any;
 

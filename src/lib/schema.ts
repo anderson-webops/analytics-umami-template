@@ -750,7 +750,7 @@ export const reportResultSchema = z
   .intersection(
     z.object({
       websiteId: z.uuid(),
-      filters: z.object({ ...filterParams }).passthrough(),
+      filters: z.object({ ...filterParams }).catchall(z.string().max(500)),
     }),
     reportTypeSchema,
   )

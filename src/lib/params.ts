@@ -81,9 +81,12 @@ export function filtersObjectToArray(filters: QueryFilters, options: QueryOption
 
     if (filter?.name && filter?.value !== undefined) {
       return arr.concat({
-        ...filter,
+        name: baseName,
+        operator: filter.operator,
+        value: filter.value,
+        ...(filter.type && { type: filter.type }),
         column: options?.columns?.[baseName] ?? FILTER_COLUMNS[baseName],
-        paramName: paramName ?? filter.paramName,
+        paramName: paramName ?? baseName,
       });
     }
 

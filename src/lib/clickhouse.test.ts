@@ -1,6 +1,23 @@
 import { describe, expect, test } from 'vitest';
 import clickhouse, { CLICKHOUSE_DATE_FORMATS } from './clickhouse';
 
+describe('report filter parameters', () => {
+  test('keeps structured filter metadata out of ClickHouse queries', () => {
+    const filters = clickhouse.parseFilters({
+      path1: {
+        name: 'referrer',
+        operator: 'eq',
+        value: ['/articles'],
+        prefix: 'OR TRUE OR ',
+        paramName: 'path}} OR TRUE --',
+      },
+    });
+
+    expect(filters.filterQuery).toBe('and is_bot = 0\nand url_path IN {path1:Array(String)}');
+    expect(filters.queryParams).toMatchObject({ path1: ['/articles'] });
+  });
+});
+
 describe('CLICKHOUSE_DATE_FORMATS', () => {
   test('uses date format tokens compatible with ClickHouse 22.8 and newer', () => {
     expect(CLICKHOUSE_DATE_FORMATS).toMatchObject({

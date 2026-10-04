@@ -5,6 +5,7 @@ import { fetchWebsite } from '@/lib/load';
 import { getWebsiteSegment } from '@/queries/prisma';
 import { getQueryFilters, parseRequest } from './request';
 import { readRequestBodyBytes } from './request-body';
+import { reportResultSchema } from './schema';
 
 vi.hoisted(() => {
   process.env.DATABASE_URL ??= 'postgresql://user:pass@localhost:5432/umami?schema=public';
@@ -112,6 +113,33 @@ test('rejects report filter objects when a public share disables filters', async
   );
 
   expect(result.error?.().status).toBe(403);
+});
+
+test('rejects untrusted SQL filter metadata in compatibility report requests', async () => {
+  checkAuthMock.mockResolvedValue({ user: { id: 'user-1', role: 'user' } } as any);
+
+  const result = await parseRequest(
+    new Request('https://analytics.example/compat/api/reports/goal', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        websiteId: '11111111-1111-4111-8111-111111111111',
+        type: 'goal',
+        parameters: {
+          startDate: '2024-01-01',
+          endDate: '2024-01-31',
+          type: 'event',
+          value: 'signup',
+        },
+        filters: {
+          path1: { name: 'path', operator: 'eq', value: '/', prefix: 'OR TRUE OR ' },
+        },
+      }),
+    }),
+    reportResultSchema,
+  );
+
+  expect(result.error?.().status).toBe(400);
 });
 
 test('rejects an oversized request URL before authentication', async () => {

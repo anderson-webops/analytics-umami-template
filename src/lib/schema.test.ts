@@ -7,6 +7,7 @@ import {
   goalReportSchema,
   pagingParams,
   reportBaseSchema,
+  reportResultSchema,
   reportTypeSchema,
   savedSegmentSchema,
   segmentTypeParam,
@@ -267,6 +268,32 @@ describe('reportTypeSchema', () => {
 
   test('rejects an unknown report type', () => {
     expect(() => reportTypeSchema.parse({ type: 'nonsense', parameters: {} })).toThrow();
+  });
+});
+
+describe('reportResultSchema filters', () => {
+  const report = {
+    websiteId: UUID,
+    type: 'goal',
+    parameters: {
+      startDate: '2024-01-01',
+      endDate: '2024-01-31',
+      type: 'event',
+      value: 'signup',
+    },
+  };
+
+  test.each([
+    { path1: { name: 'path', operator: 'eq', value: '/', prefix: 'OR TRUE OR ' } },
+    { path1: { name: 'path', operator: 'eq', value: '/', paramName: 'path}} OR TRUE --' } },
+  ])('rejects request-supplied structured filter metadata', filters => {
+    expect(reportResultSchema.safeParse({ ...report, filters }).success).toBe(false);
+  });
+
+  test('retains scalar and repeated report filters', () => {
+    const filters = { path: 'eq./', path1: 'eq./articles', epf0: '1.eq.plan.pro' };
+
+    expect(reportResultSchema.safeParse({ ...report, filters }).success).toBe(true);
   });
 });
 

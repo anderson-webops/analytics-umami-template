@@ -280,7 +280,11 @@ const knownSchemas: Record<string, () => InferredSchema> = {
       objectSchema(
         {
           websiteId: { type: 'string', format: 'uuid' },
-          filters: { type: 'object', additionalProperties: true },
+          filters: {
+            type: 'object',
+            properties: { eventType: { type: 'integer' } },
+            additionalProperties: { type: 'string', maxLength: 500 },
+          },
           type: stringSchema(),
           parameters: { type: 'object', additionalProperties: true },
         },
