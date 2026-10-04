@@ -282,6 +282,43 @@ test.describe('Shares', () => {
     expect(ownerAllowed.status).toBe(200);
   });
 
+  test('public shares bound property-filter fan-out without blocking ordinary statistics', async ({
+    admin,
+    seed,
+    share,
+  }) => {
+    const sharedSlug = uniqueSlug('bounded-query');
+    const created = await admin.post('/api/share', {
+      entityId: seed.website.id,
+      shareType: ENTITY_TYPE.website,
+      name: uniqueName('bounded-query'),
+      slug: sharedSlug,
+      parameters: { overview: true, allowFilter: true },
+    });
+
+    expect(created.status).toBe(200);
+
+    try {
+      const client = await share(sharedSlug);
+      const path = `/api/websites/${seed.website.id}/stats`;
+      const ordinary = await client.get(path, { params: dateRange(seed) });
+      const properties = Object.fromEntries(
+        Array.from({ length: 17 }, (_, index) => [`pf_plan${index}`, '1.eq.pro']),
+      );
+      const amplified = await client.get(path, {
+        params: { ...dateRange(seed), ...properties },
+      });
+
+      expect(ordinary.status).toBe(200);
+      expect(amplified.status).toBe(400);
+      expect(amplified.body).toMatchObject({
+        error: { message: 'The public-share query is too complex.' },
+      });
+    } finally {
+      await admin.del(`/api/share/id/${created.body.id}`);
+    }
+  });
+
   test('DELETE /api/share/id/{shareId} deletes a share', async ({ admin, viewer, api }) => {
     const denied = await viewer.del(`/api/share/id/${shareId}`);
     const response = await admin.del(`/api/share/id/${shareId}`);

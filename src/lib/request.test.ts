@@ -96,6 +96,123 @@ test('allows date and paging parameters when a public share disables filters', a
   expect(result.error).toBeUndefined();
 });
 
+test('bounds public-share property fan-out while preserving ordinary filtered views', async () => {
+  checkAuthMock.mockResolvedValue({
+    shareToken: {
+      shareId: 'fanout-share',
+      websiteId: 'website-1',
+      parameters: { allowFilter: true },
+    },
+  } as any);
+
+  const schema = z.object({ startAt: z.coerce.number(), endAt: z.coerce.number() });
+  const startAt = Date.UTC(2025, 0, 1);
+  const endAt = Date.UTC(2025, 0, 31);
+  const propertyFilters = count =>
+    Array.from({ length: count }, (_, index) => `pf_property${index}=1.eq.value`).join('&');
+  const request = count =>
+    new Request(
+      `https://analytics.example/api/websites/website-1/event-data-pivot?startAt=${startAt}&endAt=${endAt}&${propertyFilters(count)}`,
+    );
+
+  const ordinary = await parseRequest(request(8), schema);
+  expect(ordinary.error).toBeUndefined();
+
+  const amplified = await parseRequest(request(100), schema);
+  expect(amplified.error?.().status).toBe(400);
+});
+
+test('bounds wide filtered shares but preserves unfiltered historical views', async () => {
+  checkAuthMock.mockResolvedValue({
+    shareToken: { shareId: 'historical-share', websiteId: 'website-1' },
+  } as any);
+
+  const schema = z.object({ startAt: z.coerce.number(), endAt: z.coerce.number() });
+  const startAt = Date.UTC(2006, 0, 1);
+  const endAt = Date.UTC(2025, 11, 31);
+  const base = `https://analytics.example/api/test?startAt=${startAt}&endAt=${endAt}`;
+
+  for (let index = 0; index < 3; index += 1) {
+    expect((await parseRequest(new Request(base), schema)).error).toBeUndefined();
+  }
+  expect(
+    (await parseRequest(new Request(`${base}&pf_plan=1.eq.pro`), schema)).error?.().status,
+  ).toBe(400);
+});
+
+test('does not let unrelated endpoints consume a public analytics quota', async () => {
+  checkAuthMock.mockResolvedValue({
+    shareToken: { shareId: 'unrelated-endpoint-share', websiteId: 'website-1' },
+  } as any);
+
+  const startAt = Date.UTC(2025, 0, 1);
+  const endAt = Date.UTC(2025, 11, 31);
+  const properties = Array.from({ length: 12 }, (_, index) => `pf_plan${index}=1.eq.pro`).join('&');
+  const query = `startAt=${startAt}&endAt=${endAt}&country=US&${properties}`;
+
+  expect(
+    (await parseRequest(new Request(`https://analytics.example/api/me?${query}`))).error,
+  ).toBeUndefined();
+  expect(
+    (
+      await parseRequest(
+        new Request(`https://analytics.example/api/websites/website-1/event-data-pivot?${query}`),
+        z.object({ startAt: z.coerce.number(), endAt: z.coerce.number() }),
+      )
+    ).error,
+  ).toBeUndefined();
+});
+
+test('uses report body dates when a POST also has unrelated URL dates', async () => {
+  checkAuthMock.mockResolvedValue({
+    shareToken: { shareId: 'report-date-share', websiteId: 'website-1' },
+  } as any);
+
+  const result = await parseRequest(
+    new Request('https://analytics.example/compat/api/reports/funnel?startAt=0&endAt=1', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        parameters: {
+          startDate: '2006-01-01',
+          endDate: '2025-12-31',
+          steps: [{ filters: [{ property: 'plan', value: 'pro' }] }],
+        },
+      }),
+    }),
+    z.object({
+      parameters: z.object({
+        startDate: z.coerce.date(),
+        endDate: z.coerce.date(),
+        steps: z.array(z.any()),
+      }),
+    }),
+  );
+
+  expect(result.error?.().status).toBe(400);
+});
+
+test('rejects nested funnel filters when a public share disables filtering', async () => {
+  checkAuthMock.mockResolvedValue({
+    shareToken: {
+      shareId: 'disabled-funnel-share',
+      websiteId: 'website-1',
+      parameters: { allowFilter: false },
+    },
+  } as any);
+
+  const schema = z.object({ steps: z.string().transform(value => JSON.parse(value)) });
+  const steps = encodeURIComponent(
+    JSON.stringify([{ filters: [{ property: 'plan', value: 'pro' }] }]),
+  );
+  const result = await parseRequest(
+    new Request(`https://analytics.example/api/test?steps=${steps}`),
+    schema,
+  );
+
+  expect(result.error?.().status).toBe(403);
+});
+
 test('rejects report filter objects when a public share disables filters', async () => {
   checkAuthMock.mockResolvedValue({
     shareToken: {

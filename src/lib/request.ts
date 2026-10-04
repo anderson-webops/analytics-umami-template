@@ -11,9 +11,21 @@ import {
   parseUniversalEventPropertyFilters,
 } from '@/lib/params';
 import { getJsonBody, RequestBodyTooLargeError } from '@/lib/request-body';
-import { badRequest, forbidden, payloadTooLarge, unauthorized } from '@/lib/response';
+import {
+  badRequest,
+  forbidden,
+  payloadTooLarge,
+  serviceUnavailable,
+  tooManyRequests,
+  unauthorized,
+} from '@/lib/response';
 import { savedSegmentSchema } from '@/lib/schema';
 import { hasShareFilterParams } from '@/lib/share-filter';
+import {
+  getShareQueryCost,
+  getStepFilterCount,
+  reserveShareQueryCost,
+} from '@/lib/share-query-budget';
 import type { QueryFilters, SessionPropertyFilter } from '@/lib/types';
 import { getWebsiteSegment } from '@/queries/prisma';
 
@@ -134,13 +146,58 @@ export async function parseRequest(
       typeof bodyFilters === 'object' &&
       !Array.isArray(bodyFilters) &&
       Object.keys(bodyFilters).length > 0;
+    const bodyParameters =
+      body && typeof body === 'object' && !Array.isArray(body) && 'parameters' in body
+        ? (body as { parameters?: { steps?: unknown } }).parameters
+        : undefined;
 
-    if (hasShareFilterParams(query) || hasBodyFilters) {
+    if (
+      hasShareFilterParams(query) ||
+      hasBodyFilters ||
+      getStepFilterCount(query.steps) > 0 ||
+      getStepFilterCount(bodyParameters?.steps) > 0
+    ) {
       error = () =>
         forbidden({
           message: 'Filters are disabled for this public share.',
           code: 'share-filters-disabled',
         });
+    }
+  }
+
+  const hasQueryRange =
+    (query.startAt != null && query.endAt != null) ||
+    (query.startDate != null && query.endDate != null);
+  const bodyParameters =
+    body && typeof body === 'object' && !Array.isArray(body) && 'parameters' in body
+      ? (body as { parameters?: { startDate?: unknown; endDate?: unknown } }).parameters
+      : undefined;
+  const hasBodyRange = bodyParameters?.startDate != null && bodyParameters.endDate != null;
+
+  if (!error && auth?.shareToken && schema && (hasQueryRange || hasBodyRange)) {
+    const budget = getShareQueryCost(query, body);
+
+    if (budget === null) {
+      error = () => badRequest({ message: 'The public-share query is too complex.' });
+    } else {
+      const shareId =
+        auth.shareToken.shareId ??
+        auth.shareToken.websiteId ??
+        auth.shareToken.boardId ??
+        auth.shareToken.pixelId ??
+        auth.shareToken.linkId;
+
+      if (!shareId) {
+        error = () => unauthorized();
+      } else {
+        const limit = await reserveShareQueryCost(shareId, budget.charge);
+
+        if (limit.unavailable) {
+          error = () => serviceUnavailable();
+        } else if (limit.blocked) {
+          error = () => tooManyRequests(limit.retryAfter);
+        }
+      }
     }
   }
 

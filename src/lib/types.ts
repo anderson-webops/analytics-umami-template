@@ -28,6 +28,7 @@ export interface Auth {
   /** How the request was authenticated. Undefined for legacy callers that build Auth manually. */
   authType?: AuthType;
   shareToken?: {
+    shareId?: string;
     shareType?: number;
     websiteId?: string;
     websiteIds?: string[];

@@ -18,6 +18,7 @@ const EQUALITY_OPERATORS: Operator[] = [OPERATORS.equals, OPERATORS.notEquals];
 const SEARCH_OPERATORS: Operator[] = [OPERATORS.contains, OPERATORS.doesNotContain];
 const REGEX_OPERATORS: Operator[] = [OPERATORS.regex, OPERATORS.notRegex];
 const REGEX_QUERY_TIMEOUT_MS = 2_000;
+const READ_QUERY_TIMEOUT_MS = 30_000;
 
 const PRISMA = 'prisma';
 
@@ -769,7 +770,7 @@ async function executeRawQuery(
   const isRegexQuery = query.includes('~*');
   const requestedTimeout = isRegexQuery
     ? Math.min(timeoutMs ?? REGEX_QUERY_TIMEOUT_MS, REGEX_QUERY_TIMEOUT_MS)
-    : timeoutMs;
+    : Math.min(timeoutMs ?? READ_QUERY_TIMEOUT_MS, READ_QUERY_TIMEOUT_MS);
 
   if (!write && requestedTimeout !== undefined) {
     if (!Number.isSafeInteger(requestedTimeout) || requestedTimeout <= 0) {

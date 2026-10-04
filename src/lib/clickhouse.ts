@@ -35,6 +35,10 @@ const log = debug('umami:clickhouse');
 
 const EQUALITY_OPERATORS: Operator[] = [OPERATORS.equals, OPERATORS.notEquals];
 const REGEX_OPERATORS: Operator[] = [OPERATORS.regex, OPERATORS.notRegex];
+const READ_QUERY_MAX_EXECUTION_SECONDS = 30;
+const READ_QUERY_MAX_RESULT_ROWS = 100_000;
+const READ_QUERY_MAX_MEMORY_BYTES = 1024 * 1024 * 1024;
+const READ_QUERY_MAX_BYTES_TO_READ = 2 * 1024 * 1024 * 1024;
 
 let clickhouse: ClickHouseClient;
 const enabled = Boolean(process.env.CLICKHOUSE_URL);
@@ -737,6 +741,15 @@ async function rawQuery<T = unknown>(
 
   await connect();
 
+  const maxExecutionTimeSeconds = Math.min(
+    limits?.maxExecutionTimeSeconds ?? READ_QUERY_MAX_EXECUTION_SECONDS,
+    READ_QUERY_MAX_EXECUTION_SECONDS,
+  );
+  const maxResultRows = Math.min(
+    limits?.maxResultRows ?? READ_QUERY_MAX_RESULT_ROWS,
+    READ_QUERY_MAX_RESULT_ROWS,
+  );
+
   const resultSet = await clickhouse.query({
     query: query,
     query_params: params,
@@ -744,12 +757,12 @@ async function rawQuery<T = unknown>(
     clickhouse_settings: {
       date_time_output_format: 'iso',
       output_format_json_quote_64bit_integers: 0,
-      ...(limits && {
-        max_execution_time: limits.maxExecutionTimeSeconds,
-        timeout_before_checking_execution_speed: 0,
-        max_result_rows: String(limits.maxResultRows),
-        result_overflow_mode: 'throw' as const,
-      }),
+      max_execution_time: maxExecutionTimeSeconds,
+      timeout_before_checking_execution_speed: 0,
+      max_result_rows: String(maxResultRows),
+      result_overflow_mode: 'throw' as const,
+      max_memory_usage: String(READ_QUERY_MAX_MEMORY_BYTES),
+      max_bytes_to_read: String(READ_QUERY_MAX_BYTES_TO_READ),
     },
   });
 

@@ -31,6 +31,47 @@ describe('bounded queries', () => {
       }),
     );
   });
+
+  test('applies general read limits when a query has no explicit budget', async () => {
+    const query = vi.fn().mockResolvedValue({ json: vi.fn().mockResolvedValue([]) });
+    vi.stubEnv('CLICKHOUSE_URL', 'http://umami:synthetic@127.0.0.1:8123/umami');
+    vi.doMock('@clickhouse/client', () => ({ createClient: () => ({ query }) }));
+    vi.resetModules();
+
+    const { default: client } = await import('./clickhouse');
+    await client.rawQuery('select 1');
+
+    expect(query).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clickhouse_settings: expect.objectContaining({
+          max_execution_time: 30,
+          max_result_rows: '100000',
+          max_memory_usage: String(1024 * 1024 * 1024),
+          max_bytes_to_read: String(2 * 1024 * 1024 * 1024),
+        }),
+      }),
+    );
+  });
+
+  test('bounds both count and data phases of paged queries', async () => {
+    const query = vi.fn().mockImplementation(async ({ query: sql }) => ({
+      json: async () => (sql.includes('count(*) as num') ? [{ num: 1 }] : [{ id: 1 }]),
+    }));
+    vi.stubEnv('CLICKHOUSE_URL', 'http://umami:synthetic@127.0.0.1:8123/umami');
+    vi.doMock('@clickhouse/client', () => ({ createClient: () => ({ query }) }));
+    vi.resetModules();
+
+    const { default: client } = await import('./clickhouse');
+    await client.pagedRawQuery('select id from events', {}, { page: 1, pageSize: 10 });
+
+    expect(query).toHaveBeenCalledTimes(2);
+    for (const [options] of query.mock.calls) {
+      expect(options.clickhouse_settings).toMatchObject({
+        max_execution_time: 30,
+        max_result_rows: '100000',
+      });
+    }
+  });
 });
 
 describe('report filter parameters', () => {

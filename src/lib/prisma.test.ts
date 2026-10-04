@@ -158,11 +158,16 @@ describe('bounded raw regex queries', () => {
         timeout: 3_000,
       });
 
-      vi.mocked(client().$queryRawUnsafe).mockResolvedValueOnce([{ ordinary: true }]);
+      transaction.$queryRawUnsafe
+        .mockResolvedValueOnce([{ setting: '0', unit: 'ms' }])
+        .mockResolvedValueOnce([{ ordinary: true }]);
       await expect(prisma.rawQuery('select 1 as ordinary', {})).resolves.toEqual([
         { ordinary: true },
       ]);
-      expect(client().$transaction).toHaveBeenCalledTimes(1);
+      expect(client().$transaction).toHaveBeenCalledTimes(2);
+      expect(transaction.$executeRawUnsafe).toHaveBeenCalledWith(
+        "SET LOCAL statement_timeout = '30000ms'",
+      );
     },
   );
 
@@ -294,8 +299,18 @@ describe('pagedRawQuery default ordering', () => {
   function mockQueries(count = '4') {
     const queryRaw = vi.mocked((prisma.client as any).$queryRawUnsafe);
     queryRaw.mockClear();
+    vi.mocked((prisma.client as any).$transaction).mockClear();
     queryRaw.mockImplementation(async (sql: string) =>
       sql.includes('count(*) as num') ? [{ num: count }] : [{ id: 1 }],
+    );
+    const transaction = {
+      $executeRawUnsafe: vi.fn(),
+      $queryRawUnsafe: vi.fn(async (sql: string, ...params: any[]) =>
+        sql.includes('pg_settings') ? [{ setting: '0', unit: 'ms' }] : queryRaw(sql, ...params),
+      ),
+    };
+    vi.mocked((prisma.client as any).$transaction).mockImplementation(async action =>
+      action(transaction),
     );
     return queryRaw;
   }
@@ -324,6 +339,7 @@ describe('pagedRawQuery default ordering', () => {
         isCapped: !!maxResults,
         orderBy: undefined,
       });
+      expect((prisma.client as any).$transaction).toHaveBeenCalledTimes(2);
     },
   );
 

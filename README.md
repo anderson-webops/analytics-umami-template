@@ -69,6 +69,7 @@ The exact artifact and clean-runtime acceptance rules are documented in
 ## Operational Notes
 
 - PostgreSQL 15 or newer is required. Redis and ClickHouse are optional, but readiness reports them when configured.
+- Public-share analytics requests have bounded date/filter complexity and a per-share, 60-second query budget. Overly complex requests return 400, exhausted budgets return 429, and a configured but unavailable Redis budget store returns 503. Read-only PostgreSQL and ClickHouse queries also have execution and resource limits, including both phases of paged reports.
 - Production requires `APP_SECRET`, `PUBLIC_URL`, and `CLIENT_IP_HEADER`. The configured IP header must be overwritten by a trusted edge or reverse proxy; arbitrary forwarding headers are not trusted.
 - Known CDN location headers are used only when `TRUST_LOCATION_HEADERS=1`. Client-supplied IP, user-agent, browser, OS, and device fields are used only in the cloud collector architecture with `CLOUD_MODE=1`, `TRUST_CLIENT_INFO_PAYLOAD=1`, and a matching `CLIENT_INFO_TRUST_KEY` supplied through the `x-umami-client-info-key` request header.
 - Public database, Redis, ClickHouse, and Kafka hosts must use encrypted connections. `LOG_QUERY`, `DEBUG`, `ENABLE_TEST_CONSOLE`, and `SKIP_DB_CHECK` are rejected in production.

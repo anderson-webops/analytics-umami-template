@@ -1,6 +1,19 @@
 import { funnelParametersSchema, savedStatsQuerySchema } from '@/lib/analytics-schema';
 import { getQueryFilters, parseRequest } from '@/lib/request';
-import { badRequest, json, notFound, unauthorized } from '@/lib/response';
+import {
+  badRequest,
+  forbidden,
+  json,
+  notFound,
+  serviceUnavailable,
+  tooManyRequests,
+  unauthorized,
+} from '@/lib/response';
+import {
+  getShareQueryCost,
+  getStepFilterCount,
+  reserveShareQueryCost,
+} from '@/lib/share-query-budget';
 import { canViewReport, canViewWebsiteSection } from '@/permissions';
 import { getReport } from '@/queries/prisma';
 import { type FunnelParameters, getFunnel } from '@/queries/sql/funnels/getFunnel';
@@ -18,6 +31,32 @@ export async function GET(
   if (!(await canViewReport(auth, report))) return unauthorized();
   const parsed = funnelParametersSchema.safeParse(report.parameters);
   if (!parsed.success) return badRequest();
+  if (auth?.shareToken) {
+    if (
+      auth.shareToken.parameters?.allowFilter === false &&
+      getStepFilterCount(parsed.data.steps) > 0
+    ) {
+      return forbidden({
+        message: 'Filters are disabled for this public share.',
+        code: 'share-filters-disabled',
+      });
+    }
+
+    const base = getShareQueryCost(query);
+    const combined = getShareQueryCost(query, { parameters: { steps: parsed.data.steps } });
+    if (!base || !combined) {
+      return badRequest({ message: 'The public-share query is too complex.' });
+    }
+
+    const shareId = auth.shareToken.shareId ?? auth.shareToken.websiteId;
+    if (!shareId) return unauthorized();
+    const extraCharge = combined.charge - base.charge;
+    if (extraCharge > 0) {
+      const limit = await reserveShareQueryCost(shareId, extraCharge);
+      if (limit.unavailable) return serviceUnavailable();
+      if (limit.blocked) return tooManyRequests(limit.retryAfter);
+    }
+  }
   const filters = await getQueryFilters(query, websiteId);
   const parameters = {
     startDate: filters.startDate,
