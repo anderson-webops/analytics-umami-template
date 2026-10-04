@@ -6,6 +6,7 @@ import { corsPreflight, withCorsHeaders } from '@/lib/cors';
 import { secret } from '@/lib/crypto';
 import { getClientInfo, hasBlockedIp } from '@/lib/detect';
 import { isEnvEnabled } from '@/lib/env';
+import { HeatmapBudgetExceededError, reserveHeatmapBudget } from '@/lib/heatmap-budget';
 import { getHeatmapUrlPath } from '@/lib/heatmap-url';
 import { parseToken } from '@/lib/jwt';
 import { fetchAccount, fetchTeam } from '@/lib/load';
@@ -195,92 +196,127 @@ export async function POST(request: Request) {
     }
 
     try {
-      await withActiveCollectionSource('website', websiteId, async transaction => {
-        const currentWebsite = await transaction.website.findFirst({
-          where: {
-            id: websiteId,
-            deletedAt: null,
-          },
-          select: {
-            recorderEnabled: true,
-            replayConfig: true,
-          },
-        });
+      const externalHeatmapRows = await withActiveCollectionSource(
+        'website',
+        websiteId,
+        async transaction => {
+          const currentWebsite = await transaction.website.findFirst({
+            where: {
+              id: websiteId,
+              deletedAt: null,
+            },
+            select: {
+              recorderEnabled: true,
+              replayConfig: true,
+            },
+          });
 
-        if (!currentWebsite?.recorderEnabled) {
-          throw new Error('RECORDER_DISABLED');
-        }
-
-        const recorderConfig = getRecorderConfig(currentWebsite.replayConfig);
-        const writeTransaction = clickhouse.enabled ? undefined : transaction;
-
-        if (body.type === 'record') {
-          if (recorderConfig.replayEnabled !== true) {
-            throw new Error('REPLAY_DISABLED');
+          if (!currentWebsite?.recorderEnabled) {
+            throw new Error('RECORDER_DISABLED');
           }
 
-          const eventTimestamps = events
-            .map((event: any) => Number(event?.timestamp))
-            .filter((value: number) => Number.isFinite(value) && value > 0);
-          const fallbackMs = (timestamp || Math.floor(Date.now() / 1000)) * 1000;
-          const minTimestamp = eventTimestamps.length ? Math.min(...eventTimestamps) : fallbackMs;
-          const maxTimestamp = eventTimestamps.length ? Math.max(...eventTimestamps) : fallbackMs;
+          const recorderConfig = getRecorderConfig(currentWebsite.replayConfig);
+          const writeTransaction = clickhouse.enabled ? undefined : transaction;
 
-          const chunkIndex = timestamp || Math.floor(Date.now() / 1000);
-          const isNewChunk = await reserveReplayBudget(transaction, {
+          if (body.type === 'record') {
+            if (recorderConfig.replayEnabled !== true) {
+              throw new Error('REPLAY_DISABLED');
+            }
+
+            const eventTimestamps = events
+              .map((event: any) => Number(event?.timestamp))
+              .filter((value: number) => Number.isFinite(value) && value > 0);
+            const fallbackMs = (timestamp || Math.floor(Date.now() / 1000)) * 1000;
+            const minTimestamp = eventTimestamps.length ? Math.min(...eventTimestamps) : fallbackMs;
+            const maxTimestamp = eventTimestamps.length ? Math.max(...eventTimestamps) : fallbackMs;
+
+            const chunkIndex = timestamp || Math.floor(Date.now() / 1000);
+            const isNewChunk = await reserveReplayBudget(transaction, {
+              websiteId,
+              visitId,
+              chunkIndex,
+              idempotent: timestamp !== undefined,
+              bytes: Buffer.byteLength(JSON.stringify(events), 'utf8'),
+              events: events.length,
+            });
+
+            if (!isNewChunk) {
+              return null;
+            }
+
+            await saveRecording(
+              {
+                websiteId,
+                sessionId,
+                visitId,
+                chunkIndex,
+                events,
+                eventCount: getReplayEventCount(events),
+                startedAt: new Date(minTimestamp),
+                endedAt: new Date(maxTimestamp),
+              },
+              writeTransaction,
+            );
+            return null;
+          }
+
+          if (recorderConfig.heatmapEnabled !== true) {
+            throw new Error('HEATMAP_DISABLED');
+          }
+
+          const fallbackMs = (timestamp || Math.floor(Date.now() / 1000)) * 1000;
+          const heatmapRows = events.map(event => ({
+            websiteId,
+            sessionId,
+            visitId,
+            eventType:
+              event.type === 'click' ? HEATMAP_EVENT_TYPE.click : HEATMAP_EVENT_TYPE.scroll,
+            x: event.type === 'click' ? (event.x ?? null) : null,
+            y: event.type === 'click' ? (event.y ?? null) : null,
+            pageX: event.type === 'click' ? (event.pageX ?? null) : null,
+            pageY: event.type === 'click' ? (event.pageY ?? null) : null,
+            pageW: event.pageW ?? null,
+            viewportW: event.viewportW ?? null,
+            viewportH: event.viewportH ?? null,
+            pageH: event.pageH ?? null,
+            scrollPct: event.type === 'scroll' ? (event.scrollPct ?? null) : null,
+            urlPath: getHeatmapUrlPath(event.url),
+            createdAt: new Date(event.timestamp ?? fallbackMs),
+          }));
+
+          await reserveHeatmapBudget(transaction, {
             websiteId,
             visitId,
-            chunkIndex,
-            idempotent: timestamp !== undefined,
             bytes: Buffer.byteLength(JSON.stringify(events), 'utf8'),
             events: events.length,
           });
 
-          if (!isNewChunk) {
-            return;
+          if (clickhouse.enabled) {
+            return heatmapRows;
           }
 
-          await saveRecording(
-            {
-              websiteId,
-              sessionId,
-              visitId,
-              chunkIndex,
-              events,
-              eventCount: getReplayEventCount(events),
-              startedAt: new Date(minTimestamp),
-              endedAt: new Date(maxTimestamp),
-            },
-            writeTransaction,
-          );
-          return;
-        }
+          await saveHeatmapEvents(heatmapRows, writeTransaction);
+          return null;
+        },
+      );
 
-        if (recorderConfig.heatmapEnabled !== true) {
-          throw new Error('HEATMAP_DISABLED');
-        }
+      if (externalHeatmapRows) {
+        await withActiveCollectionSource('website', websiteId, async transaction => {
+          const currentWebsite = await transaction.website.findFirst({
+            where: { id: websiteId, deletedAt: null },
+            select: { recorderEnabled: true, replayConfig: true },
+          });
 
-        const fallbackMs = (timestamp || Math.floor(Date.now() / 1000)) * 1000;
-        const heatmapRows = events.map(event => ({
-          websiteId,
-          sessionId,
-          visitId,
-          eventType: event.type === 'click' ? HEATMAP_EVENT_TYPE.click : HEATMAP_EVENT_TYPE.scroll,
-          x: event.type === 'click' ? (event.x ?? null) : null,
-          y: event.type === 'click' ? (event.y ?? null) : null,
-          pageX: event.type === 'click' ? (event.pageX ?? null) : null,
-          pageY: event.type === 'click' ? (event.pageY ?? null) : null,
-          pageW: event.pageW ?? null,
-          viewportW: event.viewportW ?? null,
-          viewportH: event.viewportH ?? null,
-          pageH: event.pageH ?? null,
-          scrollPct: event.type === 'scroll' ? (event.scrollPct ?? null) : null,
-          urlPath: getHeatmapUrlPath(event.url),
-          createdAt: new Date(event.timestamp ?? fallbackMs),
-        }));
+          if (
+            !currentWebsite?.recorderEnabled ||
+            getRecorderConfig(currentWebsite.replayConfig).heatmapEnabled !== true
+          ) {
+            throw new Error('HEATMAP_DISABLED');
+          }
 
-        await saveHeatmapEvents(heatmapRows, writeTransaction);
-      });
+          await saveHeatmapEvents(externalHeatmapRows);
+        });
+      }
     } catch (error: any) {
       if (error?.message === 'RECORDER_DISABLED') {
         return withCorsHeaders(json({ ok: false, reason: 'recorder_disabled' }));
@@ -303,6 +339,14 @@ export async function POST(request: Request) {
           error.retryAfter
             ? tooManyRequests(error.retryAfter)
             : payloadTooLarge({ message: 'Replay budget exceeded.' }),
+        );
+      }
+
+      if (error instanceof HeatmapBudgetExceededError) {
+        return withCorsHeaders(
+          error.retryAfter
+            ? tooManyRequests(error.retryAfter)
+            : payloadTooLarge({ message: 'Heatmap budget exceeded.' }),
         );
       }
 

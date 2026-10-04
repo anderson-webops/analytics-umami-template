@@ -4943,7 +4943,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Send session recordings or heatmap data
-   * Stores session replay events or heatmap clicks and scrolls for a website, using a valid tracking cache token to identify the session and visit. Replay intake has cumulative visit and website budgets; exceeding them returns 413 or 429.
+   * Stores session replay events or heatmap clicks and scrolls for a website, using a valid tracking cache token to identify the session and visit. Replay and heatmap intake have cumulative visit and website budgets; exceeding them returns 413 or 429.
    * `POST /api/record`
    */
   record(
