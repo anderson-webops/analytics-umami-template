@@ -17,7 +17,7 @@ export async function GET(
     ...filterParams,
   });
 
-  const { auth, query, error } = await parseRequest(request, schema);
+  const { auth, query, error } = await parseRequest(request, schema, { budgetShareQuery: true });
 
   if (error) {
     return error();

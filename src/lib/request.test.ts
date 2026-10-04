@@ -122,6 +122,31 @@ test('bounds public-share property fan-out while preserving ordinary filtered vi
   expect(amplified.error?.().status).toBe(400);
 });
 
+test('bounds realtime shares without a caller-supplied date range', async () => {
+  checkAuthMock.mockResolvedValue({
+    shareToken: {
+      shareId: `realtime-share-${crypto.randomUUID()}`,
+      websiteId: 'website-1',
+      parameters: { allowFilter: true, realtime: true },
+    },
+  } as any);
+
+  const schema = z.object({});
+  const propertyFilters = count =>
+    Array.from({ length: count }, (_, index) => `pf_property${index}=1.eq.value`).join('&');
+  const request = count =>
+    new Request(`https://analytics.example/api/realtime/website-1?${propertyFilters(count)}`);
+  const options = { budgetShareQuery: true };
+
+  expect((await parseRequest(request(17), schema, options)).error?.().status).toBe(400);
+
+  for (let index = 0; index < 9; index += 1) {
+    expect((await parseRequest(request(16), schema, options)).error).toBeUndefined();
+  }
+
+  expect((await parseRequest(request(16), schema, options)).error?.().status).toBe(429);
+});
+
 test('bounds wide filtered shares but preserves unfiltered historical views', async () => {
   checkAuthMock.mockResolvedValue({
     shareToken: { shareId: 'historical-share', websiteId: 'website-1' },
