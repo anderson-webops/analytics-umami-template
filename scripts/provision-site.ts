@@ -4,7 +4,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../src/generated/prisma/client.js';
 import { DOMAIN_REGEX, ROLES } from '../src/lib/constants.js';
 import { isUuid, uuid } from '../src/lib/crypto.js';
-import { hashPassword, isStrongPassword } from '../src/lib/password.js';
+import { checkPassword, hashPassword, isStrongPassword } from '../src/lib/password.js';
 
 type ParsedArgs = Record<string, string | boolean>;
 
@@ -319,7 +319,7 @@ async function main() {
               mode: 'insensitive',
             },
           },
-          select: { id: true, username: true, role: true, deletedAt: true },
+          select: { id: true, username: true, role: true, password: true, deletedAt: true },
         });
 
         let adminUserId: string;
@@ -350,6 +350,14 @@ async function main() {
             );
           }
 
+          const usesDefaultPassword = await checkPassword('umami', existingUser.password);
+
+          if (usesDefaultPassword && !passwordHash) {
+            throw new Error(
+              `UMAMI_ADMIN_PASSWORD is required to replace the known default password for ${existingUser.username}.`,
+            );
+          }
+
           adminUserId = existingUser.id;
 
           if (existingUser.role !== ROLES.admin) {
@@ -369,7 +377,7 @@ async function main() {
             messages.push(`Reusing existing admin user: ${existingUser.username}`);
           }
 
-          if (updateAdminPassword && passwordHash) {
+          if ((updateAdminPassword || usesDefaultPassword) && passwordHash) {
             await transaction.user.update({
               where: { id: existingUser.id },
               data: { password: passwordHash },

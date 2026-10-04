@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import bcrypt from 'bcryptjs';
 import { build } from 'esbuild';
 import { Client } from 'pg';
 
@@ -76,6 +77,13 @@ function migrate() {
 }
 function startup() {
   return run(process.execPath, ['runtime-scripts/start-production.mjs'], fixture);
+}
+function provision(extra = {}) {
+  return run('pnpm', ['exec', 'tsx', 'scripts/provision-site.ts'], root, {
+    UMAMI_WEBSITE_NAME: 'Synthetic Restore',
+    UMAMI_WEBSITE_DOMAIN: 'analytics.example.com',
+    ...extra,
+  });
 }
 async function ledger() {
   return (await active.query('SELECT * FROM _prisma_migrations ORDER BY id')).rows;
@@ -173,6 +181,55 @@ try {
     path.join(fixture, 'server.js'),
     "console.log('RESTORED_STARTUP_ACCEPTED');\n",
   );
+  const seededAdminId = '41e2b680-648e-4b09-bcd7-3e2b10c06264';
+  const deniedDefault = startup();
+  assert.notEqual(deniedDefault.status, 0, deniedDefault.output);
+  assert.match(deniedDefault.output, /known default password/);
+  assert.ok(!deniedDefault.output.includes('RESTORED_STARTUP_ACCEPTED'));
+
+  await active.query('UPDATE "user" SET password = $1 WHERE user_id = $2', [
+    await bcrypt.hash('umami', 12),
+    seededAdminId,
+  ]);
+  const deniedRehashedDefault = startup();
+  assert.notEqual(deniedRehashedDefault.status, 0, deniedRehashedDefault.output);
+  assert.match(deniedRehashedDefault.output, /known default password/);
+  assert.ok(!deniedRehashedDefault.output.includes('RESTORED_STARTUP_ACCEPTED'));
+
+  const deniedProvisioning = provision();
+  assert.notEqual(deniedProvisioning.status, 0, deniedProvisioning.output);
+  assert.match(deniedProvisioning.output, /UMAMI_ADMIN_PASSWORD is required/);
+  const replacementPassword = 'synthetic-restored-admin-password-0000000000';
+  ok(provision({ UMAMI_ADMIN_PASSWORD: replacementPassword }));
+  const passwordAfterProvision = (
+    await active.query('SELECT password FROM "user" WHERE user_id = $1', [seededAdminId])
+  ).rows[0].password;
+  assert.equal(await bcrypt.compare('umami', passwordAfterProvision), false);
+  assert.equal(await bcrypt.compare(replacementPassword, passwordAfterProvision), true);
+  ok(
+    provision({
+      UMAMI_ADMIN_PASSWORD: 'synthetic-later-password-00000000000000',
+    }),
+  );
+  assert.equal(
+    (await active.query('SELECT password FROM "user" WHERE user_id = $1', [seededAdminId])).rows[0]
+      .password,
+    passwordAfterProvision,
+  );
+  const copiedDefaultUserId = crypto.randomUUID();
+  await active.query(
+    'INSERT INTO "user" (user_id, username, role, password) VALUES ($1, $2, $3, $4)',
+    [
+      copiedDefaultUserId,
+      `synthetic-default-${copiedDefaultUserId}`,
+      'user',
+      users.find(user => user.user_id === seededAdminId).password,
+    ],
+  );
+  const deniedCopiedDefault = startup();
+  assert.notEqual(deniedCopiedDefault.status, 0, deniedCopiedDefault.output);
+  assert.match(deniedCopiedDefault.output, /known default password/);
+  await active.query('DELETE FROM "user" WHERE user_id = $1', [copiedDefaultUserId]);
   ok(startup());
   const specifications = [
     ['user', 'user_role_check', ['admin', 'user', 'view-only']],

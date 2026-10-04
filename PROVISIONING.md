@@ -27,6 +27,7 @@ The script is idempotent:
 
 - if the admin user already exists, it will reuse that user
 - if the website row already exists for the same domain, it will leave it in place
+- if the existing admin still uses the known seeded password, `UMAMI_ADMIN_PASSWORD` is required and replaces it even without the rotation flag
 - if you need to rotate the existing admin password during provisioning, add `UMAMI_UPDATE_ADMIN_PASSWORD=true`
 
 ## Do Not Clone Schema From Another Analytics Database

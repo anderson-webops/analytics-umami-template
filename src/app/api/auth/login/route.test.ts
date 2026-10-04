@@ -157,6 +157,21 @@ test.each([false, true])('cloud mode rejects local password login (Redis %s)', a
   expect(mocks.createSecureToken).not.toHaveBeenCalled();
 });
 
+test('known seeded password cannot authenticate any local account', async () => {
+  mocks.parseRequest.mockResolvedValue({
+    body: { username: 'admin', password: 'umami' },
+    error: undefined,
+  });
+
+  const response = await POST(loginRequest());
+
+  expect(response.status).toBe(401);
+  expect(response.headers.has('set-cookie')).toBe(false);
+  expect(mocks.getUserByUsername).not.toHaveBeenCalled();
+  expect(mocks.createSecureToken).not.toHaveBeenCalled();
+  expect(mocks.saveAuth).not.toHaveBeenCalled();
+});
+
 test('self-hosted enrolled login still requires a partial two-factor challenge', async () => {
   mocks.createSecureToken.mockReturnValue('partial-fixture');
 

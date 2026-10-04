@@ -75,7 +75,9 @@ The exact artifact and clean-runtime acceptance rules are documented in
 - Password changes and optional 2FA disable share an atomic PostgreSQL-backed limit of five password checks per account per 15 minutes. The budget uses the existing settings table, so it adds no migration to a retained runtime's ledger; credential checks stop safely if the budget is unavailable. Administrators must use the current-password flow for their own account; the operator password-rotation command remains available for recovery.
 - MCP remains disabled by default. Set `MCP_ENABLED=1` only for an intentional deployment, then authenticate it with a user-bound API key created under Settings. MCP tools are read-only and retain that user's website/team permissions; enabling MCP does not weaken the normal browser-session boundary.
 - API keys can read authorized team and analytics data, but cannot manage team membership, ownership, website transfers, or public shares. Team invitation codes and existing public-share slugs are not returned to API keys; website `shareId` appears as `null` for those callers. Rotate any invitation code disclosed to an API key before this restriction is deployed.
-- Rotate the seeded administrator password before public promotion:
+- The direct production runtime refuses to start while the seeded administrator
+  still has the known password, including after that password is rehashed.
+  Rotate it before public promotion:
 
   ```bash
   read -s UMAMI_PASSWORD
@@ -97,5 +99,7 @@ The exact artifact and clean-runtime acceptance rules are documented in
 
   Existing non-admin users are never promoted implicitly. Use
   `--promote-existing-admin` only after verifying the intended account, and use
-  `--update-admin-password` only for an intentional rotation.
+  `--update-admin-password` only for an intentional rotation of a non-default password.
+  Provisioning always replaces the known seeded password when `UMAMI_ADMIN_PASSWORD`
+  is supplied, and refuses to reuse it without a replacement.
 - Fork repos should sync from this template first, then carry only site-specific branding and deployment differences.

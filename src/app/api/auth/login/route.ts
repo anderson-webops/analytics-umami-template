@@ -54,6 +54,10 @@ export async function POST(request: Request) {
     });
   }
 
+  if (password === 'umami') {
+    return unauthorized({ code: 'incorrect-username-password' });
+  }
+
   const user = await getUserByUsername(username, { includePassword: true });
   const passwordMatches = await checkPassword(password, user?.password || DUMMY_PASSWORD_HASH);
 

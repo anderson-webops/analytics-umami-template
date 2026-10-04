@@ -16,6 +16,8 @@ const MIN_VERSION = '15.0';
 const MIN_VERSION_NUM = 150_000;
 const VALID_USER_ROLES = new Set(['admin', 'user', 'view-only']);
 const VALID_TEAM_ROLES = ['team-owner', 'team-manager', 'team-member', 'team-view-only'];
+const SEEDED_ADMIN_ID = '41e2b680-648e-4b09-bcd7-3e2b10c06264';
+const SEEDED_ADMIN_PASSWORD_HASH = '$2b$10$BUli0c.muyCW1ErNJc3jL.vFRFtFJWrT8/GcR4A.sUdCznaXiqFXa';
 const SAFE_SCHEMA = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const isEnabled = value => ['1', 'true', 'yes', 'on'].includes(value?.trim().toLowerCase() ?? '');
 const verifyOnly = process.argv.includes('--verify-only');
@@ -621,6 +623,24 @@ async function checkRuntimeSecurityState() {
 
   if (activeAdmins === 0) {
     throw new Error('No active administrator exists.');
+  }
+
+  const knownDefaultHash = await prisma.user.findFirst({
+    where: { deletedAt: null, password: SEEDED_ADMIN_PASSWORD_HASH },
+    select: { id: true },
+  });
+  const seededAdmin = await prisma.user.findUnique({
+    where: { id: SEEDED_ADMIN_ID },
+    select: { password: true, deletedAt: true },
+  });
+
+  if (
+    knownDefaultHash ||
+    (seededAdmin && !seededAdmin.deletedAt && (await bcrypt.compare('umami', seededAdmin.password)))
+  ) {
+    throw new Error(
+      'An active user still uses the known default password. Rotate it before starting the service.',
+    );
   }
 
   const invalidUserRoles = await prisma.user.count({
