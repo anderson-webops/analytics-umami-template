@@ -17,6 +17,7 @@ const log = debug('umami:prisma');
 const EQUALITY_OPERATORS: Operator[] = [OPERATORS.equals, OPERATORS.notEquals];
 const SEARCH_OPERATORS: Operator[] = [OPERATORS.contains, OPERATORS.doesNotContain];
 const REGEX_OPERATORS: Operator[] = [OPERATORS.regex, OPERATORS.notRegex];
+const REGEX_QUERY_TIMEOUT_MS = 2_000;
 
 const PRISMA = 'prisma';
 
@@ -39,6 +40,13 @@ export interface RawQueryClient extends RawQueryExecutor {
   $replica?: () => unknown;
 }
 
+interface TransactionalRawQueryExecutor extends RawQueryExecutor {
+  $transaction<Result>(
+    action: (transaction: RawQueryExecutor) => Promise<Result>,
+    options: { maxWait: number; timeout: number },
+  ): Promise<Result>;
+}
+
 function isRawQueryExecutor(value: unknown): value is RawQueryExecutor {
   return (
     !!value &&
@@ -46,6 +54,12 @@ function isRawQueryExecutor(value: unknown): value is RawQueryExecutor {
     '$executeRawUnsafe' in value &&
     '$queryRawUnsafe' in value
   );
+}
+
+function isTransactionalRawQueryExecutor(
+  value: RawQueryExecutor,
+): value is TransactionalRawQueryExecutor {
+  return '$transaction' in value && typeof value.$transaction === 'function';
 }
 
 export function getRawQueryClient(
@@ -752,6 +766,44 @@ async function executeRawQuery(
     useReplica: !!process.env.DATABASE_REPLICA_URL,
     write,
   });
+
+  if (!write && query.includes('~*')) {
+    if (!isTransactionalRawQueryExecutor(queryClient)) {
+      throw new Error('Regex queries require a transactional database client.');
+    }
+
+    return queryClient.$transaction(
+      async transaction => {
+        const settings = (await transaction.$queryRawUnsafe(
+          "SELECT setting, unit FROM pg_settings WHERE name = 'statement_timeout'",
+        )) as { setting: string; unit: string }[];
+        const currentTimeout = Number(settings[0]?.setting);
+
+        if (
+          settings.length !== 1 ||
+          settings[0].unit !== 'ms' ||
+          !Number.isSafeInteger(currentTimeout) ||
+          currentTimeout < 0
+        ) {
+          throw new Error('Database statement timeout could not be verified.');
+        }
+
+        const timeout =
+          currentTimeout === 0
+            ? REGEX_QUERY_TIMEOUT_MS
+            : Math.min(currentTimeout, REGEX_QUERY_TIMEOUT_MS);
+
+        await transaction.$executeRawUnsafe(`SET LOCAL statement_timeout = '${timeout}ms'`);
+
+        if (schema) {
+          await transaction.$executeRawUnsafe(`SET LOCAL search_path TO "${schema}";`);
+        }
+
+        return transaction.$queryRawUnsafe(query, ...params);
+      },
+      { maxWait: 2_000, timeout: 3_000 },
+    );
+  }
 
   if (schema) {
     await queryClient.$executeRawUnsafe(`SET search_path TO "${schema}";`);
