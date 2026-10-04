@@ -97,6 +97,16 @@ jobs:
           UMAMI_BIND_ADDRESS: 127.0.0.1
         run: pnpm run build:production
 
+      - name: Diagnose release checkout drift
+        run: |
+          printf 'Tracked paths changed during the build:\n'
+          git diff --name-only
+          git diff --cached --name-only
+          printf 'Untracked path count: '
+          git ls-files --others --exclude-standard | wc -l
+          printf 'First untracked paths, if any:\n'
+          git ls-files --others --exclude-standard | sed -n '1,20p'
+
       - name: Verify exact Linux ARM64 runtime and migration state
         env:
           PUBLIC_URL: https://analytics.example.com
