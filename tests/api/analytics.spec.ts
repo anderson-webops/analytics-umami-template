@@ -382,6 +382,16 @@ test.describe('Analytics', () => {
     const params = dateRange(seed, { unit: 'day', timezone: TIMEZONE });
     const response = await admin.get(path, { params });
     const limited = await admin.get(path, { params: { ...params, limit: 1 } });
+    const oversized = await admin.get(path, {
+      params: {
+        ...params,
+        startAt: Date.parse('2026-09-01'),
+        endAt: Date.parse('2026-09-30'),
+        unit: 'hour',
+        limit: 500,
+      },
+    });
+    const invalidLimit = await admin.get(path, { params: { ...params, limit: 501 } });
     const missingTimezone = await admin.get(path, { params: dateRange(seed, { unit: 'day' }) });
     const shared = await (await share()).get(path, { params });
     const denied = await viewer.get(path, { params });
@@ -400,6 +410,8 @@ test.describe('Analytics', () => {
 
     expect(limited.status).toBe(200);
     expect(new Set(limited.body.map((row: any) => row.x)).size).toBe(1);
+    expect(oversized.status).toBe(400);
+    expect(invalidLimit.status).toBe(400);
     expect(missingTimezone.status).toBe(400);
     expect(shared.status).toBe(200);
     expect(denied.status).toBe(401);

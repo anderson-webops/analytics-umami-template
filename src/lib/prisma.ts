@@ -741,6 +741,7 @@ async function executeRawQuery(
   data: Record<string, any>,
   name?: string,
   write = false,
+  timeoutMs?: number,
 ): Promise<any> {
   if (process.env.LOG_QUERY) {
     log('QUERY:\n', sql);
@@ -765,9 +766,22 @@ async function executeRawQuery(
     write,
   });
 
-  if (!write && query.includes('~*')) {
+  const isRegexQuery = query.includes('~*');
+  const requestedTimeout = isRegexQuery
+    ? Math.min(timeoutMs ?? REGEX_QUERY_TIMEOUT_MS, REGEX_QUERY_TIMEOUT_MS)
+    : timeoutMs;
+
+  if (!write && requestedTimeout !== undefined) {
+    if (!Number.isSafeInteger(requestedTimeout) || requestedTimeout <= 0) {
+      throw new Error('Invalid database query timeout.');
+    }
+
     if (!isTransactionalRawQueryExecutor(queryClient)) {
-      throw new Error('Regex queries require a transactional database client.');
+      throw new Error(
+        isRegexQuery
+          ? 'Regex queries require a transactional database client.'
+          : 'Bounded queries require a transactional database client.',
+      );
     }
 
     return queryClient.$transaction(
@@ -787,9 +801,7 @@ async function executeRawQuery(
         }
 
         const timeout =
-          currentTimeout === 0
-            ? REGEX_QUERY_TIMEOUT_MS
-            : Math.min(currentTimeout, REGEX_QUERY_TIMEOUT_MS);
+          currentTimeout === 0 ? requestedTimeout : Math.min(currentTimeout, requestedTimeout);
 
         await transaction.$executeRawUnsafe(`SET LOCAL statement_timeout = '${timeout}ms'`);
 
@@ -799,7 +811,7 @@ async function executeRawQuery(
 
         return transaction.$queryRawUnsafe(query, ...params);
       },
-      { maxWait: 2_000, timeout: 3_000 },
+      { maxWait: 2_000, timeout: requestedTimeout + 1_000 },
     );
   }
 
@@ -810,8 +822,13 @@ async function executeRawQuery(
   return queryClient.$queryRawUnsafe(query, ...params);
 }
 
-async function rawQuery(sql: string, data: Record<string, any>, name?: string): Promise<any> {
-  return executeRawQuery(sql, data, name);
+async function rawQuery(
+  sql: string,
+  data: Record<string, any>,
+  name?: string,
+  timeoutMs?: number,
+): Promise<any> {
+  return executeRawQuery(sql, data, name, false, timeoutMs);
 }
 
 async function writeRawQuery(sql: string, data: Record<string, any>, name?: string): Promise<any> {

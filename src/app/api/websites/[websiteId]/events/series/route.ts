@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import { getQueryFilters, parseRequest } from '@/lib/request';
-import { json, unauthorized } from '@/lib/response';
+import { badRequest, json, unauthorized } from '@/lib/response';
 import { filterParams, queryLimitParam, timezoneParam, unitParam } from '@/lib/schema';
 import { canViewWebsiteSection } from '@/permissions';
-import { getEventStats } from '@/queries/sql';
+import { getEventSeriesLimit, getEventStats, isEventSeriesWithinBudget } from '@/queries/sql';
 
 export async function GET(
   request: Request,
@@ -32,8 +32,17 @@ export async function GET(
 
   const { limit } = query;
   const filters = await getQueryFilters(query, websiteId);
+  const eventSeriesLimit = getEventSeriesLimit(limit);
 
-  const data = await getEventStats(websiteId, { limit }, filters);
+  if (filters.startDate && filters.endDate && filters.startDate > filters.endDate) {
+    return json([]);
+  }
+
+  if (!isEventSeriesWithinBudget(eventSeriesLimit, filters)) {
+    return badRequest({ message: 'The requested event series exceeds the allowed size.' });
+  }
+
+  const data = await getEventStats(websiteId, { limit: eventSeriesLimit }, filters);
 
   return json(data);
 }

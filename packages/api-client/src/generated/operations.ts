@@ -4,7 +4,7 @@
 import type { RequestOptions } from '../types';
 import type { components, operations as OperationTypes } from './types';
 
-export const API_VERSION = '4.2.38';
+export const API_VERSION = '4.2.39';
 
 export type HttpMethod = 'get' | 'post' | 'put' | 'patch' | 'delete';
 
@@ -4383,7 +4383,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Get custom event counts over time
-   * Returns counts grouped by event name and time interval, optionally limited to the most frequent event names.
+   * Returns counts grouped by event name and time interval for the most frequent matching event names. The default is 50 names; up to 500 may be requested when the time range keeps the response within the series size budget.
    * `GET /api/websites/{websiteId}/events/series`
    */
   getWebsiteEventSeries(

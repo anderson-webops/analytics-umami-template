@@ -729,6 +729,7 @@ async function rawQuery<T = unknown>(
   query: string,
   params: Record<string, unknown> = {},
   name?: string,
+  limits?: { maxExecutionTimeSeconds: number; maxResultRows: number },
 ): Promise<T> {
   if (isEnvEnabled('LOG_QUERY')) {
     log({ query, params, name });
@@ -743,6 +744,12 @@ async function rawQuery<T = unknown>(
     clickhouse_settings: {
       date_time_output_format: 'iso',
       output_format_json_quote_64bit_integers: 0,
+      ...(limits && {
+        max_execution_time: limits.maxExecutionTimeSeconds,
+        timeout_before_checking_execution_speed: 0,
+        max_result_rows: String(limits.maxResultRows),
+        result_overflow_mode: 'throw' as const,
+      }),
     },
   });
 

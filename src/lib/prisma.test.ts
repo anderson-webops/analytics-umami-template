@@ -180,6 +180,29 @@ describe('bounded raw regex queries', () => {
     expect(transaction.$queryRawUnsafe).toHaveBeenCalledTimes(1);
   });
 
+  test('applies an explicit timeout without weakening a stricter database setting', async () => {
+    const transaction = {
+      $executeRawUnsafe: vi.fn(),
+      $queryRawUnsafe: vi
+        .fn()
+        .mockResolvedValueOnce([{ setting: '750', unit: 'ms' }])
+        .mockResolvedValueOnce([{ x: 'event' }]),
+    };
+    vi.mocked(client().$transaction).mockImplementation(async action => action(transaction));
+
+    await expect(
+      prisma.rawQuery('select {{name}} as x', { name: 'event' }, 'getEventStats', 10_000),
+    ).resolves.toEqual([{ x: 'event' }]);
+    expect(transaction.$executeRawUnsafe).toHaveBeenCalledWith(
+      "SET LOCAL statement_timeout = '750ms'",
+    );
+    expect(transaction.$queryRawUnsafe).toHaveBeenLastCalledWith('select $1 as x', 'event');
+    expect(client().$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      maxWait: 2_000,
+      timeout: 11_000,
+    });
+  });
+
   test('does not bypass the timeout when the selected replica has no transaction', async () => {
     const replica = {
       $executeRawUnsafe: vi.fn(),

@@ -1,5 +1,37 @@
-import { describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import clickhouse, { CLICKHOUSE_DATE_FORMATS } from './clickhouse';
+
+afterEach(() => {
+  vi.doUnmock('@clickhouse/client');
+  vi.unstubAllEnvs();
+  delete globalThis.clickhouse;
+});
+
+describe('bounded queries', () => {
+  test('passes event-series time and result limits to ClickHouse', async () => {
+    const query = vi.fn().mockResolvedValue({ json: vi.fn().mockResolvedValue([]) });
+    vi.stubEnv('CLICKHOUSE_URL', 'http://umami:synthetic@127.0.0.1:8123/umami');
+    vi.doMock('@clickhouse/client', () => ({ createClient: () => ({ query }) }));
+    vi.resetModules();
+
+    const { default: client } = await import('./clickhouse');
+    await client.rawQuery('select 1', {}, 'getEventStats', {
+      maxExecutionTimeSeconds: 10,
+      maxResultRows: 50_000,
+    });
+
+    expect(query).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clickhouse_settings: expect.objectContaining({
+          max_execution_time: 10,
+          timeout_before_checking_execution_speed: 0,
+          max_result_rows: '50000',
+          result_overflow_mode: 'throw',
+        }),
+      }),
+    );
+  });
+});
 
 describe('report filter parameters', () => {
   test('keeps structured filter metadata out of ClickHouse queries', () => {

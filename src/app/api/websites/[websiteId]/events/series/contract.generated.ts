@@ -12,7 +12,7 @@ const operation1 = defineOperation({
     operationId: 'getWebsiteEventSeries',
     summary: 'Get custom event counts over time',
     description:
-      'Returns counts grouped by event name and time interval, optionally limited to the most frequent event names.',
+      'Returns counts grouped by event name and time interval for the most frequent matching event names. The default is 50 names; up to 500 may be requested when the time range keeps the response within the series size budget.',
     tags: ['Websites'],
     parameters: [
       {
