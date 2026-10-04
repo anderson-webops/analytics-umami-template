@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import bcrypt from 'bcryptjs';
 import { build } from 'esbuild';
 import { Client } from 'pg';
 
@@ -137,6 +138,14 @@ try {
   );
   await fs.writeFile(path.join(fixture, 'server.js'), "console.log('SYNTHETIC_SERVER_STARTED');\n");
   await fs.writeFile(path.join(fixture, 'package.json'), '{"type":"module"}\n');
+
+  const unprovisioned = startup();
+  assert.notEqual(unprovisioned.status, 0, unprovisioned.output);
+  assert.match(unprovisioned.output, /known default password/);
+  await client.query('UPDATE "user" SET password = $1 WHERE user_id = $2', [
+    await bcrypt.hash('synthetic-migration-attempt-admin-00000000', 12),
+    '41e2b680-648e-4b09-bcd7-3e2b10c06264',
+  ]);
 
   const baseline = await snapshot();
   const success = baseline.find(row => row.migration_name === '16_boards');
