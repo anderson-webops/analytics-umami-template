@@ -15,6 +15,19 @@ import {
 const temporaryDirectories = [];
 const source = { commit: 'a'.repeat(40), dirty: false };
 
+test('generated API client version matches the application release', async () => {
+  const packageJson = JSON.parse(
+    await fs.readFile(new URL('../package.json', import.meta.url), 'utf8'),
+  );
+  const generated = await fs.readFile(
+    new URL('../packages/api-client/src/generated/operations.ts', import.meta.url),
+    'utf8',
+  );
+  const generatedVersion = generated.match(/^export const API_VERSION = '([^']+)';$/m)?.[1];
+
+  assert.equal(generatedVersion, packageJson.version);
+});
+
 async function createFixture() {
   const fixture = await fs.mkdtemp(path.join(os.tmpdir(), 'umami-runtime-artifact-'));
   const root = path.join(fixture, 'runtime');
