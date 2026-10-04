@@ -1,20 +1,36 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { ENTITY_TYPE } from '@/lib/constants';
-import { canViewReport, getReportSection } from './report';
+import { canDeleteReport, canViewReport, getReportSection } from './report';
 import { canViewWebsiteSection } from './share';
-import { canViewWebsite } from './website';
+import { canDeleteWebsite, canViewWebsite } from './website';
 
 vi.mock('./share', () => ({
   canViewWebsiteSection: vi.fn(),
 }));
 
 vi.mock('./website', () => ({
+  canDeleteWebsite: vi.fn(),
   canViewWebsite: vi.fn(),
 }));
 
 beforeEach(() => {
   vi.mocked(canViewWebsiteSection).mockReset();
+  vi.mocked(canDeleteWebsite).mockReset();
   vi.mocked(canViewWebsite).mockReset();
+});
+
+test('canDeleteReport requires current website access even for its author', async () => {
+  const auth = { user: { id: 'author-1', username: 'author', role: 'user', isAdmin: false } };
+  const report = { id: 'report-1', userId: 'author-1', websiteId: 'website-1' } as any;
+
+  vi.mocked(canViewWebsite).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+
+  await expect(canDeleteReport(auth, report)).resolves.toBe(false);
+  await expect(
+    canDeleteReport({ user: { ...auth.user, role: 'view-only' } }, report),
+  ).resolves.toBe(true);
+  expect(canViewWebsite).toHaveBeenCalledWith({ user: auth.user }, 'website-1');
+  expect(canDeleteWebsite).not.toHaveBeenCalled();
 });
 
 test('getReportSection maps saved report types to share sections', () => {

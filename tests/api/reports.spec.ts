@@ -1,7 +1,7 @@
 import { expect, test } from './fixtures';
 import { UNKNOWN_UUID } from './helpers/constants';
 import { dateRange, dateRangeIso } from './helpers/dates';
-import { uniqueName } from './helpers/entities';
+import { assertStatus, createWebsite, uniqueName } from './helpers/entities';
 import type { SeedState } from './seed/state';
 
 /** Body shared by every report run endpoint (filters + parameters date windows). */
@@ -223,6 +223,116 @@ test.describe('Saved reports', () => {
     expect(unknown.status).toBe(404);
 
     reportId = '';
+  });
+
+  test('report authors cannot delete after losing website access through any report route', async ({
+    admin,
+    user,
+    seed,
+  }) => {
+    const team = assertStatus(
+      await admin.post('/api/teams', { name: uniqueName('report-team') }),
+      200,
+      'create report team',
+    ).body;
+    const reportIds: string[] = [];
+    let websiteId = '';
+
+    try {
+      assertStatus(
+        await admin.post(`/api/teams/${team.id}/users`, {
+          userId: seed.user.id,
+          role: 'team-member',
+        }),
+        200,
+        'grant report author website access',
+      );
+      const website = await createWebsite(admin, { teamId: team.id });
+      websiteId = website.id;
+
+      const definitions = [
+        {
+          type: 'goal',
+          parameters: { ...dateRangeIso(seed), type: 'path', value: '/pricing' },
+        },
+        {
+          type: 'funnel',
+          parameters: {
+            ...dateRangeIso(seed),
+            window: 30,
+            steps: [
+              { type: 'path', value: '/' },
+              { type: 'path', value: '/pricing' },
+            ],
+          },
+        },
+      ];
+
+      for (const definition of definitions) {
+        const report = assertStatus(
+          await user.post('/api/reports', {
+            websiteId,
+            type: definition.type,
+            name: uniqueName('report'),
+            parameters: definition.parameters,
+          }),
+          200,
+          'create report as team member',
+        ).body;
+        reportIds.push(report.id);
+      }
+
+      const authorizedReport = assertStatus(
+        await user.post('/api/reports', {
+          websiteId,
+          type: definitions[0].type,
+          name: uniqueName('current-author-report'),
+          parameters: definitions[0].parameters,
+        }),
+        200,
+        'create current-author report',
+      ).body;
+      assertStatus(
+        await admin.post(`/api/teams/${team.id}/users/${seed.user.id}`, {
+          role: 'team-view-only',
+        }),
+        200,
+        'retain report author website access without mutation permission',
+      );
+      expect((await user.get(`/api/websites/${websiteId}`)).status).toBe(200);
+      assertStatus(
+        await user.del(`/api/reports/${authorizedReport.id}`),
+        200,
+        'delete report with current website access',
+      );
+
+      assertStatus(
+        await admin.del(`/api/teams/${team.id}/users/${seed.user.id}`),
+        200,
+        'revoke report author website access',
+      );
+
+      for (const route of [
+        `/api/reports/${reportIds[0]}`,
+        `/api/websites/${websiteId}/goals/${reportIds[0]}`,
+        `/api/websites/${websiteId}/funnels/${reportIds[1]}`,
+      ]) {
+        expect((await user.del(route)).status).toBe(401);
+      }
+
+      for (const id of reportIds) {
+        expect((await admin.del(`/api/reports/${id}`)).status).toBe(200);
+      }
+      reportIds.length = 0;
+    } finally {
+      for (const id of reportIds) {
+        await admin.del(`/api/reports/${id}`);
+      }
+      if (websiteId) {
+        await admin.del(`/api/websites/${websiteId}`);
+      }
+      await admin.del(`/api/teams/${team.id}`);
+    }
   });
 });
 

@@ -3,7 +3,11 @@ import { PERMISSIONS, ROLES } from '@/lib/constants';
 import { isUuid } from '@/lib/crypto';
 import prisma from '@/lib/prisma';
 import type { QueryFilters } from '@/lib/types';
-import { assertActorCanMutateEntity, runSerializable } from './authorization';
+import {
+  assertActorCanAccessEntities,
+  assertActorCanMutateEntity,
+  runSerializable,
+} from './authorization';
 
 import ReportFindManyArgs = Prisma.ReportFindManyArgs;
 
@@ -209,17 +213,29 @@ export async function deleteReport(reportId: string, actorUserId: string) {
       throw new Error('REPORT_ACTOR_NOT_AUTHORIZED');
     }
 
-    if (actor.role !== ROLES.admin && report.userId !== actorUserId) {
+    if (actor.role !== ROLES.admin) {
       try {
-        await assertActorCanMutateEntity(
-          transaction,
-          actorUserId,
-          'website',
-          report.websiteId,
-          PERMISSIONS.websiteDelete,
-        );
+        if (report.userId === actorUserId) {
+          await assertActorCanAccessEntities(transaction, actorUserId, [
+            { entityType: 'website', entityId: report.websiteId },
+          ]);
+        } else {
+          await assertActorCanMutateEntity(
+            transaction,
+            actorUserId,
+            'website',
+            report.websiteId,
+            PERMISSIONS.websiteDelete,
+          );
+        }
       } catch (error: any) {
-        if (['ENTITY_NOT_FOUND', 'ENTITY_ACTOR_NOT_AUTHORIZED'].includes(error?.message)) {
+        if (
+          [
+            'ENTITY_NOT_FOUND',
+            'ENTITY_ACTOR_NOT_AUTHORIZED',
+            'ENTITY_REFERENCE_NOT_AUTHORIZED',
+          ].includes(error?.message)
+        ) {
           throw new Error('REPORT_ACTOR_NOT_AUTHORIZED');
         }
 

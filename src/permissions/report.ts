@@ -72,7 +72,7 @@ export async function canDeleteReport(auth: Auth, report: Report) {
   }
 
   if (auth.user.id === report.userId) {
-    return true;
+    return !!(await canViewWebsite({ user: auth.user }, report.websiteId));
   }
 
   return !!(await canDeleteWebsite(auth, report.websiteId));
