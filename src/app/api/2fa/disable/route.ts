@@ -1,9 +1,17 @@
 import { z } from 'zod';
 import { isEnvEnabled } from '@/lib/env';
 import { checkPassword } from '@/lib/password';
+import { reservePasswordVerificationAttempt } from '@/lib/password-verification-rate-limit';
 import prisma from '@/lib/prisma';
 import { parseRequest } from '@/lib/request';
-import { badRequest, forbidden, json, notFound, serviceUnavailable } from '@/lib/response';
+import {
+  badRequest,
+  forbidden,
+  json,
+  notFound,
+  serviceUnavailable,
+  tooManyRequests,
+} from '@/lib/response';
 import {
   decryptSecret,
   getTwoFactorConfigurationError,
@@ -47,9 +55,30 @@ export async function POST(request: Request) {
     });
   }
 
-  // Verify password
   const userWithPw = await getUser(userId, { includePassword: true });
-  if (!userWithPw || !(await checkPassword(password, userWithPw.password))) {
+  if (!userWithPw) {
+    return badRequest({
+      code: 'two-factor-error-incorrect-password',
+      message: 'Incorrect password',
+    });
+  }
+
+  let passwordAttempt;
+
+  try {
+    passwordAttempt = await reservePasswordVerificationAttempt(userId);
+  } catch {
+    return serviceUnavailable({ message: 'Credential verification is temporarily unavailable' });
+  }
+
+  if (!passwordAttempt.allowed) {
+    return tooManyRequests(passwordAttempt.retryAfter, {
+      message: 'Too many password attempts',
+    });
+  }
+
+  // Verify password
+  if (!(await checkPassword(password, userWithPw.password))) {
     return badRequest({
       code: 'two-factor-error-incorrect-password',
       message: 'Incorrect password',

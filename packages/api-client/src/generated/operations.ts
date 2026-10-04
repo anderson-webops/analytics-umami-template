@@ -4,7 +4,7 @@
 import type { RequestOptions } from '../types';
 import type { components, operations as OperationTypes } from './types';
 
-export const API_VERSION = '4.2.30';
+export const API_VERSION = '4.2.31';
 
 export type HttpMethod = 'get' | 'post' | 'put' | 'patch' | 'delete';
 
@@ -3629,7 +3629,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Disable two-factor authentication
-   * Disables two-factor authentication for the current user after verifying their password and authenticator code. Rejected when an administrator or team requires it.
+   * Disables two-factor authentication for the current user after verifying their password and authenticator code. Password verification shares a five-attempt, 15-minute account limit with password changes. Rejected when an administrator or team requires it.
    * `POST /api/2fa/disable`
    */
   disableTwoFactor(
@@ -5033,7 +5033,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Change my password
-   * Verifies the current password and replaces it with the supplied new password.
+   * Verifies the current password and replaces it with the supplied new password. Password verification shares a five-attempt, 15-minute account limit with optional 2FA disable.
    * `POST /api/me/password`
    */
   updateMyPassword(

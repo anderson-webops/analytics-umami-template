@@ -3,9 +3,16 @@ import { saveAuth } from '@/lib/auth';
 import { hash, secret } from '@/lib/crypto';
 import { createSecureToken } from '@/lib/jwt';
 import { checkPassword, hashPassword } from '@/lib/password';
+import { reservePasswordVerificationAttempt } from '@/lib/password-verification-rate-limit';
 import redis from '@/lib/redis';
 import { parseRequest } from '@/lib/request';
-import { badRequest, json, unauthorized } from '@/lib/response';
+import {
+  badRequest,
+  json,
+  serviceUnavailable,
+  tooManyRequests,
+  unauthorized,
+} from '@/lib/response';
 import { loginPasswordParam, passwordParam } from '@/lib/schema';
 import { getAuthSessionTtlSeconds } from '@/lib/security';
 import { setSessionCookie } from '@/lib/session';
@@ -30,6 +37,18 @@ export async function POST(request: Request) {
 
   if (!user) {
     return unauthorized();
+  }
+
+  let attempt;
+
+  try {
+    attempt = await reservePasswordVerificationAttempt(userId);
+  } catch {
+    return serviceUnavailable({ message: 'Credential verification is temporarily unavailable' });
+  }
+
+  if (!attempt.allowed) {
+    return tooManyRequests(attempt.retryAfter, { message: 'Too many password attempts' });
   }
 
   if (!(await checkPassword(currentPassword, user.password))) {

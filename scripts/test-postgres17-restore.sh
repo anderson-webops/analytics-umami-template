@@ -21,6 +21,7 @@ export DATABASE_URL="postgresql://restore_test:synthetic-restore-password-000000
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node scripts/test-postgres-restore.mjs "$@"
 pnpm run db:migrate
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm exec tsx scripts/test-two-factor-admission.ts
+ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm exec tsx scripts/test-password-verification-admission.ts
 if [[ "$runtime" == 1 ]]; then
   # The caller runs this unchanged workspace inside its private network unit.
   # No installed pnpm workspace is copied to a different path.

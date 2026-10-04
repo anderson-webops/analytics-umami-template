@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   findTwoFactorAuth: vi.fn(),
   reserveTwoFactorAttempt: vi.fn(),
   verifyTotp: vi.fn(),
+  reservePasswordVerificationAttempt: vi.fn(),
 }));
 
 vi.mock('@/lib/request', () => ({
@@ -53,6 +54,10 @@ vi.mock('@/lib/password', () => ({
   checkPassword: mocks.checkPassword,
 }));
 
+vi.mock('@/lib/password-verification-rate-limit', () => ({
+  reservePasswordVerificationAttempt: mocks.reservePasswordVerificationAttempt,
+}));
+
 vi.mock('@/queries/prisma/user', () => ({
   getUser: mocks.getUser,
 }));
@@ -68,8 +73,46 @@ beforeEach(() => {
   mocks.findTwoFactorAuth.mockReset();
   mocks.reserveTwoFactorAttempt.mockReset();
   mocks.verifyTotp.mockReset();
+  mocks.reservePasswordVerificationAttempt.mockReset();
 
   mocks.isTwoFactorConfigured.mockReturnValue(true);
+  mocks.reservePasswordVerificationAttempt.mockResolvedValue({ allowed: true, retryAfter: 0 });
+});
+
+test('POST stops password guessing before hash comparison when the shared budget is exhausted', async () => {
+  mocks.parseRequest.mockResolvedValue({
+    auth: { user: { id: 'user-1' } },
+    body: { password: 'guess', token: '123456' },
+    error: undefined,
+  });
+  mocks.getTwoFactorRequirement.mockResolvedValue({ reason: null });
+  mocks.getUser.mockResolvedValue({ password: 'hashed-password' });
+  mocks.reservePasswordVerificationAttempt.mockResolvedValue({ allowed: false, retryAfter: 71 });
+
+  const response = await POST(new Request('http://localhost/api/2fa/disable', { method: 'POST' }));
+
+  expect(response.status).toBe(429);
+  expect(response.headers.get('retry-after')).toBe('71');
+  expect(mocks.reservePasswordVerificationAttempt).toHaveBeenCalledWith('user-1');
+  expect(mocks.getUser).toHaveBeenCalledWith('user-1', { includePassword: true });
+  expect(mocks.checkPassword).not.toHaveBeenCalled();
+  expect(mocks.verifyTotp).not.toHaveBeenCalled();
+});
+
+test('POST fails closed when the password attempt budget cannot be checked', async () => {
+  mocks.parseRequest.mockResolvedValue({
+    auth: { user: { id: 'user-1' } },
+    body: { password: 'guess', token: '123456' },
+    error: undefined,
+  });
+  mocks.getTwoFactorRequirement.mockResolvedValue({ reason: null });
+  mocks.getUser.mockResolvedValue({ password: 'hashed-password' });
+  mocks.reservePasswordVerificationAttempt.mockRejectedValue(new Error('database unavailable'));
+
+  const response = await POST(new Request('http://localhost/api/2fa/disable', { method: 'POST' }));
+
+  expect(response.status).toBe(503);
+  expect(mocks.checkPassword).not.toHaveBeenCalled();
 });
 
 test('POST returns a configuration error after validating the caller', async () => {

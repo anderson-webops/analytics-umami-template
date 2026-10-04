@@ -11,7 +11,7 @@ export const operationDescriptions: Record<string, OperationDescription> = {
   'POST /api/2fa/disable': {
     summary: 'Disable two-factor authentication',
     description:
-      'Disables two-factor authentication for the current user after verifying their password and authenticator code. Rejected when an administrator or team requires it.',
+      'Disables two-factor authentication for the current user after verifying their password and authenticator code. Password verification shares a five-attempt, 15-minute account limit with password changes. Rejected when an administrator or team requires it.',
   },
   'POST /api/2fa/setup/cancel': {
     summary: 'Cancel two-factor authentication setup',
@@ -220,7 +220,8 @@ export const operationDescriptions: Record<string, OperationDescription> = {
   },
   'POST /api/me/password': {
     summary: 'Change my password',
-    description: 'Verifies the current password and replaces it with the supplied new password.',
+    description:
+      'Verifies the current password and replaces it with the supplied new password. Password verification shares a five-attempt, 15-minute account limit with optional 2FA disable.',
   },
   'GET /api/me/teams': {
     summary: 'List my team memberships',

@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   createSecureToken: vi.fn(),
   saveAuth: vi.fn(),
   deleteAuthKey: vi.fn(),
+  reservePasswordVerificationAttempt: vi.fn(),
 }));
 
 vi.mock('@/lib/request', () => ({ parseRequest: mocks.parseRequest }));
@@ -27,6 +28,9 @@ vi.mock('@/lib/password', () => ({
 vi.mock('@/lib/crypto', () => ({ hash: mocks.hash, secret: mocks.secret }));
 vi.mock('@/lib/jwt', () => ({ createSecureToken: mocks.createSecureToken }));
 vi.mock('@/lib/auth', () => ({ saveAuth: mocks.saveAuth }));
+vi.mock('@/lib/password-verification-rate-limit', () => ({
+  reservePasswordVerificationAttempt: mocks.reservePasswordVerificationAttempt,
+}));
 vi.mock('@/lib/redis', () => ({
   default: { enabled: false, client: { del: mocks.deleteAuthKey } },
 }));
@@ -53,6 +57,30 @@ beforeEach(() => {
   mocks.secret.mockReturnValue('app-secret');
   mocks.createSecureToken.mockReturnValue('new-session');
   mocks.saveAuth.mockResolvedValue('new-session');
+  mocks.reservePasswordVerificationAttempt.mockResolvedValue({ allowed: true, retryAfter: 0 });
+});
+
+test('password verification stops before hash comparison when the attempt budget is exhausted', async () => {
+  mocks.reservePasswordVerificationAttempt.mockResolvedValue({ allowed: false, retryAfter: 83 });
+
+  const response = await POST(new Request('http://localhost/api/me/password', { method: 'POST' }));
+
+  expect(response.status).toBe(429);
+  expect(response.headers.get('retry-after')).toBe('83');
+  expect(mocks.reservePasswordVerificationAttempt).toHaveBeenCalledWith('user-1');
+  expect(mocks.getUser).toHaveBeenCalledWith('user-1', { includePassword: true });
+  expect(mocks.checkPassword).not.toHaveBeenCalled();
+  expect(mocks.replacePasswordIfCurrent).not.toHaveBeenCalled();
+});
+
+test('password verification fails closed when the attempt budget is unavailable', async () => {
+  mocks.reservePasswordVerificationAttempt.mockRejectedValue(new Error('database unavailable'));
+
+  const response = await POST(new Request('http://localhost/api/me/password', { method: 'POST' }));
+
+  expect(response.status).toBe(503);
+  expect(mocks.checkPassword).not.toHaveBeenCalled();
+  expect(mocks.replacePasswordIfCurrent).not.toHaveBeenCalled();
 });
 
 test.each([false, true])('password change preserves verified 2FA (Redis %s)', async enabled => {

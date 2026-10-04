@@ -74,6 +74,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ use
       return forbidden({ message: 'Use the current-password flow to change your password.' });
     }
 
+    if (auth.user.id === userId) {
+      return forbidden({ message: 'Use the current-password flow to change your password.' });
+    }
+
     data.password = await hashPassword(password);
   }
 
