@@ -250,6 +250,31 @@ export async function packageRuntimeWorkspaces(root, captured) {
       await fs.rm(path.join(root, installed), { recursive: true });
     }
   }
+  const vendorModules = 'vendor/braces/node_modules';
+  const vendorModulesPath = path.join(root, vendorModules);
+  let vendorModulesEntry;
+  try {
+    vendorModulesEntry = await fs.lstat(vendorModulesPath);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  if (vendorModulesEntry) {
+    assert.ok(vendorModulesEntry.isDirectory(), 'Vendored dependency output is not a directory.');
+    assert.equal(
+      await fs.realpath(path.join(root, 'vendor/braces')),
+      path.join(root, 'vendor/braces'),
+    );
+    const manifest = await json(path.join(root, 'vendor/braces/package.json'));
+    assert.equal(manifest.name, 'braces');
+    assert.equal(manifest.version, '3.0.4-webops.1');
+    assert.equal(
+      execFileSync('git', ['ls-files', '--', vendorModules], { cwd: root, encoding: 'utf8' }),
+      '',
+      'Tracked vendored dependency output cannot be removed.',
+    );
+    execFileSync('git', ['check-ignore', '-q', '--', vendorModules], { cwd: root });
+    await fs.rmdir(vendorModulesPath);
+  }
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [operation, snapshot] = process.argv.slice(2);

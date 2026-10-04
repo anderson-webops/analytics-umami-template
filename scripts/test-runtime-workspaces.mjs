@@ -23,6 +23,7 @@ async function fixture(run) {
   }
   try {
     execFileSync('git', ['init', '-q', root]);
+    await file('.gitignore', 'node_modules\n');
     await file('package.json', {
       dependencies: { '@test/api': 'workspace:*', '@test/mcp': 'workspace:*' },
     });
@@ -81,6 +82,7 @@ test('removes a captured dev-only braces hoist without changing its vendored sou
     await link('node_modules/.pnpm/node_modules/braces', '../../../vendor/braces');
 
     const captured = await captureWorkspacePackaging(root);
+    await fs.unlink(path.join(root, 'vendor/braces/node_modules/dep'));
     await packageRuntimeWorkspaces(root, captured);
 
     await assert.rejects(fs.lstat(path.join(root, 'node_modules/.pnpm/node_modules/braces')), {
@@ -90,7 +92,165 @@ test('removes a captured dev-only braces hoist without changing its vendored sou
       await fs.readFile(path.join(root, 'vendor/braces/index.js'), 'utf8'),
       'module.exports = "braces";',
     );
+    await assert.rejects(fs.lstat(path.join(root, 'vendor/braces/node_modules')), {
+      code: 'ENOENT',
+    });
   });
+});
+test('refuses to clean vendored dependency output that is linked, nonempty, tracked or not ignored', async () => {
+  for (const mutation of ['link', 'nonempty', 'tracked', 'not-ignored']) {
+    await fixture(async ({ root, file, link }) => {
+      await file('vendor/braces/package.json', { name: 'braces', version: '3.0.4-webops.1' });
+      await file('vendor/braces/index.js', 'original');
+      await link('node_modules/.pnpm/node_modules/braces', '../../../vendor/braces');
+      const captured = await captureWorkspacePackaging(root);
+
+      if (mutation === 'link') {
+        await file('linked-output/keep', 'original');
+        await link('vendor/braces/node_modules', '../../linked-output');
+      } else if (mutation === 'nonempty') {
+        await file('vendor/braces/node_modules/keep', 'original');
+      } else if (mutation === 'tracked') {
+        await file('vendor/braces/node_modules/keep', 'original');
+        execFileSync('git', ['add', '-f', 'vendor/braces/node_modules/keep'], { cwd: root });
+      } else {
+        await fs.mkdir(path.join(root, 'vendor/braces/node_modules'));
+        await file('.gitignore', 'other-output\n');
+      }
+
+      await assert.rejects(packageRuntimeWorkspaces(root, captured));
+      assert.ok(await fs.lstat(path.join(root, 'vendor/braces/node_modules')));
+      assert.equal(
+        await fs.readFile(path.join(root, 'vendor/braces/index.js'), 'utf8'),
+        'original',
+      );
+    });
+  }
+});
+test('refuses a vendored dependency directory reached through a parent link', async () => {
+  await fixture(async ({ root, file, link }) => {
+    const captured = await captureWorkspacePackaging(root);
+    await file('external-braces/package.json', { name: 'braces', version: '3.0.4-webops.1' });
+    await fs.mkdir(path.join(root, 'external-braces/node_modules'));
+    await link('vendor/braces', '../external-braces');
+
+    await assert.rejects(packageRuntimeWorkspaces(root, captured));
+    assert.ok(await fs.lstat(path.join(root, 'external-braces/node_modules')));
+  });
+});
+test('real install, prune and packaging preserve the exact tracked source inventory', async () => {
+  const runs = path.resolve('.ai-work/runs');
+  await fs.mkdir(runs, { recursive: true });
+  const root = await fs.mkdtemp(path.join(runs, 'workspace-pnpm-'));
+  const store = `${root}-store`;
+  const write = async (relative, contents) => {
+    const target = path.join(root, relative);
+    await fs.mkdir(path.dirname(target), { recursive: true });
+    await fs.writeFile(target, typeof contents === 'string' ? contents : JSON.stringify(contents));
+  };
+  const pnpm = args =>
+    execFileSync('pnpm', [...args, `--config.store-dir=${store}`], {
+      cwd: root,
+      env: { ...process.env, CI: 'true' },
+      stdio: 'pipe',
+    });
+
+  try {
+    execFileSync('git', ['init', '-q', root]);
+    await write('.gitignore', 'node_modules\n');
+    await write('pnpm-workspace.yaml', 'packages:\n  - packages/*\n');
+    await write('package.json', {
+      name: 'workspace-packaging-fixture',
+      version: '1.0.0',
+      private: true,
+      packageManager: 'pnpm@11.18.0',
+      dependencies: { '@test/api': 'workspace:*', '@test/mcp': 'workspace:*' },
+    });
+    await write('packages/api/package.json', {
+      name: '@test/api',
+      version: '1.0.0',
+      files: ['dist'],
+    });
+    await write('packages/mcp/package.json', {
+      name: '@test/mcp',
+      version: '1.0.0',
+      files: ['dist'],
+      dependencies: { '@test/api': 'workspace:*' },
+    });
+    await write('vendor/braces/package.json', { name: 'braces', version: '3.0.4-webops.1' });
+    await write('vendor/braces/index.js', 'module.exports = "braces";');
+    pnpm(['install', '--offline', '--ignore-scripts']);
+    execFileSync(
+      'git',
+      [
+        'add',
+        '.gitignore',
+        'package.json',
+        'pnpm-lock.yaml',
+        'pnpm-workspace.yaml',
+        'packages',
+        'vendor',
+      ],
+      { cwd: root },
+    );
+    execFileSync(
+      'git',
+      [
+        '-c',
+        'core.hooksPath=/dev/null',
+        '-c',
+        'user.name=Fixture',
+        '-c',
+        'user.email=fixture@example.invalid',
+        'commit',
+        '-qm',
+        'canonical source',
+      ],
+      { cwd: root },
+    );
+
+    await write('packages/api/dist/index.js', 'export const answer = 42;');
+    await write('packages/mcp/dist/index.js', 'export const answer = 43;');
+    await fs.mkdir(path.join(root, 'vendor/braces/node_modules'));
+    const captured = await captureWorkspacePackaging(root);
+    pnpm(['prune', '--prod', '--ignore-scripts']);
+    await packageRuntimeWorkspaces(root, captured);
+
+    const tracked = execFileSync('git', ['ls-files', '-z'], { cwd: root })
+      .toString()
+      .split('\0')
+      .filter(Boolean);
+    const expected = new Set(tracked);
+    for (const file of tracked) {
+      const parts = file.split('/');
+      for (let index = 1; index < parts.length; index += 1) {
+        expected.add(parts.slice(0, index).join('/'));
+      }
+      const actualHash = execFileSync('git', ['hash-object', file], {
+        cwd: root,
+        encoding: 'utf8',
+      }).trim();
+      const sourceHash = execFileSync('git', ['rev-parse', `HEAD:${file}`], {
+        cwd: root,
+        encoding: 'utf8',
+      }).trim();
+      assert.equal(actualHash, sourceHash, `Source blob changed: ${file}`);
+    }
+    const actual = [];
+    const visit = async (directory = root) => {
+      for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
+        if (directory === root && ['.git', 'node_modules'].includes(entry.name)) continue;
+        const absolute = path.join(directory, entry.name);
+        actual.push(path.relative(root, absolute));
+        if (entry.isDirectory()) await visit(absolute);
+      }
+    };
+    await visit();
+    assert.deepEqual(actual.sort(), [...expected].sort());
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(store, { recursive: true, force: true });
+  }
 });
 test('rejects a changed vendored hoist or an undeclared external link', async () => {
   for (const mutation of ['bytes', 'target', 'extra']) {
