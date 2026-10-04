@@ -10,6 +10,118 @@ const read = (relativePath: string) =>
   fs.readFileSync(path.join(repositoryRoot, relativePath), 'utf8');
 
 describe('direct production startup', () => {
+  test.each(['source', 'artifact', 'dotenv'])(
+    '%s launcher enforces production gates even when launched from development',
+    launcherKind => {
+      const runsDirectory = path.join(repositoryRoot, '.ai-work', 'runs');
+      fs.mkdirSync(runsDirectory, { recursive: true });
+      const fixtureRoot = fs.mkdtempSync(path.join(runsDirectory, 'production-launcher-'));
+
+      try {
+        fs.writeFileSync(path.join(fixtureRoot, 'package.json'), '{"type":"module"}\n');
+        fs.writeFileSync(
+          path.join(fixtureRoot, '.env'),
+          'NODE_ENV=development\nTEST_ENV_LOADED=ok\n',
+        );
+        const scriptDirectory =
+          launcherKind === 'artifact'
+            ? path.join(fixtureRoot, 'runtime-scripts')
+            : path.join(fixtureRoot, 'scripts');
+        fs.mkdirSync(scriptDirectory, { recursive: true });
+        const launcherPath = path.join(
+          scriptDirectory,
+          launcherKind === 'artifact'
+            ? 'start-production.mjs'
+            : launcherKind === 'dotenv'
+              ? 'start-env.js'
+              : 'start-production.js',
+        );
+        fs.copyFileSync(
+          path.join(
+            repositoryRoot,
+            launcherKind === 'artifact'
+              ? 'scripts/start-runtime.mjs'
+              : 'scripts/start-production.js',
+          ),
+          path.join(
+            scriptDirectory,
+            launcherKind === 'artifact' ? 'start-production.mjs' : 'start-production.js',
+          ),
+        );
+
+        if (launcherKind !== 'artifact') {
+          fs.copyFileSync(
+            path.join(repositoryRoot, 'scripts/repair-standalone.js'),
+            path.join(scriptDirectory, 'repair-standalone.js'),
+          );
+        }
+
+        if (launcherKind === 'dotenv') {
+          fs.copyFileSync(path.join(repositoryRoot, 'scripts/start-env.js'), launcherPath);
+          const modulesDirectory = path.join(fixtureRoot, 'node_modules');
+          fs.mkdirSync(modulesDirectory);
+          fs.symlinkSync(
+            fs.realpathSync(path.join(repositoryRoot, 'node_modules', 'dotenv')),
+            path.join(modulesDirectory, 'dotenv'),
+            'dir',
+          );
+        }
+
+        const checkSource =
+          "if (process.env.DOTENV_CONFIG_OVERRIDE) { console.error('Dotenv override reached startup gate.'); process.exit(72); }\n" +
+          "if (process.env.NODE_ENV === 'production' && process.env.UMAMI_BIND_ADDRESS === '0.0.0.0') { console.error('Public listener rejected.'); process.exit(71); }\n";
+        const checkExtension = launcherKind === 'artifact' ? 'mjs' : 'js';
+        fs.writeFileSync(path.join(scriptDirectory, `check-env.${checkExtension}`), checkSource);
+        fs.writeFileSync(path.join(scriptDirectory, `check-db.${checkExtension}`), '');
+
+        const appRoot =
+          launcherKind === 'artifact' ? fixtureRoot : path.join(fixtureRoot, '.next', 'standalone');
+        fs.mkdirSync(appRoot, { recursive: true });
+        fs.writeFileSync(
+          path.join(appRoot, 'server.js'),
+          'console.log("server mode: " + process.env.NODE_ENV + "; loaded: " + process.env.TEST_ENV_LOADED);\n',
+        );
+
+        for (const nodeEnvironment of ['development', undefined] as const) {
+          for (const dotenvOverride of [undefined, 'true'] as const) {
+            for (const [bindAddress, expectedStatus] of [
+              ['0.0.0.0', 71],
+              ['127.0.0.1', 0],
+            ] as const) {
+              const environment = {
+                ...process.env,
+                NODE_ENV: nodeEnvironment,
+                DOTENV_CONFIG_OVERRIDE: dotenvOverride,
+                DOTENV_CONFIG_PATH: path.join(fixtureRoot, '.env'),
+                UMAMI_BIND_ADDRESS: bindAddress,
+              };
+              const result = spawnSync(process.execPath, [launcherPath], {
+                cwd: fixtureRoot,
+                encoding: 'utf8',
+                env: environment,
+                timeout: 5_000,
+              });
+
+              expect(result.error).toBeUndefined();
+              expect(result.status, result.stderr).toBe(expectedStatus);
+              if (expectedStatus === 0) {
+                expect(result.stdout).toContain('server mode: production');
+                if (launcherKind === 'dotenv') {
+                  expect(result.stdout).toContain('loaded: ok');
+                }
+              } else {
+                expect(result.stderr).toContain('Public listener rejected.');
+                expect(result.stdout).not.toContain('server mode:');
+              }
+            }
+          }
+        }
+      } finally {
+        fs.rmSync(fixtureRoot, { recursive: true, force: true });
+      }
+    },
+  );
+
   test('keeps local development origin-free and production configuration separate', () => {
     const developmentEnvironment = read('env.development.sample');
     const productionEnvironment = read('env.sample');
@@ -135,6 +247,10 @@ describe('direct production startup', () => {
 
     expect(packageJson.scripts['build:production']).toContain('postbuild');
     expect(packageJson.scripts['start:production']).toBe('node scripts/start-production.js');
+    expect(packageJson.scripts.start).toBe(packageJson.scripts['start:production']);
+    expect(packageJson.scripts['start:server']).toBe(packageJson.scripts['start:production']);
+    expect(packageJson.scripts.prestart).toBeUndefined();
+    expect(read('scripts/start-env.js')).toContain("await import('./start-production.js')");
     expect(packageJson.scripts['db:migrate']).toBe('node scripts/check-db.js --migrate-only');
     expect(packageJson.scripts['build-docker']).toBeUndefined();
     expect(packageJson.scripts['start-docker']).toBeUndefined();

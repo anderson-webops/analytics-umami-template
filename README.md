@@ -55,7 +55,10 @@ pnpm start:production
 
 Use PostgreSQL 15 or newer, Node 24.18.1, pnpm 11.18.0, the supplied systemd
 unit, and Nginx. Each release is built from an exact commit in its own directory
-and promoted by changing the `current` symlink. The service defaults to
+and promoted by changing the `current` symlink. Both source and packaged
+production launchers and the legacy `start` aliases use the same guarded path,
+which sets production mode before configuration and database checks even when
+the calling shell does not. The service defaults to
 `127.0.0.1:3000`; production validation rejects a public bind address.
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for installation, migration, verification,

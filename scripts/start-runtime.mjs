@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 
 const scriptsDirectory = path.dirname(fileURLToPath(import.meta.url));
 const runtimeRoot = path.resolve(scriptsDirectory, '..');
+const productionEnvironment = { ...process.env, NODE_ENV: 'production' };
+delete productionEnvironment.DOTENV_CONFIG_OVERRIDE;
 const startupChecks = [
   { file: 'check-env.mjs', args: [], timeout: 10_000 },
   { file: 'check-db.mjs', args: ['--verify-only'], timeout: 120_000 },
@@ -16,7 +18,7 @@ for (const check of startupChecks) {
     [path.join(scriptsDirectory, check.file), ...check.args],
     {
       cwd: runtimeRoot,
-      env: process.env,
+      env: productionEnvironment,
       stdio: 'inherit',
       timeout: check.timeout,
     },
@@ -43,7 +45,7 @@ for (const check of startupChecks) {
 const server = spawn(process.execPath, [path.join(runtimeRoot, 'server.js')], {
   cwd: runtimeRoot,
   env: {
-    ...process.env,
+    ...productionEnvironment,
     HOSTNAME: process.env.UMAMI_BIND_ADDRESS?.trim() || '127.0.0.1',
     PORT: process.env.PORT?.trim() || '3000',
   },

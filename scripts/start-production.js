@@ -4,6 +4,8 @@ import path from 'node:path';
 import { repairStandaloneRuntime } from './repair-standalone.js';
 
 const repositoryRoot = process.cwd();
+const productionEnvironment = { ...process.env, NODE_ENV: 'production' };
+delete productionEnvironment.DOTENV_CONFIG_OVERRIDE;
 const { appDir } = await repairStandaloneRuntime();
 
 if (!appDir) {
@@ -19,7 +21,7 @@ const startupScripts = [
 for (const startupScript of startupScripts) {
   const result = spawnSync(process.execPath, [path.join(repositoryRoot, startupScript.path)], {
     cwd: startupScript.cwd,
-    env: process.env,
+    env: productionEnvironment,
     stdio: 'inherit',
   });
 
@@ -40,7 +42,7 @@ for (const startupScript of startupScripts) {
 const server = spawn(process.execPath, [path.join(appDir, 'server.js')], {
   cwd: appDir,
   env: {
-    ...process.env,
+    ...productionEnvironment,
     HOSTNAME: process.env.UMAMI_BIND_ADDRESS?.trim() || '127.0.0.1',
     PORT: process.env.PORT?.trim() || '3000',
   },
