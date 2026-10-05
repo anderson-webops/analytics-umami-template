@@ -273,18 +273,21 @@ test.describe('Sessions', () => {
 
   test.describe('DELETE /api/websites/{websiteId}/sessions/{sessionId}', () => {
     let websiteId = '';
+    let hostname = '';
     let sessionId = '';
 
     test.beforeAll(async ({ admin, api, seed }) => {
       test.skip(seed.db === 'clickhouse', 'Session deletion requires relational storage');
 
-      websiteId = (await createWebsite(admin)).id;
+      const website = await createWebsite(admin);
+      websiteId = website.id;
+      hostname = website.domain;
 
       const sent = await api.post('/api/send', {
         type: 'event',
         payload: {
           website: websiteId,
-          hostname: 'x.test',
+          hostname,
           url: '/',
           ip: '10.0.9.9',
           userAgent: PERSONAS[0].userAgent,
