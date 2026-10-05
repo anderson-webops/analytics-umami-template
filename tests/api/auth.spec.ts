@@ -63,6 +63,31 @@ test.describe('Auth', () => {
     expect(unknownUser.body.error.code).toBe('incorrect-username-password');
   });
 
+  test('wrong passwords from one source do not lock out the correct password from another', async ({
+    api,
+    seed,
+  }) => {
+    const attacker = api.with({ 'x-real-ip': '192.0.2.10' });
+    const legitimateUser = api.with({ 'x-real-ip': '198.51.100.20' });
+    const credentials = { username: seed.user.username, password: seed.user.password };
+
+    expect((await attacker.post('/api/auth/login', credentials)).status).toBe(200);
+
+    for (let attempt = 0; attempt < 11; attempt += 1) {
+      const response = await attacker.post('/api/auth/login', {
+        username: seed.user.username,
+        password: 'not-the-password',
+      });
+
+      expect(response.status).toBe(attempt < 10 ? 401 : 429);
+    }
+
+    const response = await legitimateUser.post('/api/auth/login', credentials);
+
+    expect(response.status).toBe(200);
+    expect(response.body.token).toEqual(expect.any(String));
+  });
+
   test('POST /api/auth/login validates the body', async ({ api, seed }) => {
     const missingPassword = await api.post('/api/auth/login', { username: seed.admin.username });
     const missingUsername = await api.post('/api/auth/login', { password: seed.admin.password });

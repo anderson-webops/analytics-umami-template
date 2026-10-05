@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   saveAuth: vi.fn(),
   isTwoFactorConfigured: vi.fn(),
   getLoginLimit: vi.fn(),
+  recordFailedLogin: vi.fn(),
   clearFailedLogins: vi.fn(),
   hashPassword: vi.fn(),
   passwordNeedsRehash: vi.fn(),
@@ -41,6 +42,7 @@ vi.mock('@/lib/password', () => ({
 vi.mock('@/lib/login-rate-limit', () => ({
   clearFailedLogins: mocks.clearFailedLogins,
   getLoginLimit: mocks.getLoginLimit,
+  recordFailedLogin: mocks.recordFailedLogin,
 }));
 
 vi.mock('@/queries/prisma/user', () => ({
@@ -105,6 +107,7 @@ beforeEach(() => {
   mocks.saveAuth.mockReset();
   mocks.isTwoFactorConfigured.mockReset();
   mocks.getLoginLimit.mockReset();
+  mocks.recordFailedLogin.mockReset();
   mocks.clearFailedLogins.mockReset();
   mocks.hashPassword.mockReset();
   mocks.passwordNeedsRehash.mockReset();
@@ -125,6 +128,7 @@ beforeEach(() => {
   mocks.checkPassword.mockReturnValue(true);
   mocks.hash.mockReturnValue('password-fingerprint');
   mocks.getLoginLimit.mockResolvedValue({ blocked: false, retryAfter: 900 });
+  mocks.recordFailedLogin.mockResolvedValue({ blocked: false, retryAfter: 900 });
   mocks.clearFailedLogins.mockResolvedValue(undefined);
   mocks.passwordNeedsRehash.mockReturnValue(false);
   mocks.findTwoFactorAuth.mockResolvedValue({ userId: 'user-1', isEnabled: true });
@@ -170,6 +174,35 @@ test('known seeded password cannot authenticate any local account', async () => 
   expect(mocks.getUserByUsername).not.toHaveBeenCalled();
   expect(mocks.createSecureToken).not.toHaveBeenCalled();
   expect(mocks.saveAuth).not.toHaveBeenCalled();
+});
+
+test('account failure responses do not prevent a later correct password from reaching 2FA', async () => {
+  mocks.checkPassword.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+  mocks.recordFailedLogin.mockResolvedValue({ blocked: true, retryAfter: 900 });
+  mocks.createSecureToken.mockReturnValue('partial-fixture');
+
+  const rejected = await POST(loginRequest());
+  const authenticated = await POST(loginRequest());
+
+  expect(rejected.status).toBe(429);
+  expect(rejected.headers.get('retry-after')).toBe('900');
+  expect(authenticated.status).toBe(200);
+  expect(await authenticated.json()).toEqual({
+    requiresTwoFactor: true,
+    partialToken: 'partial-fixture',
+  });
+  expect(mocks.recordFailedLogin).toHaveBeenCalledTimes(1);
+  expect(mocks.clearFailedLogins).toHaveBeenCalledWith(expect.any(Request), 'alice');
+});
+
+test('per-IP limit stops password checks before they consume bcrypt work', async () => {
+  mocks.getLoginLimit.mockResolvedValue({ blocked: true, retryAfter: 900 });
+
+  const response = await POST(loginRequest());
+
+  expect(response.status).toBe(429);
+  expect(mocks.checkPassword).not.toHaveBeenCalled();
+  expect(mocks.recordFailedLogin).not.toHaveBeenCalled();
 });
 
 test('self-hosted enrolled login still requires a partial two-factor challenge', async () => {

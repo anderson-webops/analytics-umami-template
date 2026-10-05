@@ -3,7 +3,7 @@ import { ENROLLMENT_AUTH_TOKEN_TYPE, PARTIAL_AUTH_TOKEN_TYPE, ROLES } from '@/li
 import { hash, secret } from '@/lib/crypto';
 import { isEnvEnabled } from '@/lib/env';
 import { createSecureToken } from '@/lib/jwt';
-import { clearFailedLogins, getLoginLimit } from '@/lib/login-rate-limit';
+import { clearFailedLogins, getLoginLimit, recordFailedLogin } from '@/lib/login-rate-limit';
 import { checkPassword, hashPassword, passwordNeedsRehash } from '@/lib/password';
 import prisma from '@/lib/prisma';
 import redis from '@/lib/redis';
@@ -18,6 +18,16 @@ import { replacePasswordIfCurrent } from '@/queries/prisma/user';
 import { loginRequestSchema } from './schema';
 
 const DUMMY_PASSWORD_HASH = '$2b$12$dzX/8VLqsHliwcW1P2rlnuxNhqzhg00Jqq7s6vi/PNkMuBsbgJHGi';
+
+async function rejectInvalidCredentials(username: string) {
+  const accountLimit = await recordFailedLogin(username);
+
+  return accountLimit.blocked
+    ? tooManyRequests(accountLimit.retryAfter, {
+        message: 'Too many login attempts. Please try again later.',
+      })
+    : unauthorized({ code: 'incorrect-username-password' });
+}
 
 export async function POST(request: Request) {
   if (isEnvEnabled('CLOUD_MODE')) {
@@ -55,14 +65,14 @@ export async function POST(request: Request) {
   }
 
   if (password === 'umami') {
-    return unauthorized({ code: 'incorrect-username-password' });
+    return rejectInvalidCredentials(username);
   }
 
   const user = await getUserByUsername(username, { includePassword: true });
   const passwordMatches = await checkPassword(password, user?.password || DUMMY_PASSWORD_HASH);
 
   if (!user || !passwordMatches) {
-    return unauthorized({ code: 'incorrect-username-password' });
+    return rejectInvalidCredentials(username);
   }
 
   const { id, role, createdAt } = user;

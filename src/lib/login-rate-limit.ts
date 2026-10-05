@@ -76,13 +76,19 @@ function getMemoryCount(key: string): Counter {
   return current;
 }
 
-function getKeys(request: Request, username: string): { account: string; ip: string } {
+function getAccountKey(username: string): string {
   const normalizedUsername = username.trim().toLowerCase();
+
+  return `login-rate:account:${hash(normalizedUsername).slice(0, 32)}`;
+}
+
+function getSourceKeys(request: Request, username: string): { ip: string; accountIp: string } {
   const ip = getIpAddress(request.headers) || 'unknown';
+  const accountIp = JSON.stringify([username.trim().toLowerCase(), ip]);
 
   return {
-    account: `login-rate:account:${hash(normalizedUsername).slice(0, 32)}`,
     ip: `login-rate:ip:${hash(ip).slice(0, 32)}`,
+    accountIp: `login-rate:account-ip:${hash(accountIp).slice(0, 32)}`,
   };
 }
 
@@ -135,17 +141,26 @@ async function decrement(key: string): Promise<void> {
 }
 
 export async function getLoginLimit(request: Request, username: string): Promise<LoginLimit> {
-  const keys = getKeys(request, username);
-  const [accountCount, ipCount] = await Promise.all([increment(keys.account), increment(keys.ip)]);
+  const { ip, accountIp } = getSourceKeys(request, username);
+  const [ipCount, accountIpCount] = await Promise.all([increment(ip), increment(accountIp)]);
 
   return {
-    blocked: accountCount > getAccountLimit() || ipCount > getIpLimit(),
+    blocked: ipCount > getIpLimit() || accountIpCount > getAccountLimit(),
+    retryAfter: getWindowSeconds(),
+  };
+}
+
+export async function recordFailedLogin(username: string): Promise<LoginLimit> {
+  const accountCount = await increment(getAccountKey(username));
+
+  return {
+    blocked: accountCount > getAccountLimit(),
     retryAfter: getWindowSeconds(),
   };
 }
 
 export async function clearFailedLogins(request: Request, username: string): Promise<void> {
-  const { account, ip } = getKeys(request, username);
+  const { ip, accountIp } = getSourceKeys(request, username);
 
-  await Promise.all([remove(account), decrement(ip)]);
+  await Promise.all([remove(getAccountKey(username)), remove(accountIp), decrement(ip)]);
 }
