@@ -5,7 +5,7 @@ import { fetchWebsite } from '@/lib/load';
 import { getWebsiteSegment } from '@/queries/prisma';
 import { getQueryFilters, parseRequest } from './request';
 import { readRequestBodyBytes } from './request-body';
-import { reportResultSchema } from './schema';
+import { fieldsParam, reportResultSchema, searchParams, withDateRange } from './schema';
 import { reserveShareQueryCost } from './share-query-budget';
 
 vi.hoisted(() => {
@@ -95,6 +95,27 @@ test('allows date and paging parameters when a public share disables filters', a
   );
 
   expect(result.error).toBeUndefined();
+});
+
+test('allows only bounded path and event selector search when explicitly enabled', async () => {
+  checkAuthMock.mockResolvedValue({
+    shareToken: {
+      websiteId: '00000000-0000-4000-8000-000000000001',
+      parameters: { allowFilter: false, journeys: true },
+    },
+  } as any);
+
+  const schema = withDateRange({ type: fieldsParam, ...searchParams });
+  const base = `https://analytics.example/api/websites/website-1/values?startAt=${Date.UTC(2025, 0, 1)}&endAt=${Date.UTC(2025, 0, 2)}`;
+  const parse = (query: string, allowShareSearch = false) =>
+    parseRequest(new Request(`${base}&${query}`), schema, { allowShareSearch });
+
+  expect((await parse('type=path&search=home')).error?.().status).toBe(403);
+  expect((await parse('type=path&search=home', true)).error).toBeUndefined();
+  expect((await parse('type=event&search=signup', true)).error).toBeUndefined();
+  expect((await parse('type=distinctId&search=visitor', true)).error?.().status).toBe(403);
+  expect((await parse('type=path&search=home&country1=US', true)).error?.().status).toBe(403);
+  expect((await parse(`type=path&search=${'a'.repeat(201)}`, true)).error?.().status).toBe(400);
 });
 
 test('bounds public-share property fan-out while preserving ordinary filtered views', async () => {

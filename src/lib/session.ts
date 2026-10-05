@@ -87,15 +87,18 @@ export function isSameOriginMutation(request: Request): boolean {
       return originUrl.origin === new URL(publicUrl).origin;
     }
 
+    const requestUrl = new URL(request.url);
     const forwardedHost = request.headers.get('x-forwarded-host')?.split(',')[0]?.trim();
-    const requestHost = forwardedHost || request.headers.get('host') || new URL(request.url).host;
+    const requestHost = forwardedHost || request.headers.get('host') || requestUrl.host;
     const forwardedProtocol = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim();
 
     if (originUrl.host !== requestHost) {
       return false;
     }
 
-    if (forwardedProtocol && originUrl.protocol !== `${forwardedProtocol}:`) {
+    if (
+      originUrl.protocol !== (forwardedProtocol ? `${forwardedProtocol}:` : requestUrl.protocol)
+    ) {
       return false;
     }
 

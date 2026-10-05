@@ -181,6 +181,8 @@ async function expectMissingModuleFailure(runtime) {
 
 async function expectStartupDependencyFailure(runtime) {
   const port = await availablePort();
+  const unavailableDatabaseUrl =
+    'postgresql://umami:synthetic-password-0000000000000000@127.0.0.1:65534/umami?schema=public&connect_timeout=2';
   const result = spawnSync(
     process.execPath,
     [path.join('runtime-scripts', 'start-production.mjs')],
@@ -191,8 +193,9 @@ async function expectStartupDependencyFailure(runtime) {
       env: {
         ...process.env,
         ...syntheticEnvironment(port),
-        DATABASE_URL:
-          'postgresql://umami:synthetic-password-0000000000000000@127.0.0.1:65534/umami?schema=public&connect_timeout=2',
+        DATABASE_URL: unavailableDatabaseUrl,
+        DIRECT_DATABASE_URL: '',
+        DATABASE_REPLICA_URL: '',
         RUNTIME_ACCEPTANCE_EXPECT_READY: '0',
         RUNTIME_ACCEPTANCE_USE_STARTUP: '1',
       },

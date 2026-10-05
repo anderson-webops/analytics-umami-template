@@ -52,7 +52,12 @@ function isValidQueryDateRange(query: Record<string, any>): boolean {
 export async function parseRequest(
   request: Request,
   schema?: any,
-  options?: { skipAuth?: boolean; maxBodyBytes?: number; budgetShareQuery?: boolean },
+  options?: {
+    skipAuth?: boolean;
+    maxBodyBytes?: number;
+    budgetShareQuery?: boolean;
+    allowShareSearch?: boolean;
+  },
 ): Promise<any> {
   const url = new URL(request.url);
   let query: Record<string, any> = {};
@@ -152,7 +157,10 @@ export async function parseRequest(
         : undefined;
 
     if (
-      hasShareFilterParams(query) ||
+      hasShareFilterParams(
+        query,
+        options?.allowShareSearch === true && ['path', 'event'].includes(query.type),
+      ) ||
       hasBodyFilters ||
       getStepFilterCount(query.steps) > 0 ||
       getStepFilterCount(bodyParameters?.steps) > 0

@@ -21,10 +21,12 @@ export function excludeShareFilterParam(key: string): boolean {
   );
 }
 
-export function hasShareFilterParams(value: unknown): boolean {
+export function hasShareFilterParams(value: unknown, allowSearch = false): boolean {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return false;
   }
 
-  return Object.keys(value).some(excludeShareFilterParam);
+  return Object.keys(value).some(
+    key => !(allowSearch && key === 'search') && excludeShareFilterParam(key),
+  );
 }

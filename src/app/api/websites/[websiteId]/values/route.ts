@@ -1,9 +1,9 @@
-import { EVENT_COLUMNS, FILTER_COLUMNS, SEGMENT_TYPES, SESSION_COLUMNS } from '@/lib/constants';
+import { EVENT_COLUMNS, FILTER_COLUMNS, SESSION_COLUMNS } from '@/lib/constants';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import { badRequest, json, unauthorized } from '@/lib/response';
 import { fieldsParam, searchParams, withDateRange } from '@/lib/schema';
-import { canViewWebsiteSection } from '@/permissions';
-import { getWebsiteSegments } from '@/queries/prisma';
+import { FILTERABLE_SHARE_SECTIONS } from '@/lib/share';
+import { canViewSharedWebsiteFilters, canViewWebsiteSection } from '@/permissions';
 import { getValues } from '@/queries/sql';
 
 export async function GET(
@@ -15,44 +15,31 @@ export async function GET(
     ...searchParams,
   });
 
-  const { auth, query, error } = await parseRequest(request, schema);
+  const { auth, query, error } = await parseRequest(request, schema, { allowShareSearch: true });
 
   if (error) {
     return error();
   }
 
   const { websiteId } = await params;
+  const { type } = query;
+  const canFilter = await canViewSharedWebsiteFilters(auth, websiteId);
+  const sections = canFilter
+    ? FILTERABLE_SHARE_SECTIONS
+    : type === 'path' || type === 'event'
+      ? (['journeys', 'attribution'] as const)
+      : null;
 
-  if (
-    !(await canViewWebsiteSection(auth, websiteId, [
-      'overview',
-      'events',
-      'sessions',
-      'compare',
-      'breakdown',
-      'utm',
-      'attribution',
-    ]))
-  ) {
+  if (!sections || !(await canViewWebsiteSection(auth, websiteId, [...sections]))) {
     return unauthorized();
   }
 
-  const { type } = query;
-
-  if (!SESSION_COLUMNS.includes(type) && !EVENT_COLUMNS.includes(type) && !SEGMENT_TYPES[type]) {
+  if (!SESSION_COLUMNS.includes(type) && !EVENT_COLUMNS.includes(type)) {
     return badRequest();
   }
 
-  let values: any[];
-
-  if (SEGMENT_TYPES[type]) {
-    values = (await getWebsiteSegments(websiteId, type))?.data?.map(segment => ({
-      value: segment.name,
-    }));
-  } else {
-    const filters = await getQueryFilters(query, websiteId);
-    values = await getValues(websiteId, FILTER_COLUMNS[type], filters);
-  }
+  const filters = await getQueryFilters(query, websiteId);
+  const values = await getValues(websiteId, FILTER_COLUMNS[type], filters);
 
   return json(values.filter(n => n?.value != null).sort());
 }

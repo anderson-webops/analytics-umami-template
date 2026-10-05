@@ -1,10 +1,23 @@
 import { describe, expect, test } from 'vitest';
+import { EVENT_COLUMNS, SESSION_COLUMNS } from './constants';
 import {
   allowShareFilter,
   canViewShareSection,
   excludeShareFilterParam,
+  getMetricShareSections,
   getShareTheme,
 } from './share';
+
+describe('getMetricShareSections', () => {
+  test('classifies every accepted metric type and rejects unknown types', () => {
+    for (const type of [...SESSION_COLUMNS, ...EVENT_COLUMNS, 'channel']) {
+      expect(getMetricShareSections(type), type).not.toBeNull();
+    }
+
+    expect(getMetricShareSections('constructor')).toBeNull();
+    expect(getMetricShareSections('newDimension')).toBeNull();
+  });
+});
 
 describe('canViewShareSection', () => {
   test('keeps ordinary users and legacy sectionless shares unrestricted', () => {

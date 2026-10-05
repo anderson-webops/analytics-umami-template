@@ -53,16 +53,44 @@ test('POST deletes the authenticated Redis auth key', async () => {
   expect(redisMock.client.del).toHaveBeenCalledWith('auth:session-key');
   expect(redisMock.client.del).not.toHaveBeenCalledWith('secure-token');
   expect(response.status).toBe(200);
+  expect(response.headers.get('set-cookie')).toContain('Max-Age=0');
 });
 
-test('POST does not delete a key when auth fails', async () => {
+test('POST neither revokes auth nor clears cookies for a rejected cross-origin request', async () => {
   parseRequestMock.mockResolvedValue({
     auth: null,
     error: () => new Response(null, { status: 401 }),
   });
 
-  const response = await POST(new Request('http://localhost/api/auth/logout', { method: 'POST' }));
+  const response = await POST(
+    new Request('http://localhost/api/auth/logout', {
+      method: 'POST',
+      headers: {
+        origin: 'https://attacker.example',
+        cookie: 'analytics-session=opaque-session',
+      },
+    }),
+  );
 
   expect(redisMock.client.del).not.toHaveBeenCalled();
   expect(response.status).toBe(401);
+  expect(response.headers.get('set-cookie')).toBeNull();
+});
+
+test('POST clears stale cookies for a same-origin failed logout', async () => {
+  parseRequestMock.mockResolvedValue({
+    auth: null,
+    error: () => new Response(null, { status: 401 }),
+  });
+
+  const response = await POST(
+    new Request('http://localhost/api/auth/logout', {
+      method: 'POST',
+      headers: { origin: 'http://localhost' },
+    }),
+  );
+
+  expect(redisMock.client.del).not.toHaveBeenCalled();
+  expect(response.status).toBe(401);
+  expect(response.headers.get('set-cookie')).toContain('Max-Age=0');
 });
