@@ -1,12 +1,47 @@
-import prisma from '@/lib/prisma';
+import type { Prisma } from '@/generated/prisma/client';
+import { PERMISSIONS } from '@/lib/constants';
+import { assertActorCanMutateEntity, runSerializable } from './authorization';
+
+async function lockSessionDeleteAuthorization(
+  transaction: Prisma.TransactionClient,
+  actorUserId: string,
+  websiteId: string,
+) {
+  await transaction.$queryRaw`
+    SELECT user_id FROM "user" WHERE user_id = ${actorUserId}::uuid FOR SHARE
+  `;
+
+  const websites = await transaction.$queryRaw<{ team_id: string | null }[]>`
+    SELECT team_id FROM website WHERE website_id = ${websiteId}::uuid FOR SHARE
+  `;
+  const teamId = websites[0]?.team_id;
+
+  if (teamId) {
+    await transaction.$queryRaw`
+      SELECT team_id FROM team WHERE team_id = ${teamId}::uuid FOR SHARE
+    `;
+    await transaction.$queryRaw`
+      SELECT team_user_id FROM team_user
+      WHERE team_id = ${teamId}::uuid AND user_id = ${actorUserId}::uuid FOR SHARE
+    `;
+  }
+}
 
 export async function deleteSession(
   websiteId: string,
   sessionId: string,
+  actorUserId: string,
 ): Promise<{ id: string } | null> {
-  const transaction = prisma.transaction as <T>(input: (tx: any) => Promise<T>) => Promise<T>;
+  return runSerializable(async tx => {
+    await lockSessionDeleteAuthorization(tx, actorUserId, websiteId);
+    await assertActorCanMutateEntity(
+      tx,
+      actorUserId,
+      'website',
+      websiteId,
+      PERMISSIONS.websiteDelete,
+    );
 
-  return transaction(async tx => {
     const session = await tx.session.findFirst({
       where: {
         id: sessionId,

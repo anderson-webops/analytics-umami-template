@@ -27,6 +27,20 @@ function adapterSerializationConflict() {
   });
 }
 
+function rawQuerySerializationConflict() {
+  return Object.assign(new Error('Raw query serialization conflict'), {
+    code: 'P2010',
+    meta: {
+      driverAdapterError: {
+        cause: {
+          originalCode: '40001',
+          kind: 'TransactionWriteConflict',
+        },
+      },
+    },
+  });
+}
+
 describe('runSerializable', () => {
   beforeEach(() => {
     transaction.mockReset();
@@ -50,6 +64,17 @@ describe('runSerializable', () => {
 
   test('retries a PostgreSQL adapter serialization conflict', async () => {
     transaction.mockRejectedValueOnce(adapterSerializationConflict()).mockResolvedValueOnce('ok');
+
+    const result = runSerializable(async () => 'unused');
+
+    await vi.runAllTimersAsync();
+
+    await expect(result).resolves.toBe('ok');
+    expect(transaction).toHaveBeenCalledTimes(2);
+  });
+
+  test('retries a nested PostgreSQL raw-query serialization conflict', async () => {
+    transaction.mockRejectedValueOnce(rawQuerySerializationConflict()).mockResolvedValueOnce('ok');
 
     const result = runSerializable(async () => 'unused');
 

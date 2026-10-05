@@ -87,7 +87,20 @@ export async function DELETE(
     return unauthorized();
   }
 
-  const deletedSession = await deleteSession(websiteId, sessionId);
+  let deletedSession;
+
+  try {
+    deletedSession = await deleteSession(websiteId, sessionId, auth.user.id);
+  } catch (error: any) {
+    switch (error?.message) {
+      case 'ENTITY_NOT_FOUND':
+        return notFound({ message: 'Website not found.' });
+      case 'ENTITY_ACTOR_NOT_AUTHORIZED':
+        return unauthorized({ message: 'Your website-delete permission changed.' });
+      default:
+        throw error;
+    }
+  }
 
   if (!deletedSession) {
     return notFound();

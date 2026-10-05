@@ -28,6 +28,23 @@ function hasSerializableConflictMarker(error: unknown): boolean {
     return false;
   }
 
+  const meta = 'meta' in error ? error.meta : null;
+  const adapterError =
+    meta && typeof meta === 'object' && 'driverAdapterError' in meta
+      ? meta.driverAdapterError
+      : null;
+
+  if (
+    'code' in error &&
+    error.code === 'P2010' &&
+    adapterError &&
+    typeof adapterError === 'object' &&
+    'cause' in adapterError &&
+    hasSerializableConflictMarker(adapterError.cause)
+  ) {
+    return true;
+  }
+
   return (
     ('code' in error && (error.code === 'P2034' || error.code === '40001')) ||
     ('originalCode' in error && error.originalCode === '40001') ||

@@ -170,7 +170,7 @@ test('DELETE returns unauthorized when the user cannot delete the website', asyn
 });
 
 test('DELETE returns not found when the session does not exist', async () => {
-  parseRequestMock.mockResolvedValue({ auth: {}, error: undefined });
+  parseRequestMock.mockResolvedValue({ auth: { user: { id: 'user-1' } }, error: undefined });
   isRelationalOnlyMock.mockReturnValue(true);
   canDeleteWebsiteMock.mockResolvedValue(true);
   deleteSessionMock.mockResolvedValue(null);
@@ -191,7 +191,7 @@ test('DELETE returns not found when the session does not exist', async () => {
 });
 
 test('DELETE removes the session when the request is valid', async () => {
-  parseRequestMock.mockResolvedValue({ auth: {}, error: undefined });
+  parseRequestMock.mockResolvedValue({ auth: { user: { id: 'user-1' } }, error: undefined });
   isRelationalOnlyMock.mockReturnValue(true);
   canDeleteWebsiteMock.mockResolvedValue(true);
   deleteSessionMock.mockResolvedValue({ id: SESSION_ID });
@@ -207,5 +207,38 @@ test('DELETE removes the session when the request is valid', async () => {
 
   expect(response.status).toBe(200);
   await expect(response.json()).resolves.toEqual({ ok: true });
-  expect(deleteSessionMock).toHaveBeenCalledWith(WEBSITE_ID, SESSION_ID);
+  expect(deleteSessionMock).toHaveBeenCalledWith(WEBSITE_ID, SESSION_ID, 'user-1');
+});
+
+test('DELETE rejects a permission revoked after the preliminary check', async () => {
+  parseRequestMock.mockResolvedValue({ auth: { user: { id: 'user-1' } }, error: undefined });
+  isRelationalOnlyMock.mockReturnValue(true);
+  canDeleteWebsiteMock.mockResolvedValue(true);
+  deleteSessionMock.mockRejectedValue(new Error('ENTITY_ACTOR_NOT_AUTHORIZED'));
+
+  const response = await DELETE(
+    new Request(`http://localhost/api/websites/${WEBSITE_ID}/sessions/${SESSION_ID}`, {
+      method: 'DELETE',
+    }),
+    { params: Promise.resolve({ websiteId: WEBSITE_ID, sessionId: SESSION_ID }) },
+  );
+
+  expect(response.status).toBe(401);
+  expect(deleteSessionMock).toHaveBeenCalledWith(WEBSITE_ID, SESSION_ID, 'user-1');
+});
+
+test('DELETE returns not found if the website disappears before the transaction', async () => {
+  parseRequestMock.mockResolvedValue({ auth: { user: { id: 'user-1' } }, error: undefined });
+  isRelationalOnlyMock.mockReturnValue(true);
+  canDeleteWebsiteMock.mockResolvedValue(true);
+  deleteSessionMock.mockRejectedValue(new Error('ENTITY_NOT_FOUND'));
+
+  const response = await DELETE(
+    new Request(`http://localhost/api/websites/${WEBSITE_ID}/sessions/${SESSION_ID}`, {
+      method: 'DELETE',
+    }),
+    { params: Promise.resolve({ websiteId: WEBSITE_ID, sessionId: SESSION_ID }) },
+  );
+
+  expect(response.status).toBe(404);
 });
