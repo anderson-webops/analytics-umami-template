@@ -24,7 +24,7 @@ const schema = z.object({
 });
 
 export async function GET(request: Request) {
-  const { auth, query, error } = await parseRequest(request, schema);
+  const { auth, query, error } = await parseRequest(request, schema, { budgetShareQuery: true });
 
   if (error) {
     return error();

@@ -6,6 +6,7 @@ import { getWebsiteSegment } from '@/queries/prisma';
 import { getQueryFilters, parseRequest } from './request';
 import { readRequestBodyBytes } from './request-body';
 import { reportResultSchema } from './schema';
+import { reserveShareQueryCost } from './share-query-budget';
 
 vi.hoisted(() => {
   process.env.DATABASE_URL ??= 'postgresql://user:pass@localhost:5432/umami?schema=public';
@@ -145,6 +146,30 @@ test('bounds realtime shares without a caller-supplied date range', async () => 
   }
 
   expect((await parseRequest(request(16), schema, options)).error?.().status).toBe(429);
+});
+
+test('budgets parameterless aggregate shares without pricing ignored URL dates', async () => {
+  const shareId = `parameterless-share-${crypto.randomUUID()}`;
+  checkAuthMock.mockResolvedValue({
+    shareToken: { shareId, websiteId: 'website-1' },
+  } as any);
+
+  expect((await reserveShareQueryCost(shareId, 600)).blocked).toBe(false);
+
+  const request = () =>
+    new Request('https://analytics.example/api/websites/website-1/active?startAt=2&endAt=1');
+  const schema = z.object({});
+
+  expect((await parseRequest(request(), schema)).error).toBeUndefined();
+
+  const budgeted = await parseRequest(request(), schema, { budgetShareQuery: true });
+  const response = budgeted.error?.();
+
+  expect(response?.status).toBe(429);
+  expect(response?.headers.get('Retry-After')).toBe('60');
+
+  checkAuthMock.mockResolvedValue({ user: { id: 'website-owner' } } as any);
+  expect((await parseRequest(request(), schema, { budgetShareQuery: true })).error).toBeUndefined();
 });
 
 test('bounds wide filtered shares but preserves unfiltered historical views', async () => {
