@@ -225,7 +225,7 @@ test.describe('Saved reports', () => {
     reportId = '';
   });
 
-  test('report authors cannot delete after losing website access through any report route', async ({
+  test('report authors cannot access reports after losing website access through any route', async ({
     admin,
     user,
     seed,
@@ -253,12 +253,13 @@ test.describe('Saved reports', () => {
       const definitions = [
         {
           type: 'goal',
-          parameters: { ...dateRangeIso(seed), type: 'path', value: '/pricing' },
+          route: 'goals',
+          parameters: { type: 'path', value: '/pricing' },
         },
         {
           type: 'funnel',
+          route: 'funnels',
           parameters: {
-            ...dateRangeIso(seed),
             window: 30,
             steps: [
               { type: 'path', value: '/' },
@@ -270,9 +271,7 @@ test.describe('Saved reports', () => {
 
       for (const definition of definitions) {
         const report = assertStatus(
-          await user.post('/api/reports', {
-            websiteId,
-            type: definition.type,
+          await user.post(`/api/websites/${websiteId}/${definition.route}`, {
             name: uniqueName('report'),
             parameters: definition.parameters,
           }),
@@ -283,9 +282,7 @@ test.describe('Saved reports', () => {
       }
 
       const authorizedReport = assertStatus(
-        await user.post('/api/reports', {
-          websiteId,
-          type: definitions[0].type,
+        await user.post(`/api/websites/${websiteId}/goals`, {
           name: uniqueName('current-author-report'),
           parameters: definitions[0].parameters,
         }),
@@ -300,6 +297,10 @@ test.describe('Saved reports', () => {
         'retain report author website access without mutation permission',
       );
       expect((await user.get(`/api/websites/${websiteId}`)).status).toBe(200);
+      expect((await user.get(`/api/websites/${websiteId}/goals/${reportIds[0]}`)).status).toBe(200);
+      expect((await user.get(`/api/websites/${websiteId}/funnels/${reportIds[1]}`)).status).toBe(
+        200,
+      );
       assertStatus(
         await user.del(`/api/reports/${authorizedReport.id}`),
         200,
@@ -317,7 +318,20 @@ test.describe('Saved reports', () => {
         `/api/websites/${websiteId}/goals/${reportIds[0]}`,
         `/api/websites/${websiteId}/funnels/${reportIds[1]}`,
       ]) {
+        expect((await user.get(route)).status).toBe(401);
         expect((await user.del(route)).status).toBe(401);
+      }
+
+      for (const [index, definition] of definitions.entries()) {
+        const reportId = reportIds[index];
+        expect(
+          (
+            await user.post(`/api/websites/${websiteId}/${definition.route}/${reportId}`, {
+              name: uniqueName('revoked-author-report'),
+              parameters: definition.parameters,
+            })
+          ).status,
+        ).toBe(401);
       }
 
       for (const id of reportIds) {

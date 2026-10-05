@@ -33,10 +33,6 @@ export async function canViewReport(auth: Auth, report: Report | null) {
     return true;
   }
 
-  if (auth.user?.id === report.userId) {
-    return true;
-  }
-
   const section = getReportSection(report.type);
 
   if (section) {
@@ -56,7 +52,7 @@ export async function canUpdateReport(auth: Auth, report: Report) {
   }
 
   if (auth.user.id === report.userId) {
-    return true;
+    return !!(await canViewWebsite({ user: auth.user }, report.websiteId));
   }
 
   return !!(await canUpdateWebsite(auth, report.websiteId));
