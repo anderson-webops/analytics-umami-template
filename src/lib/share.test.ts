@@ -6,6 +6,7 @@ import {
   excludeShareFilterParam,
   getMetricShareSections,
   getShareTheme,
+  restrictShareAuthToSection,
 } from './share';
 
 describe('getMetricShareSections', () => {
@@ -35,6 +36,36 @@ describe('canViewShareSection', () => {
     expect(canViewShareSection({ sessions: false, events: true }, ['sessions', 'events'])).toBe(
       true,
     );
+  });
+});
+
+describe('restrictShareAuthToSection', () => {
+  const section = ['overview', 'compare'] as const;
+  const user = { id: 'owner', username: 'owner', role: 'user', isAdmin: false };
+
+  test('removes only a restricted share grant and preserves independent user access', () => {
+    const auth = {
+      user,
+      shareToken: { websiteId: 'shared', parameters: { events: true } },
+    };
+
+    expect(restrictShareAuthToSection(auth, [...section])).toEqual({
+      user,
+      shareToken: undefined,
+    });
+    expect(auth.shareToken.websiteId).toBe('shared');
+  });
+
+  test('keeps enabled and legacy sectionless shares', () => {
+    for (const parameters of [{ overview: true }, { compare: true }, {}]) {
+      const auth = { shareToken: { websiteId: 'shared', parameters } };
+      expect(restrictShareAuthToSection(auth, [...section])).toBe(auth);
+    }
+  });
+
+  test('does not grant access when there is no share or user', () => {
+    const auth = {};
+    expect(restrictShareAuthToSection(auth, [...section])).toBe(auth);
   });
 });
 

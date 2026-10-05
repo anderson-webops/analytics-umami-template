@@ -4,6 +4,7 @@ import { parseDateRange } from '@/lib/date';
 import { parseRequest } from '@/lib/request';
 import { json } from '@/lib/response';
 import { timezoneParam } from '@/lib/schema';
+import { restrictShareAuthToSection } from '@/lib/share';
 import { canViewBatchWebsites } from '@/permissions/website';
 import { getWebsiteListCharts } from '@/queries/sql';
 
@@ -39,7 +40,10 @@ export async function GET(request: Request) {
     ? new Date(query.endAt)
     : fromZonedTime(defaultRange.endDate, timezone);
 
-  const websiteIds = await canViewBatchWebsites(auth, query.ids);
+  const websiteIds = await canViewBatchWebsites(
+    restrictShareAuthToSection(auth, ['overview', 'compare']),
+    query.ids,
+  );
 
   const data = await getWebsiteListCharts(websiteIds, {
     startDate,

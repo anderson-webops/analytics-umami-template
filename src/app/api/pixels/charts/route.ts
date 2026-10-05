@@ -5,6 +5,7 @@ import { parseDateRange } from '@/lib/date';
 import { parseRequest } from '@/lib/request';
 import { json } from '@/lib/response';
 import { timezoneParam } from '@/lib/schema';
+import { restrictShareAuthToSection } from '@/lib/share';
 import { canViewPixel } from '@/permissions';
 import { getWebsiteListCharts } from '@/queries/sql';
 
@@ -40,10 +41,11 @@ export async function GET(request: Request) {
     ? new Date(query.endAt)
     : fromZonedTime(defaultRange.endDate, timezone);
 
+  const sectionAuth = restrictShareAuthToSection(auth, ['overview', 'compare']);
   const pixelIds = (
     await Promise.all(
       query.ids.map(async (pixelId: string) =>
-        (await canViewPixel(auth, pixelId)) ? pixelId : null,
+        (await canViewPixel(sectionAuth, pixelId)) ? pixelId : null,
       ),
     )
   ).filter(Boolean);

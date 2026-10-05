@@ -1,4 +1,4 @@
-import type { ShareParameters, ShareTheme } from './types';
+import type { Auth, ShareParameters, ShareTheme } from './types';
 
 export { excludeShareFilterParam } from './share-filter';
 
@@ -83,6 +83,15 @@ export function canViewShareSection(
   const sections = Array.isArray(section) ? section : [section];
 
   return sections.some(key => parameters?.[key] === true);
+}
+
+export function restrictShareAuthToSection(
+  auth: Auth,
+  section: ShareSection | ShareSection[],
+): Auth {
+  return auth.shareToken && !canViewShareSection(auth.shareToken.parameters, section)
+    ? { ...auth, shareToken: undefined }
+    : auth;
 }
 
 export function allowShareFilter(parameters?: ShareParameters | null) {

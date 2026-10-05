@@ -58,6 +58,30 @@ beforeEach(() => {
   getWebsiteListChartsMock.mockReset();
 });
 
+test('website list charts do not expose overview data through an events-only share', async () => {
+  const shareId = `restricted-charts-${crypto.randomUUID()}`;
+  checkAuthMock.mockResolvedValue({
+    shareToken: {
+      shareId,
+      websiteId: WEBSITE_ID,
+      parameters: { events: true, overview: false, compare: false },
+    },
+  } as any);
+  canViewBatchWebsitesMock.mockImplementation(async auth => (auth.shareToken ? [WEBSITE_ID] : []));
+  getWebsiteListChartsMock.mockImplementation(async ids =>
+    ids.length ? { [WEBSITE_ID]: { values: [1], total: 1 } } : {},
+  );
+
+  const response = await getWebsiteChartsRoute(
+    new Request(`https://analytics.example/api/websites/charts?ids=${WEBSITE_ID}`),
+  );
+
+  expect(response.status).toBe(200);
+  expect(canViewBatchWebsitesMock.mock.calls[0][0].shareToken).toBeUndefined();
+  await expect(response.json()).resolves.toEqual({ data: {} });
+  expect(getWebsiteListChartsMock).toHaveBeenCalledWith([], expect.any(Object));
+});
+
 test.each([
   {
     name: 'active visitors with ignored URL dates',
@@ -133,3 +157,33 @@ test('ordinary users retain active-visitor access and denied users remain denied
   expect(denied.status).toBe(401);
   expect(getActiveVisitorsMock).toHaveBeenCalledOnce();
 });
+
+test.each([
+  { name: 'link', run: getLinkChartsRoute, permission: canViewLinkMock },
+  { name: 'pixel', run: getPixelChartsRoute, permission: canViewPixelMock },
+])(
+  '$name list charts do not expose overview data through an events-only share',
+  async ({ run, permission }) => {
+    const shareId = `restricted-charts-${crypto.randomUUID()}`;
+    checkAuthMock.mockResolvedValue({
+      shareToken: {
+        shareId,
+        websiteId: WEBSITE_ID,
+        parameters: { events: true, overview: false, compare: false },
+      },
+    } as any);
+    permission.mockImplementation(async auth => !!auth.shareToken);
+    getWebsiteListChartsMock.mockImplementation(async ids =>
+      ids.length ? { [WEBSITE_ID]: { values: [1], total: 1 } } : {},
+    );
+
+    const response = await run(
+      new Request(`https://analytics.example/api/${name}s/charts?ids=${WEBSITE_ID}`),
+    );
+
+    expect(response.status).toBe(200);
+    expect(permission.mock.calls[0][0].shareToken).toBeUndefined();
+    await expect(response.json()).resolves.toEqual({ data: {} });
+    expect(getWebsiteListChartsMock).toHaveBeenCalledWith([], expect.any(Object));
+  },
+);

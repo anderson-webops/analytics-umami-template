@@ -5,6 +5,7 @@ import { parseDateRange } from '@/lib/date';
 import { parseRequest } from '@/lib/request';
 import { json } from '@/lib/response';
 import { timezoneParam } from '@/lib/schema';
+import { restrictShareAuthToSection } from '@/lib/share';
 import { canViewLink } from '@/permissions';
 import { getWebsiteListCharts } from '@/queries/sql';
 
@@ -40,9 +41,12 @@ export async function GET(request: Request) {
     ? new Date(query.endAt)
     : fromZonedTime(defaultRange.endDate, timezone);
 
+  const sectionAuth = restrictShareAuthToSection(auth, ['overview', 'compare']);
   const linkIds = (
     await Promise.all(
-      query.ids.map(async (linkId: string) => ((await canViewLink(auth, linkId)) ? linkId : null)),
+      query.ids.map(async (linkId: string) =>
+        (await canViewLink(sectionAuth, linkId)) ? linkId : null,
+      ),
     )
   ).filter(Boolean);
 
