@@ -12,7 +12,9 @@ import {
 } from './authorization';
 
 export async function findShare(criteria: Prisma.ShareFindUniqueArgs) {
-  return prisma.client.share.findUnique(criteria);
+  const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
+
+  return client.share.findUnique(criteria);
 }
 
 export async function getShare(shareId: string) {

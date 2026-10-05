@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test } from './fixtures';
-import { UNKNOWN_UUID } from './helpers/constants';
+import { SHARE_CONTEXT_HEADER, SHARE_TOKEN_HEADER, UNKNOWN_UUID } from './helpers/constants';
 import { dateRange } from './helpers/dates';
 import {
   createTeam,
@@ -8,6 +8,7 @@ import {
   deleteWebsite,
   uniqueDomain,
   uniqueName,
+  uniqueSlug,
 } from './helpers/entities';
 import { HOSTNAME } from './seed/dataset';
 
@@ -147,6 +148,92 @@ test.describe('Websites', () => {
     expect(created.body.shareId).toBe('SPECSHARE1');
     expect(removed.status).toBe(200);
     expect(removed.body.shareId).toBeNull();
+  });
+
+  test('legacy share rotation revokes the prior slug and token atomically', async ({
+    admin,
+    api,
+    seed,
+  }) => {
+    const oldSlug = uniqueSlug('old-share');
+    const newSlug = uniqueSlug('new-share');
+    const created = await admin.post(`/api/websites/${websiteId}`, { shareId: oldSlug });
+    const oldExchange = await api.get(`/api/share/${oldSlug}`);
+
+    expect(created.status).toBe(200);
+    expect(oldExchange.status).toBe(200);
+
+    const rotated = await admin.post(`/api/websites/${websiteId}`, { shareId: newSlug });
+    const oldToken = api.with({
+      [SHARE_TOKEN_HEADER]: oldExchange.body.token,
+      [SHARE_CONTEXT_HEADER]: '1',
+    });
+
+    expect(rotated.status).toBe(200);
+    expect(rotated.body.shareId).toBe(newSlug);
+    expect((await api.get(`/api/share/${oldSlug}`)).status).toBe(404);
+    expect((await oldToken.get(`/api/websites/${websiteId}`)).status).toBe(401);
+    expect((await api.get(`/api/share/${newSlug}`)).status).toBe(200);
+    expect((await admin.get(`/api/websites/${websiteId}`)).body.shareId).toBe(newSlug);
+
+    const collision = await admin.post(`/api/websites/${websiteId}`, {
+      shareId: seed.share.slug,
+    });
+
+    expect(collision.status).toBe(400);
+    expect((await api.get(`/api/share/${newSlug}`)).status).toBe(200);
+
+    const removed = await admin.post(`/api/websites/${websiteId}`, { shareId: null });
+
+    expect(removed.status).toBe(200);
+    expect((await api.get(`/api/share/${newSlug}`)).status).toBe(404);
+  });
+
+  test('legacy rotation rejects ambiguous shares without revoking explicit links', async ({
+    admin,
+    api,
+  }) => {
+    const first = await admin.post(`/api/websites/${websiteId}/shares`, {
+      name: uniqueName('first-share'),
+      parameters: { overview: true },
+    });
+    const second = await admin.post(`/api/websites/${websiteId}/shares`, {
+      name: uniqueName('second-share'),
+      parameters: { overview: true },
+    });
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect((await admin.get(`/api/websites/${websiteId}`)).body.shareId).toBeNull();
+    expect(
+      (await admin.get('/api/websites')).body.data.find(
+        (website: { id: string }) => website.id === websiteId,
+      )?.shareId,
+    ).toBeNull();
+
+    const replacementSlug = uniqueSlug('replacement');
+    const ambiguous = await admin.post(`/api/websites/${websiteId}`, {
+      shareId: replacementSlug,
+    });
+
+    expect(ambiguous.status).toBe(400);
+    expect((await api.get(`/api/share/${first.body.slug}`)).status).toBe(200);
+    expect((await api.get(`/api/share/${second.body.slug}`)).status).toBe(200);
+    expect((await api.get(`/api/share/${replacementSlug}`)).status).toBe(404);
+
+    expect((await admin.del(`/api/share/id/${first.body.id}`)).status).toBe(200);
+
+    const rotated = await admin.post(`/api/websites/${websiteId}`, {
+      shareId: replacementSlug,
+    });
+
+    expect(rotated.status).toBe(200);
+    expect((await api.get(`/api/share/${second.body.slug}`)).status).toBe(404);
+    const replacement = await api.get(`/api/share/${replacementSlug}`);
+
+    expect(replacement.status).toBe(200);
+    expect(replacement.body.parameters).toEqual({ overview: true });
+    expect((await admin.post(`/api/websites/${websiteId}`, { shareId: null })).status).toBe(200);
   });
 
   test('POST /api/websites/{websiteId} updates the recorder config', async ({ admin, api }) => {

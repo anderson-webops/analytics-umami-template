@@ -96,6 +96,10 @@ export async function POST(
       return unauthorized({ message: 'Your website-update permission changed.' });
     }
 
+    if (e.message === 'WEBSITE_SHARE_ROTATION_AMBIGUOUS') {
+      return badRequest({ message: 'Manage the existing website shares individually.' });
+    }
+
     if (e?.code === 'P2002') {
       return badRequest({ message: 'That share ID is already taken.' });
     }

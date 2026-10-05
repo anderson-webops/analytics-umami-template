@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { Prisma, Website } from '@/generated/prisma/client';
+import type { Prisma, PrismaClient, Website } from '@/generated/prisma/client';
 import { ENTITY_TYPE, PERMISSIONS, ROLES, TEAM_ROLE_RANK } from '@/lib/constants';
 import { uuid } from '@/lib/crypto';
 import { isEnvEnabled } from '@/lib/env';
@@ -320,26 +320,46 @@ export async function updateWebsite(
       });
       share = null;
     } else if (typeof shareSlug === 'string') {
+      const activeShares = await transaction.share.findMany({
+        where: {
+          entityId: websiteId,
+          shareType: ENTITY_TYPE.website,
+        },
+        select: { id: true, name: true, parameters: true },
+        take: 2,
+      });
+
+      if (activeShares.length > 1) {
+        throw new Error('WEBSITE_SHARE_ROTATION_AMBIGUOUS');
+      }
+
+      if (activeShares.length === 1) {
+        await transaction.share.delete({ where: { id: activeShares[0].id } });
+      }
+
       share = await transaction.share.create({
         data: {
           id: uuid(),
           entityId: websiteId,
           shareType: ENTITY_TYPE.website,
-          name: website.name,
+          name: activeShares[0]?.name ?? website.name,
           slug: shareSlug,
-          parameters: { overview: true, events: true },
+          parameters:
+            activeShares.length === 1
+              ? (activeShares[0].parameters as Prisma.InputJsonObject)
+              : { overview: true, events: true },
         },
       });
     } else {
-      share = await transaction.share.findFirst({
+      const activeShares = await transaction.share.findMany({
         where: {
           entityId: websiteId,
           shareType: ENTITY_TYPE.website,
         },
-        orderBy: {
-          createdAt: 'desc',
-        },
+        select: { slug: true },
+        take: 2,
       });
+      share = activeShares.length === 1 ? activeShares[0] : null;
     }
 
     return { website, share };
@@ -606,22 +626,21 @@ export async function getTeamWebsiteCount(teamId: string) {
 }
 
 export async function attachShareIdToWebsite(website: Website) {
-  const share = await prisma.client.share.findFirst({
+  const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
+  const shares = await client.share.findMany({
     where: {
       entityId: website.id,
       shareType: ENTITY_TYPE.website,
     },
-    orderBy: {
-      createdAt: 'desc',
-    },
     select: {
       slug: true,
     },
+    take: 2,
   });
 
   return {
     ...website,
-    shareId: share?.slug ?? null,
+    shareId: shares.length === 1 ? shares[0].slug : null,
   };
 }
 
@@ -642,18 +661,42 @@ export async function attachShareIdToWebsites(websites: {
     };
   }
 
-  const shares = await prisma.client.share.findMany({
+  const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
+  const shareDelegate = client.share as PrismaClient['share'];
+  const shareCounts = await shareDelegate.groupBy({
+    by: ['entityId'],
     where: {
       entityId: { in: websiteIds },
       shareType: ENTITY_TYPE.website,
     },
-    distinct: ['entityId'],
-    orderBy: {
-      createdAt: 'desc',
+    _count: {
+      _all: true,
     },
   });
 
-  const shareByWebsiteId = new Map(shares.map(share => [share.entityId, share.slug]));
+  const singularWebsiteIds = shareCounts
+    .filter(share => share._count._all === 1)
+    .map(share => share.entityId);
+  const shares = singularWebsiteIds.length
+    ? await shareDelegate.findMany({
+        where: {
+          entityId: { in: singularWebsiteIds },
+          shareType: ENTITY_TYPE.website,
+        },
+        select: { entityId: true, slug: true },
+      })
+    : [];
+  const shareByWebsiteId = new Map<string, string>();
+  const ambiguousWebsiteIds = new Set<string>();
+
+  for (const share of shares) {
+    if (shareByWebsiteId.has(share.entityId)) {
+      ambiguousWebsiteIds.add(share.entityId);
+      shareByWebsiteId.delete(share.entityId);
+    } else if (!ambiguousWebsiteIds.has(share.entityId)) {
+      shareByWebsiteId.set(share.entityId, share.slug);
+    }
+  }
 
   return {
     ...websites,
