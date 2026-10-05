@@ -12,7 +12,7 @@ const operation1 = defineOperation({
     operationId: 'disableTwoFactor',
     summary: 'Disable two-factor authentication',
     description:
-      'Disables two-factor authentication for the current user after verifying their password and authenticator code. Password verification shares a five-attempt, 15-minute account limit with password changes. Rejected when an administrator or team requires it.',
+      'Disables two-factor authentication for the current user after verifying their password and authenticator code. Revokes earlier sessions and returns a replacement password-only session token and cookie. Password verification shares a five-attempt, 15-minute account limit with password changes. Rejected when an administrator or team requires it.',
     tags: ['Two-factor authentication'],
     requestBody: {
       required: true,
@@ -76,8 +76,11 @@ const operation1 = defineOperation({
                       type: 'boolean',
                       description: 'Whether the operation succeeded.',
                     },
+                    token: {
+                      type: 'string',
+                    },
                   },
-                  required: ['ok'],
+                  required: ['ok', 'token'],
                 },
               ],
             },

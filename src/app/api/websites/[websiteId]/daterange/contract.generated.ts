@@ -48,6 +48,23 @@ const operation1 = defineOperation({
           },
         },
       },
+      '400': {
+        description: 'Bad request.',
+        content: {
+          'application/json': {
+            example: {
+              error: {
+                message: 'Bad request.',
+                code: 'bad-request',
+                status: 400,
+              },
+            },
+            schema: {
+              $ref: '#/components/schemas/ApiError',
+            },
+          },
+        },
+      },
       '401': {
         description: 'Unauthorized.',
         content: {

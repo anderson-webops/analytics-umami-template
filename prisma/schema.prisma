@@ -17,6 +17,7 @@ model User {
   logoUrl           String?   @map("logo_url") @db.VarChar(2183)
   displayName       String?   @map("display_name") @db.VarChar(255)
   twoFactorRequired Boolean   @default(false) @map("two_factor_required")
+  sessionGeneration Int       @default(0) @map("session_generation")
   createdAt         DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime? @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6)

@@ -272,6 +272,34 @@ test('rejects missing required modules and forbidden writable state', async () =
   );
 });
 
+test('requires the session revocation migration in every runtime artifact', async () => {
+  const migrationPath = 'prisma/migrations/30_revoke_sessions_on_factor_reset/migration.sql';
+  const trustedContract = JSON.parse(
+    await fs.readFile(new URL('../deploy/runtime-artifact.json', import.meta.url), 'utf8'),
+  );
+  assert.ok(trustedContract.requiredFiles.includes(migrationPath));
+
+  const { root, contractPath } = await createFixture();
+  const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
+  contract.allowedRoots.push('prisma');
+  contract.requiredFiles.push(migrationPath);
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  const fullPath = path.join(root, migrationPath);
+  await fs.mkdir(path.dirname(fullPath), { recursive: true });
+  await fs.writeFile(fullPath, 'synthetic migration\n');
+  await createRuntimeManifest(root, { contractPath, source });
+
+  await fs.rm(fullPath);
+  await assert.rejects(
+    verifyRuntimeArtifact(root, { contractPath }),
+    /missing required file: prisma\/migrations\/30_revoke_sessions_on_factor_reset\/migration\.sql/,
+  );
+  await assert.rejects(
+    createRuntimeManifest(root, { contractPath, source }),
+    /missing required file: prisma\/migrations\/30_revoke_sessions_on_factor_reset\/migration\.sql/,
+  );
+});
+
 test('rejects symlinks that escape the artifact root', async () => {
   const { root, contractPath } = await createFixture();
   await fs.symlink('../../outside', path.join(root, 'node_modules', 'escape'));

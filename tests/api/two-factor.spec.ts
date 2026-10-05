@@ -330,15 +330,17 @@ test.describe('Two-factor authentication', () => {
     const response = await session.post('/api/2fa/disable', { password, token: code });
 
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({ ok: true });
+    expect(response.body).toEqual({ ok: true, token: expect.any(String) });
 
     lastCode = code;
 
-    const status = await session.get('/api/2fa/status');
+    const replacement = api.bearer(response.body.token);
+    const status = await replacement.get('/api/2fa/status');
     const adminView = await admin.get(`/api/admin/users/${userId}/2fa`);
     const loginResponse = await api.post('/api/auth/login', { username, password });
-    const again = await session.post('/api/2fa/disable', { password, token: code });
+    const again = await replacement.post('/api/2fa/disable', { password, token: code });
 
+    expect((await session.get('/api/2fa/status')).status).toBe(401);
     expect(status.body).toMatchObject({ isEnabled: false, isRequired: false });
     expect(adminView.body).toEqual({ isEnabled: false });
     // Login is back to a single step.
@@ -347,6 +349,7 @@ test.describe('Two-factor authentication', () => {
     expect(loginResponse.body).not.toHaveProperty('requiresTwoFactor');
     expect(again.status).toBe(400);
     expect(again.body.error.code).toBe('two-factor-error-not-enabled');
+    sessionToken = response.body.token;
   });
 });
 

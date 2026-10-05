@@ -17,11 +17,16 @@ const USER_SORT_FIELDS = ['username', 'role', 'createdAt'] as const;
 
 export interface GetUserOptions {
   includePassword?: boolean;
+  includeSessionGeneration?: boolean;
   showDeleted?: boolean;
 }
 
 async function findUser(criteria: Prisma.UserFindUniqueArgs, options: GetUserOptions = {}) {
-  const { includePassword = false, showDeleted = false } = options;
+  const {
+    includePassword = false,
+    includeSessionGeneration = false,
+    showDeleted = false,
+  } = options;
   const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
 
   return client.user.findUnique({
@@ -34,6 +39,7 @@ async function findUser(criteria: Prisma.UserFindUniqueArgs, options: GetUserOpt
       id: true,
       username: true,
       password: includePassword,
+      sessionGeneration: includeSessionGeneration,
       role: true,
       createdAt: true,
       twoFactorRequired: true,
@@ -179,6 +185,7 @@ export async function replacePasswordIfCurrent(
   userId: string,
   expectedPassword: string,
   nextPassword: string,
+  expectedSessionGeneration: number,
 ) {
   return runSerializedUserMutation(async transaction => {
     const updated = await transaction.user.updateMany({
@@ -186,6 +193,7 @@ export async function replacePasswordIfCurrent(
         id: userId,
         password: expectedPassword,
         deletedAt: null,
+        sessionGeneration: expectedSessionGeneration,
       },
       data: {
         password: nextPassword,
@@ -205,6 +213,7 @@ export async function replacePasswordIfCurrent(
         username: true,
         role: true,
         createdAt: true,
+        sessionGeneration: true,
       },
     });
   });

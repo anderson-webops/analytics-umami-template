@@ -99,6 +99,7 @@ function mockUser() {
         username: 'bob',
         role: 'user',
         password: PASSWORD_HASH,
+        sessionGeneration: 0,
         twoFactorRequired: false,
       }) as any,
   );
@@ -490,6 +491,89 @@ describe('checkAuth password fingerprint', () => {
 
     expect(result).toBeNull();
   });
+
+  test('rejects every pre-reset stateless and Redis session after optional 2FA removal', async () => {
+    const oldSession = {
+      userId: 'user-1',
+      role: 'user',
+      pwd: hash(PASSWORD_HASH),
+      sessionGeneration: 0,
+      mfa: true,
+      mfaId: 'removed-factor',
+    };
+    getUserMock.mockResolvedValue({
+      id: 'user-1',
+      role: 'user',
+      password: PASSWORD_HASH,
+      sessionGeneration: 1,
+    } as any);
+    parseSecureTokenMock.mockReturnValue(oldSession as any);
+
+    expect(await checkAuth(authedRequest())).toBeNull();
+    expect(await checkAuth(cookieRequest())).toBeNull();
+
+    parseSecureTokenMock.mockReturnValue({ ...oldSession, mfa: false, mfaId: undefined } as any);
+    expect(await checkAuth(authedRequest())).toBeNull();
+
+    redisMock.enabled = true;
+    parseSecureTokenMock.mockReturnValue({ authKey: 'auth:old' } as any);
+    redisMock.client.get.mockResolvedValue(oldSession);
+    expect(await checkAuth(authedRequest())).toBeNull();
+
+    redisMock.client.get.mockResolvedValue({ ...oldSession, mfa: false, mfaId: undefined });
+    expect(await checkAuth(cookieRequest())).toBeNull();
+  });
+
+  test('accepts only the replacement generation without leaking it to callers', async () => {
+    parseSecureTokenMock.mockReturnValue({
+      userId: 'user-1',
+      role: 'user',
+      pwd: hash(PASSWORD_HASH),
+      sessionGeneration: 1,
+    } as any);
+    getUserMock.mockResolvedValue({
+      id: 'user-1',
+      role: 'user',
+      password: PASSWORD_HASH,
+      sessionGeneration: 1,
+    } as any);
+
+    const auth = await checkAuth(authedRequest());
+
+    expect(auth?.user?.id).toBe('user-1');
+    expect(auth?.user).not.toHaveProperty('sessionGeneration');
+    expect(auth).toHaveProperty('sessionGeneration', 1);
+  });
+
+  test.each([false, true])(
+    'rejects a session when a factor reset commits between auth reads (Redis %s)',
+    async enabled => {
+      const oldSession = {
+        userId: 'user-1',
+        role: 'user',
+        pwd: hash(PASSWORD_HASH),
+        sessionGeneration: 0,
+      };
+      redisMock.enabled = enabled;
+      parseSecureTokenMock.mockReturnValue(enabled ? ({ authKey: 'auth:old' } as any) : oldSession);
+      redisMock.client.get.mockResolvedValue(oldSession);
+      getUserMock
+        .mockResolvedValueOnce({
+          id: 'user-1',
+          role: 'user',
+          password: PASSWORD_HASH,
+          sessionGeneration: 0,
+        } as any)
+        .mockResolvedValueOnce({
+          id: 'user-1',
+          role: 'user',
+          password: PASSWORD_HASH,
+          sessionGeneration: 1,
+        } as any);
+
+      expect(await checkAuth(authedRequest())).toBeNull();
+    },
+  );
 
   test('does not expose the password hash on the returned user', async () => {
     parseSecureTokenMock.mockReturnValue({

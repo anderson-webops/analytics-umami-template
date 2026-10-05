@@ -68,14 +68,17 @@ export async function POST(request: Request) {
     return rejectInvalidCredentials(username);
   }
 
-  const user = await getUserByUsername(username, { includePassword: true });
+  const user = await getUserByUsername(username, {
+    includePassword: true,
+    includeSessionGeneration: true,
+  });
   const passwordMatches = await checkPassword(password, user?.password || DUMMY_PASSWORD_HASH);
 
   if (!user || !passwordMatches) {
     return rejectInvalidCredentials(username);
   }
 
-  const { id, role, createdAt } = user;
+  const { id, role, createdAt, sessionGeneration } = user;
   const authClient = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
   const twoFactor = await authClient.twoFactorAuth.findUnique({ where: { userId: id } });
 
@@ -85,7 +88,7 @@ export async function POST(request: Request) {
     const nextPasswordHash = await hashPassword(password);
 
     try {
-      await replacePasswordIfCurrent(id, passwordHash, nextPasswordHash);
+      await replacePasswordIfCurrent(id, passwordHash, nextPasswordHash, sessionGeneration);
     } catch (error: any) {
       if (error?.message === 'USER_CREDENTIALS_CHANGED') {
         return unauthorized({ code: 'credentials-changed' });
@@ -106,7 +109,7 @@ export async function POST(request: Request) {
     }
 
     const partialToken = await createSecureToken(
-      { userId: id, pwd: passwordFingerprint, type: PARTIAL_AUTH_TOKEN_TYPE },
+      { userId: id, pwd: passwordFingerprint, sessionGeneration, type: PARTIAL_AUTH_TOKEN_TYPE },
       secret(),
       { expiresIn: '5m' },
     );
@@ -124,6 +127,7 @@ export async function POST(request: Request) {
     userId: id,
     role,
     pwd: passwordFingerprint,
+    sessionGeneration,
     ...(enrollmentRequired ? { type: ENROLLMENT_AUTH_TOKEN_TYPE } : {}),
   };
   const token = redis.enabled

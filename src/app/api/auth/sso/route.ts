@@ -23,15 +23,23 @@ export async function POST(request: Request) {
     return serverError('Redis is disabled');
   }
 
-  const user = await getUser(auth.user.id, { includePassword: true });
+  const user = await getUser(auth.user.id, {
+    includePassword: true,
+    includeSessionGeneration: true,
+  });
 
-  if (!user) {
+  if (!user || user.sessionGeneration !== auth.sessionGeneration) {
     return unauthorized();
   }
 
   const sessionTtl = getAuthSessionTtlSeconds();
   const token = await saveAuth(
-    { userId: auth.user.id, role: auth.user.role, pwd: hash(user.password) },
+    {
+      userId: auth.user.id,
+      role: auth.user.role,
+      pwd: hash(user.password),
+      sessionGeneration: auth.sessionGeneration,
+    },
     sessionTtl,
   );
 

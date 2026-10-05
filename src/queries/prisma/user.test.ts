@@ -37,6 +37,7 @@ describe('getUserByUsername', () => {
         id: true,
         username: true,
         password: true,
+        sessionGeneration: false,
         role: true,
         createdAt: true,
         twoFactorRequired: true,
@@ -55,6 +56,7 @@ describe('getUserByUsername', () => {
         id: true,
         username: true,
         password: false,
+        sessionGeneration: false,
         role: true,
         createdAt: true,
         twoFactorRequired: true,
@@ -72,6 +74,16 @@ describe('getUserByUsername', () => {
       password: 'new-hash',
     });
     expect(replicaFindUniqueMock).not.toHaveBeenCalled();
+  });
+
+  test('selects the session generation only for authentication callers', async () => {
+    await getUserByUsername('alice', { includePassword: true, includeSessionGeneration: true });
+
+    expect(primaryFindUniqueMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({ sessionGeneration: true }),
+      }),
+    );
   });
 
   test('rejects a deleted user even when the replica still has the account', async () => {

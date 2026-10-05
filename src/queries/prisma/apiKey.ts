@@ -1,20 +1,36 @@
 import prisma from '@/lib/prisma';
 
-export async function createApiKey(data: {
-  id: string;
-  userId: string;
-  name: string;
-  keyHash: string;
-  keyPrefix: string;
-}) {
-  return prisma.client.apiKey.create({
-    data,
-    select: {
-      id: true,
-      name: true,
-      keyPrefix: true,
-      createdAt: true,
-    },
+export async function createApiKey(
+  data: {
+    id: string;
+    userId: string;
+    name: string;
+    keyHash: string;
+    keyPrefix: string;
+  },
+  expectedSessionGeneration: number,
+) {
+  return prisma.transaction(async transaction => {
+    const rows = await transaction.$queryRaw<Array<{ sessionGeneration: number }>>`
+      SELECT "session_generation" AS "sessionGeneration"
+      FROM "user"
+      WHERE "user_id" = ${data.userId}::uuid AND "deleted_at" IS NULL
+      FOR UPDATE
+    `;
+
+    if (rows[0]?.sessionGeneration !== expectedSessionGeneration) {
+      return null;
+    }
+
+    return transaction.apiKey.create({
+      data,
+      select: {
+        id: true,
+        name: true,
+        keyPrefix: true,
+        createdAt: true,
+      },
+    });
   });
 }
 

@@ -113,13 +113,11 @@ const operation1 = defineOperation({
     ],
     responses: {
       '200': {
-        description: 'The operation completed successfully.',
+        description:
+          'Successful response. The response shape is inferred as free-form because the handler does not expose a reusable response schema.',
         content: {
           'application/json': {
-            schema: {
-              type: 'array',
-              items: {},
-            },
+            schema: {},
           },
         },
       },

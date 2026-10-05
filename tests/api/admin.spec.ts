@@ -31,6 +31,7 @@ test.describe('Admin', () => {
         _count: { websites: expect.any(Number) },
       });
       expect(adminUser).not.toHaveProperty('password');
+      expect(adminUser).not.toHaveProperty('sessionGeneration');
     });
 
     test('GET /api/admin/users supports search, sorting and paging', async ({ admin, seed }) => {
@@ -470,11 +471,17 @@ test.describe('Admin', () => {
         rateLimit: 0,
       });
 
-      // The pending setup is gone.
+      expect((await throwaway.get('/api/2fa/status')).status).toBe(401);
+
       const confirm = await throwaway.post('/api/2fa/setup/confirm', { token: '000000' });
 
-      expect(confirm.status).toBe(400);
-      expect(confirm.body.error.code).toBe('two-factor-error-no-pending-setup');
+      expect(confirm.status).toBe(401);
+
+      const replacement = api.bearer(await login(api, userCredentials));
+      const freshConfirm = await replacement.post('/api/2fa/setup/confirm', { token: '000000' });
+
+      expect(freshConfirm.status).toBe(400);
+      expect(freshConfirm.body.error.code).toBe('two-factor-error-no-pending-setup');
     });
   });
 });

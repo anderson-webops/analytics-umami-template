@@ -13,7 +13,7 @@ export interface paths {
     put?: never;
     /**
      * Disable two-factor authentication
-     * @description Disables two-factor authentication for the current user after verifying their password and authenticator code. Password verification shares a five-attempt, 15-minute account limit with password changes. Rejected when an administrator or team requires it.
+     * @description Disables two-factor authentication for the current user after verifying their password and authenticator code. Revokes earlier sessions and returns a replacement password-only session token and cookie. Password verification shares a five-attempt, 15-minute account limit with password changes. Rejected when an administrator or team requires it.
      */
     post: operations['disableTwoFactor'];
     delete?: never;
@@ -222,7 +222,7 @@ export interface paths {
     post: operations['postAdminUsersUserId2fa'];
     /**
      * Reset a user's two-factor authentication
-     * @description Removes the specified user's authenticator setup, backup codes, used-code history, and failed-attempt limits so they can set up authentication again.
+     * @description Removes the specified user's authenticator setup, backup codes, used-code history, and failed-attempt limits. All prior sessions are revoked; the user must sign in again before setting up authentication.
      */
     delete: operations['deleteAdminUsersUserId2fa'];
     options?: never;
@@ -3364,6 +3364,7 @@ export interface operations {
             | {
                 /** @description Whether the operation succeeded. */
                 ok: boolean;
+                token: string;
               };
         };
       };
@@ -10475,405 +10476,19 @@ export interface operations {
         };
         content: {
           'application/json': {
-            _count: {
-              /** @description API keys associated with the user. */
-              apiKeys: number;
-              /** @description Boards associated with the user. */
-              boards: number;
-              /** @description ID of the user who created the resource. */
-              createdBy: number;
-              /** @description Tracked links associated with the user. */
-              links: number;
-              /** @description Tracking pixels associated with the user. */
-              pixels: number;
-              /** @description Saved reports associated with the user. */
-              reports: number;
-              /** @description Teams associated with the user. */
-              teams: number;
-              twoFactorAuth: number;
-              twoFactorBackupCodes: number;
-              twoFactorOtpUseds: number;
-              twoFactorRateLimit: number;
-              websites: number;
-            };
-            /** @description API keys associated with the user. */
-            apiKeys: {
-              /**
-               * Format: date-time
-               * @description Date and time the record was created.
-               */
-              createdAt: string;
-              /** @description Unique identifier of the resource. */
-              id: string;
-              keyHash: string;
-              /** @description Visible prefix used to identify an API key. */
-              keyPrefix: string;
-              /**
-               * Format: date-time
-               * @description Date and time the credential was last used.
-               */
-              lastUsedAt: string;
-              /** @description Display name of the resource. */
-              name: string;
-              /** @description ID of the associated user. */
-              userId: string;
-            }[];
-            /** @description Boards associated with the user. */
-            boards: {
-              /**
-               * Format: date-time
-               * @description Date and time the record was created.
-               */
-              createdAt: string;
-              /** @description Description of the resource. */
-              description: string;
-              /** @description Unique identifier of the resource. */
-              id: string;
-              /** @description Display name of the resource. */
-              name: string;
-              /** @description Configuration parameters for the resource. */
-              parameters:
-                | string
-                | number
-                | false
-                | true
-                | {
-                    [key: string]:
-                      | string
-                      | number
-                      | false
-                      | true
-                      | unknown
-                      | {
-                          length: number;
-                        };
-                  }
-                | {
-                    length: number;
-                  };
-              /** @description ID of the associated team. */
-              teamId: string;
-              type: string;
-              /**
-               * Format: date-time
-               * @description Date and time the record was last updated.
-               */
-              updatedAt: string;
-              /** @description ID of the associated user. */
-              userId: string;
-            }[];
             /**
              * Format: date-time
              * @description Date and time the record was created.
              */
             createdAt: string;
-            /** @description ID of the user who created the resource. */
-            createdBy: {
-              /**
-               * Format: date-time
-               * @description Date and time the record was created.
-               */
-              createdAt: string;
-              /** @description ID of the user who created the resource. */
-              createdBy: string;
-              /**
-               * Format: date-time
-               * @description Date and time the record was deleted, if applicable.
-               */
-              deletedAt: string;
-              /** @description Domain name associated with the resource. */
-              domain: string;
-              /** @description Unique identifier of the resource. */
-              id: string;
-              /** @description Display name of the resource. */
-              name: string;
-              /** @description Whether recording is enabled for the website. */
-              recorderEnabled: boolean;
-              /** @description Session replay and heatmap recording configuration. */
-              replayConfig:
-                | string
-                | number
-                | false
-                | true
-                | {
-                    [key: string]:
-                      | string
-                      | number
-                      | false
-                      | true
-                      | unknown
-                      | {
-                          length: number;
-                        };
-                  }
-                | {
-                    length: number;
-                  };
-              /**
-               * Format: date-time
-               * @description Date and time the website analytics were last reset.
-               */
-              resetAt: string;
-              /** @description ID of the associated team. */
-              teamId: string;
-              /**
-               * Format: date-time
-               * @description Date and time the record was last updated.
-               */
-              updatedAt: string;
-              /** @description ID of the associated user. */
-              userId: string;
-            }[];
             /** @description Unique identifier of the resource. */
             id: string;
-            /** @description Tracked links associated with the user. */
-            links: {
-              /**
-               * Format: date-time
-               * @description Date and time the record was created.
-               */
-              createdAt: string;
-              /**
-               * Format: date-time
-               * @description Date and time the record was deleted, if applicable.
-               */
-              deletedAt: string;
-              /** @description Unique identifier of the resource. */
-              id: string;
-              /** @description Display name of the resource. */
-              name: string;
-              /** @description URL slug used to access the resource. */
-              slug: string;
-              /** @description ID of the associated team. */
-              teamId: string;
-              /**
-               * Format: date-time
-               * @description Date and time the record was last updated.
-               */
-              updatedAt: string;
-              /** @description URL associated with the resource. */
-              url: string;
-              /** @description ID of the associated user. */
-              userId: string;
-            }[];
-            /** @description Password used to authenticate the account. */
-            password: string;
-            /** @description Tracking pixels associated with the user. */
-            pixels: {
-              /**
-               * Format: date-time
-               * @description Date and time the record was created.
-               */
-              createdAt: string;
-              /**
-               * Format: date-time
-               * @description Date and time the record was deleted, if applicable.
-               */
-              deletedAt: string;
-              /** @description Unique identifier of the resource. */
-              id: string;
-              /** @description Display name of the resource. */
-              name: string;
-              /** @description URL slug used to access the resource. */
-              slug: string;
-              /** @description ID of the associated team. */
-              teamId: string;
-              /**
-               * Format: date-time
-               * @description Date and time the record was last updated.
-               */
-              updatedAt: string;
-              /** @description ID of the associated user. */
-              userId: string;
-            }[];
-            /** @description Saved reports associated with the user. */
-            reports: {
-              /**
-               * Format: date-time
-               * @description Date and time the record was created.
-               */
-              createdAt: string;
-              /** @description Description of the resource. */
-              description: string;
-              /** @description Unique identifier of the resource. */
-              id: string;
-              /** @description Display name of the resource. */
-              name: string;
-              /** @description Configuration parameters for the resource. */
-              parameters:
-                | string
-                | number
-                | false
-                | true
-                | {
-                    [key: string]:
-                      | string
-                      | number
-                      | false
-                      | true
-                      | unknown
-                      | {
-                          length: number;
-                        };
-                  }
-                | {
-                    length: number;
-                  };
-              type: string;
-              /**
-               * Format: date-time
-               * @description Date and time the record was last updated.
-               */
-              updatedAt: string;
-              /** @description ID of the associated user. */
-              userId: string;
-              /** @description ID of the website. */
-              websiteId: string;
-            }[];
             /** @description Permission role assigned to the user. */
             role: string;
-            /** @description Teams associated with the user. */
-            teams: {
-              /**
-               * Format: date-time
-               * @description Date and time the record was created.
-               */
-              createdAt: string;
-              /** @description Unique identifier of the resource. */
-              id: string;
-              /** @description Permission role assigned to the user. */
-              role: string;
-              /** @description ID of the associated team. */
-              teamId: string;
-              /**
-               * Format: date-time
-               * @description Date and time the record was last updated.
-               */
-              updatedAt: string;
-              /** @description ID of the associated user. */
-              userId: string;
-            }[];
-            twoFactorAuth: {
-              /**
-               * Format: date-time
-               * @description Date and time the record was created.
-               */
-              createdAt: string;
-              /** @description Unique identifier of the resource. */
-              id: string;
-              /** @description Whether two-factor authentication is enabled. */
-              isEnabled: boolean;
-              secret: string;
-              /**
-               * Format: date-time
-               * @description Date and time the record was last updated.
-               */
-              updatedAt: string;
-              /** @description ID of the associated user. */
-              userId: string;
-            };
-            twoFactorBackupCodes: {
-              codeHash: string;
-              /**
-               * Format: date-time
-               * @description Date and time the record was created.
-               */
-              createdAt: string;
-              /** @description Unique identifier of the resource. */
-              id: string;
-              used: boolean;
-              /** @description ID of the associated user. */
-              userId: string;
-            }[];
-            twoFactorOtpUseds: {
-              /**
-               * Format: date-time
-               * @description Date and time the credential expires.
-               */
-              expiresAt: string;
-              /** @description Unique identifier of the resource. */
-              id: string;
-              otp: string;
-              /** @description ID of the associated user. */
-              userId: string;
-            }[];
-            twoFactorRateLimit: {
-              attempts: number;
-              /** @description Unique identifier of the resource. */
-              id: string;
-              /**
-               * Format: date-time
-               * @description Time until which further authentication attempts are blocked.
-               */
-              lockedUntil: string;
-              /**
-               * Format: date-time
-               * @description Date and time the record was last updated.
-               */
-              updatedAt: string;
-              /** @description ID of the associated user. */
-              userId: string;
-            };
             /** @description Whether two-factor authentication is required. */
             twoFactorRequired: boolean;
             /** @description Username of the account. */
             username: string;
-            websites: {
-              /**
-               * Format: date-time
-               * @description Date and time the record was created.
-               */
-              createdAt: string;
-              /** @description ID of the user who created the resource. */
-              createdBy: string;
-              /**
-               * Format: date-time
-               * @description Date and time the record was deleted, if applicable.
-               */
-              deletedAt: string;
-              /** @description Domain name associated with the resource. */
-              domain: string;
-              /** @description Unique identifier of the resource. */
-              id: string;
-              /** @description Display name of the resource. */
-              name: string;
-              /** @description Whether recording is enabled for the website. */
-              recorderEnabled: boolean;
-              /** @description Session replay and heatmap recording configuration. */
-              replayConfig:
-                | string
-                | number
-                | false
-                | true
-                | {
-                    [key: string]:
-                      | string
-                      | number
-                      | false
-                      | true
-                      | unknown
-                      | {
-                          length: number;
-                        };
-                  }
-                | {
-                    length: number;
-                  };
-              /**
-               * Format: date-time
-               * @description Date and time the website analytics were last reset.
-               */
-              resetAt: string;
-              /** @description ID of the associated team. */
-              teamId: string;
-              /**
-               * Format: date-time
-               * @description Date and time the record was last updated.
-               */
-              updatedAt: string;
-              /** @description ID of the associated user. */
-              userId: string;
-            }[];
           };
         };
       };
@@ -12464,6 +12079,24 @@ export interface operations {
              */
             startDate: string;
           };
+        };
+      };
+      /** @description Bad request. */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "bad-request",
+           *         "message": "Bad request.",
+           *         "status": 400
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
         };
       };
       /** @description Unauthorized. */
@@ -21910,13 +21543,13 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description The operation completed successfully. */
+      /** @description Successful response. The response shape is inferred as free-form because the handler does not expose a reusable response schema. */
       200: {
         headers: {
           [name: string]: unknown;
         };
         content: {
-          'application/json': unknown[];
+          'application/json': unknown;
         };
       };
       /** @description Bad request. */

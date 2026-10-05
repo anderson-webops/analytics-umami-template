@@ -122,6 +122,7 @@ beforeEach(() => {
     id: 'user-1',
     username: 'alice',
     password: 'hashed-password',
+    sessionGeneration: 0,
     role: 'admin',
     createdAt: new Date('2026-08-01T00:00:00.000Z'),
   });
@@ -240,12 +241,24 @@ test.each([false, true])(
     expect(mocks.getAllUserTeams).not.toHaveBeenCalled();
     if (enabled) {
       expect(mocks.saveAuth).toHaveBeenCalledWith(
-        { userId: 'user-1', role: 'admin', pwd: 'password-fingerprint', type: 'enrollment-auth' },
+        {
+          userId: 'user-1',
+          role: 'admin',
+          pwd: 'password-fingerprint',
+          sessionGeneration: 0,
+          type: 'enrollment-auth',
+        },
         900,
       );
     } else {
       expect(mocks.createSecureToken).toHaveBeenCalledWith(
-        { userId: 'user-1', role: 'admin', pwd: 'password-fingerprint', type: 'enrollment-auth' },
+        {
+          userId: 'user-1',
+          role: 'admin',
+          pwd: 'password-fingerprint',
+          sessionGeneration: 0,
+          type: 'enrollment-auth',
+        },
         undefined,
         { expiresIn: 900 },
       );
@@ -280,7 +293,7 @@ test('self-hosted enrollment decisions use the primary instead of stale replica 
   expect(findPrimaryEnrollment).toHaveBeenCalledWith({ where: { userId: 'user-1' } });
   expect(mocks.findTwoFactorAuth).not.toHaveBeenCalled();
   expect(mocks.createSecureToken).toHaveBeenCalledWith(
-    { userId: 'user-1', pwd: 'password-fingerprint', type: 'partial-auth' },
+    { userId: 'user-1', pwd: 'password-fingerprint', sessionGeneration: 0, type: 'partial-auth' },
     undefined,
     { expiresIn: '5m' },
   );

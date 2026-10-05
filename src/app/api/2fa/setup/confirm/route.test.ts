@@ -113,7 +113,7 @@ beforeEach(() => {
   mocks.createSecureToken.mockReset();
 
   mocks.parseRequest.mockResolvedValue({
-    auth: { user: { id: 'user-1' } },
+    auth: { user: { id: 'user-1' }, sessionGeneration: 0 },
     body: { token: '123456' },
     error: undefined,
   });
@@ -137,7 +137,12 @@ beforeEach(() => {
   mocks.tx.twoFactorAuth.updateMany.mockResolvedValue({ count: 1 });
   mocks.tx.twoFactorBackupCode.deleteMany.mockResolvedValue(undefined);
   mocks.tx.twoFactorBackupCode.createMany.mockResolvedValue(undefined);
-  mocks.getUser.mockResolvedValue({ id: 'user-1', role: 'user', password: 'hashed-password' });
+  mocks.getUser.mockResolvedValue({
+    id: 'user-1',
+    role: 'user',
+    password: 'hashed-password',
+    sessionGeneration: 0,
+  });
   mocks.hash.mockReturnValue('password-fingerprint');
   mocks.secret.mockReturnValue('app-secret');
   mocks.createSecureToken.mockReturnValue('verified-session-token');
@@ -176,6 +181,7 @@ test('POST confirms setup, enables 2FA, stores backup codes, and resets the rate
       userId: 'user-1',
       role: 'user',
       pwd: 'password-fingerprint',
+      sessionGeneration: 0,
       mfa: true,
       mfaId: 'enrollment-1',
     },
@@ -187,6 +193,22 @@ test('POST confirms setup, enables 2FA, stores backup codes, and resets the rate
     backupCodes: ['code-1', 'code-2'],
   });
   expect(response.status).toBe(200);
+});
+
+test('POST cannot issue a post-reset session from a pre-reset confirmation request', async () => {
+  mocks.getUser.mockResolvedValue({
+    id: 'user-1',
+    role: 'user',
+    password: 'hashed-password',
+    sessionGeneration: 1,
+  });
+
+  const response = await POST(
+    new Request('http://localhost/api/2fa/setup/confirm', { method: 'POST' }),
+  );
+
+  expect(response.status).toBe(401);
+  expect(mocks.createSecureToken).not.toHaveBeenCalled();
 });
 
 test('POST leaves setup pending when another request consumes the TOTP first', async () => {

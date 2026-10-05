@@ -63,7 +63,12 @@ export async function POST(request: Request) {
   let updated;
 
   try {
-    updated = await replacePasswordIfCurrent(userId, user.password, password);
+    updated = await replacePasswordIfCurrent(
+      userId,
+      user.password,
+      password,
+      auth.sessionGeneration,
+    );
   } catch (error: any) {
     if (error?.message === 'USER_CREDENTIALS_CHANGED') {
       return unauthorized({
@@ -85,6 +90,7 @@ export async function POST(request: Request) {
     userId,
     role: updated.role,
     pwd: passwordFingerprint,
+    sessionGeneration: updated.sessionGeneration,
     mfa: auth.mfaVerified === true,
     ...(auth.mfaVerified ? { mfaId: auth.mfaId } : {}),
   };
@@ -102,5 +108,7 @@ export async function POST(request: Request) {
     });
   }
 
-  return setSessionCookie(json({ ...updated, token }), token, sessionTtl);
+  const { sessionGeneration, ...publicUser } = updated;
+
+  return setSessionCookie(json({ ...publicUser, token }), token, sessionTtl);
 }

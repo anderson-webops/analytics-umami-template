@@ -29,6 +29,7 @@ vi.mock('@/lib/two-factor/crypto', () => ({
 vi.mock('@/lib/prisma', () => ({
   default: {
     client: {
+      user: { updateMany: vi.fn() },
       twoFactorAuth: {
         findUnique: vi.fn(),
         deleteMany: vi.fn(),
@@ -59,6 +60,7 @@ beforeEach(() => {
   isTwoFactorConfiguredMock.mockReset();
   updateUserMock.mockReset();
   prismaMock.client.twoFactorAuth.findUnique.mockReset();
+  prismaMock.client.user.updateMany.mockReset();
   prismaMock.client.twoFactorAuth.deleteMany.mockReset();
   prismaMock.client.twoFactorBackupCode.deleteMany.mockReset();
   prismaMock.client.twoFactorOtpUsed.deleteMany.mockReset();
@@ -155,11 +157,12 @@ test('POST rejects enabling a user-level 2FA requirement when the encryption key
 });
 
 test('DELETE clears the user 2FA configuration and related support tables', async () => {
+  prismaMock.client.user.updateMany.mockResolvedValue({ count: 1 } as any);
   prismaMock.client.twoFactorAuth.deleteMany.mockResolvedValue({ count: 1 } as any);
   prismaMock.client.twoFactorBackupCode.deleteMany.mockResolvedValue({ count: 8 } as any);
   prismaMock.client.twoFactorOtpUsed.deleteMany.mockResolvedValue({ count: 2 } as any);
   prismaMock.client.twoFactorRateLimit.deleteMany.mockResolvedValue({ count: 1 } as any);
-  prismaMock.transaction.mockImplementation(async operations => Promise.all(operations));
+  prismaMock.transaction.mockImplementation(async callback => callback(prismaMock.client));
 
   const response = await DELETE(
     new Request('http://localhost/api/admin/users/user-1/2fa', { method: 'DELETE' }),
@@ -170,6 +173,10 @@ test('DELETE clears the user 2FA configuration and related support tables', asyn
 
   expect(prismaMock.client.twoFactorAuth.deleteMany).toHaveBeenCalledWith({
     where: { userId: 'user-1' },
+  });
+  expect(prismaMock.client.user.updateMany).toHaveBeenCalledWith({
+    where: { id: 'user-1', deletedAt: null },
+    data: { sessionGeneration: { increment: 1 } },
   });
   expect(prismaMock.client.twoFactorBackupCode.deleteMany).toHaveBeenCalledWith({
     where: { userId: 'user-1' },
@@ -191,4 +198,20 @@ test('DELETE clears the user 2FA configuration and related support tables', asyn
     },
   });
   expect(response.status).toBe(200);
+});
+
+test('DELETE without an enrolled factor does not revoke unrelated sessions', async () => {
+  prismaMock.client.twoFactorAuth.deleteMany.mockResolvedValue({ count: 0 });
+  prismaMock.client.twoFactorBackupCode.deleteMany.mockResolvedValue({ count: 0 });
+  prismaMock.client.twoFactorOtpUsed.deleteMany.mockResolvedValue({ count: 0 });
+  prismaMock.client.twoFactorRateLimit.deleteMany.mockResolvedValue({ count: 0 });
+  prismaMock.transaction.mockImplementation(async callback => callback(prismaMock.client));
+
+  const response = await DELETE(
+    new Request('http://localhost/api/admin/users/user-1/2fa', { method: 'DELETE' }),
+    { params: Promise.resolve({ userId: 'user-1' }) },
+  );
+
+  expect(response.status).toBe(200);
+  expect(prismaMock.client.user.updateMany).not.toHaveBeenCalled();
 });

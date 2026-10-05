@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { generateApiKey, getApiKeyPrefix, hashApiKey, isApiKeyEnabled } from '@/lib/api-key';
 import { uuid } from '@/lib/crypto';
 import { parseRequest } from '@/lib/request';
-import { json, notFound } from '@/lib/response';
+import { json, notFound, unauthorized } from '@/lib/response';
 import { createApiKey, getUserApiKeys } from '@/queries/prisma/apiKey';
 
 export async function GET(request: Request) {
@@ -36,13 +36,20 @@ export async function POST(request: Request) {
 
   const key = generateApiKey();
 
-  const apiKey = await createApiKey({
-    id: uuid(),
-    userId: auth.user.id,
-    name: body.name,
-    keyHash: hashApiKey(key),
-    keyPrefix: getApiKeyPrefix(key),
-  });
+  const apiKey = await createApiKey(
+    {
+      id: uuid(),
+      userId: auth.user.id,
+      name: body.name,
+      keyHash: hashApiKey(key),
+      keyPrefix: getApiKeyPrefix(key),
+    },
+    auth.sessionGeneration,
+  );
+
+  if (!apiKey) {
+    return unauthorized({ code: 'credentials-changed' });
+  }
 
   // The plaintext key is only returned once, at creation time.
   return json({ ...apiKey, key });

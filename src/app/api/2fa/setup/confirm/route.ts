@@ -125,9 +125,12 @@ export async function POST(request: Request) {
 
   await resetRateLimit(userId);
 
-  const user = await getUser(userId, { includePassword: true });
+  const user = await getUser(userId, {
+    includePassword: true,
+    includeSessionGeneration: true,
+  });
 
-  if (!user) {
+  if (!user || user.sessionGeneration !== auth.sessionGeneration) {
     return unauthorized();
   }
 
@@ -136,6 +139,7 @@ export async function POST(request: Request) {
     userId,
     role: user.role,
     pwd: hash(user.password),
+    sessionGeneration: auth.sessionGeneration,
     mfa: true,
     mfaId: twoFactor.id,
   };

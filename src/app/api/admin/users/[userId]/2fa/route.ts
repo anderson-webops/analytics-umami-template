@@ -78,12 +78,22 @@ export async function DELETE(
 
   const { userId } = await params;
 
-  const [twoFactorAuth, backupCodes, otpUsed, rateLimit] = await prisma.transaction([
-    prisma.client.twoFactorAuth.deleteMany({ where: { userId } }),
-    prisma.client.twoFactorBackupCode.deleteMany({ where: { userId } }),
-    prisma.client.twoFactorOtpUsed.deleteMany({ where: { userId } }),
-    prisma.client.twoFactorRateLimit.deleteMany({ where: { userId } }),
-  ]);
+  const { twoFactorAuth, backupCodes, otpUsed, rateLimit } = await prisma.transaction(async tx => {
+    const twoFactorAuth = await tx.twoFactorAuth.deleteMany({ where: { userId } });
+
+    if (twoFactorAuth.count > 0) {
+      await tx.user.updateMany({
+        where: { id: userId, deletedAt: null },
+        data: { sessionGeneration: { increment: 1 } },
+      });
+    }
+
+    const backupCodes = await tx.twoFactorBackupCode.deleteMany({ where: { userId } });
+    const otpUsed = await tx.twoFactorOtpUsed.deleteMany({ where: { userId } });
+    const rateLimit = await tx.twoFactorRateLimit.deleteMany({ where: { userId } });
+
+    return { twoFactorAuth, backupCodes, otpUsed, rateLimit };
+  });
 
   return json({
     ok: true,

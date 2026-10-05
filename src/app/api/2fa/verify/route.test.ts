@@ -116,11 +116,13 @@ beforeEach(() => {
     type: 'partial-auth',
     userId: 'user-1',
     pwd: 'password-fingerprint',
+    sessionGeneration: 0,
   });
   mocks.getUser.mockResolvedValue({
     id: 'user-1',
     username: 'alice',
     password: 'hashed-password',
+    sessionGeneration: 0,
     role: 'admin',
     createdAt: new Date('2026-07-23T00:00:00.000Z'),
   });
@@ -167,6 +169,7 @@ test('POST accepts a token-only payload and completes 2FA verification', async (
       userId: 'user-1',
       role: 'admin',
       pwd: 'password-fingerprint',
+      sessionGeneration: 0,
       mfa: true,
       mfaId: 'enrollment-1',
     },
@@ -181,6 +184,26 @@ test('POST accepts a token-only payload and completes 2FA verification', async (
     },
   });
   expect(response.status).toBe(200);
+});
+
+test('POST rejects a partial token issued before factor reset without checking a code', async () => {
+  mocks.getUser.mockResolvedValue({
+    id: 'user-1',
+    password: 'hashed-password',
+    sessionGeneration: 1,
+  });
+
+  const response = await POST(
+    new Request('http://localhost/api/2fa/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer partial-token' },
+      body: JSON.stringify({ token: '123456' }),
+    }),
+  );
+
+  expect(response.status).toBe(401);
+  expect(mocks.findTwoFactorAuth).not.toHaveBeenCalled();
+  expect(mocks.verifyTotp).not.toHaveBeenCalled();
 });
 
 test('POST rejects a valid TOTP already consumed by a concurrent request', async () => {

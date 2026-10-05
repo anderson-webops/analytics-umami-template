@@ -19,6 +19,7 @@
     "pnpm-lock.yaml",
     "prisma/migration-ledger-contract.json",
     "prisma/migrations/26_add_api_key/migration.sql",
+    "prisma/migrations/30_revoke_sessions_on_factor_reset/migration.sql",
     "prisma/migrations/migration_lock.toml",
     "prisma/schema.prisma",
     "public/openapi.json",
@@ -90,6 +91,7 @@
       "verified-source-and-payload-v1",
       "guarded-forward-migrations-v1",
       "retained-artifact-rollback-v1",
+      "database-aware-recovery-v1",
       "version-aware-readiness-v1"
     ],
     "probes": {
@@ -99,7 +101,7 @@
     "database": {
       "prePromotionGate": "scripts/check-db.js",
       "migrationMode": "forward-only",
-      "rollback": "rehearse-retained-runtime-against-migrated-copy"
+      "rollback": "protected-pre-traffic-database-restore-v1"
     },
     "hostControlled": [
       "service-user",
@@ -132,8 +134,8 @@
     {
       "name": "PostgreSQL data",
       "location": "Host-managed external database",
-      "promotion": "Back up and migrate before activation; verify every release migration and retained rollback compatibility.",
-      "rollback": "Never restore or overwrite database state from an application artifact."
+      "promotion": "Quiesce all writers, back up and rehearse migrations and retained-runtime recovery before activation.",
+      "rollback": "Restore the verified pre-migration backup only before public writes resume; after traffic resumes, use a compatible forward repair. Never restore from an application artifact."
     },
     {
       "name": "Redis and ClickHouse data",

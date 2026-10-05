@@ -35,6 +35,7 @@ export async function GET(request: Request) {
       },
       omit: {
         password: true,
+        sessionGeneration: true,
       },
       orderBy: {
         createdAt: 'desc',

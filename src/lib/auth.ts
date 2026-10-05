@@ -23,6 +23,7 @@ import prisma from '@/lib/prisma';
 import redis from '@/lib/redis';
 import { getAuthSessionTtlSeconds, publicSharesDisabled } from '@/lib/security';
 import { getBearerToken, getSessionCookie, isSameOriginMutation } from '@/lib/session';
+import { hasCurrentSessionGeneration } from '@/lib/session-generation';
 import { resolveShareAccess } from '@/lib/share-access';
 import { getTwoFactorRequirement } from '@/lib/two-factor/requirement';
 import { ensureArray } from '@/lib/utils';
@@ -128,18 +129,23 @@ export async function checkAuth(request: Request) {
   let mfaVerified = false;
   let mfaId: string | undefined;
   let enrollmentOnly = false;
+  let sessionGeneration: unknown;
   const { userId, authKey } = payload || {};
 
   if (userId) {
     mfaVerified = payload?.mfa === true;
     mfaId = typeof payload?.mfaId === 'string' ? payload.mfaId : undefined;
     enrollmentOnly = payload?.type === ENROLLMENT_AUTH_TOKEN_TYPE;
-    user = await getUser(userId, { includePassword: true });
+    sessionGeneration = payload?.sessionGeneration;
+    user = await getUser(userId, { includePassword: true, includeSessionGeneration: true });
 
     if (
       !payload.pwd ||
       !payload.role ||
-      (user && (hash(user.password) !== payload.pwd || user.role !== payload.role))
+      (user &&
+        (hash(user.password) !== payload.pwd ||
+          user.role !== payload.role ||
+          !hasCurrentSessionGeneration(sessionGeneration, user.sessionGeneration)))
     ) {
       user = null;
     }
@@ -150,12 +156,16 @@ export async function checkAuth(request: Request) {
       mfaVerified = key.mfa === true;
       mfaId = typeof key.mfaId === 'string' ? key.mfaId : undefined;
       enrollmentOnly = key.type === ENROLLMENT_AUTH_TOKEN_TYPE;
-      user = await getUser(key.userId, { includePassword: true });
+      sessionGeneration = key.sessionGeneration;
+      user = await getUser(key.userId, { includePassword: true, includeSessionGeneration: true });
 
       if (
         !key.pwd ||
         !key.role ||
-        (user && (hash(user.password) !== key.pwd || user.role !== key.role))
+        (user &&
+          (hash(user.password) !== key.pwd ||
+            user.role !== key.role ||
+            !hasCurrentSessionGeneration(sessionGeneration, user.sessionGeneration)))
       ) {
         user = null;
       }
@@ -227,7 +237,24 @@ export async function checkAuth(request: Request) {
       }
     }
 
+    const currentUser = await getUser(user.id, {
+      includePassword: true,
+      includeSessionGeneration: true,
+    });
+
+    if (
+      !currentUser ||
+      currentUser.role !== user.role ||
+      hash(currentUser.password) !== hash(user.password) ||
+      !hasCurrentSessionGeneration(sessionGeneration, currentUser.sessionGeneration)
+    ) {
+      log('Session changed during authorization');
+      return null;
+    }
+
+    sessionGeneration = currentUser.sessionGeneration;
     delete user.password;
+    delete user.sessionGeneration;
     user.isAdmin = user.role === ROLES.admin;
   }
 
@@ -241,6 +268,7 @@ export async function checkAuth(request: Request) {
     mfaVerified,
     mfaId: mfaVerified ? mfaId : undefined,
     enrollmentOnly,
+    sessionGeneration: user ? sessionGeneration : undefined,
   };
 }
 

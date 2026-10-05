@@ -12,6 +12,8 @@ cleanup() {
 trap cleanup EXIT
 runtime=0
 if [[ "${1:-}" == --runtime ]]; then runtime=1; shift; fi
+build=0
+if [[ "${1:-}" == --build ]]; then build=1; shift; fi
 port="$(node --input-type=module -e 'import net from "node:net"; const s=net.createServer(); s.listen(0,"127.0.0.1",()=>{console.log(s.address().port);s.close()});')"
 "$pg_bin/initdb" -D "$fixture/data" -A trust -U restore_test --no-locale >"$fixture/init.log"
 "$pg_bin/pg_ctl" -D "$fixture/data" -l "$fixture/postgres.log" \
@@ -23,6 +25,19 @@ pnpm run db:migrate
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-heatmap-budget.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm exec tsx scripts/test-two-factor-admission.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm exec tsx scripts/test-password-verification-admission.ts
+ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 \
+  APP_SECRET=synthetic-session-generation-secret-0000000000000000 \
+  REDIS_URL= CLOUD_MODE= node --conditions=react-server --import tsx scripts/test-session-generation.ts
+if [[ "$build" == 1 ]]; then
+  UMAMI_USERNAME=admin UMAMI_PASSWORD=synthetic-build-admin-password-0000000000 \
+    pnpm run change-password
+  DOTENV_CONFIG_PATH=/dev/null NODE_ENV=production DATABASE_TYPE=postgresql \
+    APP_SECRET=synthetic-session-generation-secret-0000000000000000 \
+    PUBLIC_URL=https://analytics.example.com CLIENT_IP_HEADER=x-real-ip \
+    NEXT_TELEMETRY_DISABLED=1 DISABLE_TELEMETRY=1 MCP_ENABLED=0 \
+    REDIS_URL= CLOUD_MODE= pnpm run build
+  node scripts/runtime-artifact.mjs verify .next/standalone
+fi
 if [[ "$runtime" == 1 ]]; then
   # The caller runs this unchanged workspace inside its private network unit.
   # No installed pnpm workspace is copied to a different path.

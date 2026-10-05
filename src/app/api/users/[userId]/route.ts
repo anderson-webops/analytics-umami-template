@@ -33,7 +33,15 @@ export async function GET(request: Request, { params }: { params: Promise<{ user
 
   const user = await getUser(userId);
 
-  return json(user);
+  return json(
+    user && {
+      id: user.id,
+      username: user.username,
+      role: user.role,
+      createdAt: user.createdAt,
+      twoFactorRequired: user.twoFactorRequired,
+    },
+  );
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ userId: string }> }) {

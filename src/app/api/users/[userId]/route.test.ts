@@ -3,6 +3,7 @@ import { beforeEach, expect, test, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   parseRequest: vi.fn(),
   canUpdateUser: vi.fn(),
+  canViewUser: vi.fn(),
   getUser: vi.fn(),
   hashPassword: vi.fn(),
   updateUser: vi.fn(),
@@ -16,7 +17,7 @@ vi.mock('@/lib/password', () => ({
 }));
 vi.mock('@/permissions', () => ({
   canUpdateUser: mocks.canUpdateUser,
-  canViewUser: vi.fn(),
+  canViewUser: mocks.canViewUser,
   canDeleteUser: vi.fn(),
 }));
 vi.mock('@/queries/prisma', () => ({
@@ -28,7 +29,7 @@ vi.mock('@/queries/prisma', () => ({
   deleteUser: vi.fn(),
 }));
 
-import { POST } from './route';
+import { GET, POST } from './route';
 
 const adminId = '11111111-1111-4111-8111-111111111111';
 const otherId = '22222222-2222-4222-8222-222222222222';
@@ -44,9 +45,35 @@ beforeEach(() => {
     error: undefined,
   });
   mocks.canUpdateUser.mockResolvedValue(true);
+  mocks.canViewUser.mockResolvedValue(true);
   mocks.getUser.mockResolvedValue({ id: adminId, username: 'admin' });
   mocks.hashPassword.mockResolvedValue('replacement-hash');
   mocks.updateUser.mockResolvedValue({ id: otherId });
+});
+
+test('user lookup exposes only public account fields', async () => {
+  mocks.getUser.mockResolvedValue({
+    id: otherId,
+    username: 'other',
+    role: 'user',
+    createdAt: new Date('2026-10-05T00:00:00.000Z'),
+    twoFactorRequired: false,
+    password: 'private-password-hash',
+    sessionGeneration: 4,
+  });
+
+  const response = await GET(new Request(`http://localhost/api/users/${otherId}`), {
+    params: Promise.resolve({ userId: otherId }),
+  });
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({
+    id: otherId,
+    username: 'other',
+    role: 'user',
+    createdAt: '2026-10-05T00:00:00.000Z',
+    twoFactorRequired: false,
+  });
 });
 
 test('an administrator cannot bypass current-password verification for their own account', async () => {

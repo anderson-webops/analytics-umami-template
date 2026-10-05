@@ -1,14 +1,25 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import { getApiKeyByHash } from './apiKey';
+import { createApiKey, getApiKeyByHash } from './apiKey';
 
-const { primaryFindUniqueMock, replicaFindUniqueMock, primaryMock } = vi.hoisted(() => ({
+const {
+  primaryFindUniqueMock,
+  replicaFindUniqueMock,
+  primaryMock,
+  transactionMock,
+  queryRawMock,
+  createMock,
+} = vi.hoisted(() => ({
   primaryFindUniqueMock: vi.fn(),
   replicaFindUniqueMock: vi.fn(),
   primaryMock: vi.fn(),
+  transactionMock: vi.fn(),
+  queryRawMock: vi.fn(),
+  createMock: vi.fn(),
 }));
 
 vi.mock('@/lib/prisma', () => ({
   default: {
+    transaction: transactionMock,
     client: {
       $primary: primaryMock,
       apiKey: { findUnique: replicaFindUniqueMock },
@@ -21,6 +32,13 @@ describe('getApiKeyByHash', () => {
     primaryFindUniqueMock.mockReset().mockResolvedValue(null);
     replicaFindUniqueMock.mockReset().mockResolvedValue(null);
     primaryMock.mockReset().mockReturnValue({ apiKey: { findUnique: primaryFindUniqueMock } });
+    transactionMock
+      .mockReset()
+      .mockImplementation(async operation =>
+        operation({ $queryRaw: queryRawMock, apiKey: { create: createMock } }),
+      );
+    queryRawMock.mockReset().mockResolvedValue([{ sessionGeneration: 0 }]);
+    createMock.mockReset().mockResolvedValue({ id: 'key-1' });
   });
 
   test('rejects a revoked key while the replica still has it', async () => {
@@ -36,5 +54,39 @@ describe('getApiKeyByHash', () => {
     primaryFindUniqueMock.mockResolvedValue(key);
 
     expect(await getApiKeyByHash('hash')).toEqual(key);
+  });
+});
+
+describe('createApiKey', () => {
+  const data = {
+    id: 'key-1',
+    userId: '00000000-0000-4000-8000-000000000001',
+    name: 'test key',
+    keyHash: 'a'.repeat(128),
+    keyPrefix: 'umami_test',
+  };
+
+  beforeEach(() => {
+    transactionMock
+      .mockReset()
+      .mockImplementation(async operation =>
+        operation({ $queryRaw: queryRawMock, apiKey: { create: createMock } }),
+      );
+    queryRawMock.mockReset().mockResolvedValue([{ sessionGeneration: 0 }]);
+    createMock.mockReset().mockResolvedValue({ id: data.id });
+  });
+
+  test('creates a key only while holding the current user generation lock', async () => {
+    await expect(createApiKey(data, 0)).resolves.toEqual({ id: data.id });
+
+    expect(String(queryRawMock.mock.calls[0][0])).toContain('FOR UPDATE');
+    expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ data }));
+  });
+
+  test('does not create a key after a factor reset changed the generation', async () => {
+    queryRawMock.mockResolvedValue([{ sessionGeneration: 1 }]);
+
+    await expect(createApiKey(data, 0)).resolves.toBeNull();
+    expect(createMock).not.toHaveBeenCalled();
   });
 });

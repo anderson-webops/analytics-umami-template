@@ -45,14 +45,24 @@ beforeEach(() => {
 
   redis.enabled = false;
   mocks.parseRequest.mockResolvedValue({
-    auth: { user: { id: 'user-1' }, authKey: 'auth:old', mfaVerified: true, mfaId: 'enrollment-1' },
+    auth: {
+      user: { id: 'user-1' },
+      authKey: 'auth:old',
+      mfaVerified: true,
+      mfaId: 'enrollment-1',
+      sessionGeneration: 0,
+    },
     body: { currentPassword: 'old-password', newPassword: 'new-password' },
     error: undefined,
   });
   mocks.getUser.mockResolvedValue({ id: 'user-1', password: 'old-hash' });
   mocks.checkPassword.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
   mocks.hashPassword.mockResolvedValue('new-hash');
-  mocks.replacePasswordIfCurrent.mockResolvedValue({ id: 'user-1', role: 'user' });
+  mocks.replacePasswordIfCurrent.mockResolvedValue({
+    id: 'user-1',
+    role: 'user',
+    sessionGeneration: 0,
+  });
   mocks.hash.mockReturnValue('new-fingerprint');
   mocks.secret.mockReturnValue('app-secret');
   mocks.createSecureToken.mockReturnValue('new-session');
@@ -91,12 +101,14 @@ test.each([false, true])('password change preserves verified 2FA (Redis %s)', as
     userId: 'user-1',
     role: 'user',
     pwd: 'new-fingerprint',
+    sessionGeneration: 0,
     mfa: true,
     mfaId: 'enrollment-1',
   };
 
   expect(response.status).toBe(200);
   expect(response.headers.get('set-cookie')).toContain('new-session');
+  expect(mocks.replacePasswordIfCurrent).toHaveBeenCalledWith('user-1', 'old-hash', 'new-hash', 0);
 
   if (enabled) {
     expect(mocks.deleteAuthKey).toHaveBeenCalledWith('auth:old');
@@ -108,4 +120,14 @@ test.each([false, true])('password change preserves verified 2FA (Redis %s)', as
       expect.any(Object),
     );
   }
+});
+
+test('password change does not reissue a session after a concurrent factor reset', async () => {
+  mocks.replacePasswordIfCurrent.mockRejectedValue(new Error('USER_CREDENTIALS_CHANGED'));
+
+  const response = await POST(new Request('http://localhost/api/me/password', { method: 'POST' }));
+
+  expect(response.status).toBe(401);
+  expect(mocks.replacePasswordIfCurrent).toHaveBeenCalledWith('user-1', 'old-hash', 'new-hash', 0);
+  expect(mocks.createSecureToken).not.toHaveBeenCalled();
 });

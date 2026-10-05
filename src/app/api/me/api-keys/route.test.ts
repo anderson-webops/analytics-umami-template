@@ -26,7 +26,7 @@ beforeEach(() => {
   mocks.getUserApiKeys.mockReset();
 
   parseRequestMock.mockResolvedValue({
-    auth: { user: { id: 'user-1' } },
+    auth: { user: { id: 'user-1' }, sessionGeneration: 0 },
     body: { name: 'CI pipeline' },
     error: undefined,
   });
@@ -88,6 +88,19 @@ test('POST creates a key, stores only the hash, and returns the plaintext once',
   expect(stored.keyHash).not.toBe(body.key);
   expect(stored.keyHash).toHaveLength(128);
   expect(stored).not.toHaveProperty('key');
+  expect(mocks.createApiKey.mock.calls[0][1]).toBe(0);
+});
+
+test('POST rejects an old session when credential creation sees a newer generation', async () => {
+  mocks.createApiKey.mockResolvedValue(null);
+
+  const response = await POST(new Request('http://localhost/api/me/api-keys', { method: 'POST' }));
+
+  expect(response.status).toBe(401);
+  await expect(response.json()).resolves.toMatchObject({
+    error: { code: 'credentials-changed' },
+  });
+  expect(mocks.createApiKey.mock.calls[0][1]).toBe(0);
 });
 
 test('POST returns 404 in cloud mode', async () => {

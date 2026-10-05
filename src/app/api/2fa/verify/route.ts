@@ -10,6 +10,7 @@ import { parseRequest } from '@/lib/request';
 import { badRequest, json, notFound, serviceUnavailable, unauthorized } from '@/lib/response';
 import { getAuthSessionTtlSeconds } from '@/lib/security';
 import { getBearerToken, setSessionCookie } from '@/lib/session';
+import { hasCurrentSessionGeneration } from '@/lib/session-generation';
 import { verifyBackupCode } from '@/lib/two-factor/backup-codes';
 import {
   decryptSecret,
@@ -58,9 +59,16 @@ export async function POST(request: Request) {
   }
 
   const userId = payload.userId as string;
-  const user = await getUser(userId, { includePassword: true });
+  const user = await getUser(userId, {
+    includePassword: true,
+    includeSessionGeneration: true,
+  });
 
-  if (!user || hash(user.password) !== payload.pwd) {
+  if (
+    !user ||
+    hash(user.password) !== payload.pwd ||
+    !hasCurrentSessionGeneration(payload.sessionGeneration, user.sessionGeneration)
+  ) {
     return unauthorized({ code: 'credentials-changed' });
   }
 
@@ -143,12 +151,26 @@ export async function POST(request: Request) {
   let fullToken: string;
   if (redis.enabled) {
     fullToken = await saveAuth(
-      { userId: id, role, pwd: passwordFingerprint, mfa: true, mfaId: twoFactor.id },
+      {
+        userId: id,
+        role,
+        pwd: passwordFingerprint,
+        sessionGeneration: user.sessionGeneration,
+        mfa: true,
+        mfaId: twoFactor.id,
+      },
       sessionTtl,
     );
   } else {
     fullToken = await createSecureToken(
-      { userId: id, role, pwd: passwordFingerprint, mfa: true, mfaId: twoFactor.id },
+      {
+        userId: id,
+        role,
+        pwd: passwordFingerprint,
+        sessionGeneration: user.sessionGeneration,
+        mfa: true,
+        mfaId: twoFactor.id,
+      },
       secret(),
       { expiresIn: sessionTtl },
     );

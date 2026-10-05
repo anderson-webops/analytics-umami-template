@@ -11,7 +11,7 @@ export const operationDescriptions: Record<string, OperationDescription> = {
   'POST /api/2fa/disable': {
     summary: 'Disable two-factor authentication',
     description:
-      'Disables two-factor authentication for the current user after verifying their password and authenticator code. Password verification shares a five-attempt, 15-minute account limit with password changes. Rejected when an administrator or team requires it.',
+      'Disables two-factor authentication for the current user after verifying their password and authenticator code. Revokes earlier sessions and returns a replacement password-only session token and cookie. Password verification shares a five-attempt, 15-minute account limit with password changes. Rejected when an administrator or team requires it.',
   },
   'POST /api/2fa/setup/cancel': {
     summary: 'Cancel two-factor authentication setup',
@@ -61,7 +61,7 @@ export const operationDescriptions: Record<string, OperationDescription> = {
   'DELETE /api/admin/users/{userId}/2fa': {
     summary: "Reset a user's two-factor authentication",
     description:
-      "Removes the specified user's authenticator setup, backup codes, used-code history, and failed-attempt limits so they can set up authentication again.",
+      "Removes the specified user's authenticator setup, backup codes, used-code history, and failed-attempt limits. All prior sessions are revoked; the user must sign in again before setting up authentication.",
   },
   'GET /api/admin/users/{userId}/2fa': {
     summary: "Get a user's two-factor status",

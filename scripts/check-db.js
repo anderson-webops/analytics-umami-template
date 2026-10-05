@@ -322,6 +322,16 @@ async function checkSchemaCompatibility() {
         SELECT 1
         FROM information_schema.columns
         WHERE table_schema = current_schema()
+          AND table_name = 'user'
+          AND column_name = 'session_generation'
+          AND data_type = 'integer'
+          AND is_nullable = 'NO'
+          AND column_default = '0'
+      ) AS user_session_generation,
+      EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
           AND table_name = 'website'
           AND column_name = 'replay_config'
       ) AS replay_config,
@@ -487,6 +497,7 @@ async function checkSchemaCompatibility() {
 
   if (
     !schema?.recorder_enabled ||
+    !schema?.user_session_generation ||
     !schema?.replay_config ||
     !schema?.session_replay ||
     !schema?.session_replay_saved ||
