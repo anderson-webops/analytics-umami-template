@@ -141,7 +141,7 @@ export async function POST(request: Request) {
   };
   const sessionToken = redis.enabled
     ? await saveAuth(sessionData, sessionTtl)
-    : createSecureToken(sessionData, secret(), { expiresIn: sessionTtl });
+    : await createSecureToken(sessionData, secret(), { expiresIn: sessionTtl });
 
   return setSessionCookie(json({ backupCodes: plaintext }), sessionToken, sessionTtl);
 }

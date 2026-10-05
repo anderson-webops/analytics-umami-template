@@ -97,7 +97,7 @@ export async function POST(request: Request) {
 
     token = await saveAuth(sessionData, sessionTtl);
   } else {
-    token = createSecureToken(sessionData, secret(), {
+    token = await createSecureToken(sessionData, secret(), {
       expiresIn: sessionTtl,
     });
   }

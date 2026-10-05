@@ -115,7 +115,7 @@ export async function checkAuth(request: Request) {
     return checkApiKeyAuth(request, bearerToken);
   }
 
-  const payload = parseSecureToken(token, secret());
+  const payload = await parseSecureToken(token, secret());
 
   if (payload?.type === PARTIAL_AUTH_TOKEN_TYPE) {
     log('Partial auth token rejected');

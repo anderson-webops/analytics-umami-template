@@ -18,17 +18,17 @@ export function parseToken(token: string | null | undefined, secret: any) {
   }
 }
 
-export function createSecureToken(payload: any, secret: any, options?: any) {
+export async function createSecureToken(payload: any, secret: any, options?: any) {
   return encrypt(createToken(payload, secret, options), secret);
 }
 
-export function parseSecureToken(token: string | null | undefined, secret: any) {
+export async function parseSecureToken(token: string | null | undefined, secret: any) {
   if (!token) {
     return null;
   }
 
   try {
-    return jwt.verify(decrypt(token, secret), secret);
+    return jwt.verify(await decrypt(token, secret), secret);
   } catch {
     return null;
   }
@@ -38,7 +38,7 @@ export async function parseAuthToken(req: Request, secret: string) {
   try {
     const token = getBearerToken(req);
 
-    return parseSecureToken(token, secret);
+    return await parseSecureToken(token, secret);
   } catch {
     return null;
   }

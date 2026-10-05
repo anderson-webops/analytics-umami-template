@@ -9,17 +9,28 @@ const SALT_LENGTH = 64;
 const TAG_LENGTH = 16;
 const TAG_POSITION = SALT_LENGTH + IV_LENGTH;
 const ENC_POSITION = TAG_POSITION + TAG_LENGTH;
+const MAX_ENCRYPTED_VALUE_LENGTH = 8192;
+const MAX_CONCURRENT_DECRYPTIONS = 64;
+let activeDecryptions = 0;
 
 const HASH_ALGO = 'sha512';
 const HASH_ENCODING = 'hex';
 
 const getKey = (password: string, salt: Buffer) =>
-  crypto.pbkdf2Sync(password, salt, 10000, 32, 'sha512');
+  new Promise<Buffer>((resolve, reject) => {
+    crypto.pbkdf2(password, salt, 10000, 32, 'sha512', (error, derivedKey) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve(derivedKey);
+      }
+    });
+  });
 
-export function encrypt(value: any, secret: any) {
+export async function encrypt(value: any, secret: any) {
   const iv = crypto.randomBytes(IV_LENGTH);
   const salt = crypto.randomBytes(SALT_LENGTH);
-  const key = getKey(secret, salt);
+  const key = await getKey(secret, salt);
 
   const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
 
@@ -30,20 +41,43 @@ export function encrypt(value: any, secret: any) {
   return Buffer.concat([salt, iv, tag, encrypted]).toString('base64');
 }
 
-export function decrypt(value: any, secret: any) {
-  const str = Buffer.from(String(value), 'base64');
+export async function decrypt(value: any, secret: any) {
+  if (
+    typeof value !== 'string' ||
+    value.length > MAX_ENCRYPTED_VALUE_LENGTH ||
+    value.length % 4 !== 0 ||
+    !/^[A-Za-z0-9+/]+={0,2}$/.test(value)
+  ) {
+    throw new Error('Invalid encrypted value');
+  }
+
+  const str = Buffer.from(value, 'base64');
+  if (str.length < ENC_POSITION || str.toString('base64') !== value) {
+    throw new Error('Invalid encrypted value');
+  }
+
   const salt = str.subarray(0, SALT_LENGTH);
   const iv = str.subarray(SALT_LENGTH, TAG_POSITION);
   const tag = str.subarray(TAG_POSITION, ENC_POSITION);
   const encrypted = str.subarray(ENC_POSITION);
 
-  const key = getKey(secret, salt);
+  if (activeDecryptions >= MAX_CONCURRENT_DECRYPTIONS) {
+    throw new Error('Too many concurrent decryptions');
+  }
 
-  const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+  activeDecryptions++;
 
-  decipher.setAuthTag(tag);
+  try {
+    const key = await getKey(secret, salt);
 
-  return decipher.update(encrypted) + decipher.final('utf8');
+    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+
+    decipher.setAuthTag(tag);
+
+    return decipher.update(encrypted) + decipher.final('utf8');
+  } finally {
+    activeDecryptions--;
+  }
 }
 
 export function hash(...args: string[]) {

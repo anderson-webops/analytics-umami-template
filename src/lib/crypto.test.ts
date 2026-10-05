@@ -1,38 +1,67 @@
+import crypto from 'node:crypto';
 import { describe, expect, test, vi } from 'vitest';
 import { decrypt, encrypt, hash, md5, uuid } from './crypto';
 
 describe('encrypt/decrypt', () => {
-  test('round-trips a value with the same secret', () => {
+  test('round-trips a value with the same secret', async () => {
     const secret = 'my-secret';
     const value = 'hello world';
 
-    const encrypted = encrypt(value, secret);
+    const encrypted = await encrypt(value, secret);
 
     expect(encrypted).not.toBe(value);
-    expect(decrypt(encrypted, secret)).toBe(value);
+    expect(await decrypt(encrypted, secret)).toBe(value);
   });
 
-  test('produces different ciphertext on each call (random iv/salt)', () => {
+  test('round-trips an empty value', async () => {
+    expect(await decrypt(await encrypt('', 'my-secret'), 'my-secret')).toBe('');
+  });
+
+  test('produces different ciphertext on each call (random iv/salt)', async () => {
     const secret = 'my-secret';
 
-    expect(encrypt('same', secret)).not.toBe(encrypt('same', secret));
+    expect(await encrypt('same', secret)).not.toBe(await encrypt('same', secret));
   });
 
-  test('fails to decrypt with the wrong secret', () => {
-    const encrypted = encrypt('secret data', 'right-secret');
+  test('fails to decrypt with the wrong secret', async () => {
+    const encrypted = await encrypt('secret data', 'right-secret');
 
-    expect(() => decrypt(encrypted, 'wrong-secret')).toThrow();
+    await expect(decrypt(encrypted, 'wrong-secret')).rejects.toThrow();
   });
 
-  test('fails to decrypt tampered ciphertext', () => {
+  test('fails to decrypt tampered ciphertext', async () => {
     const secret = 'my-secret';
-    const encrypted = encrypt('secret data', secret);
+    const encrypted = await encrypt('secret data', secret);
 
     const buf = Buffer.from(encrypted, 'base64');
     buf[buf.length - 1] ^= 0xff;
     const tampered = buf.toString('base64');
 
-    expect(() => decrypt(tampered, secret)).toThrow();
+    await expect(decrypt(tampered, secret)).rejects.toThrow();
+  });
+
+  test('rejects malformed and oversized envelopes before deriving a key', async () => {
+    const deriveKey = vi.spyOn(crypto, 'pbkdf2');
+
+    try {
+      await expect(decrypt('garbage', 'secret')).rejects.toThrow('Invalid encrypted value');
+      await expect(decrypt('A'.repeat(8196), 'secret')).rejects.toThrow('Invalid encrypted value');
+      await expect(decrypt(Buffer.alloc(97).toString('base64').slice(1), 'secret')).rejects.toThrow(
+        'Invalid encrypted value',
+      );
+      expect(deriveKey).not.toHaveBeenCalled();
+    } finally {
+      deriveKey.mockRestore();
+    }
+  });
+
+  test('bounds concurrent derivations without retaining a waiting queue', async () => {
+    const token = await encrypt('value', 'secret');
+    const pending = Array.from({ length: 64 }, () => decrypt(token, 'wrong-secret'));
+
+    await expect(decrypt(token, 'secret')).rejects.toThrow('Too many concurrent decryptions');
+    await Promise.allSettled(pending);
+    await expect(decrypt(token, 'secret')).resolves.toBe('value');
   });
 });
 

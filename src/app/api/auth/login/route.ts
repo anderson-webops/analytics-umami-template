@@ -105,7 +105,7 @@ export async function POST(request: Request) {
       return serviceUnavailable(getTwoFactorConfigurationError());
     }
 
-    const partialToken = createSecureToken(
+    const partialToken = await createSecureToken(
       { userId: id, pwd: passwordFingerprint, type: PARTIAL_AUTH_TOKEN_TYPE },
       secret(),
       { expiresIn: '5m' },
@@ -128,7 +128,7 @@ export async function POST(request: Request) {
   };
   const token = redis.enabled
     ? await saveAuth(sessionData, sessionTtl)
-    : createSecureToken(sessionData, secret(), {
+    : await createSecureToken(sessionData, secret(), {
         expiresIn: sessionTtl,
       });
   const teams = enrollmentRequired ? [] : await getAllUserTeams(id);

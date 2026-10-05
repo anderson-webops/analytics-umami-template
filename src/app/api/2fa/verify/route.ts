@@ -36,7 +36,7 @@ export async function POST(request: Request) {
     return unauthorized({ code: 'two-factor-error-missing-token' });
   }
 
-  const payload = parseSecureToken(rawToken, secret()) as any;
+  const payload = (await parseSecureToken(rawToken, secret())) as any;
   if (
     payload?.type !== PARTIAL_AUTH_TOKEN_TYPE ||
     !payload.userId ||
@@ -147,7 +147,7 @@ export async function POST(request: Request) {
       sessionTtl,
     );
   } else {
-    fullToken = createSecureToken(
+    fullToken = await createSecureToken(
       { userId: id, role, pwd: passwordFingerprint, mfa: true, mfaId: twoFactor.id },
       secret(),
       { expiresIn: sessionTtl },
