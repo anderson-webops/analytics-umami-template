@@ -11,7 +11,8 @@ const operation1 = defineOperation({
   operation: {
     operationId: 'updateMyPassword',
     summary: 'Change my password',
-    description: 'Verifies the current password and replaces it with the supplied new password.',
+    description:
+      'Verifies the current password and replaces it with the supplied new password. Password verification shares a five-attempt, 15-minute account limit with optional 2FA disable.',
     tags: ['Account'],
     requestBody: {
       required: true,
@@ -73,6 +74,23 @@ const operation1 = defineOperation({
                 message: 'Unauthorized.',
                 code: 'unauthorized',
                 status: 401,
+              },
+            },
+            schema: {
+              $ref: '#/components/schemas/ApiError',
+            },
+          },
+        },
+      },
+      '503': {
+        description: 'Service unavailable.',
+        content: {
+          'application/json': {
+            example: {
+              error: {
+                message: 'Service unavailable.',
+                code: 'service-unavailable',
+                status: 503,
               },
             },
             schema: {

@@ -22,9 +22,7 @@ export async function GET(
     return badRequest({ message: 'Invalid session identifier.' });
   }
 
-  if (
-    !(await canViewWebsiteSection(auth, websiteId, ['sessions', 'events', 'realtime', 'revenue']))
-  ) {
+  if (!(await canViewWebsiteSection(auth, websiteId, 'sessions'))) {
     return unauthorized();
   }
 

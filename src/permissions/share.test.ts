@@ -60,6 +60,31 @@ test('signed-in share holders cannot bypass section restrictions', async () => {
   await expect(canViewWebsiteSection(auth, 'website-1', 'overview')).resolves.toBe(true);
 });
 
+test('a section-restricted share cannot open full sessions through adjacent sections', async () => {
+  vi.mocked(canViewWebsite).mockImplementation(async auth => !!auth.shareToken?.websiteId);
+
+  for (const section of ['events', 'realtime', 'revenue'] as const) {
+    const auth = {
+      shareToken: {
+        shareType: ENTITY_TYPE.website,
+        websiteId: 'website-1',
+        parameters: { sessions: false, [section]: true },
+      },
+    };
+
+    await expect(canViewWebsiteSection(auth, 'website-1', 'sessions')).resolves.toBe(false);
+    await expect(canViewWebsiteSection(auth, 'website-1', section)).resolves.toBe(true);
+  }
+
+  await expect(
+    canViewWebsiteSection(
+      { shareToken: { websiteId: 'website-1', parameters: {} } },
+      'website-1',
+      'sessions',
+    ),
+  ).resolves.toBe(true);
+});
+
 test('independent website access is not limited by a share section', async () => {
   vi.mocked(canViewWebsite).mockImplementation(async auth => auth.user?.id === 'owner-user');
 

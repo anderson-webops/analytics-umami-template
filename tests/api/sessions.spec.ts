@@ -153,6 +153,14 @@ test.describe('Sessions', () => {
     const missingRange = await admin.get(path);
     const invalid = await admin.get(path, { params: { startAt: 'abc', endAt: 'def' } });
     const denied = await viewer.get(path, { params: dateRange(seed) });
+    const unrelatedIdentity = await admin.get(
+      `/api/websites/${seed.website.id}/sessions/${identifiedSessionId}/activity`,
+      { params: dateRange(seed, { distinctId: seed.data.distinctIds[1] }) },
+    );
+    const unknownAnchor = await admin.get(
+      `/api/websites/${seed.website.id}/sessions/${UNKNOWN_UUID}/activity`,
+      { params: dateRange(seed, { distinctId: seed.data.distinctIds[0] }) },
+    );
 
     expect(response.status).toBe(200);
     expect(Array.isArray(response.body)).toBe(true);
@@ -173,6 +181,8 @@ test.describe('Sessions', () => {
     expect(missingRange.status).toBe(400);
     expect(invalid.status).toBe(400);
     expect(denied.status).toBe(401);
+    expect(unrelatedIdentity.status).toBe(400);
+    expect(unknownAnchor.status).toBe(404);
   });
 
   test('GET /api/websites/{websiteId}/sessions/{sessionId}/properties returns session data', async ({

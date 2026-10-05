@@ -694,7 +694,7 @@ export const operationDescriptions: Record<string, OperationDescription> = {
   'GET /api/websites/{websiteId}/sessions/{sessionId}/activity': {
     summary: "Get a visitor's session activity",
     description:
-      'Returns activity for the specified session and sessions linked by visitor identity, using the requested date range and optional distinct ID.',
+      'Returns activity for an existing session and sessions linked by its visitor identity. An optional distinct ID must belong to that session; unrelated or ambiguous identities are rejected.',
   },
   'GET /api/websites/{websiteId}/sessions/{sessionId}/properties': {
     summary: "Get a session's custom properties",

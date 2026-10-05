@@ -4,7 +4,7 @@
 import type { RequestOptions } from '../types';
 import type { components, operations as OperationTypes } from './types';
 
-export const API_VERSION = '4.2.42';
+export const API_VERSION = '4.2.43';
 
 export type HttpMethod = 'get' | 'post' | 'put' | 'patch' | 'delete';
 
@@ -4753,7 +4753,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Get a visitor's session activity
-   * Returns activity for the specified session and sessions linked by visitor identity, using the requested date range and optional distinct ID.
+   * Returns activity for an existing session and sessions linked by its visitor identity. An optional distinct ID must belong to that session; unrelated or ambiguous identities are rejected.
    * `GET /api/websites/{websiteId}/sessions/{sessionId}/activity`
    */
   getWebsiteSessionActivity(

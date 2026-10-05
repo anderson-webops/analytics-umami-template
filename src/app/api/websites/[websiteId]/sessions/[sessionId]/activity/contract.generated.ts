@@ -12,7 +12,7 @@ const operation1 = defineOperation({
     operationId: 'getWebsiteSessionActivity',
     summary: "Get a visitor's session activity",
     description:
-      'Returns activity for the specified session and sessions linked by visitor identity, using the requested date range and optional distinct ID.',
+      'Returns activity for an existing session and sessions linked by its visitor identity. An optional distinct ID must belong to that session; unrelated or ambiguous identities are rejected.',
     tags: ['Websites'],
     parameters: [
       {
@@ -162,6 +162,23 @@ const operation1 = defineOperation({
                 message: 'Unauthorized.',
                 code: 'unauthorized',
                 status: 401,
+              },
+            },
+            schema: {
+              $ref: '#/components/schemas/ApiError',
+            },
+          },
+        },
+      },
+      '404': {
+        description: 'Not found.',
+        content: {
+          'application/json': {
+            example: {
+              error: {
+                message: 'Not found.',
+                code: 'not-found',
+                status: 404,
               },
             },
             schema: {

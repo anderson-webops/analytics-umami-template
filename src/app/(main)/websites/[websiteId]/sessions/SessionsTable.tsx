@@ -8,8 +8,13 @@ import { useFormat, useMessages, useNavigation } from '@/components/hooks';
 export function SessionsTable({
   websiteId,
   getSessionHref,
+  showSessionLinks = true,
   ...props
-}: DataTableProps & { websiteId: string; getSessionHref?: (row: any) => string }) {
+}: DataTableProps & {
+  websiteId: string;
+  getSessionHref?: (row: any) => string;
+  showSessionLinks?: boolean;
+}) {
   const { t, labels } = useMessages();
   const { formatValue } = useFormat();
   const {
@@ -20,16 +25,20 @@ export function SessionsTable({
   return (
     <DataTable {...props}>
       <DataColumn id="id" label={t(labels.session)} width="100px">
-        {(row: any) => (
-          <Link
-            href={
-              getSessionHref ? getSessionHref(row) : `/websites/${websiteId}/sessions/${row.id}`
-            }
-            scroll={getSessionHref ? false : undefined}
-          >
+        {(row: any) =>
+          showSessionLinks ? (
+            <Link
+              href={
+                getSessionHref ? getSessionHref(row) : `/websites/${websiteId}/sessions/${row.id}`
+              }
+              scroll={getSessionHref ? false : undefined}
+            >
+              <Avatar seed={row.id} size={32} />
+            </Link>
+          ) : (
             <Avatar seed={row.id} size={32} />
-          </Link>
-        )}
+          )
+        }
       </DataColumn>
       <DataColumn id="visits" label={t(labels.visits)} width="80px" />
       <DataColumn id="views" label={t(labels.views)} width="80px" />

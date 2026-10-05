@@ -3,10 +3,15 @@ import { z } from 'zod';
 import { FIELD_LENGTH } from '@/lib/constants';
 import { isUuid } from '@/lib/crypto';
 import { getQueryFilters, parseRequest } from '@/lib/request';
-import { badRequest, json, unauthorized } from '@/lib/response';
+import { badRequest, json, notFound, unauthorized } from '@/lib/response';
 import type { SessionActivity } from '@/lib/types';
 import { canViewWebsiteSection } from '@/permissions';
-import { getLinkedDistinctIds, getLinkedSessionIds, getSessionActivity } from '@/queries/sql';
+import {
+  getLinkedDistinctIds,
+  getLinkedSessionIds,
+  getSessionActivity,
+  getWebsiteSession,
+} from '@/queries/sql';
 
 export async function GET(
   request: Request,
@@ -30,18 +35,29 @@ export async function GET(
     return badRequest({ message: 'Invalid session identifier.' });
   }
 
-  if (
-    !(await canViewWebsiteSection(auth, websiteId, ['sessions', 'events', 'realtime', 'revenue']))
-  ) {
+  if (!(await canViewWebsiteSection(auth, websiteId, 'sessions'))) {
     return unauthorized();
+  }
+
+  const session = await getWebsiteSession(websiteId, sessionId);
+
+  if (!session) {
+    return notFound();
   }
 
   let sessionIds = [sessionId];
   let startAt = query.startAt;
   let endAt = query.endAt;
-  const distinctIds = query.distinctId
-    ? [query.distinctId]
-    : await getLinkedDistinctIds(websiteId, sessionId);
+  const linkedDistinctIds = await getLinkedDistinctIds(websiteId, sessionId);
+  const distinctIds = linkedDistinctIds.length
+    ? linkedDistinctIds
+    : session.distinctId
+      ? [session.distinctId]
+      : [];
+
+  if (query.distinctId && (distinctIds.length !== 1 || distinctIds[0] !== query.distinctId)) {
+    return badRequest({ message: 'Distinct identifier does not match session.' });
+  }
 
   if (distinctIds.length === 1) {
     const links = await getLinkedSessionIds(websiteId, distinctIds[0]);

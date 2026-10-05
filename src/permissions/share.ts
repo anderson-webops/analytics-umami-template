@@ -1,42 +1,10 @@
 import { ENTITY_TYPE } from '@/lib/constants';
+import { canViewShareSection, type ShareSection } from '@/lib/share';
 import type { Auth } from '@/lib/types';
 import { canDeleteBoard, canUpdateBoard, canViewBoard } from './board';
 import { canDeleteLink, canUpdateLink, canViewLink } from './link';
 import { canDeletePixel, canUpdatePixel, canViewPixel } from './pixel';
 import { canDeleteWebsite, canUpdateWebsite, canViewWebsite } from './website';
-
-export type ShareSection =
-  | 'overview'
-  | 'events'
-  | 'sessions'
-  | 'realtime'
-  | 'performance'
-  | 'compare'
-  | 'breakdown'
-  | 'goals'
-  | 'funnels'
-  | 'journeys'
-  | 'retention'
-  | 'utm'
-  | 'revenue'
-  | 'attribution';
-
-const SHARE_SECTIONS: ShareSection[] = [
-  'overview',
-  'events',
-  'sessions',
-  'realtime',
-  'performance',
-  'compare',
-  'breakdown',
-  'goals',
-  'funnels',
-  'journeys',
-  'retention',
-  'utm',
-  'revenue',
-  'attribution',
-];
 
 type ShareSectionInput = ShareSection | ShareSection[];
 type SharePermission = (auth: Auth, entityId: string) => Promise<boolean>;
@@ -138,16 +106,7 @@ export async function canViewWebsiteSection(
     return false;
   }
 
-  const sections = Array.isArray(section) ? section : [section];
-  const hasSectionParameters = SHARE_SECTIONS.some(
-    key => typeof shareToken.parameters?.[key] === 'boolean',
-  );
-
-  if (!hasSectionParameters) {
-    return true;
-  }
-
-  return sections.some(key => shareToken.parameters?.[key] === true);
+  return canViewShareSection(shareToken.parameters, section);
 }
 
 export async function canViewSharedWebsite(auth: Auth | null | undefined, websiteId: string) {

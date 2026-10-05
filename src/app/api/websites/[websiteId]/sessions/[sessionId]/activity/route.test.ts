@@ -2,7 +2,12 @@ import { endOfMonth, startOfMonth } from 'date-fns';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import { canViewWebsiteSection } from '@/permissions';
-import { getLinkedDistinctIds, getLinkedSessionIds, getSessionActivity } from '@/queries/sql';
+import {
+  getLinkedDistinctIds,
+  getLinkedSessionIds,
+  getSessionActivity,
+  getWebsiteSession,
+} from '@/queries/sql';
 import { GET } from './route';
 
 vi.mock('@/lib/request', () => ({
@@ -18,6 +23,7 @@ vi.mock('@/queries/sql', () => ({
   getLinkedDistinctIds: vi.fn(),
   getLinkedSessionIds: vi.fn(),
   getSessionActivity: vi.fn(),
+  getWebsiteSession: vi.fn(),
 }));
 
 const parseRequestMock = vi.mocked(parseRequest);
@@ -26,6 +32,7 @@ const canViewWebsiteSectionMock = vi.mocked(canViewWebsiteSection);
 const getLinkedDistinctIdsMock = vi.mocked(getLinkedDistinctIds);
 const getLinkedSessionIdsMock = vi.mocked(getLinkedSessionIds);
 const getSessionActivityMock = vi.mocked(getSessionActivity);
+const getWebsiteSessionMock = vi.mocked(getWebsiteSession);
 const WEBSITE_ID = '00000000-0000-4000-8000-000000000001';
 const SESSION_ID = '00000000-0000-4000-8000-000000000002';
 const LINKED_SESSION_ID_1 = '00000000-0000-4000-8000-000000000003';
@@ -38,6 +45,11 @@ beforeEach(() => {
   getLinkedDistinctIdsMock.mockReset();
   getLinkedSessionIdsMock.mockReset();
   getSessionActivityMock.mockReset();
+  getWebsiteSessionMock.mockReset();
+  getWebsiteSessionMock.mockResolvedValue({
+    id: SESSION_ID,
+    distinctId: 'bob@aol.com',
+  } as Awaited<ReturnType<typeof getWebsiteSession>>);
 });
 
 test('uses linked session months to widen stitched activity without scanning event bounds', async () => {
@@ -55,6 +67,7 @@ test('uses linked session months to widen stitched activity without scanning eve
 
   parseRequestMock.mockResolvedValue({ auth: {}, query, error: undefined });
   canViewWebsiteSectionMock.mockResolvedValue(true);
+  getLinkedDistinctIdsMock.mockResolvedValue(['bob@aol.com']);
   getLinkedSessionIdsMock.mockResolvedValue([
     { sessionId: LINKED_SESSION_ID_1, createdAt: linkedStart.toISOString() },
     { sessionId: LINKED_SESSION_ID_2, createdAt: linkedEnd.toISOString() },
@@ -73,6 +86,7 @@ test('uses linked session months to widen stitched activity without scanning eve
 
   expect(response.status).toBe(200);
   expect(getLinkedSessionIdsMock).toHaveBeenCalledWith(WEBSITE_ID, 'bob@aol.com');
+  expect(getWebsiteSessionMock).toHaveBeenCalledWith(WEBSITE_ID, SESSION_ID);
   expect(getQueryFiltersMock).toHaveBeenCalledWith(
     {
       ...query,
@@ -113,4 +127,98 @@ test('keeps activity scoped to the raw session when multiple identities are link
 
   expect(getLinkedSessionIdsMock).not.toHaveBeenCalled();
   expect(getSessionActivityMock).toHaveBeenCalledWith(WEBSITE_ID, [SESSION_ID], filters);
+});
+
+test('rejects an unrelated identity before reading linked history or activity', async () => {
+  parseRequestMock.mockResolvedValue({
+    auth: {},
+    query: { startAt: 1, endAt: 2, distinctId: 'unrelated' },
+    error: undefined,
+  });
+  canViewWebsiteSectionMock.mockResolvedValue(true);
+  getLinkedDistinctIdsMock.mockResolvedValue(['bob@aol.com']);
+
+  const response = await GET(new Request('http://localhost'), {
+    params: Promise.resolve({ websiteId: WEBSITE_ID, sessionId: SESSION_ID }),
+  });
+
+  expect(response.status).toBe(400);
+  expect(getLinkedSessionIdsMock).not.toHaveBeenCalled();
+  expect(getSessionActivityMock).not.toHaveBeenCalled();
+});
+
+test('rejects a supplied identity when the anchor has collided identities', async () => {
+  parseRequestMock.mockResolvedValue({
+    auth: {},
+    query: { startAt: 1, endAt: 2, distinctId: 'bob@aol.com' },
+    error: undefined,
+  });
+  canViewWebsiteSectionMock.mockResolvedValue(true);
+  getLinkedDistinctIdsMock.mockResolvedValue(['bob@aol.com', 'other']);
+
+  const response = await GET(new Request('http://localhost'), {
+    params: Promise.resolve({ websiteId: WEBSITE_ID, sessionId: SESSION_ID }),
+  });
+
+  expect(response.status).toBe(400);
+  expect(getLinkedSessionIdsMock).not.toHaveBeenCalled();
+  expect(getSessionActivityMock).not.toHaveBeenCalled();
+});
+
+test('uses the existing session identity when there are no link rows', async () => {
+  parseRequestMock.mockResolvedValue({
+    auth: {},
+    query: { startAt: 1, endAt: 2, distinctId: 'bob@aol.com' },
+    error: undefined,
+  });
+  canViewWebsiteSectionMock.mockResolvedValue(true);
+  getLinkedDistinctIdsMock.mockResolvedValue([]);
+  getLinkedSessionIdsMock.mockResolvedValue([]);
+  getQueryFiltersMock.mockResolvedValue({});
+  getSessionActivityMock.mockResolvedValue([]);
+
+  const response = await GET(new Request('http://localhost'), {
+    params: Promise.resolve({ websiteId: WEBSITE_ID, sessionId: SESSION_ID }),
+  });
+
+  expect(response.status).toBe(200);
+  expect(getLinkedSessionIdsMock).toHaveBeenCalledWith(WEBSITE_ID, 'bob@aol.com');
+  expect(getSessionActivityMock).toHaveBeenCalledWith(WEBSITE_ID, [SESSION_ID], {});
+});
+
+test('rejects an unknown anchor even when the caller supplies an identity', async () => {
+  parseRequestMock.mockResolvedValue({
+    auth: {},
+    query: { startAt: 1, endAt: 2, distinctId: 'bob@aol.com' },
+    error: undefined,
+  });
+  canViewWebsiteSectionMock.mockResolvedValue(true);
+  getWebsiteSessionMock.mockResolvedValue(undefined);
+
+  const response = await GET(new Request('http://localhost'), {
+    params: Promise.resolve({ websiteId: WEBSITE_ID, sessionId: SESSION_ID }),
+  });
+
+  expect(response.status).toBe(404);
+  expect(getLinkedDistinctIdsMock).not.toHaveBeenCalled();
+  expect(getLinkedSessionIdsMock).not.toHaveBeenCalled();
+  expect(getSessionActivityMock).not.toHaveBeenCalled();
+});
+
+test('does not query session data when the sessions section is denied', async () => {
+  parseRequestMock.mockResolvedValue({
+    auth: {},
+    query: { startAt: 1, endAt: 2 },
+    error: undefined,
+  });
+  canViewWebsiteSectionMock.mockResolvedValue(false);
+
+  const response = await GET(new Request('http://localhost'), {
+    params: Promise.resolve({ websiteId: WEBSITE_ID, sessionId: SESSION_ID }),
+  });
+
+  expect(response.status).toBe(401);
+  expect(canViewWebsiteSectionMock).toHaveBeenCalledWith({}, WEBSITE_ID, 'sessions');
+  expect(getWebsiteSessionMock).not.toHaveBeenCalled();
+  expect(getSessionActivityMock).not.toHaveBeenCalled();
 });

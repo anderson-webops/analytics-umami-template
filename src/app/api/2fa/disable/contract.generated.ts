@@ -12,7 +12,7 @@ const operation1 = defineOperation({
     operationId: 'disableTwoFactor',
     summary: 'Disable two-factor authentication',
     description:
-      'Disables two-factor authentication for the current user after verifying their password and authenticator code. Rejected when an administrator or team requires it.',
+      'Disables two-factor authentication for the current user after verifying their password and authenticator code. Password verification shares a five-attempt, 15-minute account limit with password changes. Rejected when an administrator or team requires it.',
     tags: ['Two-factor authentication'],
     requestBody: {
       required: true,

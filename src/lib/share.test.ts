@@ -1,5 +1,29 @@
 import { describe, expect, test } from 'vitest';
-import { allowShareFilter, excludeShareFilterParam, getShareTheme } from './share';
+import {
+  allowShareFilter,
+  canViewShareSection,
+  excludeShareFilterParam,
+  getShareTheme,
+} from './share';
+
+describe('canViewShareSection', () => {
+  test('keeps ordinary users and legacy sectionless shares unrestricted', () => {
+    expect(canViewShareSection(undefined, 'sessions')).toBe(true);
+    expect(canViewShareSection({}, 'sessions')).toBe(true);
+    expect(canViewShareSection({ allowFilter: false }, 'sessions')).toBe(true);
+  });
+
+  test('does not treat an adjacent section as session-profile access', () => {
+    for (const section of ['events', 'realtime', 'revenue'] as const) {
+      expect(canViewShareSection({ sessions: false, [section]: true }, 'sessions')).toBe(false);
+    }
+
+    expect(canViewShareSection({ sessions: true, events: false }, 'sessions')).toBe(true);
+    expect(canViewShareSection({ sessions: false, events: true }, ['sessions', 'events'])).toBe(
+      true,
+    );
+  });
+});
 
 describe('allowShareFilter', () => {
   test('returns true when parameters are missing', () => {

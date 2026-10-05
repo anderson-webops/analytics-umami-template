@@ -2594,7 +2594,7 @@ export interface paths {
     };
     /**
      * Get a visitor's session activity
-     * @description Returns activity for the specified session and sessions linked by visitor identity, using the requested date range and optional distinct ID.
+     * @description Returns activity for an existing session and sessions linked by its visitor identity. An optional distinct ID must belong to that session; unrelated or ambiguous identities are rejected.
      */
     get: operations['getWebsiteSessionActivity'];
     put?: never;
@@ -7293,6 +7293,24 @@ export interface operations {
            *         "code": "unauthorized",
            *         "message": "Unauthorized.",
            *         "status": 401
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+      /** @description Service unavailable. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "service-unavailable",
+           *         "message": "Service unavailable.",
+           *         "status": 503
            *       }
            *     }
            */
@@ -14320,11 +14338,13 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': {
-            t: string;
-            x: string;
-            y: number;
-          }[];
+          'application/json':
+            | null[]
+            | {
+                t: string;
+                x: string;
+                y: number;
+              }[];
         };
       };
       /** @description Bad request. */
@@ -20750,6 +20770,24 @@ export interface operations {
            *         "code": "unauthorized",
            *         "message": "Unauthorized.",
            *         "status": 401
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+      /** @description Not found. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "not-found",
+           *         "message": "Not found.",
+           *         "status": 404
            *       }
            *     }
            */

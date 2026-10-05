@@ -282,6 +282,68 @@ test.describe('Shares', () => {
     expect(ownerAllowed.status).toBe(200);
   });
 
+  test('adjacent share sections cannot open full visitor profiles', async ({
+    admin,
+    seed,
+    share,
+  }) => {
+    const base = `/api/websites/${seed.website.id}/sessions/${seed.data.sessionId}`;
+    const paths = [base, `${base}/properties`, `${base}/activity`];
+
+    for (const section of ['events', 'realtime', 'revenue'] as const) {
+      const slug = uniqueSlug(`profile-${section}`);
+      const created = await admin.post('/api/share', {
+        entityId: seed.website.id,
+        shareType: ENTITY_TYPE.website,
+        name: uniqueName(`profile-${section}`),
+        slug,
+        parameters: { sessions: false, [section]: true },
+      });
+
+      expect(created.status).toBe(200);
+
+      try {
+        const client = await share(slug);
+
+        for (const path of paths) {
+          const response = await client.get(path, { params: dateRange(seed) });
+          expect(response.status).toBe(401);
+        }
+      } finally {
+        await admin.del(`/api/share/id/${created.body.id}`);
+      }
+    }
+
+    for (const parameters of [{ sessions: true, events: false }, {}]) {
+      const slug = uniqueSlug('profile-allowed');
+      const created = await admin.post('/api/share', {
+        entityId: seed.website.id,
+        shareType: ENTITY_TYPE.website,
+        name: uniqueName('profile-allowed'),
+        slug,
+        parameters,
+      });
+
+      expect(created.status).toBe(200);
+
+      try {
+        const client = await share(slug);
+
+        for (const path of paths) {
+          const response = await client.get(path, { params: dateRange(seed) });
+          expect(response.status).toBe(200);
+        }
+      } finally {
+        await admin.del(`/api/share/id/${created.body.id}`);
+      }
+    }
+
+    for (const path of paths) {
+      const response = await admin.get(path, { params: dateRange(seed) });
+      expect(response.status).toBe(200);
+    }
+  });
+
   test('public shares bound property-filter fan-out without blocking ordinary statistics', async ({
     admin,
     seed,

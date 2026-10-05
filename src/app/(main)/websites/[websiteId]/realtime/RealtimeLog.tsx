@@ -12,6 +12,7 @@ import {
   useMessages,
   useMobile,
   useNavigation,
+  useShare,
   useTimezone,
   useWebsite,
 } from '@/components/hooks';
@@ -20,6 +21,7 @@ import { Eye, User } from '@/components/icons';
 import { FilterButtons } from '@/components/input/FilterButtons';
 import { Lightning } from '@/components/svg';
 import { BROWSERS, OS_NAMES } from '@/lib/constants';
+import { canViewShareSection } from '@/lib/share';
 
 const TYPE_ALL = 'all';
 const TYPE_PAGEVIEW = 'pageview';
@@ -44,6 +46,8 @@ export function RealtimeLog({ data }: { data: any }) {
   const { countryNames } = useCountryNames(locale);
   const [filter, setFilter] = useState(TYPE_ALL);
   const { updateParams } = useNavigation();
+  const share = useShare();
+  const showSessionLinks = canViewShareSection(share?.parameters, 'sessions');
   const { isPhone } = useMobile();
 
   const buttons = [
@@ -128,9 +132,13 @@ export function RealtimeLog({ data }: { data: any }) {
     return (
       <Row alignItems="center" style={{ ...style, minWidth: 0 }} gap>
         <Row minWidth="30px">
-          <Link href={updateParams({ session: row.sessionId })}>
+          {showSessionLinks ? (
+            <Link href={updateParams({ session: row.sessionId })}>
+              <Avatar seed={row.sessionId} size={32} />
+            </Link>
+          ) : (
             <Avatar seed={row.sessionId} size={32} />
-          </Link>
+          )}
         </Row>
         <Row minWidth="100px">
           <Text wrap="nowrap">{getTime(row)}</Text>

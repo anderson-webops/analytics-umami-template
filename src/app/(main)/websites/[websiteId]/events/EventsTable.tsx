@@ -15,15 +15,18 @@ import { DateDistance } from '@/components/common/DateDistance';
 import { IconLabel } from '@/components/common/IconLabel';
 import Link from '@/components/common/Link';
 import { TypeIcon } from '@/components/common/TypeIcon';
-import { useFormat, useMessages, useNavigation } from '@/components/hooks';
+import { useFormat, useMessages, useNavigation, useShare } from '@/components/hooks';
 import { Eye, FileText } from '@/components/icons';
 import { EventData } from '@/components/metrics/EventData';
 import { Lightning } from '@/components/svg';
+import { canViewShareSection } from '@/lib/share';
 
 export function EventsTable(props: DataTableProps) {
   const { t, labels } = useMessages();
   const { updateParams } = useNavigation();
   const { formatValue } = useFormat();
+  const share = useShare();
+  const showSessionLinks = canViewShareSection(share?.parameters, 'sessions');
 
   const renderLink = (label: string, hostname: string) => {
     return (
@@ -68,10 +71,12 @@ export function EventsTable(props: DataTableProps) {
       </DataColumn>
       <DataColumn id="session" label={t(labels.session)} width="80px">
         {(row: any) => {
-          return (
+          return showSessionLinks ? (
             <Link href={updateParams({ session: row.sessionId })}>
               <Avatar seed={row.sessionId} size={32} />
             </Link>
+          ) : (
+            <Avatar seed={row.sessionId} size={32} />
           );
         }}
       </DataColumn>

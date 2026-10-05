@@ -304,22 +304,32 @@ const operation1 = defineOperation({
         content: {
           'application/json': {
             schema: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  x: {
-                    type: 'string',
-                  },
-                  t: {
-                    type: 'string',
-                  },
-                  y: {
-                    type: 'number',
+              anyOf: [
+                {
+                  type: 'array',
+                  items: {
+                    type: 'null',
                   },
                 },
-                required: ['x', 't', 'y'],
-              },
+                {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      x: {
+                        type: 'string',
+                      },
+                      t: {
+                        type: 'string',
+                      },
+                      y: {
+                        type: 'number',
+                      },
+                    },
+                    required: ['x', 't', 'y'],
+                  },
+                },
+              ],
             },
           },
         },

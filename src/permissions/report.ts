@@ -1,6 +1,6 @@
 import type { Report } from '@/generated/prisma/client';
+import type { ShareSection } from '@/lib/share';
 import type { Auth } from '@/lib/types';
-import type { ShareSection } from './share';
 import { canViewWebsiteSection } from './share';
 import { canDeleteWebsite, canUpdateWebsite, canViewWebsite } from './website';
 

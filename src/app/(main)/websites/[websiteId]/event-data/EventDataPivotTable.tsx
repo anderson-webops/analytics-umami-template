@@ -13,7 +13,9 @@ import {
   useMessages,
   useMobile,
   useNavigation,
+  useShare,
 } from '@/components/hooks';
+import { canViewShareSection } from '@/lib/share';
 import type { EventPropertyFilter } from '@/lib/types';
 
 export function EventDataPivotTable({
@@ -28,6 +30,8 @@ export function EventDataPivotTable({
   const { t, labels } = useMessages();
   const { router, updateParams } = useNavigation();
   const { isMobile } = useMobile();
+  const share = useShare();
+  const showSessionLinks = canViewShareSection(share?.parameters, 'sessions');
 
   const propertiesQuery = useEventDataPropertiesQuery(websiteId);
   const pivotQuery = useEventDataPivotQuery(websiteId, eventName, eventFilters);
@@ -89,6 +93,15 @@ export function EventDataPivotTable({
     </Row>
   );
 
+  const renderSessionAvatar = (sessionId: string) =>
+    showSessionLinks ? (
+      <Link href={updateParams({ session: sessionId })}>
+        <Avatar seed={sessionId} size={32} />
+      </Link>
+    ) : (
+      <Avatar seed={sessionId} size={32} />
+    );
+
   return (
     <Column gap="4" minWidth="0" width="100%" maxWidth="100%">
       <LoadingPanel
@@ -102,11 +115,7 @@ export function EventDataPivotTable({
           {isMobile ? (
             <DataTable data={tableQuery?.data} style={{ width: '100%' }} displayMode="cards">
               <DataColumn id="session" label={t(labels.session)} width="72px">
-                {(row: any) => (
-                  <Link href={updateParams({ session: row.sessionId })}>
-                    <Avatar seed={row.sessionId} size={32} />
-                  </Link>
-                )}
+                {(row: any) => renderSessionAvatar(row.sessionId)}
               </DataColumn>
               <DataColumn id="urlPath" label={t(labels.path)} width="220px">
                 {(row: any) => renderTruncatedText(row.urlPath ?? '')}
@@ -127,11 +136,7 @@ export function EventDataPivotTable({
               <div style={{ width: tableMinWidth, minWidth: tableMinWidth }}>
                 <DataTable data={tableQuery?.data} style={{ width: '100%' }} displayMode="table">
                   <DataColumn id="session" label={t(labels.session)} width="72px">
-                    {(row: any) => (
-                      <Link href={updateParams({ session: row.sessionId })}>
-                        <Avatar seed={row.sessionId} size={32} />
-                      </Link>
-                    )}
+                    {(row: any) => renderSessionAvatar(row.sessionId)}
                   </DataColumn>
                   <DataColumn id="urlPath" label={t(labels.path)} width="220px">
                     {(row: any) => renderTruncatedText(row.urlPath ?? '')}

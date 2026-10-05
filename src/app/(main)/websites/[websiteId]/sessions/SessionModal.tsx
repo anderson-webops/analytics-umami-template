@@ -2,7 +2,8 @@
 import { Column, Dialog, Modal, type ModalProps } from '@umami/react-zen';
 import { SessionProfile } from '@/app/(main)/websites/[websiteId]/sessions/SessionProfile';
 import { ControlledDialog } from '@/components/common/ControlledDialog';
-import { useMobile, useNavigation } from '@/components/hooks';
+import { useMobile, useNavigation, useShare } from '@/components/hooks';
+import { canViewShareSection } from '@/lib/share';
 import styles from './SessionModal.module.css';
 
 export interface SessionModalProps extends ModalProps {
@@ -17,7 +18,9 @@ export function SessionModal({ websiteId, className, ...props }: SessionModalPro
     updateParams,
   } = useNavigation();
   const { isMobile } = useMobile();
+  const share = useShare();
   const isSharePage = pathname.includes('/share/');
+  const canOpenSession = canViewShareSection(share?.parameters, 'sessions');
   const handleOpenChange = (isOpen: boolean) => {
     if (!isOpen) {
       router.replace(updateParams({ session: undefined }), { scroll: false });
@@ -28,7 +31,7 @@ export function SessionModal({ websiteId, className, ...props }: SessionModalPro
     <ControlledDialog>
       <Modal
         className={[styles.modal, className].filter(Boolean).join(' ')}
-        isOpen={!!session}
+        isOpen={!!session && canOpenSession}
         onOpenChange={handleOpenChange}
         {...props}
       >
