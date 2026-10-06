@@ -2,6 +2,9 @@ import 'dotenv/config';
 import replace from '@rollup/plugin-replace';
 import terser from '@rollup/plugin-terser';
 import typescript from '@rollup/plugin-typescript';
+import { getCollectBuildConfig } from './scripts/collect-build-config.mjs';
+
+const { host, endpoint } = getCollectBuildConfig();
 
 export default {
   input: 'src/tracker/index.ts',
@@ -12,8 +15,8 @@ export default {
   plugins: [
     typescript({ tsconfig: './tsconfig.tracker.json' }),
     replace({
-      __COLLECT_API_HOST__: process.env.COLLECT_API_HOST || '',
-      __COLLECT_API_ENDPOINT__: process.env.COLLECT_API_ENDPOINT || '/api/send',
+      "process.env['COLLECT_API_HOST']": JSON.stringify(host),
+      "process.env['COLLECT_API_ENDPOINT']": JSON.stringify(endpoint),
       delimiters: ['', ''],
       preventAssignment: true,
     }),

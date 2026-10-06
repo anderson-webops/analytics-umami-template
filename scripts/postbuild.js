@@ -2,6 +2,8 @@ import 'dotenv/config';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { build } from 'esbuild';
+import { rollup } from 'rollup';
+import trackerConfig from '../rollup.tracker.config.js';
 import { repairStandaloneRuntime } from './repair-standalone.js';
 import { createRuntimeManifest } from './runtime-artifact.mjs';
 
@@ -36,30 +38,23 @@ async function bundleRuntimeScript(entryPoint, outputPath) {
 }
 
 async function configureTracker(appDir) {
-  const endpoint = process.env.COLLECT_API_ENDPOINT?.trim();
-
-  if (!endpoint) {
+  if (!process.env.COLLECT_API_ENDPOINT) {
     return;
   }
 
-  if (
-    endpoint === '/' ||
-    !/^\/[A-Za-z0-9._~!$&'()+,;=@%/-]+$/.test(endpoint) ||
-    endpoint.split('/').includes('..') ||
-    endpoint.includes('//')
-  ) {
-    throw new Error('COLLECT_API_ENDPOINT must be a safe non-root application path.');
+  const bundle = await rollup(trackerConfig);
+
+  try {
+    const { output } = await bundle.generate(trackerConfig.output);
+
+    if (output.length !== 1 || output[0].type !== 'chunk') {
+      throw new Error('The tracker build must produce exactly one browser script.');
+    }
+
+    await fs.writeFile(path.join(appDir, 'public', 'script.js'), output[0].code);
+  } finally {
+    await bundle.close();
   }
-
-  const trackerPath = path.join(appDir, 'public', 'script.js');
-  const tracker = await fs.readFile(trackerPath, 'utf8');
-  const configured = tracker.replaceAll('/api/send', endpoint);
-
-  if (configured === tracker) {
-    throw new Error('The built tracker did not contain its expected collection endpoint.');
-  }
-
-  await fs.writeFile(trackerPath, configured);
 }
 
 async function run() {

@@ -254,8 +254,10 @@ type MetricEntry = PerformanceEntry & {
 
   const domains = domain.split(',').map(n => n.trim());
   const host =
-    hostUrl || '__COLLECT_API_HOST__' || currentScript.src.split('/').slice(0, -1).join('/');
-  const endpoint = `${host.replace(/\/$/, '')}__COLLECT_API_ENDPOINT__`;
+    hostUrl ||
+    process.env['COLLECT_API_HOST'] ||
+    currentScript.src.split('/').slice(0, -1).join('/');
+  const endpoint = `${host.replace(/\/$/, '')}${process.env['COLLECT_API_ENDPOINT'] || '/api/send'}`;
   const screen = `${width}x${height}`;
   const eventRegex = /data-umami-event-([\w-_]+)/;
   const eventNameAttribute = `${_data}umami-event`;

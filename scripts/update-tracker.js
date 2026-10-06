@@ -1,16 +1,18 @@
 /* eslint-disable no-console */
 import 'dotenv/config';
-import fs from 'node:fs';
-import path from 'node:path';
+import { rollup } from 'rollup';
+import config from '../rollup.tracker.config.js';
 
-const endPoint = process.env.COLLECT_API_ENDPOINT;
+const endpoint = process.env.COLLECT_API_ENDPOINT;
 
-if (endPoint) {
-  const file = path.resolve(process.cwd(), 'public/script.js');
+if (endpoint) {
+  const bundle = await rollup(config);
 
-  const tracker = fs.readFileSync(file);
+  try {
+    await bundle.write(config.output);
+  } finally {
+    await bundle.close();
+  }
 
-  fs.writeFileSync(path.resolve(file), tracker.toString().replace(/\/api\/send/g, endPoint));
-
-  console.log(`Updated tracker endpoint: ${endPoint}.`);
+  console.log('Updated tracker endpoint.');
 }

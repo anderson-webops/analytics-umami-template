@@ -16,7 +16,9 @@ import { addCustomEvent, record } from 'rrweb';
   if (!website) return;
 
   const host =
-    hostUrl || '__COLLECT_API_HOST__' || currentScript.src.split('/').slice(0, -1).join('/');
+    hostUrl ||
+    process.env['COLLECT_API_HOST'] ||
+    currentScript.src.split('/').slice(0, -1).join('/');
   const hostBase = host.replace(/\/$/, '');
   const endpoint = `${hostBase}/api/record`;
   const configEndpoint = `${hostBase}/api/websites/${website}/recorder`;
