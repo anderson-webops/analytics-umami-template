@@ -44,7 +44,7 @@ overrides:
   esbuild: 0.28.2
   'ua-parser-js': 2.0.10
   tar: 7.5.22
-  'shell-quote': 1.9.0
+  'shell-quote': 1.11.0
   'js-yaml': 4.3.2
   'form-data': 4.0.6
   '@hono/node-server': 2.0.12
@@ -64,7 +64,7 @@ overrides:
   'qs@>=6.11.1 <=6.15.1': 6.15.2
   'brace-expansion@<5.0.12': 5.0.12
   braces: file:vendor/braces
-  sharp: 0.35.4
+  sharp: 0.35.5
 allowBuilds:
   '@parcel/watcher': true
   '@prisma/engines': true
