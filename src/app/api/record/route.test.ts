@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { getCollectionLimit } from '@/lib/collection-rate-limit';
+import {
+  getCollectionIpLimit,
+  getCollectionSourceLimit,
+  getCollectionSourceStatus,
+} from '@/lib/collection-rate-limit';
 import { getClientInfo, hasBlockedIp } from '@/lib/detect';
 import { HeatmapBudgetExceededError, reserveHeatmapBudget } from '@/lib/heatmap-budget';
 import { parseToken } from '@/lib/jwt';
@@ -19,7 +23,9 @@ vi.mock('@/lib/clickhouse', () => ({
 }));
 
 vi.mock('@/lib/collection-rate-limit', () => ({
-  getCollectionLimit: vi.fn(),
+  getCollectionIpLimit: vi.fn(),
+  getCollectionSourceLimit: vi.fn(),
+  getCollectionSourceStatus: vi.fn(),
 }));
 
 vi.mock('@/lib/detect', () => ({
@@ -58,6 +64,9 @@ const parseRequestMock = vi.mocked(parseRequest);
 beforeEach(() => {
   vi.clearAllMocks();
   clickhouseState.enabled = false;
+  vi.mocked(getCollectionIpLimit).mockResolvedValue({ blocked: false, retryAfter: 60 });
+  vi.mocked(getCollectionSourceLimit).mockResolvedValue({ blocked: false, retryAfter: 60 });
+  vi.mocked(getCollectionSourceStatus).mockResolvedValue({ blocked: false, retryAfter: 60 });
 });
 
 afterEach(() => {
@@ -78,7 +87,6 @@ function prepareHeatmapRequest() {
   };
 
   vi.stubEnv('APP_SECRET', 'synthetic-test-secret-00000000000000000');
-  vi.mocked(getCollectionLimit).mockResolvedValue({ blocked: false, retryAfter: 60 });
   vi.mocked(getClientInfo).mockResolvedValue({ ip: '127.0.0.1' } as any);
   vi.mocked(hasBlockedIp).mockReturnValue(false);
   vi.mocked(parseToken).mockResolvedValue({
@@ -106,6 +114,85 @@ function prepareHeatmapRequest() {
 }
 
 describe('heatmap intake budget', () => {
+  test('does not count an unverified source when the IP limit is reached', async () => {
+    prepareHeatmapRequest();
+    vi.mocked(getCollectionIpLimit).mockResolvedValueOnce({ blocked: true, retryAfter: 60 });
+
+    const response = await POST(
+      new Request('http://localhost/api/record', {
+        method: 'POST',
+        headers: { 'x-umami-cache': 'signed-token' },
+      }),
+    );
+
+    expect(response.status).toBe(429);
+    expect(parseToken).not.toHaveBeenCalled();
+    expect(getCollectionSourceStatus).not.toHaveBeenCalled();
+    expect(getCollectionSourceLimit).not.toHaveBeenCalled();
+  });
+
+  test('does not repeat a website lookup for an already throttled source', async () => {
+    prepareHeatmapRequest();
+    vi.mocked(getCollectionSourceStatus).mockResolvedValueOnce({ blocked: true, retryAfter: 60 });
+
+    const response = await POST(
+      new Request('http://localhost/api/record', {
+        method: 'POST',
+        headers: { 'x-umami-cache': 'signed-token' },
+      }),
+    );
+
+    expect(response.status).toBe(429);
+    expect(getWebsite).not.toHaveBeenCalled();
+    expect(getCollectionSourceLimit).not.toHaveBeenCalled();
+  });
+
+  test('does not count a source without a matching session token', async () => {
+    prepareHeatmapRequest();
+    vi.mocked(parseToken).mockResolvedValueOnce(null);
+
+    const response = await POST(
+      new Request('http://localhost/api/record', {
+        method: 'POST',
+        headers: { 'x-umami-cache': 'signed-token' },
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(getCollectionSourceStatus).not.toHaveBeenCalled();
+    expect(getCollectionSourceLimit).not.toHaveBeenCalled();
+  });
+
+  test('does not count a source after its website is deleted', async () => {
+    prepareHeatmapRequest();
+    vi.mocked(getWebsite).mockResolvedValueOnce(null);
+
+    const response = await POST(
+      new Request('http://localhost/api/record', {
+        method: 'POST',
+        headers: { 'x-umami-cache': 'signed-token' },
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(getCollectionSourceLimit).not.toHaveBeenCalled();
+  });
+
+  test('does not count a source when the client IP is blocked', async () => {
+    prepareHeatmapRequest();
+    vi.mocked(hasBlockedIp).mockReturnValueOnce(true);
+
+    const response = await POST(
+      new Request('http://localhost/api/record', {
+        method: 'POST',
+        headers: { 'x-umami-cache': 'signed-token' },
+      }),
+    );
+
+    expect(response.status).toBe(204);
+    expect(getCollectionSourceLimit).not.toHaveBeenCalled();
+  });
+
   test('reserves capacity before a relational write', async () => {
     const { websiteId, visitId } = prepareHeatmapRequest();
     const response = await POST(
@@ -121,9 +208,47 @@ describe('heatmap intake budget', () => {
       expect.objectContaining({ websiteId, visitId, events: 1 }),
     );
     expect(saveHeatmapEvents).toHaveBeenCalledOnce();
+    expect(getCollectionSourceLimit).toHaveBeenCalledWith(websiteId);
+    expect(getCollectionSourceStatus).toHaveBeenCalledWith(websiteId);
+    expect(vi.mocked(getCollectionIpLimit).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(getCollectionSourceLimit).mock.invocationCallOrder[0],
+    );
     expect(vi.mocked(reserveHeatmapBudget).mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(saveHeatmapEvents).mock.invocationCallOrder[0],
     );
+  });
+
+  test('normalizes recorder website UUIDs before token and source checks', async () => {
+    prepareHeatmapRequest();
+    await POST(new Request('http://localhost/api/record', { method: 'POST' }));
+    const schema = parseRequestMock.mock.calls[0][1];
+    const mixedCaseId = 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA';
+    const parsed = schema.parse({
+      type: 'record',
+      payload: { website: mixedCaseId, events: [] },
+    });
+
+    expect(parsed.payload.website).toBe(mixedCaseId.toLowerCase());
+  });
+
+  test('accepts an existing cache token with an alternate UUID spelling', async () => {
+    const { websiteId } = prepareHeatmapRequest();
+    vi.mocked(parseToken).mockResolvedValueOnce({
+      type: 'cache',
+      websiteId: websiteId.toUpperCase(),
+      sessionId: '22222222-2222-4222-8222-222222222222',
+      visitId: '33333333-3333-4333-8333-333333333333',
+    } as any);
+
+    const response = await POST(
+      new Request('http://localhost/api/record', {
+        method: 'POST',
+        headers: { 'x-umami-cache': 'signed-token' },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(getCollectionSourceLimit).toHaveBeenCalledWith(websiteId);
   });
 
   test('does not write when a visit or source budget is exhausted', async () => {

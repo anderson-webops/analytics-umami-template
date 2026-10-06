@@ -3,7 +3,11 @@ import { z } from 'zod';
 import type { Prisma } from '@/generated/prisma/client';
 import clickhouse from '@/lib/clickhouse';
 import { CollectionBudgetExceededError } from '@/lib/collection-budget';
-import { getCollectionLimit } from '@/lib/collection-rate-limit';
+import {
+  getCollectionIpLimit,
+  getCollectionSourceLimit,
+  getCollectionSourceStatus,
+} from '@/lib/collection-rate-limit';
 import { CACHE_TOKEN_TYPE, COLLECTION_TYPE, EVENT_TYPE, FIELD_LENGTH } from '@/lib/constants';
 import { getSalt, hash, secret, uuid } from '@/lib/crypto';
 import { getClientInfo, hasBlockedIp } from '@/lib/detect';
@@ -70,9 +74,18 @@ const schema = z
     type: z.enum(['event', 'identify', 'performance']),
     payload: z
       .object({
-        website: z.uuid().optional(),
-        link: z.uuid().optional(),
-        pixel: z.uuid().optional(),
+        website: z
+          .uuid()
+          .transform(value => value.toLowerCase())
+          .optional(),
+        link: z
+          .uuid()
+          .transform(value => value.toLowerCase())
+          .optional(),
+        pixel: z
+          .uuid()
+          .transform(value => value.toLowerCase())
+          .optional(),
         data: analyticsDataParam.optional(),
         hostname: domainParam.refine(value => value.length <= 253).optional(),
         language: z.string().max(35).optional(),
@@ -183,10 +196,16 @@ export async function POST(request: Request) {
 
     const sourceId = websiteId || pixelId || linkId;
     const sourceType = websiteId ? 'website' : linkId ? 'link' : 'pixel';
-    const collectionLimit = await getCollectionLimit(request, sourceId);
+    const collectionLimit = await getCollectionIpLimit(request);
 
     if (collectionLimit.blocked) {
       return tooManyRequests(collectionLimit.retryAfter);
+    }
+
+    const sourceStatus = await getCollectionSourceStatus(sourceId);
+
+    if (sourceStatus.blocked) {
+      return tooManyRequests(sourceStatus.retryAfter);
     }
 
     // Cache check
@@ -198,7 +217,11 @@ export async function POST(request: Request) {
       if (cacheHeader) {
         const result = await parseToken(cacheHeader, secret());
 
-        if (result?.type === CACHE_TOKEN_TYPE && result.websiteId === websiteId) {
+        if (
+          result?.type === CACHE_TOKEN_TYPE &&
+          typeof result.websiteId === 'string' &&
+          result.websiteId.toLowerCase() === websiteId
+        ) {
           cache = result;
         }
       }
@@ -243,6 +266,12 @@ export async function POST(request: Request) {
     // IP block
     if (hasBlockedIp(ip)) {
       return new Response(null, { status: 204 });
+    }
+
+    const sourceLimit = await getCollectionSourceLimit(sourceId);
+
+    if (sourceLimit.blocked) {
+      return tooManyRequests(sourceLimit.retryAfter);
     }
 
     try {

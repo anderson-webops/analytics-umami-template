@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import clickhouse from '@/lib/clickhouse';
-import { getCollectionLimit } from '@/lib/collection-rate-limit';
+import {
+  getCollectionIpLimit,
+  getCollectionSourceLimit,
+  getCollectionSourceStatus,
+} from '@/lib/collection-rate-limit';
 import { CACHE_TOKEN_TYPE, HEATMAP_EVENT_TYPE } from '@/lib/constants';
 import { corsPreflight, withCorsHeaders } from '@/lib/cors';
 import { secret } from '@/lib/crypto';
@@ -70,7 +74,7 @@ const schema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('record'),
     payload: z.object({
-      website: z.uuid(),
+      website: z.uuid().transform(value => value.toLowerCase()),
       events: z.array(replayEventParam).max(200),
       timestamp: requestTimestampParam.optional(),
     }),
@@ -78,7 +82,7 @@ const schema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('heatmap'),
     payload: z.object({
-      website: z.uuid(),
+      website: z.uuid().transform(value => value.toLowerCase()),
       events: z
         .array(
           z.discriminatedUnion('type', [
@@ -135,7 +139,7 @@ export async function POST(request: Request) {
     const { website: websiteId } = body.payload;
     const events = body.payload.events;
     const timestamp = body.payload.timestamp;
-    const collectionLimit = await getCollectionLimit(request, websiteId);
+    const collectionLimit = await getCollectionIpLimit(request);
 
     if (collectionLimit.blocked) {
       return tooManyRequests(collectionLimit.retryAfter);
@@ -156,11 +160,18 @@ export async function POST(request: Request) {
 
     if (
       cache?.type !== CACHE_TOKEN_TYPE ||
-      cache.websiteId !== websiteId ||
+      typeof cache.websiteId !== 'string' ||
+      cache.websiteId.toLowerCase() !== websiteId ||
       !cache.sessionId ||
       !cache.visitId
     ) {
       return withCorsHeaders(badRequest({ message: 'Invalid session token.' }));
+    }
+
+    const sourceStatus = await getCollectionSourceStatus(websiteId);
+
+    if (sourceStatus.blocked) {
+      return tooManyRequests(sourceStatus.retryAfter);
     }
 
     const { sessionId, visitId } = cache;
@@ -193,6 +204,12 @@ export async function POST(request: Request) {
 
     if (hasBlockedIp(ip)) {
       return withCorsHeaders(new Response(null, { status: 204 }));
+    }
+
+    const sourceLimit = await getCollectionSourceLimit(websiteId);
+
+    if (sourceLimit.blocked) {
+      return tooManyRequests(sourceLimit.retryAfter);
     }
 
     try {

@@ -81,6 +81,29 @@ function getMemoryCounter(key: string): Counter {
   return counter;
 }
 
+function getSourceKey(sourceId: string): string {
+  return `collection-rate:source:${hash(sourceId.toLowerCase()).slice(0, 32)}`;
+}
+
+async function getExistingCount(key: string): Promise<number> {
+  const memoryCounter = getMemoryCounters().get(key);
+  let count = memoryCounter && memoryCounter.expiresAt > Date.now() ? memoryCounter.count : 0;
+
+  if (redis.enabled) {
+    try {
+      const redisCount = await redis.client.get(key);
+
+      if (Number.isSafeInteger(redisCount) && redisCount >= 0) {
+        count = Math.max(count, redisCount);
+      }
+    } catch {
+      return count;
+    }
+  }
+
+  return count;
+}
+
 async function increment(key: string): Promise<number> {
   if (redis.enabled) {
     try {
@@ -96,23 +119,30 @@ async function increment(key: string): Promise<number> {
   return counter.count;
 }
 
-export async function getCollectionLimit(
-  request: Request,
-  sourceId: string,
-): Promise<CollectionLimit> {
-  const sourceKey = hash(sourceId).slice(0, 32);
+export async function getCollectionIpLimit(request: Request): Promise<CollectionLimit> {
   const ip = getIpAddress(request.headers) || 'unknown';
-  const keys = [
-    `collection-rate:source:${sourceKey}`,
-    `collection-rate:ip:${hash(ip).slice(0, 32)}`,
-  ];
-
-  const counts = await Promise.all(keys.map(increment));
-  const sourceBlocked = counts[0] > getPerSourceLimit();
-  const ipBlocked = counts[1] > getPerIpLimit();
+  const count = await increment(`collection-rate:ip:${hash(ip).slice(0, 32)}`);
 
   return {
-    blocked: sourceBlocked || ipBlocked,
+    blocked: count > getPerIpLimit(),
+    retryAfter: getWindowSeconds(),
+  };
+}
+
+export async function getCollectionSourceLimit(sourceId: string): Promise<CollectionLimit> {
+  const count = await increment(getSourceKey(sourceId));
+
+  return {
+    blocked: count > getPerSourceLimit(),
+    retryAfter: getWindowSeconds(),
+  };
+}
+
+export async function getCollectionSourceStatus(sourceId: string): Promise<CollectionLimit> {
+  const count = await getExistingCount(getSourceKey(sourceId));
+
+  return {
+    blocked: count >= getPerSourceLimit(),
     retryAfter: getWindowSeconds(),
   };
 }

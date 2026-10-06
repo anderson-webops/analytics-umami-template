@@ -6,6 +6,11 @@ process.env.APP_SECRET = 'route-send-test-secret-0123456789abcdef';
 
 import clickhouse from '@/lib/clickhouse';
 import { CollectionBudgetExceededError } from '@/lib/collection-budget';
+import {
+  getCollectionIpLimit,
+  getCollectionSourceLimit,
+  getCollectionSourceStatus,
+} from '@/lib/collection-rate-limit';
 import { CACHE_TOKEN_TYPE, EVENT_TYPE } from '@/lib/constants';
 import { getSalt, secret, uuid } from '@/lib/crypto';
 import { getClientInfo, hasBlockedIp } from '@/lib/detect';
@@ -25,7 +30,9 @@ import { POST } from './route';
 vi.mock('@/lib/clickhouse', () => ({ default: { enabled: false } }));
 
 vi.mock('@/lib/collection-rate-limit', () => ({
-  getCollectionLimit: vi.fn(async () => ({ blocked: false, retryAfter: 0 })),
+  getCollectionIpLimit: vi.fn(async () => ({ blocked: false, retryAfter: 60 })),
+  getCollectionSourceLimit: vi.fn(async () => ({ blocked: false, retryAfter: 60 })),
+  getCollectionSourceStatus: vi.fn(async () => ({ blocked: false, retryAfter: 60 })),
 }));
 
 vi.mock('@/lib/detect', () => ({
@@ -336,6 +343,7 @@ describe('IP blocklist', () => {
     expect(response.status).toBe(204);
     await expect(response.text()).resolves.toBe('');
     expect(saveEventMock).not.toHaveBeenCalled();
+    expect(getCollectionSourceLimit).not.toHaveBeenCalled();
   });
 });
 
@@ -353,6 +361,59 @@ describe('website lookup', () => {
       error: { message: 'Tracking source not found.', status: 400 },
     });
     expect(saveEventMock).not.toHaveBeenCalled();
+    expect(getCollectionIpLimit).toHaveBeenCalledOnce();
+    expect(getCollectionSourceLimit).not.toHaveBeenCalled();
+  });
+
+  test('does not look up or count a source after the IP limit is reached', async () => {
+    vi.mocked(getCollectionIpLimit).mockResolvedValueOnce({ blocked: true, retryAfter: 60 });
+
+    const response = await callPOST({ type: 'event', payload: { website: WEBSITE_ID, url: '/' } });
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get('Retry-After')).toBe('60');
+    expect(fetchWebsiteMock).not.toHaveBeenCalled();
+    expect(getCollectionSourceStatus).not.toHaveBeenCalled();
+    expect(getCollectionSourceLimit).not.toHaveBeenCalled();
+  });
+
+  test('does not repeat a lookup when a verified source is already throttled', async () => {
+    vi.mocked(getCollectionSourceStatus).mockResolvedValueOnce({ blocked: true, retryAfter: 60 });
+
+    const response = await callPOST({ type: 'event', payload: { website: WEBSITE_ID, url: '/' } });
+
+    expect(response.status).toBe(429);
+    expect(fetchWebsiteMock).not.toHaveBeenCalled();
+    expect(getCollectionSourceLimit).not.toHaveBeenCalled();
+  });
+
+  test('counts a source only after its identity is verified', async () => {
+    const response = await callPOST({ type: 'event', payload: { website: WEBSITE_ID, url: '/' } });
+
+    expect(response.status).toBe(200);
+    expect(getCollectionSourceStatus).toHaveBeenCalledWith(WEBSITE_ID);
+    expect(getCollectionSourceLimit).toHaveBeenCalledWith(WEBSITE_ID);
+    expect(vi.mocked(getCollectionIpLimit).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(getCollectionSourceStatus).mock.invocationCallOrder[0],
+    );
+    expect(vi.mocked(getCollectionSourceStatus).mock.invocationCallOrder[0]).toBeLessThan(
+      fetchWebsiteMock.mock.invocationCallOrder[0],
+    );
+    expect(fetchWebsiteMock.mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(getCollectionSourceLimit).mock.invocationCallOrder[0],
+    );
+  });
+
+  test('normalizes UUID spelling before source lookup and persistent budget accounting', async () => {
+    await callPOST({ type: 'event', payload: { website: WEBSITE_ID, url: '/' } });
+    const schema = parseRequestMock.mock.calls[0][1];
+    const mixedCaseId = 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA';
+    const parsed = schema.parse({
+      type: 'event',
+      payload: { website: mixedCaseId, hostname: 'example.com', url: '/' },
+    });
+
+    expect(parsed.payload.website).toBe(mixedCaseId.toLowerCase());
   });
 
   test('does not look up a website for link events', async () => {
@@ -624,6 +685,18 @@ describe('cache token handling', () => {
     expect(fetchWebsiteMock).toHaveBeenCalledTimes(1);
     expect(createSessionMock).not.toHaveBeenCalled();
     await expect(response.json()).resolves.toMatchObject({ visitId: 'cached-visit' });
+  });
+
+  test('accepts an existing cache token with an alternate UUID spelling', async () => {
+    const token = makeCacheToken({ websiteId: WEBSITE_ID.toUpperCase() });
+
+    const response = await callPOST(
+      { type: 'event', payload: { website: WEBSITE_ID, url: '/' } },
+      { headers: { 'x-umami-cache': token } },
+    );
+
+    expect(response.status).toBe(200);
+    expect(getCollectionSourceLimit).toHaveBeenCalledWith(WEBSITE_ID);
   });
 
   test('a valid cache token creates the computed session before event writes when the cached session differs', async () => {
