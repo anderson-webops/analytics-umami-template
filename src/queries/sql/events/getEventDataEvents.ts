@@ -49,6 +49,7 @@ async function relationalQuery(websiteId: string, filters: QueryFilters) {
       ${filterQuery}
       group by website_event.event_name, event_data.data_key, event_data.data_type, event_data.string_value
       order by 1 asc, 2 asc, 3 asc, 5 desc
+      limit 500
       `,
       queryParams,
       FUNCTION_NAME,

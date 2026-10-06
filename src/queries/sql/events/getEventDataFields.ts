@@ -44,6 +44,7 @@ async function relationalQuery(
     ${filterQuery}
     group by data_key, data_type
     order by "total" desc, "propertyName" asc
+    limit 500
     `,
     { ...queryParams, eventName },
     FUNCTION_NAME,
@@ -84,6 +85,7 @@ async function clickhouseQuery(
     ${filterQuery}
     group by data_key, data_type
     order by total desc, propertyName asc
+    limit 500
     `,
     { ...queryParams, eventName },
     FUNCTION_NAME,
