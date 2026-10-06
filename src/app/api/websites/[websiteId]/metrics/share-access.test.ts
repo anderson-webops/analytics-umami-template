@@ -103,15 +103,41 @@ test('every metric type requires a section that actually exposes it', async () =
 });
 
 test('unmapped metric types fail closed without querying data', async () => {
-  expect((await callRoute(getMetrics, 'newDimension', shareAuth('overview'))).status).toBe(401);
+  for (const handler of [getMetrics, getExpandedMetrics]) {
+    expect((await callRoute(handler, 'newDimension', shareAuth('overview'))).status).toBe(401);
+  }
   expect(getQueryFilters).not.toHaveBeenCalled();
 });
 
-test('expanded metrics keep their existing overview and compare access', async () => {
-  for (const section of SHARE_SECTIONS) {
-    const response = await callRoute(getExpandedMetrics, 'distinctId', shareAuth(section));
-    expect(response.status, section).toBe(['overview', 'compare'].includes(section) ? 200 : 401);
+test('compare-only shares cannot read overview-only expanded dimensions', async () => {
+  for (const type of ['fullPath', 'entry', 'exit', 'domain', 'title', 'query']) {
+    vi.clearAllMocks();
+    const response = await callRoute(getExpandedMetrics, type, shareAuth('compare'));
+    expect(response.status, type).toBe(401);
+    expect(getQueryFilters).not.toHaveBeenCalled();
+    expect(getPageviewExpandedMetrics).not.toHaveBeenCalled();
   }
+});
+
+test('expanded metrics require their mapped overview or compare section', async () => {
+  for (const type of metricTypes) {
+    const allowedSections = getMetricShareSections(type)?.filter(
+      section => section === 'overview' || section === 'compare',
+    );
+    expect(allowedSections, type).not.toBeNull();
+
+    for (const section of SHARE_SECTIONS) {
+      const response = await callRoute(getExpandedMetrics, type, shareAuth(section));
+      expect(response.status, `${type} from ${section}`).toBe(
+        allowedSections?.some(allowedSection => allowedSection === section) ? 200 : 401,
+      );
+    }
+  }
+});
+
+test('expanded metrics do not grant access to events-only or sessions-only shares', async () => {
+  expect((await callRoute(getExpandedMetrics, 'event', shareAuth('events'))).status).toBe(401);
+  expect((await callRoute(getExpandedMetrics, 'browser', shareAuth('sessions'))).status).toBe(401);
 });
 
 test('compare metrics stay within the compare selector', async () => {
@@ -147,6 +173,9 @@ test('explicit share filtering and independent membership preserve values access
     200,
   );
   expect((await callRoute(getMetrics, 'distinctId', { user: { id: 'owner-1' } })).status).toBe(200);
+  expect(
+    (await callRoute(getExpandedMetrics, 'distinctId', { user: { id: 'owner-1' } })).status,
+  ).toBe(200);
   expect((await callRoute(getValuesRoute, 'distinctId', shareAuth('realtime', true))).status).toBe(
     401,
   );

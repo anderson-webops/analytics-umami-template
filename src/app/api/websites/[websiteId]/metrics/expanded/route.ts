@@ -9,6 +9,7 @@ import {
   searchParams,
   withDateRange,
 } from '@/lib/schema';
+import { getMetricShareSections } from '@/lib/share';
 import { canViewWebsiteSection } from '@/permissions';
 import {
   getChannelExpandedMetrics,
@@ -44,12 +45,15 @@ export async function GET(
   }
 
   const { websiteId } = await params;
+  const { type, limit, offset, search } = query;
+  const sections = getMetricShareSections(type)?.filter(
+    section => section === 'overview' || section === 'compare',
+  );
 
-  if (!(await canViewWebsiteSection(auth, websiteId, ['overview', 'compare']))) {
+  if (!sections || !(await canViewWebsiteSection(auth, websiteId, sections))) {
     return unauthorized();
   }
 
-  const { type, limit, offset, search } = query;
   const filters = await getQueryFilters(query, websiteId);
 
   if (search) {
