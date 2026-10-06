@@ -61,7 +61,7 @@ beforeEach(() => {
   mocks.replacePasswordIfCurrent.mockResolvedValue({
     id: 'user-1',
     role: 'user',
-    sessionGeneration: 0,
+    sessionGeneration: 1,
   });
   mocks.hash.mockReturnValue('new-fingerprint');
   mocks.secret.mockReturnValue('app-secret');
@@ -101,7 +101,7 @@ test.each([false, true])('password change preserves verified 2FA (Redis %s)', as
     userId: 'user-1',
     role: 'user',
     pwd: 'new-fingerprint',
-    sessionGeneration: 0,
+    sessionGeneration: 1,
     mfa: true,
     mfaId: 'enrollment-1',
   };

@@ -8,7 +8,11 @@ import redis from '@/lib/redis';
 import { sanitizeSortFilters } from '@/lib/sort';
 import type { QueryFilters, Role } from '@/lib/types';
 import { deleteClickhouseCollectionSources } from '@/queries/sql/deleteCollectionSources';
-import { runSerializedUserMutation } from './authorization';
+import {
+  assertActorIsAdministrator,
+  runCredentialRevocationMutation,
+  runSerializedUserMutation,
+} from './authorization';
 import { lockCollectionSources } from './collection';
 
 import UserFindManyArgs = Prisma.UserFindManyArgs;
@@ -129,19 +133,20 @@ export async function updateUser(
   actorUserId: string,
 ) {
   const nextRole = typeof data.role === 'string' ? data.role : null;
+  const changingPassword = data.password !== undefined;
+  const runMutation = changingPassword
+    ? runCredentialRevocationMutation
+    : runSerializedUserMutation;
 
-  return runSerializedUserMutation(async transaction => {
-    const actor = await transaction.user.findFirst({
-      where: {
-        id: actorUserId,
-        role: ROLES.admin,
-        deletedAt: null,
-      },
-      select: { id: true },
-    });
+  return runMutation(async transaction => {
+    try {
+      await assertActorIsAdministrator(transaction, actorUserId);
+    } catch (error) {
+      if (error instanceof Error && error.message === 'ENTITY_ADMIN_REQUIRED') {
+        throw new Error('ADMIN_AUTHORIZATION_CHANGED');
+      }
 
-    if (!actor) {
-      throw new Error('ADMIN_AUTHORIZATION_CHANGED');
+      throw error;
     }
 
     const current = await transaction.user.findUnique({
@@ -166,11 +171,14 @@ export async function updateUser(
       }
     }
 
-    return transaction.user.update({
+    const updated = await transaction.user.update({
       where: {
         id: userId,
       },
-      data,
+      data: {
+        ...data,
+        ...(changingPassword ? { sessionGeneration: { increment: 1 } } : {}),
+      },
       select: {
         id: true,
         username: true,
@@ -178,16 +186,27 @@ export async function updateUser(
         createdAt: true,
       },
     });
+
+    if (changingPassword) {
+      await transaction.apiKey.deleteMany({ where: { userId } });
+    }
+
+    return updated;
   });
 }
 
-export async function replacePasswordIfCurrent(
+async function writePasswordIfCurrent(
   userId: string,
   expectedPassword: string,
   nextPassword: string,
   expectedSessionGeneration: number,
+  rotateCredentials: boolean,
 ) {
-  return runSerializedUserMutation(async transaction => {
+  const runMutation = rotateCredentials
+    ? runCredentialRevocationMutation
+    : runSerializedUserMutation;
+
+  return runMutation(async transaction => {
     const updated = await transaction.user.updateMany({
       where: {
         id: userId,
@@ -197,11 +216,16 @@ export async function replacePasswordIfCurrent(
       },
       data: {
         password: nextPassword,
+        ...(rotateCredentials ? { sessionGeneration: { increment: 1 } } : {}),
       },
     });
 
     if (updated.count !== 1) {
       throw new Error('USER_CREDENTIALS_CHANGED');
+    }
+
+    if (rotateCredentials) {
+      await transaction.apiKey.deleteMany({ where: { userId } });
     }
 
     return transaction.user.findUnique({
@@ -217,6 +241,36 @@ export async function replacePasswordIfCurrent(
       },
     });
   });
+}
+
+export function replacePasswordIfCurrent(
+  userId: string,
+  expectedPassword: string,
+  nextPassword: string,
+  expectedSessionGeneration: number,
+) {
+  return writePasswordIfCurrent(
+    userId,
+    expectedPassword,
+    nextPassword,
+    expectedSessionGeneration,
+    true,
+  );
+}
+
+export function rehashPasswordIfCurrent(
+  userId: string,
+  expectedPassword: string,
+  nextPassword: string,
+  expectedSessionGeneration: number,
+) {
+  return writePasswordIfCurrent(
+    userId,
+    expectedPassword,
+    nextPassword,
+    expectedSessionGeneration,
+    false,
+  );
 }
 
 export function isLastActiveAdminError(error: unknown): boolean {

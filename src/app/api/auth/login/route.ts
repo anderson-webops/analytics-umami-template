@@ -21,7 +21,7 @@ import { isSameOriginMutation, setSessionCookie } from '@/lib/session';
 import { getTwoFactorConfigurationError, isTwoFactorConfigured } from '@/lib/two-factor/crypto';
 import { getTwoFactorRequirement } from '@/lib/two-factor/requirement';
 import { getAllUserTeams, getUserByUsername } from '@/queries/prisma';
-import { replacePasswordIfCurrent } from '@/queries/prisma/user';
+import { rehashPasswordIfCurrent } from '@/queries/prisma/user';
 import { loginRequestSchema } from './schema';
 
 const DUMMY_PASSWORD_HASH = '$2b$12$dzX/8VLqsHliwcW1P2rlnuxNhqzhg00Jqq7s6vi/PNkMuBsbgJHGi';
@@ -99,7 +99,7 @@ export async function POST(request: Request) {
     const nextPasswordHash = await hashPassword(password);
 
     try {
-      await replacePasswordIfCurrent(id, passwordHash, nextPasswordHash, sessionGeneration);
+      await rehashPasswordIfCurrent(id, passwordHash, nextPasswordHash, sessionGeneration);
     } catch (error: any) {
       if (error?.message === 'USER_CREDENTIALS_CHANGED') {
         return unauthorized({ code: 'credentials-changed' });

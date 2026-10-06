@@ -124,22 +124,29 @@ async function run() {
       throw new Error(`Expected exactly one active user matching "${username}".`);
     }
 
-    const result = await prisma.user.updateMany({
-      where: {
-        id: matches[0].id,
-        deletedAt: null,
-      },
-      data: {
-        password: await bcrypt.hash(password, 12),
-      },
+    const nextPassword = await bcrypt.hash(password, 12);
+
+    await prisma.$transaction(async transaction => {
+      const result = await transaction.user.updateMany({
+        where: {
+          id: matches[0].id,
+          deletedAt: null,
+        },
+        data: {
+          password: nextPassword,
+          sessionGeneration: { increment: 1 },
+        },
+      });
+
+      if (result.count !== 1) {
+        throw new Error('The account changed before its password could be updated. Try again.');
+      }
+
+      await transaction.apiKey.deleteMany({ where: { userId: matches[0].id } });
     });
 
-    if (result.count !== 1) {
-      throw new Error('The account changed before its password could be updated. Try again.');
-    }
-
     console.log(
-      `Password updated for user "${matches[0].username}". Existing sessions are invalid.`,
+      `Password updated for user "${matches[0].username}". Existing sessions and API keys are invalid.`,
     );
   } finally {
     await prisma.$disconnect();

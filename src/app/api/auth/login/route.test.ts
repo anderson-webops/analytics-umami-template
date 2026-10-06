@@ -18,7 +18,7 @@ const mocks = vi.hoisted(() => ({
   clearFailedLogins: vi.fn(),
   hashPassword: vi.fn(),
   passwordNeedsRehash: vi.fn(),
-  replacePasswordIfCurrent: vi.fn(),
+  rehashPasswordIfCurrent: vi.fn(),
   getTwoFactorRequirement: vi.fn(),
 }));
 
@@ -46,7 +46,7 @@ vi.mock('@/lib/login-rate-limit', () => ({
 }));
 
 vi.mock('@/queries/prisma/user', () => ({
-  replacePasswordIfCurrent: mocks.replacePasswordIfCurrent,
+  rehashPasswordIfCurrent: mocks.rehashPasswordIfCurrent,
 }));
 
 vi.mock('@/lib/prisma', () => ({
@@ -112,7 +112,7 @@ beforeEach(() => {
   mocks.clearFailedLogins.mockReset();
   mocks.hashPassword.mockReset();
   mocks.passwordNeedsRehash.mockReset();
-  mocks.replacePasswordIfCurrent.mockReset();
+  mocks.rehashPasswordIfCurrent.mockReset();
   mocks.getTwoFactorRequirement.mockReset();
 
   mocks.parseRequest.mockResolvedValue({
@@ -317,6 +317,33 @@ test('self-hosted enrollment decisions use the primary instead of stale replica 
     { expiresIn: '5m' },
   );
   expect(mocks.saveAuth).not.toHaveBeenCalled();
+});
+
+test('password-hash upgrade keeps the existing credential generation during login', async () => {
+  mocks.passwordNeedsRehash.mockReturnValue(true);
+  mocks.hashPassword.mockResolvedValue('upgraded-password-hash');
+  mocks.rehashPasswordIfCurrent.mockResolvedValue({ sessionGeneration: 0 });
+  mocks.createSecureToken.mockReturnValue('partial-fixture');
+
+  const response = await POST(loginRequest());
+
+  expect(response.status).toBe(200);
+  expect(mocks.rehashPasswordIfCurrent).toHaveBeenCalledWith(
+    'user-1',
+    'hashed-password',
+    'upgraded-password-hash',
+    0,
+  );
+  expect(mocks.createSecureToken).toHaveBeenCalledWith(
+    {
+      userId: 'user-1',
+      pwd: 'password-fingerprint',
+      sessionGeneration: 0,
+      type: 'partial-auth',
+    },
+    undefined,
+    { expiresIn: '5m' },
+  );
 });
 
 test('POST returns a configuration error instead of partial auth when 2FA is enabled but unavailable', async () => {

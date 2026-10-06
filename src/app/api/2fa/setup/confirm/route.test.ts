@@ -3,12 +3,18 @@ import { POST } from './route';
 
 const mocks = vi.hoisted(() => {
   const tx = {
+    user: {
+      updateMany: vi.fn(),
+    },
     twoFactorAuth: {
       updateMany: vi.fn(),
     },
     twoFactorBackupCode: {
       deleteMany: vi.fn(),
       createMany: vi.fn(),
+    },
+    apiKey: {
+      deleteMany: vi.fn(),
     },
   };
 
@@ -99,9 +105,11 @@ beforeEach(() => {
   mocks.parseRequest.mockReset();
   mocks.findUnique.mockReset();
   mocks.transaction.mockReset();
+  mocks.tx.user.updateMany.mockReset();
   mocks.tx.twoFactorAuth.updateMany.mockReset();
   mocks.tx.twoFactorBackupCode.deleteMany.mockReset();
   mocks.tx.twoFactorBackupCode.createMany.mockReset();
+  mocks.tx.apiKey.deleteMany.mockReset();
   mocks.generateBackupCodes.mockReset();
   mocks.decryptSecret.mockReset();
   mocks.isTwoFactorConfigured.mockReset();
@@ -115,7 +123,7 @@ beforeEach(() => {
   mocks.createSecureToken.mockReset();
 
   mocks.parseRequest.mockResolvedValue({
-    auth: { user: { id: 'user-1' }, sessionGeneration: 0 },
+    auth: { user: { id: 'user-1', role: 'user' }, sessionGeneration: 0 },
     body: { token: '123456' },
     error: undefined,
   });
@@ -137,13 +145,14 @@ beforeEach(() => {
   mocks.consumeOtp.mockResolvedValue(true);
   mocks.verifyTotp.mockResolvedValue(true);
   mocks.tx.twoFactorAuth.updateMany.mockResolvedValue({ count: 1 });
+  mocks.tx.user.updateMany.mockResolvedValue({ count: 1 });
   mocks.tx.twoFactorBackupCode.deleteMany.mockResolvedValue(undefined);
   mocks.tx.twoFactorBackupCode.createMany.mockResolvedValue(undefined);
   mocks.getUser.mockResolvedValue({
     id: 'user-1',
     role: 'user',
     password: 'hashed-password',
-    sessionGeneration: 0,
+    sessionGeneration: 1,
   });
   mocks.hash.mockReturnValue('password-fingerprint');
   mocks.secret.mockReturnValue('app-secret');
@@ -157,7 +166,7 @@ afterEach(() => {
 test('disabled login cannot elevate a pending password-login enrollment session', async () => {
   vi.stubEnv('DISABLE_LOGIN', '1');
   mocks.parseRequest.mockResolvedValue({
-    auth: { user: { id: 'user-1' }, sessionGeneration: 0, enrollmentOnly: true },
+    auth: { user: { id: 'user-1', role: 'user' }, sessionGeneration: 0, enrollmentOnly: true },
     body: { token: '123456' },
     error: undefined,
   });
@@ -193,6 +202,10 @@ test('POST confirms setup, enables 2FA, stores backup codes, and resets the rate
   expect(mocks.reserveTwoFactorAttempt).toHaveBeenCalledWith('user-1');
   expect(mocks.decryptSecret).toHaveBeenCalledWith('encrypted');
   expect(mocks.verifyTotp).toHaveBeenCalledWith('123456', 'plain-secret');
+  expect(mocks.tx.user.updateMany).toHaveBeenCalledWith({
+    where: { id: 'user-1', deletedAt: null, sessionGeneration: 0 },
+    data: { sessionGeneration: { increment: 1 } },
+  });
   expect(mocks.tx.twoFactorAuth.updateMany).toHaveBeenCalledWith({
     where: {
       id: 'enrollment-1',
@@ -212,13 +225,14 @@ test('POST confirms setup, enables 2FA, stores backup codes, and resets the rate
     ],
   });
   expect(mocks.consumeOtp).toHaveBeenCalledWith('user-1', '123456', mocks.tx);
+  expect(mocks.tx.apiKey.deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-1' } });
   expect(mocks.resetRateLimit).toHaveBeenCalledWith('user-1');
   expect(mocks.createSecureToken).toHaveBeenCalledWith(
     {
       userId: 'user-1',
       role: 'user',
       pwd: 'password-fingerprint',
-      sessionGeneration: 0,
+      sessionGeneration: 1,
       mfa: true,
       mfaId: 'enrollment-1',
     },
@@ -236,6 +250,36 @@ test('POST cannot issue a post-reset session from a pre-reset confirmation reque
   mocks.getUser.mockResolvedValue({
     id: 'user-1',
     role: 'user',
+    password: 'hashed-password',
+    sessionGeneration: 2,
+  });
+
+  const response = await POST(
+    new Request('http://localhost/api/2fa/setup/confirm', { method: 'POST' }),
+  );
+
+  expect(response.status).toBe(401);
+  expect(mocks.createSecureToken).not.toHaveBeenCalled();
+});
+
+test('POST rejects a stale session before enabling a factor or revoking keys', async () => {
+  mocks.tx.user.updateMany.mockResolvedValue({ count: 0 });
+
+  const response = await POST(
+    new Request('http://localhost/api/2fa/setup/confirm', { method: 'POST' }),
+  );
+
+  expect(response.status).toBe(401);
+  await expect(response.json()).resolves.toMatchObject({ error: { code: 'credentials-changed' } });
+  expect(mocks.tx.twoFactorAuth.updateMany).not.toHaveBeenCalled();
+  expect(mocks.tx.apiKey.deleteMany).not.toHaveBeenCalled();
+  expect(mocks.createSecureToken).not.toHaveBeenCalled();
+});
+
+test('POST does not adopt a new administrator role after confirmation', async () => {
+  mocks.getUser.mockResolvedValue({
+    id: 'user-1',
+    role: 'admin',
     password: 'hashed-password',
     sessionGeneration: 1,
   });

@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   deleteTwoFactorAuth: vi.fn(),
   deleteBackupCodes: vi.fn(),
   deleteRateLimit: vi.fn(),
+  deleteApiKeys: vi.fn(),
   consumeOtp: vi.fn(),
   saveAuth: vi.fn(),
   createSecureToken: vi.fn(),
@@ -99,6 +100,7 @@ beforeEach(() => {
   mocks.deleteTwoFactorAuth.mockReset();
   mocks.deleteBackupCodes.mockReset();
   mocks.deleteRateLimit.mockReset();
+  mocks.deleteApiKeys.mockReset();
   mocks.consumeOtp.mockReset();
   mocks.saveAuth.mockReset();
   mocks.createSecureToken.mockReset();
@@ -113,6 +115,7 @@ beforeEach(() => {
       twoFactorAuth: { deleteMany: mocks.deleteTwoFactorAuth },
       twoFactorBackupCode: { deleteMany: mocks.deleteBackupCodes },
       twoFactorRateLimit: { deleteMany: mocks.deleteRateLimit },
+      apiKey: { deleteMany: mocks.deleteApiKeys },
     }),
   );
   mocks.userUpdateMany.mockResolvedValue({ count: 1 });
@@ -156,6 +159,7 @@ test('POST rotates the session generation with factor deletion and returns only 
     where: { id: 'factor-1', userId: 'user-1', isEnabled: true },
   });
   expect(mocks.deleteRateLimit).toHaveBeenCalledWith({ where: { userId: 'user-1' } });
+  expect(mocks.deleteApiKeys).toHaveBeenCalledWith({ where: { userId: 'user-1' } });
   expect(mocks.createSecureToken).toHaveBeenCalledWith(
     {
       userId: 'user-1',

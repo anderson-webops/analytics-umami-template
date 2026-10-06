@@ -5,7 +5,10 @@ import { parseRequest } from '@/lib/request';
 import { json, notFound, serviceUnavailable, unauthorized } from '@/lib/response';
 import { getTwoFactorConfigurationError, isTwoFactorConfigured } from '@/lib/two-factor/crypto';
 import { canEnforceTwoFactorAuthForUser } from '@/permissions';
-import { runAuthorizedAdministratorMutation } from '@/queries/prisma/authorization';
+import {
+  assertActorIsAdministrator,
+  runCredentialRevocationMutation,
+} from '@/queries/prisma/authorization';
 import { updateUser } from '@/queries/prisma/user';
 
 export async function GET(request: Request, { params }: { params: Promise<{ userId: string }> }) {
@@ -82,7 +85,8 @@ export async function DELETE(
   let reset;
 
   try {
-    reset = await runAuthorizedAdministratorMutation(auth.user.id, async transaction => {
+    reset = await runCredentialRevocationMutation(async transaction => {
+      await assertActorIsAdministrator(transaction, auth.user.id);
       const target = await transaction.user.findFirst({
         where: { id: userId, deletedAt: null },
         select: { id: true },
@@ -103,6 +107,8 @@ export async function DELETE(
         if (updated.count !== 1) {
           throw new Error('USER_NOT_FOUND');
         }
+
+        await transaction.apiKey.deleteMany({ where: { userId } });
       }
 
       const backupCodes = await transaction.twoFactorBackupCode.deleteMany({ where: { userId } });

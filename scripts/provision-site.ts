@@ -380,8 +380,9 @@ async function main() {
           if ((updateAdminPassword || usesDefaultPassword) && passwordHash) {
             await transaction.user.update({
               where: { id: existingUser.id },
-              data: { password: passwordHash },
+              data: { password: passwordHash, sessionGeneration: { increment: 1 } },
             });
+            await transaction.apiKey.deleteMany({ where: { userId: existingUser.id } });
 
             messages.push(`Updated password for admin user: ${existingUser.username}`);
           } else if (adminPassword) {

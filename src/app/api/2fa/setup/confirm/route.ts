@@ -32,6 +32,8 @@ class SetupChangedError extends Error {}
 
 class CodeAlreadyUsedError extends Error {}
 
+class CredentialsChangedError extends Error {}
+
 export async function POST(request: Request) {
   if (isEnvEnabled('CLOUD_MODE')) {
     return notFound();
@@ -95,6 +97,15 @@ export async function POST(request: Request) {
 
   try {
     await prisma.transaction(async tx => {
+      const userUpdated = await tx.user.updateMany({
+        where: { id: userId, deletedAt: null, sessionGeneration: auth.sessionGeneration },
+        data: { sessionGeneration: { increment: 1 } },
+      });
+
+      if (userUpdated.count !== 1) {
+        throw new CredentialsChangedError();
+      }
+
       const updated = await tx.twoFactorAuth.updateMany({
         where: { id: twoFactor.id, userId, secret: twoFactor.secret, isEnabled: false },
         data: { isEnabled: true },
@@ -112,8 +123,13 @@ export async function POST(request: Request) {
       await tx.twoFactorBackupCode.createMany({
         data: hashed.map(codeHash => ({ userId, codeHash })),
       });
+      await tx.apiKey.deleteMany({ where: { userId } });
     });
   } catch (error) {
+    if (error instanceof CredentialsChangedError) {
+      return unauthorized({ code: 'credentials-changed' });
+    }
+
     if (error instanceof SetupChangedError) {
       return conflict({
         code: 'two-factor-error-setup-changed',
@@ -135,7 +151,11 @@ export async function POST(request: Request) {
     includeSessionGeneration: true,
   });
 
-  if (!user || user.sessionGeneration !== auth.sessionGeneration) {
+  if (
+    !user ||
+    user.sessionGeneration !== auth.sessionGeneration + 1 ||
+    user.role !== auth.user.role
+  ) {
     return unauthorized();
   }
 
@@ -144,7 +164,7 @@ export async function POST(request: Request) {
     userId,
     role: user.role,
     pwd: hash(user.password),
-    sessionGeneration: auth.sessionGeneration,
+    sessionGeneration: user.sessionGeneration,
     mfa: true,
     mfaId: twoFactor.id,
   };

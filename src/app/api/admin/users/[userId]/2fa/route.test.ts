@@ -44,6 +44,9 @@ vi.mock('@/lib/prisma', () => ({
       twoFactorRateLimit: {
         deleteMany: vi.fn(),
       },
+      apiKey: {
+        deleteMany: vi.fn(),
+      },
     },
     transaction: vi.fn(),
   },
@@ -68,6 +71,7 @@ beforeEach(() => {
   prismaMock.client.twoFactorBackupCode.deleteMany.mockReset();
   prismaMock.client.twoFactorOtpUsed.deleteMany.mockReset();
   prismaMock.client.twoFactorRateLimit.deleteMany.mockReset();
+  prismaMock.client.apiKey.deleteMany.mockReset();
   prismaMock.transaction.mockReset();
 
   parseRequestMock.mockResolvedValue({
@@ -184,6 +188,9 @@ test('DELETE clears the user 2FA configuration and related support tables', asyn
     where: { id: 'user-1', deletedAt: null },
     data: { sessionGeneration: { increment: 1 } },
   });
+  expect(prismaMock.client.apiKey.deleteMany).toHaveBeenCalledWith({
+    where: { userId: 'user-1' },
+  });
   expect(prismaMock.client.twoFactorBackupCode.deleteMany).toHaveBeenCalledWith({
     where: { userId: 'user-1' },
   });
@@ -220,6 +227,7 @@ test('DELETE without an enrolled factor does not revoke unrelated sessions', asy
 
   expect(response.status).toBe(200);
   expect(prismaMock.client.user.updateMany).not.toHaveBeenCalled();
+  expect(prismaMock.client.apiKey.deleteMany).not.toHaveBeenCalled();
 });
 
 test('DELETE rejects a demoted administrator before resetting a factor', async () => {

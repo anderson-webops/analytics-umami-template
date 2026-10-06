@@ -155,6 +155,7 @@ export async function POST(request: Request) {
 
       await tx.twoFactorBackupCode.deleteMany({ where: { userId } });
       await tx.twoFactorRateLimit.deleteMany({ where: { userId } });
+      await tx.apiKey.deleteMany({ where: { userId } });
 
       const user = await tx.user.findUnique({
         where: { id: userId },
