@@ -4,6 +4,10 @@ import type { FetchLike, RequestOptions, UmamiClientOptions } from './types';
 
 export const DEFAULT_BASE_URL = 'https://api.umami.is/v1';
 export const API_KEY_HEADER = 'x-umami-api-key';
+export const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
+export const DEFAULT_MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
+const MAX_REQUEST_TIMEOUT_MS = 5 * 60_000;
+const MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
 
 type QueryValue = string | number | boolean | Date | null | undefined | QueryValue[];
 
@@ -116,8 +120,90 @@ export function splitInput(
   return { path, query, body: operation.hasBody ? body : undefined };
 }
 
-async function parseBody(response: Response): Promise<unknown> {
-  const text = await response.text();
+class ResponseBodyTooLargeError extends Error {}
+
+function boundedPositiveInteger(value: number, maximum: number, name: string) {
+  if (!Number.isSafeInteger(value) || value < 1 || value > maximum) {
+    throw new RangeError(`${name} must be a positive integer no greater than ${maximum}`);
+  }
+
+  return value;
+}
+
+function awaitWithAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    return Promise.reject(signal.reason);
+  }
+
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener('abort', onAbort, { once: true });
+
+    promise.then(
+      value => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      error => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
+async function readBody(response: Response, maxResponseBytes: number, signal: AbortSignal) {
+  const contentLength = Number(response.headers.get('content-length'));
+
+  if (Number.isSafeInteger(contentLength) && contentLength > maxResponseBytes) {
+    void response.body?.cancel().catch(() => undefined);
+    throw new ResponseBodyTooLargeError();
+  }
+
+  if (!response.body) {
+    return '';
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await awaitWithAbort(reader.read(), signal);
+
+      if (done) {
+        break;
+      }
+
+      length += value.byteLength;
+
+      if (length > maxResponseBytes) {
+        throw new ResponseBodyTooLargeError();
+      }
+
+      chunks.push(value);
+    }
+
+    const bytes = new Uint8Array(length);
+    let offset = 0;
+
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+
+    return new TextDecoder().decode(bytes);
+  } catch (error) {
+    void reader.cancel().catch(() => undefined);
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+async function parseBody(response: Response, maxResponseBytes: number, signal: AbortSignal) {
+  const text = await readBody(response, maxResponseBytes, signal);
 
   if (!text) {
     return undefined;
@@ -150,6 +236,7 @@ export interface HttpRequest {
   body?: unknown;
   signal?: AbortSignal;
   timeout?: number;
+  maxResponseBytes?: number;
 }
 
 export async function sendRequest<T>(fetchImpl: FetchLike, request: HttpRequest): Promise<T> {
@@ -161,61 +248,89 @@ export async function sendRequest<T>(fetchImpl: FetchLike, request: HttpRequest)
     init.body = JSON.stringify(request.body);
   }
 
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = boundedPositiveInteger(
+    request.timeout ?? DEFAULT_REQUEST_TIMEOUT_MS,
+    MAX_REQUEST_TIMEOUT_MS,
+    'timeout',
+  );
+  const maxResponseBytes = boundedPositiveInteger(
+    request.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES,
+    MAX_RESPONSE_BYTES,
+    'maxResponseBytes',
+  );
+  const controller = new AbortController();
+  const onAbort = () => controller.abort(request.signal?.reason);
 
-  if (request.timeout && typeof AbortController !== 'undefined') {
-    const controller = new AbortController();
-
-    timer = setTimeout(() => controller.abort(), request.timeout);
-    request.signal?.addEventListener('abort', () => controller.abort(), { once: true });
-    init.signal = controller.signal;
-  } else if (request.signal) {
-    init.signal = request.signal;
+  if (request.signal?.aborted) {
+    onAbort();
+  } else {
+    request.signal?.addEventListener('abort', onAbort, { once: true });
   }
 
-  let response: Response;
+  init.signal = controller.signal;
+  const timer = setTimeout(() => {
+    const error = new Error(`Request timed out after ${timeout} ms`);
+    error.name = 'TimeoutError';
+    controller.abort(error);
+  }, timeout);
 
   try {
-    response = await fetchImpl(request.url, init);
-  } finally {
-    if (timer) {
-      clearTimeout(timer);
+    if (controller.signal.aborted) {
+      throw controller.signal.reason;
     }
-  }
 
-  let body: unknown;
+    const response = await awaitWithAbort(fetchImpl(request.url, init), controller.signal);
+    let body: unknown;
 
-  try {
-    body = await parseBody(response);
-  } catch (error) {
-    if (error instanceof UmamiApiError && response.ok) {
+    try {
+      body = await parseBody(response, maxResponseBytes, controller.signal);
+    } catch (error) {
+      if (error instanceof ResponseBodyTooLargeError) {
+        throw new UmamiApiError({
+          status: response.status,
+          code: 'response-too-large',
+          message: `Response body exceeds ${maxResponseBytes} bytes`,
+          method: request.method.toUpperCase(),
+          url: request.url.toString(),
+        });
+      }
+
+      if (!(error instanceof UmamiApiError)) {
+        throw error;
+      }
+
+      if (response.ok) {
+        throw new UmamiApiError({
+          status: response.status,
+          code: error.code,
+          message: error.message,
+          method: request.method.toUpperCase(),
+          url: request.url.toString(),
+          body: error.body,
+        });
+      }
+
+      body = undefined;
+    }
+
+    if (!response.ok) {
+      const error = (body as UmamiApiErrorBody | undefined)?.error;
+
       throw new UmamiApiError({
         status: response.status,
-        code: error.code,
-        message: error.message,
+        code: error?.code,
+        message: error?.message,
         method: request.method.toUpperCase(),
         url: request.url.toString(),
-        body: error.body,
+        body,
       });
     }
 
-    body = undefined;
+    return body as T;
+  } finally {
+    clearTimeout(timer);
+    request.signal?.removeEventListener('abort', onAbort);
   }
-
-  if (!response.ok) {
-    const error = (body as UmamiApiErrorBody | undefined)?.error;
-
-    throw new UmamiApiError({
-      status: response.status,
-      code: error?.code,
-      message: error?.message,
-      method: request.method.toUpperCase(),
-      url: request.url.toString(),
-      body,
-    });
-  }
-
-  return body as T;
 }
 
 export function resolveFetch(custom?: FetchLike): FetchLike {

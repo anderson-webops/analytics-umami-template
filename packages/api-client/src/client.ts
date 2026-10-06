@@ -50,6 +50,7 @@ export class UmamiClient extends GeneratedUmamiClient {
   readonly baseUrl: string;
   readonly headers: Record<string, string>;
   readonly timeout?: number;
+  readonly maxResponseBytes?: number;
   private readonly fetchImpl: FetchLike;
 
   constructor(options: UmamiClientOptions = {}) {
@@ -57,6 +58,7 @@ export class UmamiClient extends GeneratedUmamiClient {
     this.baseUrl = trimSlashes(options.baseUrl || DEFAULT_BASE_URL);
     this.headers = { ...buildAuthHeaders(options), ...options.headers };
     this.timeout = options.timeout;
+    this.maxResponseBytes = options.maxResponseBytes;
     this.fetchImpl = resolveFetch(options.fetch);
   }
 
@@ -70,6 +72,7 @@ export class UmamiClient extends GeneratedUmamiClient {
       headers,
       fetch: this.fetchImpl,
       timeout: this.timeout,
+      maxResponseBytes: this.maxResponseBytes,
     });
   }
 
@@ -98,6 +101,7 @@ export class UmamiClient extends GeneratedUmamiClient {
       body,
       signal: options?.signal,
       timeout: this.timeout,
+      maxResponseBytes: this.maxResponseBytes,
     });
   }
 

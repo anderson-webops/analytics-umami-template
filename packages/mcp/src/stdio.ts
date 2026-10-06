@@ -53,7 +53,7 @@ export function resolveClientOptions(env: StdioEnvironment = process.env): Umami
     throw new Error('A bearer token or non-Cloud API key requires UMAMI_URL or UMAMI_API_URL.');
   }
 
-  return { baseUrl, token, apiKey };
+  return { baseUrl, token, apiKey, timeout: 30_000, maxResponseBytes: 4 * 1024 * 1024 };
 }
 
 export interface ServeStdioOptions {

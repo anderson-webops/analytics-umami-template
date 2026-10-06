@@ -20,8 +20,10 @@ export interface UmamiClientOptions {
   headers?: Record<string, string>;
   /** Custom fetch implementation (testing, alternative runtimes, in-process dispatch). */
   fetch?: FetchLike;
-  /** Per-request timeout in milliseconds. Disabled by default. */
+  /** Total request timeout, including the response body, in milliseconds. Defaults to 60 seconds; maximum 5 minutes. */
   timeout?: number;
+  /** Maximum response body size in bytes. Defaults to 16 MiB and cannot exceed 64 MiB. */
+  maxResponseBytes?: number;
 }
 
 export interface RequestOptions {

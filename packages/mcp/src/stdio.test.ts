@@ -1,17 +1,29 @@
 import { describe, expect, test } from 'vitest';
 import { resolveClientOptions } from './stdio';
 
+const stdioLimits = { timeout: 30_000, maxResponseBytes: 4 * 1024 * 1024 };
+
 describe('resolveClientOptions', () => {
   test('appends /api to a self-hosted instance URL', () => {
     expect(
       resolveClientOptions({ UMAMI_URL: 'https://analytics.example.com/', UMAMI_API_TOKEN: 't' }),
-    ).toEqual({ baseUrl: 'https://analytics.example.com/api', token: 't', apiKey: undefined });
+    ).toEqual({
+      baseUrl: 'https://analytics.example.com/api',
+      token: 't',
+      apiKey: undefined,
+      ...stdioLimits,
+    });
   });
 
   test('uses UMAMI_API_URL verbatim', () => {
     expect(
       resolveClientOptions({ UMAMI_API_URL: 'https://api.umami.is/v1', UMAMI_API_KEY: 'k' }),
-    ).toEqual({ baseUrl: 'https://api.umami.is/v1', token: undefined, apiKey: 'k' });
+    ).toEqual({
+      baseUrl: 'https://api.umami.is/v1',
+      token: undefined,
+      apiKey: 'k',
+      ...stdioLimits,
+    });
   });
 
   test('allows a bearer token with an explicit API endpoint', () => {
@@ -20,7 +32,12 @@ describe('resolveClientOptions', () => {
         UMAMI_API_URL: 'https://analytics.example.com/api',
         UMAMI_API_TOKEN: 't',
       }),
-    ).toEqual({ baseUrl: 'https://analytics.example.com/api', token: 't', apiKey: undefined });
+    ).toEqual({
+      baseUrl: 'https://analytics.example.com/api',
+      token: 't',
+      apiKey: undefined,
+      ...stdioLimits,
+    });
   });
 
   test('defaults to Cloud when only an API key is provided', () => {

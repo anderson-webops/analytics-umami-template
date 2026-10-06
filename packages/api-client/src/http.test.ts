@@ -219,4 +219,105 @@ describe('sendRequest', () => {
       }),
     ).resolves.toBeUndefined();
   });
+
+  test('accepts a response at the byte limit', async () => {
+    const body = '{"ok":true}';
+
+    await expect(
+      sendRequest(
+        async () => new Response(body, { headers: { 'content-type': 'application/json' } }),
+        {
+          method: 'get',
+          url: new URL('https://example.com/api/websites'),
+          headers: {},
+          maxResponseBytes: new TextEncoder().encode(body).byteLength,
+        },
+      ),
+    ).resolves.toEqual({ ok: true });
+  });
+
+  test('rejects an oversized Content-Length before reading the body', async () => {
+    const stream = new ReadableStream<Uint8Array>({});
+
+    await expect(
+      sendRequest(async () => new Response(stream, { headers: { 'content-length': '100' } }), {
+        method: 'get',
+        url: new URL('https://example.com/api/websites'),
+        headers: {},
+        maxResponseBytes: 4,
+      }),
+    ).rejects.toMatchObject({ code: 'response-too-large' });
+  });
+
+  test('rejects chunked responses that exceed the byte limit', async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('abcd'));
+        controller.enqueue(new TextEncoder().encode('ef'));
+        controller.close();
+      },
+    });
+
+    await expect(
+      sendRequest(async () => new Response(stream), {
+        method: 'get',
+        url: new URL('https://example.com/api/websites'),
+        headers: {},
+        maxResponseBytes: 4,
+      }),
+    ).rejects.toMatchObject({ code: 'response-too-large' });
+  });
+
+  test('keeps the deadline active while a response body stalls after headers', async () => {
+    const stream = new ReadableStream<Uint8Array>({});
+
+    await expect(
+      sendRequest(async () => new Response(stream), {
+        method: 'get',
+        url: new URL('https://example.com/api/websites'),
+        headers: {},
+        timeout: 20,
+      }),
+    ).rejects.toMatchObject({ name: 'TimeoutError' });
+  });
+
+  test('honors caller cancellation while the response body is pending', async () => {
+    const controller = new AbortController();
+    const stream = new ReadableStream<Uint8Array>({});
+    const response = sendRequest(async () => new Response(stream), {
+      method: 'get',
+      url: new URL('https://example.com/api/websites'),
+      headers: {},
+      signal: controller.signal,
+    });
+
+    controller.abort();
+
+    await expect(response).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  test('does not hide an oversized error response behind its HTTP status', async () => {
+    await expect(
+      sendRequest(async () => new Response('oversized', { status: 502 }), {
+        method: 'get',
+        url: new URL('https://example.com/api/websites'),
+        headers: {},
+        maxResponseBytes: 4,
+      }),
+    ).rejects.toMatchObject({ code: 'response-too-large' });
+  });
+
+  test('rejects disabled or effectively unbounded resource limits', async () => {
+    const fetchImpl = async () => new Response('{}');
+    const request = {
+      method: 'get' as const,
+      url: new URL('https://example.com/api/websites'),
+      headers: {},
+    };
+
+    await expect(sendRequest(fetchImpl, { ...request, timeout: 0 })).rejects.toThrow(RangeError);
+    await expect(
+      sendRequest(fetchImpl, { ...request, maxResponseBytes: Infinity }),
+    ).rejects.toThrow(RangeError);
+  });
 });

@@ -139,6 +139,18 @@ describe('UmamiClient', () => {
     expect(calls[0].headers.authorization).toBe('Bearer other');
   });
 
+  test('withToken retains the response size limit', async () => {
+    const client = new UmamiClient({
+      token: 'first',
+      maxResponseBytes: 4,
+      fetch: async () => new Response('oversized'),
+    });
+
+    await expect(client.withToken('second').getMe()).rejects.toMatchObject({
+      code: 'response-too-large',
+    });
+  });
+
   test('call() invokes any operation by id', async () => {
     const { client, calls } = createClient({ visitors: 3 });
 

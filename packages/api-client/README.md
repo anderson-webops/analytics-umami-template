@@ -46,7 +46,8 @@ response types, or import `OperationInput<'getWebsiteStats'>` / `OperationOutput
 | `apiKey`  | Umami Cloud API key (sent as `x-umami-api-key`; also sent as a bearer token when `token` is not provided). |
 | `headers` | Extra headers for every request.                                                                            |
 | `fetch`   | Custom `fetch` (tests, other runtimes, in-process dispatch).                                                |
-| `timeout` | Per-request timeout in milliseconds.                                                                        |
+| `timeout` | Total request timeout, including the body, in milliseconds (default: 60,000; maximum: 300,000).             |
+| `maxResponseBytes` | Response body limit in bytes (default: 16 MiB; maximum: 64 MiB).                                |
 
 ### Errors
 

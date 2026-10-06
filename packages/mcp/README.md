@@ -101,6 +101,8 @@ token without an explicit endpoint rather than sending it to the default Umami C
 An `UMAMI_API_KEY` without an endpoint must be a Cloud key (`api_…`); self-hosted keys (`umami_…`)
 also require an explicit endpoint.
 
+The local stdio client limits each remote request to 30 seconds and 4 MiB of response data.
+
 For Cloud stdio, set `UMAMI_API_KEY` and omit `UMAMI_URL` and `UMAMI_API_TOKEN`:
 
 ```json
