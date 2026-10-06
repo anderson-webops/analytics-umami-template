@@ -8,7 +8,14 @@ import { checkPassword, hashPassword, passwordNeedsRehash } from '@/lib/password
 import prisma from '@/lib/prisma';
 import redis from '@/lib/redis';
 import { parseRequest } from '@/lib/request';
-import { json, notFound, serviceUnavailable, tooManyRequests, unauthorized } from '@/lib/response';
+import {
+  forbidden,
+  json,
+  notFound,
+  serviceUnavailable,
+  tooManyRequests,
+  unauthorized,
+} from '@/lib/response';
 import { getAuthSessionTtlSeconds } from '@/lib/security';
 import { isSameOriginMutation, setSessionCookie } from '@/lib/session';
 import { getTwoFactorConfigurationError, isTwoFactorConfigured } from '@/lib/two-factor/crypto';
@@ -32,6 +39,10 @@ async function rejectInvalidCredentials(username: string) {
 export async function POST(request: Request) {
   if (isEnvEnabled('CLOUD_MODE')) {
     return notFound();
+  }
+
+  if (isEnvEnabled('DISABLE_LOGIN')) {
+    return forbidden({ code: 'login-disabled' });
   }
 
   const contentType = request.headers.get('content-type')?.toLowerCase() ?? '';

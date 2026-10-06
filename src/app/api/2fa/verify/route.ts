@@ -7,7 +7,14 @@ import { createSecureToken, parseSecureToken } from '@/lib/jwt';
 import prisma from '@/lib/prisma';
 import redis from '@/lib/redis';
 import { parseRequest } from '@/lib/request';
-import { badRequest, json, notFound, serviceUnavailable, unauthorized } from '@/lib/response';
+import {
+  badRequest,
+  forbidden,
+  json,
+  notFound,
+  serviceUnavailable,
+  unauthorized,
+} from '@/lib/response';
 import { getAuthSessionTtlSeconds } from '@/lib/security';
 import { getBearerToken, setSessionCookie } from '@/lib/session';
 import { hasCurrentSessionGeneration } from '@/lib/session-generation';
@@ -25,6 +32,10 @@ import { getAllUserTeams, getUser } from '@/queries/prisma';
 export async function POST(request: Request) {
   if (isEnvEnabled('CLOUD_MODE')) {
     return notFound();
+  }
+
+  if (isEnvEnabled('DISABLE_LOGIN')) {
+    return forbidden({ code: 'login-disabled' });
   }
 
   const schema = z.union([

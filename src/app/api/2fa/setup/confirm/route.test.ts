@@ -1,4 +1,4 @@
-import { beforeEach, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { POST } from './route';
 
 const mocks = vi.hoisted(() => {
@@ -94,6 +94,8 @@ vi.mock('@/lib/two-factor/totp', () => ({
 }));
 
 beforeEach(() => {
+  vi.stubEnv('CLOUD_MODE', '0');
+  vi.stubEnv('DISABLE_LOGIN', '0');
   mocks.parseRequest.mockReset();
   mocks.findUnique.mockReset();
   mocks.transaction.mockReset();
@@ -146,6 +148,41 @@ beforeEach(() => {
   mocks.hash.mockReturnValue('password-fingerprint');
   mocks.secret.mockReturnValue('app-secret');
   mocks.createSecureToken.mockReturnValue('verified-session-token');
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+test('disabled login cannot elevate a pending password-login enrollment session', async () => {
+  vi.stubEnv('DISABLE_LOGIN', '1');
+  mocks.parseRequest.mockResolvedValue({
+    auth: { user: { id: 'user-1' }, sessionGeneration: 0, enrollmentOnly: true },
+    body: { token: '123456' },
+    error: undefined,
+  });
+
+  const response = await POST(
+    new Request('http://localhost/api/2fa/setup/confirm', { method: 'POST' }),
+  );
+
+  expect(response.status).toBe(403);
+  await expect(response.json()).resolves.toMatchObject({ error: { code: 'login-disabled' } });
+  expect(response.headers.has('set-cookie')).toBe(false);
+  expect(mocks.findUnique).not.toHaveBeenCalled();
+  expect(mocks.transaction).not.toHaveBeenCalled();
+  expect(mocks.createSecureToken).not.toHaveBeenCalled();
+});
+
+test('disabled login still permits existing full sessions to enroll 2FA', async () => {
+  vi.stubEnv('DISABLE_LOGIN', '1');
+
+  const response = await POST(
+    new Request('http://localhost/api/2fa/setup/confirm', { method: 'POST' }),
+  );
+
+  expect(response.status).toBe(200);
+  expect(mocks.createSecureToken).toHaveBeenCalled();
 });
 
 test('POST confirms setup, enables 2FA, stores backup codes, and resets the rate limit', async () => {

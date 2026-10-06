@@ -94,6 +94,7 @@ import { POST } from './route';
 
 beforeEach(() => {
   vi.stubEnv('CLOUD_MODE', '0');
+  vi.stubEnv('DISABLE_LOGIN', '0');
   redis.enabled = false;
   delete (prisma.client as any).$primary;
   mocks.parseRequest.mockReset();
@@ -161,6 +162,24 @@ test.each([false, true])('cloud mode rejects local password login (Redis %s)', a
   expect(mocks.saveAuth).not.toHaveBeenCalled();
   expect(mocks.createSecureToken).not.toHaveBeenCalled();
 });
+
+test.each([false, true])(
+  'disabled login rejects direct password API requests (Redis %s)',
+  async enabled => {
+    vi.stubEnv('DISABLE_LOGIN', '1');
+    redis.enabled = enabled;
+
+    const response = await POST(loginRequest());
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({ error: { code: 'login-disabled' } });
+    expect(response.headers.has('set-cookie')).toBe(false);
+    expect(mocks.parseRequest).not.toHaveBeenCalled();
+    expect(mocks.checkPassword).not.toHaveBeenCalled();
+    expect(mocks.saveAuth).not.toHaveBeenCalled();
+    expect(mocks.createSecureToken).not.toHaveBeenCalled();
+  },
+);
 
 test('known seeded password cannot authenticate any local account', async () => {
   mocks.parseRequest.mockResolvedValue({

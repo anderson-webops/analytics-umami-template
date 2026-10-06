@@ -1,4 +1,4 @@
-import { beforeEach, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   getBearerToken: vi.fn(),
@@ -90,6 +90,8 @@ vi.mock('@/lib/redis', () => ({
 import { POST } from './route';
 
 beforeEach(() => {
+  vi.stubEnv('CLOUD_MODE', '0');
+  vi.stubEnv('DISABLE_LOGIN', '0');
   mocks.getBearerToken.mockReset();
   mocks.saveAuth.mockReset();
   mocks.parseSecureToken.mockReset();
@@ -143,6 +145,29 @@ beforeEach(() => {
   mocks.findBackupCodes.mockResolvedValue([]);
   mocks.updateBackupCodes.mockResolvedValue({ count: 0 });
   mocks.verifyBackupCode.mockResolvedValue(null);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+test('disabled login cannot complete a previously issued partial token', async () => {
+  vi.stubEnv('DISABLE_LOGIN', '1');
+
+  const response = await POST(
+    new Request('http://localhost/api/2fa/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer partial-token' },
+      body: JSON.stringify({ token: '123456' }),
+    }),
+  );
+
+  expect(response.status).toBe(403);
+  await expect(response.json()).resolves.toMatchObject({ error: { code: 'login-disabled' } });
+  expect(response.headers.has('set-cookie')).toBe(false);
+  expect(mocks.parseSecureToken).not.toHaveBeenCalled();
+  expect(mocks.verifyTotp).not.toHaveBeenCalled();
+  expect(mocks.createSecureToken).not.toHaveBeenCalled();
 });
 
 test('POST accepts a token-only payload and completes 2FA verification', async () => {

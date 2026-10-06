@@ -9,6 +9,7 @@ import { parseRequest } from '@/lib/request';
 import {
   badRequest,
   conflict,
+  forbidden,
   json,
   notFound,
   serviceUnavailable,
@@ -42,6 +43,10 @@ export async function POST(request: Request) {
 
   if (error) {
     return error();
+  }
+
+  if (auth.enrollmentOnly && isEnvEnabled('DISABLE_LOGIN')) {
+    return forbidden({ code: 'login-disabled' });
   }
 
   if (!isTwoFactorConfigured()) {
