@@ -2,6 +2,7 @@ import { startOfHour } from 'date-fns';
 import { z } from 'zod';
 import type { Prisma } from '@/generated/prisma/client';
 import clickhouse from '@/lib/clickhouse';
+import { CollectionBudgetExceededError } from '@/lib/collection-budget';
 import { getCollectionLimit } from '@/lib/collection-rate-limit';
 import { CACHE_TOKEN_TYPE, COLLECTION_TYPE, EVENT_TYPE, FIELD_LENGTH } from '@/lib/constants';
 import { getSalt, hash, secret, uuid } from '@/lib/crypto';
@@ -15,7 +16,12 @@ import { badRequest, json, serverError, tooManyRequests } from '@/lib/response';
 import { analyticsDataParam, domainParam, urlOrPathParam } from '@/lib/schema';
 import { getCacheTokenTtlSeconds, isAllowedTrackingHostname } from '@/lib/security';
 import { safeDecodeURI, safeDecodeURIComponent } from '@/lib/url';
-import { getLink, getPixel, withActiveCollectionSource } from '@/queries/prisma';
+import {
+  getLink,
+  getPixel,
+  reserveActiveCollectionBudget,
+  withActiveCollectionSource,
+} from '@/queries/prisma';
 import {
   createSession,
   saveEvent,
@@ -237,6 +243,20 @@ export async function POST(request: Request) {
     // IP block
     if (hasBlockedIp(ip)) {
       return new Response(null, { status: 204 });
+    }
+
+    try {
+      await reserveActiveCollectionBudget(sourceType, sourceId, body);
+    } catch (error: any) {
+      if (error instanceof CollectionBudgetExceededError) {
+        return tooManyRequests(error.retryAfter);
+      }
+
+      if (error?.message === 'COLLECTION_SOURCE_NOT_FOUND') {
+        return badRequest({ message: 'Tracking source not found.' });
+      }
+
+      throw error;
     }
 
     const createdAt = timestamp ? new Date(timestamp * 1000) : new Date();

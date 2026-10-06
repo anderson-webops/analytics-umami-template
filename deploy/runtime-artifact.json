@@ -20,6 +20,7 @@
     "prisma/migration-ledger-contract.json",
     "prisma/migrations/26_add_api_key/migration.sql",
     "prisma/migrations/30_revoke_sessions_on_factor_reset/migration.sql",
+    "prisma/migrations/31_bound_event_ingestion/migration.sql",
     "prisma/migrations/migration_lock.toml",
     "prisma/schema.prisma",
     "public/openapi.json",

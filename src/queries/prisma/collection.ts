@@ -1,4 +1,5 @@
 import type { Prisma } from '@/generated/prisma/client';
+import { getCollectionCost, reserveCollectionBudget } from '@/lib/collection-budget';
 import prisma from '@/lib/prisma';
 
 export type CollectionSourceType = 'website' | 'link' | 'pixel';
@@ -35,19 +36,55 @@ async function sourceIsActive(
     case 'website':
       return transaction.website.findFirst({
         where: { id: sourceId, deletedAt: null },
-        select: { id: true },
+        select: { id: true, userId: true, teamId: true },
       });
     case 'link':
       return transaction.link.findFirst({
         where: { id: sourceId, deletedAt: null },
-        select: { id: true },
+        select: { id: true, userId: true, teamId: true },
       });
     case 'pixel':
       return transaction.pixel.findFirst({
         where: { id: sourceId, deletedAt: null },
-        select: { id: true },
+        select: { id: true, userId: true, teamId: true },
       });
   }
+}
+
+export async function reserveActiveCollectionBudget(
+  sourceType: CollectionSourceType,
+  sourceId: string,
+  body: {
+    type: 'event' | 'identify' | 'performance';
+    payload: { data?: Record<string, unknown>; id?: string };
+  },
+) {
+  const cost = getCollectionCost(body);
+
+  return prisma.transaction(
+    async transaction => {
+      await acquireCollectionLock(transaction, sourceId, 'shared');
+      const source = await sourceIsActive(transaction, sourceType, sourceId);
+
+      if (!source) {
+        throw new Error('COLLECTION_SOURCE_NOT_FOUND');
+      }
+
+      const accountType = source.teamId ? 'team' : 'user';
+      const accountId = source.teamId || source.userId;
+
+      if (!accountId) {
+        throw new Error('COLLECTION_SOURCE_OWNER_MISSING');
+      }
+
+      await reserveCollectionBudget(
+        transaction,
+        { sourceType, sourceId, accountType, accountId },
+        cost,
+      );
+    },
+    { timeout: 30_000 },
+  );
 }
 
 export async function withActiveCollectionSource<T>(

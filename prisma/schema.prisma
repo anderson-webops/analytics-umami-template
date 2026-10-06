@@ -481,6 +481,21 @@ model ReplayIngestBudget {
   @@map("replay_ingest_budget")
 }
 
+model CollectionIngestBudget {
+  subjectType String   @map("subject_type") @db.VarChar(8)
+  subjectKey  String   @map("subject_key") @db.VarChar(64)
+  scope       String   @db.VarChar(6)
+  windowStart DateTime @map("window_start") @db.Timestamptz(6)
+  bytes       BigInt   @default(0)
+  rows        BigInt   @default(0)
+  requests    BigInt   @default(0)
+  expiresAt   DateTime @map("expires_at") @db.Timestamptz(6)
+
+  @@id([subjectType, subjectKey, scope, windowStart])
+  @@index([expiresAt])
+  @@map("collection_ingest_budget")
+}
+
 model HeatmapEvent {
   id        String   @id() @map("heatmap_event_id") @db.Uuid
   websiteId String   @map("website_id") @db.Uuid

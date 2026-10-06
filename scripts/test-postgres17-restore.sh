@@ -23,6 +23,7 @@ export DATABASE_URL="postgresql://restore_test:synthetic-restore-password-000000
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node scripts/test-postgres-restore.mjs "$@"
 pnpm run db:migrate
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-heatmap-budget.ts
+ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-collection-budget.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm exec tsx scripts/test-two-factor-admission.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm exec tsx scripts/test-password-verification-admission.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 \

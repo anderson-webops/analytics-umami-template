@@ -5,12 +5,14 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 process.env.APP_SECRET = 'route-send-test-secret-0123456789abcdef';
 
 import clickhouse from '@/lib/clickhouse';
+import { CollectionBudgetExceededError } from '@/lib/collection-budget';
 import { CACHE_TOKEN_TYPE, EVENT_TYPE } from '@/lib/constants';
 import { getSalt, secret, uuid } from '@/lib/crypto';
 import { getClientInfo, hasBlockedIp } from '@/lib/detect';
 import { createToken, parseToken } from '@/lib/jwt';
 import { fetchWebsite } from '@/lib/load';
 import { parseRequest } from '@/lib/request';
+import { reserveActiveCollectionBudget } from '@/queries/prisma';
 import {
   createSession,
   saveEvent,
@@ -42,6 +44,7 @@ vi.mock('@/lib/request', () => ({
 vi.mock('@/queries/prisma', () => ({
   getLink: vi.fn(async id => ({ id, deletedAt: null })),
   getPixel: vi.fn(async id => ({ id, deletedAt: null })),
+  reserveActiveCollectionBudget: vi.fn(async () => {}),
   withActiveCollectionSource: vi.fn(async (_type, _id, operation) =>
     operation({
       website: {
@@ -68,6 +71,7 @@ const saveEventMock = vi.mocked(saveEvent);
 const saveSessionDataMock = vi.mocked(saveSessionData);
 const saveSessionLinkMock = vi.mocked(saveSessionLink);
 const updateSessionMock = vi.mocked(updateSession);
+const reserveActiveCollectionBudgetMock = vi.mocked(reserveActiveCollectionBudget);
 
 const WEBSITE_ID = '11111111-1111-4111-8111-111111111111';
 const LINK_ID = '22222222-2222-4222-8222-222222222222';
@@ -139,7 +143,34 @@ beforeEach(() => {
   saveSessionDataMock.mockResolvedValue(undefined as any);
   saveSessionLinkMock.mockResolvedValue(undefined as any);
   updateSessionMock.mockResolvedValue(undefined as any);
+  reserveActiveCollectionBudgetMock.mockResolvedValue(undefined);
 });
+
+test.each([false, true])(
+  'property-rich collection is rejected before any persistent write in ClickHouse mode %s',
+  async enabled => {
+    (clickhouse as any).enabled = enabled;
+    reserveActiveCollectionBudgetMock.mockRejectedValueOnce(
+      new CollectionBudgetExceededError(86_400),
+    );
+    const payload = {
+      website: WEBSITE_ID,
+      url: '/',
+      data: Object.fromEntries(Array.from({ length: 100 }, (_, index) => [`key${index}`, 'x'])),
+    };
+
+    const response = await callPOST({ type: 'event', payload });
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get('Retry-After')).toBe('86400');
+    expect(reserveActiveCollectionBudgetMock).toHaveBeenCalledWith('website', WEBSITE_ID, {
+      type: 'event',
+      payload: { ...payload, hostname: 'example.com' },
+    });
+    expect(createSessionMock).not.toHaveBeenCalled();
+    expect(saveEventMock).not.toHaveBeenCalled();
+  },
+);
 
 describe('parseRequest error handling', () => {
   test('returns the parseRequest error response and does not process the event', async () => {

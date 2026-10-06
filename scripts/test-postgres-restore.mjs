@@ -123,6 +123,10 @@ try {
   await active.query('DELETE FROM _prisma_migrations WHERE migration_name = ANY($1::text[])', [
     pending.map(row => row.migration_name),
   ]);
+  await active.query('DROP TABLE collection_ingest_budget');
+  await active.query(
+    "DELETE FROM _prisma_migrations WHERE migration_name = '31_bound_event_ingestion'",
+  );
   await active.query(
     "INSERT INTO _prisma_migrations (id, checksum, migration_name, started_at, rolled_back_at, applied_steps_count) VALUES ($1, $2, '16_boards', now(), now(), 0)",
     [crypto.randomUUID(), 'b'.repeat(64)],
@@ -144,6 +148,10 @@ try {
   );
   env.DATABASE_URL = urls[1];
   ok(migrate());
+  assert.equal(
+    (await active.query("SELECT to_regclass('collection_ingest_budget') AS name")).rows[0].name,
+    'collection_ingest_budget',
+  );
   for (const row of history)
     assert.deepEqual(
       (await ledger()).find(item => item.id === row.id),
@@ -231,6 +239,21 @@ try {
   assert.match(deniedCopiedDefault.output, /known default password/);
   await active.query('DELETE FROM "user" WHERE user_id = $1', [copiedDefaultUserId]);
   ok(startup());
+  let rejected = 0;
+  await active.query(
+    'ALTER TABLE "collection_ingest_budget" DROP CONSTRAINT "collection_ingest_budget_pkey"',
+  );
+  for (const execute of [migrate, startup]) {
+    const result = execute();
+    assert.notEqual(result.status, 0, result.output);
+    assert.match(result.output, /Database schema is incomplete/);
+    assert.ok(!result.output.includes('RESTORED_STARTUP_ACCEPTED'));
+    rejected += 1;
+  }
+  await active.query(
+    'ALTER TABLE "collection_ingest_budget" ADD CONSTRAINT "collection_ingest_budget_pkey" PRIMARY KEY (subject_type, subject_key, scope, window_start)',
+  );
+  ok(startup());
   const specifications = [
     ['user', 'user_role_check', ['admin', 'user', 'view-only']],
     [
@@ -239,7 +262,6 @@ try {
       ['team-owner', 'team-manager', 'team-member', 'team-view-only'],
     ],
   ];
-  let rejected = 0;
   for (const [table, name, allowed] of specifications) {
     const expression = values => `CHECK (role IN (${values.map(value => `'${value}'`).join(',')}))`;
     const restore = restored.find(row => row.conname === name).definition;

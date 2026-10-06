@@ -369,6 +369,27 @@ async function checkSchemaCompatibility() {
       ) AS replay_ingest_budget,
       EXISTS (
         SELECT 1
+        FROM pg_index index_definition
+        WHERE index_definition.indexrelid = to_regclass(
+            format('%I.%I', current_schema(), 'collection_ingest_budget_pkey')
+          )
+          AND index_definition.indrelid = to_regclass(
+            format('%I.%I', current_schema(), 'collection_ingest_budget')
+          )
+          AND index_definition.indisunique
+          AND index_definition.indisvalid
+          AND index_definition.indisready
+          AND index_definition.indnkeyatts = 4
+          AND index_definition.indnatts = 4
+          AND index_definition.indexprs IS NULL
+          AND index_definition.indpred IS NULL
+          AND pg_get_indexdef(index_definition.indexrelid, 1, true) = 'subject_type'
+          AND pg_get_indexdef(index_definition.indexrelid, 2, true) = 'subject_key'
+          AND pg_get_indexdef(index_definition.indexrelid, 3, true) = 'scope'
+          AND pg_get_indexdef(index_definition.indexrelid, 4, true) = 'window_start'
+      ) AS collection_ingest_budget,
+      EXISTS (
+        SELECT 1
         FROM information_schema.tables
         WHERE table_schema = current_schema()
           AND table_name = 'heatmap_event'
@@ -502,6 +523,7 @@ async function checkSchemaCompatibility() {
     !schema?.session_replay ||
     !schema?.session_replay_saved ||
     !schema?.replay_ingest_budget ||
+    !schema?.collection_ingest_budget ||
     !schema?.heatmap_event ||
     !schema?.session_data_unique_index ||
     !schema?.authorization_membership_unique_index ||
