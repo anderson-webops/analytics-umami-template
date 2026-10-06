@@ -29,7 +29,8 @@ vi.mock('@/lib/two-factor/crypto', () => ({
 vi.mock('@/lib/prisma', () => ({
   default: {
     client: {
-      user: { updateMany: vi.fn() },
+      $queryRaw: vi.fn(),
+      user: { findFirst: vi.fn(), updateMany: vi.fn() },
       twoFactorAuth: {
         findUnique: vi.fn(),
         deleteMany: vi.fn(),
@@ -59,7 +60,9 @@ beforeEach(() => {
   canEnforceTwoFactorAuthForUserMock.mockReset();
   isTwoFactorConfiguredMock.mockReset();
   updateUserMock.mockReset();
+  prismaMock.client.$queryRaw.mockReset();
   prismaMock.client.twoFactorAuth.findUnique.mockReset();
+  prismaMock.client.user.findFirst.mockReset();
   prismaMock.client.user.updateMany.mockReset();
   prismaMock.client.twoFactorAuth.deleteMany.mockReset();
   prismaMock.client.twoFactorBackupCode.deleteMany.mockReset();
@@ -78,6 +81,9 @@ beforeEach(() => {
   });
   canEnforceTwoFactorAuthForUserMock.mockResolvedValue(true);
   isTwoFactorConfiguredMock.mockReturnValue(true);
+  prismaMock.client.$queryRaw.mockResolvedValueOnce([]).mockResolvedValue([{ allowed: 1 }]);
+  prismaMock.client.user.findFirst.mockImplementation(async ({ where }) => ({ id: where.id }));
+  prismaMock.transaction.mockImplementation(async callback => callback(prismaMock.client));
 });
 
 test('GET returns whether 2FA is enabled for the target user', async () => {
@@ -214,4 +220,38 @@ test('DELETE without an enrolled factor does not revoke unrelated sessions', asy
 
   expect(response.status).toBe(200);
   expect(prismaMock.client.user.updateMany).not.toHaveBeenCalled();
+});
+
+test('DELETE rejects a demoted administrator before resetting a factor', async () => {
+  prismaMock.client.$queryRaw.mockReset().mockResolvedValue([]);
+  prismaMock.client.twoFactorAuth.deleteMany.mockResolvedValue({ count: 1 });
+  prismaMock.client.twoFactorBackupCode.deleteMany.mockResolvedValue({ count: 1 });
+  prismaMock.client.twoFactorOtpUsed.deleteMany.mockResolvedValue({ count: 1 });
+  prismaMock.client.twoFactorRateLimit.deleteMany.mockResolvedValue({ count: 1 });
+  prismaMock.transaction.mockImplementation(async callback => callback(prismaMock.client));
+
+  const response = await DELETE(
+    new Request('http://localhost/api/admin/users/user-1/2fa', { method: 'DELETE' }),
+    { params: Promise.resolve({ userId: 'user-1' }) },
+  );
+
+  expect(response.status).toBe(401);
+  expect(prismaMock.client.twoFactorAuth.deleteMany).not.toHaveBeenCalled();
+  expect(prismaMock.client.twoFactorBackupCode.deleteMany).not.toHaveBeenCalled();
+  expect(prismaMock.client.twoFactorOtpUsed.deleteMany).not.toHaveBeenCalled();
+  expect(prismaMock.client.twoFactorRateLimit.deleteMany).not.toHaveBeenCalled();
+});
+
+test('DELETE leaves a deleted target untouched', async () => {
+  prismaMock.client.user.findFirst.mockImplementation(async ({ where }) =>
+    where.role === 'admin' ? { id: 'admin-1' } : null,
+  );
+
+  const response = await DELETE(
+    new Request('http://localhost/api/admin/users/user-1/2fa', { method: 'DELETE' }),
+    { params: Promise.resolve({ userId: 'user-1' }) },
+  );
+
+  expect(response.status).toBe(404);
+  expect(prismaMock.client.twoFactorAuth.deleteMany).not.toHaveBeenCalled();
 });

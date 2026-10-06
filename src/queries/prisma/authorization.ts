@@ -381,20 +381,31 @@ export async function assertActorIsAdministrator(
   transaction: Prisma.TransactionClient,
   actorUserId: string,
 ) {
-  const actor = await transaction.user.findFirst({
-    where: {
-      id: actorUserId,
-      role: ROLES.admin,
-      deletedAt: null,
-    },
-    select: {
-      id: true,
-    },
-  });
-
-  if (!actor) {
+  if (!actorUserId) {
     throw new Error('ENTITY_ADMIN_REQUIRED');
   }
+
+  const actor = await transaction.$queryRaw<Array<{ allowed: number }>>`
+    SELECT 1 AS allowed FROM "user"
+    WHERE user_id = ${actorUserId}::uuid
+      AND role = ${ROLES.admin}
+      AND deleted_at IS NULL
+    FOR UPDATE
+  `;
+
+  if (actor.length !== 1) {
+    throw new Error('ENTITY_ADMIN_REQUIRED');
+  }
+}
+
+export async function runAuthorizedAdministratorMutation<T>(
+  actorUserId: string,
+  operation: (transaction: Prisma.TransactionClient) => Promise<T>,
+): Promise<T> {
+  return runSerializedUserMutation(async transaction => {
+    await assertActorIsAdministrator(transaction, actorUserId);
+    return operation(transaction);
+  });
 }
 
 export async function assertEntityIdAvailable(

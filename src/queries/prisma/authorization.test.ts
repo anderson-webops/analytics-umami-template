@@ -8,9 +8,12 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 
-const { runSerializable, runSerializedUserMutation, SERIALIZABLE_RETRY_ATTEMPTS } = await import(
-  './authorization'
-);
+const {
+  runAuthorizedAdministratorMutation,
+  runSerializable,
+  runSerializedUserMutation,
+  SERIALIZABLE_RETRY_ATTEMPTS,
+} = await import('./authorization');
 
 function serializationConflict() {
   return Object.assign(new Error('Transaction write conflict'), { code: 'P2034' });
@@ -156,5 +159,54 @@ describe('runSerializedUserMutation', () => {
     expect(transaction).toHaveBeenCalledTimes(2);
     expect(queryRaw).toHaveBeenCalledOnce();
     expect(operation).toHaveBeenCalledOnce();
+  });
+});
+
+describe('runAuthorizedAdministratorMutation', () => {
+  beforeEach(() => {
+    transaction.mockReset();
+  });
+
+  test('rechecks the current administrator after taking the user-mutation lock', async () => {
+    const queryRaw = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([{ allowed: 1 }]);
+    const operation = vi.fn().mockResolvedValue('updated');
+    transaction.mockImplementation(async callback => callback({ $queryRaw: queryRaw }));
+
+    await expect(runAuthorizedAdministratorMutation('admin-1', operation)).resolves.toBe('updated');
+    expect(queryRaw).toHaveBeenCalledTimes(2);
+    expect(queryRaw.mock.calls[1][0].join('')).toContain('FOR UPDATE');
+    expect(queryRaw.mock.invocationCallOrder[0]).toBeLessThan(queryRaw.mock.invocationCallOrder[1]);
+    expect(queryRaw.mock.invocationCallOrder[1]).toBeLessThan(
+      operation.mock.invocationCallOrder[0],
+    );
+  });
+
+  test('does not run the mutation after administrator demotion', async () => {
+    const operation = vi.fn();
+    transaction.mockImplementation(async callback =>
+      callback({
+        $queryRaw: vi.fn().mockResolvedValue([]),
+      }),
+    );
+
+    await expect(runAuthorizedAdministratorMutation('admin-1', operation)).rejects.toThrow(
+      'ENTITY_ADMIN_REQUIRED',
+    );
+    expect(operation).not.toHaveBeenCalled();
+  });
+
+  test('rejects a missing actor identifier before querying an administrator', async () => {
+    const operation = vi.fn();
+    const queryRaw = vi.fn().mockResolvedValue([]);
+    transaction.mockImplementation(async callback => callback({ $queryRaw: queryRaw }));
+
+    await expect(runAuthorizedAdministratorMutation('', operation)).rejects.toThrow(
+      'ENTITY_ADMIN_REQUIRED',
+    );
+    expect(queryRaw).toHaveBeenCalledTimes(1);
+    expect(operation).not.toHaveBeenCalled();
   });
 });

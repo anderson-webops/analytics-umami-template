@@ -5,6 +5,7 @@ import { parseRequest } from '@/lib/request';
 import { json, notFound, serviceUnavailable, unauthorized } from '@/lib/response';
 import { getTwoFactorConfigurationError, isTwoFactorConfigured } from '@/lib/two-factor/crypto';
 import { canEnforceTwoFactorAuthForUser } from '@/permissions';
+import { runAuthorizedAdministratorMutation } from '@/queries/prisma/authorization';
 import { updateUser } from '@/queries/prisma/user';
 
 export async function GET(request: Request, { params }: { params: Promise<{ userId: string }> }) {
@@ -78,22 +79,51 @@ export async function DELETE(
 
   const { userId } = await params;
 
-  const { twoFactorAuth, backupCodes, otpUsed, rateLimit } = await prisma.transaction(async tx => {
-    const twoFactorAuth = await tx.twoFactorAuth.deleteMany({ where: { userId } });
+  let reset;
 
-    if (twoFactorAuth.count > 0) {
-      await tx.user.updateMany({
+  try {
+    reset = await runAuthorizedAdministratorMutation(auth.user.id, async transaction => {
+      const target = await transaction.user.findFirst({
         where: { id: userId, deletedAt: null },
-        data: { sessionGeneration: { increment: 1 } },
+        select: { id: true },
       });
+
+      if (!target) {
+        throw new Error('USER_NOT_FOUND');
+      }
+
+      const twoFactorAuth = await transaction.twoFactorAuth.deleteMany({ where: { userId } });
+
+      if (twoFactorAuth.count > 0) {
+        const updated = await transaction.user.updateMany({
+          where: { id: userId, deletedAt: null },
+          data: { sessionGeneration: { increment: 1 } },
+        });
+
+        if (updated.count !== 1) {
+          throw new Error('USER_NOT_FOUND');
+        }
+      }
+
+      const backupCodes = await transaction.twoFactorBackupCode.deleteMany({ where: { userId } });
+      const otpUsed = await transaction.twoFactorOtpUsed.deleteMany({ where: { userId } });
+      const rateLimit = await transaction.twoFactorRateLimit.deleteMany({ where: { userId } });
+
+      return { twoFactorAuth, backupCodes, otpUsed, rateLimit };
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'ENTITY_ADMIN_REQUIRED') {
+      return unauthorized({ message: 'Your administrator permission changed.' });
     }
 
-    const backupCodes = await tx.twoFactorBackupCode.deleteMany({ where: { userId } });
-    const otpUsed = await tx.twoFactorOtpUsed.deleteMany({ where: { userId } });
-    const rateLimit = await tx.twoFactorRateLimit.deleteMany({ where: { userId } });
+    if (error instanceof Error && error.message === 'USER_NOT_FOUND') {
+      return notFound();
+    }
 
-    return { twoFactorAuth, backupCodes, otpUsed, rateLimit };
-  });
+    throw error;
+  }
+
+  const { twoFactorAuth, backupCodes, otpUsed, rateLimit } = reset;
 
   return json({
     ok: true,

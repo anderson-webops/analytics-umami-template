@@ -28,6 +28,8 @@ ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm exec tsx scripts/test-password-verificat
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 \
   APP_SECRET=synthetic-session-generation-secret-0000000000000000 \
   REDIS_URL= CLOUD_MODE= node --conditions=react-server --import tsx scripts/test-session-generation.ts
+ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 \
+  REDIS_URL= CLOUD_MODE= node --conditions=react-server --import tsx scripts/test-admin-mfa-policy-race.ts
 if [[ "$build" == 1 ]]; then
   UMAMI_USERNAME=admin UMAMI_PASSWORD=synthetic-build-admin-password-0000000000 \
     pnpm run change-password
