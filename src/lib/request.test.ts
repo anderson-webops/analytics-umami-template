@@ -194,8 +194,9 @@ test('budgets parameterless aggregate shares without pricing ignored URL dates',
 });
 
 test('bounds wide filtered shares but preserves unfiltered historical views', async () => {
+  const shareId = `historical-share-${crypto.randomUUID()}`;
   checkAuthMock.mockResolvedValue({
-    shareToken: { shareId: 'historical-share', websiteId: 'website-1' },
+    shareToken: { shareId, websiteId: 'website-1' },
   } as any);
 
   const schema = z.object({ startAt: z.coerce.number(), endAt: z.coerce.number() });
@@ -203,9 +204,10 @@ test('bounds wide filtered shares but preserves unfiltered historical views', as
   const endAt = Date.UTC(2025, 11, 31);
   const base = `https://analytics.example/api/test?startAt=${startAt}&endAt=${endAt}`;
 
-  for (let index = 0; index < 3; index += 1) {
+  for (let index = 0; index < 2; index += 1) {
     expect((await parseRequest(new Request(base), schema)).error).toBeUndefined();
   }
+  expect((await parseRequest(new Request(base), schema)).error?.().status).toBe(429);
   expect(
     (await parseRequest(new Request(`${base}&pf_plan=1.eq.pro`), schema)).error?.().status,
   ).toBe(400);

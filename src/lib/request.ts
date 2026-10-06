@@ -56,6 +56,7 @@ export async function parseRequest(
     skipAuth?: boolean;
     maxBodyBytes?: number;
     budgetShareQuery?: boolean;
+    shareQueryWorkMultiplier?: 2;
     allowShareSearch?: boolean;
   },
 ): Promise<any> {
@@ -188,7 +189,7 @@ export async function parseRequest(
     schema &&
     (hasQueryRange || hasBodyRange || options?.budgetShareQuery)
   ) {
-    const budget = getShareQueryCost(query, body);
+    const budget = getShareQueryCost(query, body, options?.shareQueryWorkMultiplier ?? 1);
 
     if (budget === null) {
       error = () => badRequest({ message: 'The public-share query is too complex.' });

@@ -46,13 +46,21 @@ test('uses executed POST dates over unrelated URL dates', () => {
   expect(result).toBeNull();
 });
 
-test('charges historical unfiltered views less than expensive filtered queries', () => {
+test('charges the full historical range and each aggregate scan', () => {
   const startAt = Date.UTC(2006, 0, 1);
   const endAt = Date.UTC(2025, 11, 31);
   const result = getShareQueryCost({ startAt, endAt });
 
   expect(result?.cost).toBeGreaterThan(200);
-  expect(result?.charge).toBe(20);
+  expect(result?.charge).toBe(result?.cost);
+  expect(getShareQueryCost({ startAt, endAt }, undefined, 2)?.charge).toBe((result?.cost ?? 0) * 2);
+  expect(
+    getShareQueryCost(
+      { startAt, endAt: Date.UTC(2006, 0, 31), segment: 'saved-segment' },
+      undefined,
+      2,
+    ),
+  ).toEqual({ cost: 401, charge: 600 });
 });
 
 test('prices saved segments at their maximum stored filter fan-out', () => {

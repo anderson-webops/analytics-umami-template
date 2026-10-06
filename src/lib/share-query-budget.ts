@@ -74,7 +74,11 @@ export function getStepFilterCount(value: unknown) {
   );
 }
 
-export function getShareQueryCost(query: Record<string, unknown>, body?: unknown) {
+export function getShareQueryCost(
+  query: Record<string, unknown>,
+  body?: unknown,
+  workMultiplier: 1 | 2 = 1,
+) {
   const topLevel = filterCost(Object.keys(query));
   const report =
     body && typeof body === 'object' && 'filters' in body
@@ -105,8 +109,7 @@ export function getShareQueryCost(query: Record<string, unknown>, body?: unknown
   const months = Math.max(1, Math.ceil(duration / MONTH_MS));
   const cost = months * (1 + topLevel.weight + reportFilters.weight + stepFilters * 4);
 
-  const charge =
-    Math.min(months, 20) + months * (topLevel.weight + reportFilters.weight + stepFilters * 4);
+  const charge = Math.min(cost * workMultiplier, MAX_WINDOW_COST);
 
   return Number.isSafeInteger(cost) && cost <= MAX_QUERY_COST ? { cost, charge } : null;
 }

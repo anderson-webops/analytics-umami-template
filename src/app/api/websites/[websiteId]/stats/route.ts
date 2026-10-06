@@ -13,7 +13,10 @@ export async function GET(
     ...filterParams,
   });
 
-  const { auth, query, error } = await parseRequest(request, schema);
+  const { auth, query, error } = await parseRequest(request, schema, {
+    budgetShareQuery: true,
+    shareQueryWorkMultiplier: 2,
+  });
 
   if (error) {
     return error();
