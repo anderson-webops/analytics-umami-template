@@ -6,6 +6,7 @@ import {
   canDeleteTeam,
   canDeleteTeamUser,
   canEnforceTwoFactorAuthForTeam,
+  canTransferTeamOwnership,
   canUpdateTeam,
   canUpdateTeamWebsites,
   canViewAllTeams,
@@ -58,6 +59,23 @@ describe('canViewTeam', () => {
     vi.mocked(getTeamUser).mockResolvedValue(null as any);
     await expect(canViewTeam({ user: normalUser }, 'team-1')).resolves.toBeNull();
   });
+});
+
+test('globally view-only users cannot mutate teams even with owner membership', async () => {
+  vi.mocked(getTeamUser).mockResolvedValue({ role: 'team-owner' } as any);
+
+  for (const check of [
+    () => canDeleteTeam({ user: viewOnlyUser }, 'team-1'),
+    () => canDeleteTeamUser({ user: viewOnlyUser }, 'team-1', 'other-user'),
+    () => canDeleteTeamUser({ user: viewOnlyUser }, 'team-1', viewOnlyUser.id),
+    () => canTransferTeamOwnership({ user: viewOnlyUser }, 'team-1'),
+    () => canCreateTeamWebsite({ user: viewOnlyUser }, 'team-1'),
+    () => canUpdateTeamWebsites({ user: viewOnlyUser }, 'team-1'),
+  ]) {
+    await expect(check()).resolves.toBe(false);
+  }
+
+  expect(getTeamUser).not.toHaveBeenCalled();
 });
 
 describe('canCreateTeam', () => {

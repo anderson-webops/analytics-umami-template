@@ -24,6 +24,7 @@ vi.mock('@/lib/auth', async () => {
 
 const adminUser = { id: 'admin-1', username: 'admin', role: 'admin', isAdmin: true };
 const normalUser = { id: 'user-1', username: 'user', role: 'user', isAdmin: false };
+const viewOnlyUser = { id: 'user-1', username: 'viewer', role: 'view-only', isAdmin: false };
 
 beforeEach(() => {
   vi.mocked(getEntity).mockReset();
@@ -136,4 +137,17 @@ describe('canDeleteEntity', () => {
     vi.mocked(getTeamUser).mockResolvedValue({ role: 'team-view-only' } as any);
     await expect(canDeleteEntity({ user: normalUser }, 'entity-1')).resolves.toBe(false);
   });
+});
+
+test('globally view-only entity owners and team owners cannot mutate entities', async () => {
+  for (const entity of [{ userId: viewOnlyUser.id }, { teamId: 'team-1' }]) {
+    vi.mocked(getEntity).mockResolvedValue(entity as any);
+    vi.mocked(getTeamUser).mockResolvedValue({ role: 'team-owner' } as any);
+
+    await expect(canUpdateEntity({ user: viewOnlyUser }, 'entity-1')).resolves.toBe(false);
+    await expect(canDeleteEntity({ user: viewOnlyUser }, 'entity-1')).resolves.toBe(false);
+  }
+
+  expect(getEntity).not.toHaveBeenCalled();
+  expect(getTeamUser).not.toHaveBeenCalled();
 });

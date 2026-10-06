@@ -20,6 +20,7 @@ vi.mock('@/lib/auth', async () => {
 
 const adminUser = { id: 'admin-1', username: 'admin', role: 'admin', isAdmin: true };
 const normalUser = { id: 'user-1', username: 'user', role: 'user', isAdmin: false };
+const viewOnlyUser = { id: 'user-1', username: 'viewer', role: 'view-only', isAdmin: false };
 
 beforeEach(() => {
   vi.mocked(getPixel).mockReset();
@@ -156,4 +157,17 @@ describe('canDeletePixel', () => {
     vi.mocked(getTeamUser).mockResolvedValue({ role: 'team-view-only' } as any);
     await expect(canDeletePixel({ user: normalUser }, 'pixel-1')).resolves.toBe(false);
   });
+});
+
+test('globally view-only pixel owners and team owners cannot mutate pixels', async () => {
+  for (const pixel of [{ userId: viewOnlyUser.id }, { teamId: 'team-1' }]) {
+    vi.mocked(getPixel).mockResolvedValue(pixel as any);
+    vi.mocked(getTeamUser).mockResolvedValue({ role: 'team-owner' } as any);
+
+    await expect(canUpdatePixel({ user: viewOnlyUser }, 'pixel-1')).resolves.toBe(false);
+    await expect(canDeletePixel({ user: viewOnlyUser }, 'pixel-1')).resolves.toBe(false);
+  }
+
+  expect(getPixel).not.toHaveBeenCalled();
+  expect(getTeamUser).not.toHaveBeenCalled();
 });

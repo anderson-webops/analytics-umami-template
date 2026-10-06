@@ -5,6 +5,7 @@ import { badRequest, json, unauthorized } from '@/lib/response';
 import { boardParametersParam } from '@/lib/schema';
 import type { BoardParameters } from '@/lib/types';
 import { canViewBoardEntities, hasValidBoardReports } from '@/permissions';
+import { canMutateResource } from '@/permissions/mutation';
 import { createBoard, getBoard, updateBoard } from '@/queries/prisma';
 
 export async function GET(request: Request) {
@@ -34,6 +35,10 @@ export async function POST(request: Request) {
 
   if (error) {
     return error();
+  }
+
+  if (!canMutateResource(auth.user)) {
+    return unauthorized();
   }
 
   const userId = auth.user.id;

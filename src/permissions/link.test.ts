@@ -20,6 +20,7 @@ vi.mock('@/lib/auth', async () => {
 
 const adminUser = { id: 'admin-1', username: 'admin', role: 'admin', isAdmin: true };
 const normalUser = { id: 'user-1', username: 'user', role: 'user', isAdmin: false };
+const viewOnlyUser = { id: 'user-1', username: 'viewer', role: 'view-only', isAdmin: false };
 
 beforeEach(() => {
   vi.mocked(getLink).mockReset();
@@ -156,4 +157,17 @@ describe('canDeleteLink', () => {
     vi.mocked(getTeamUser).mockResolvedValue({ role: 'team-view-only' } as any);
     await expect(canDeleteLink({ user: normalUser }, 'link-1')).resolves.toBe(false);
   });
+});
+
+test('globally view-only link owners and team owners cannot mutate links', async () => {
+  for (const link of [{ userId: viewOnlyUser.id }, { teamId: 'team-1' }]) {
+    vi.mocked(getLink).mockResolvedValue(link as any);
+    vi.mocked(getTeamUser).mockResolvedValue({ role: 'team-owner' } as any);
+
+    await expect(canUpdateLink({ user: viewOnlyUser }, 'link-1')).resolves.toBe(false);
+    await expect(canDeleteLink({ user: viewOnlyUser }, 'link-1')).resolves.toBe(false);
+  }
+
+  expect(getLink).not.toHaveBeenCalled();
+  expect(getTeamUser).not.toHaveBeenCalled();
 });

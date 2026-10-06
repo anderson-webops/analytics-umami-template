@@ -4,6 +4,7 @@ import { PERMISSIONS } from '@/lib/constants';
 import type { Auth, BoardComponentConfig, BoardParameters } from '@/lib/types';
 import { getBoard, getReport, getTeamUser } from '@/queries/prisma';
 import { canUpdateLink, canViewLink } from './link';
+import { canMutateResource } from './mutation';
 import { canUpdatePixel, canViewPixel } from './pixel';
 import { canUpdateWebsite, canViewWebsite } from './website';
 
@@ -82,6 +83,10 @@ export async function canShareBoardEntities(
   type: string | undefined,
   parameters: BoardParameters = {},
 ) {
+  if (!canMutateResource(auth.user)) {
+    return false;
+  }
+
   const { websiteIds, pixelIds, linkIds } = getBoardEntityIds({ type, parameters });
   const userOnlyAuth: Auth = auth.user ? { user: auth.user } : {};
   const checks = [
@@ -198,7 +203,7 @@ export async function canViewBoard({ user, shareToken }: Auth, boardId: string) 
 }
 
 export async function canUpdateBoard({ user }: Auth, boardId: string) {
-  if (!user) {
+  if (!canMutateResource(user)) {
     return false;
   }
 
@@ -226,7 +231,7 @@ export async function canUpdateBoard({ user }: Auth, boardId: string) {
 }
 
 export async function canDeleteBoard({ user }: Auth, boardId: string) {
-  if (!user) {
+  if (!canMutateResource(user)) {
     return false;
   }
 

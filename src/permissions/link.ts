@@ -2,6 +2,7 @@ import { hasPermission } from '@/lib/auth';
 import { PERMISSIONS } from '@/lib/constants';
 import type { Auth } from '@/lib/types';
 import { getLink, getTeamUser } from '@/queries/prisma';
+import { canMutateResource } from './mutation';
 
 export async function canViewLink({ user, shareToken }: Auth, linkId: string) {
   if (
@@ -40,7 +41,7 @@ export async function canViewLink({ user, shareToken }: Auth, linkId: string) {
 }
 
 export async function canUpdateLink({ user }: Auth, linkId: string) {
-  if (!user) {
+  if (!canMutateResource(user)) {
     return false;
   }
 
@@ -68,7 +69,7 @@ export async function canUpdateLink({ user }: Auth, linkId: string) {
 }
 
 export async function canDeleteLink({ user }: Auth, linkId: string) {
-  if (!user) {
+  if (!canMutateResource(user)) {
     return false;
   }
 

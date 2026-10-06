@@ -1,6 +1,7 @@
 import type { Report } from '@/generated/prisma/client';
 import type { ShareSection } from '@/lib/share';
 import type { Auth } from '@/lib/types';
+import { canMutateResource } from './mutation';
 import { canViewWebsiteSection } from './share';
 import { canDeleteWebsite, canUpdateWebsite, canViewWebsite } from './website';
 
@@ -43,7 +44,7 @@ export async function canViewReport(auth: Auth, report: Report | null) {
 }
 
 export async function canUpdateReport(auth: Auth, report: Report) {
-  if (!auth.user) {
+  if (!canMutateResource(auth.user)) {
     return false;
   }
 
@@ -59,7 +60,7 @@ export async function canUpdateReport(auth: Auth, report: Report) {
 }
 
 export async function canDeleteReport(auth: Auth, report: Report) {
-  if (!auth.user) {
+  if (!canMutateResource(auth.user)) {
     return false;
   }
 

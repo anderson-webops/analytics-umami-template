@@ -1,7 +1,8 @@
 import { hasPermission } from '@/lib/auth';
-import { PERMISSIONS, ROLES } from '@/lib/constants';
+import { PERMISSIONS } from '@/lib/constants';
 import type { Auth } from '@/lib/types';
 import { getTeam, getTeamUser } from '@/queries/prisma';
+import { canMutateResource } from './mutation';
 
 export async function canViewTeam({ user }: Auth, teamId: string) {
   if (!user) {
@@ -16,7 +17,7 @@ export async function canViewTeam({ user }: Auth, teamId: string) {
 }
 
 export async function canCreateTeam({ user }: Auth) {
-  if (!user) {
+  if (!canMutateResource(user)) {
     return false;
   }
 
@@ -28,16 +29,12 @@ export async function canCreateTeam({ user }: Auth) {
 }
 
 export async function canUpdateTeam({ user }: Auth, teamId: string) {
-  if (!user) {
+  if (!canMutateResource(user)) {
     return false;
   }
 
   if (user.isAdmin) {
     return !!(await getTeam(teamId));
-  }
-
-  if (user.role !== ROLES.user) {
-    return false;
   }
 
   const teamUser = await getTeamUser(teamId, user.id);
@@ -46,7 +43,7 @@ export async function canUpdateTeam({ user }: Auth, teamId: string) {
 }
 
 export async function canDeleteTeam({ user }: Auth, teamId: string) {
-  if (!user) {
+  if (!canMutateResource(user)) {
     return false;
   }
 
@@ -60,7 +57,7 @@ export async function canDeleteTeam({ user }: Auth, teamId: string) {
 }
 
 export async function canDeleteTeamUser({ user }: Auth, teamId: string, removeUserId: string) {
-  if (!user) {
+  if (!canMutateResource(user)) {
     return false;
   }
 
@@ -78,7 +75,7 @@ export async function canDeleteTeamUser({ user }: Auth, teamId: string, removeUs
 }
 
 export async function canTransferTeamOwnership({ user }: Auth, teamId: string) {
-  if (!user) {
+  if (!canMutateResource(user)) {
     return false;
   }
 
@@ -92,7 +89,7 @@ export async function canTransferTeamOwnership({ user }: Auth, teamId: string) {
 }
 
 export async function canCreateTeamWebsite({ user }: Auth, teamId: string) {
-  if (!user) {
+  if (!canMutateResource(user)) {
     return false;
   }
 
@@ -106,7 +103,7 @@ export async function canCreateTeamWebsite({ user }: Auth, teamId: string) {
 }
 
 export async function canUpdateTeamWebsites({ user }: Auth, teamId: string) {
-  if (!user) {
+  if (!canMutateResource(user)) {
     return false;
   }
 

@@ -1,7 +1,15 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { BOARD_TYPES } from '@/lib/boards';
-import { getReport } from '@/queries/prisma';
-import { canViewBoardEntities, hasValidBoardReports, stripInvalidBoardReports } from './board';
+import { getBoard, getReport, getTeamUser } from '@/queries/prisma';
+import {
+  canDeleteBoard,
+  canShareBoardEntities,
+  canUpdateBoard,
+  canViewBoard,
+  canViewBoardEntities,
+  hasValidBoardReports,
+  stripInvalidBoardReports,
+} from './board';
 import { canViewLink } from './link';
 import { canViewPixel } from './pixel';
 import { canViewWebsite } from './website';
@@ -45,6 +53,22 @@ beforeEach(() => {
   vi.mocked(canViewPixel).mockReset();
   vi.mocked(canViewLink).mockReset();
   vi.mocked(getReport).mockReset();
+  vi.mocked(getBoard).mockReset();
+  vi.mocked(getTeamUser).mockReset();
+});
+
+test('globally view-only board owners and team owners retain reads but not mutations', async () => {
+  const viewOnlyAuth = { user: { ...auth.user, role: 'view-only' } };
+
+  for (const board of [{ userId: auth.user.id }, { teamId: 'team-1' }]) {
+    vi.mocked(getBoard).mockResolvedValue(board as any);
+    vi.mocked(getTeamUser).mockResolvedValue({ role: 'team-owner' } as any);
+
+    await expect(canViewBoard(viewOnlyAuth, 'board-1')).resolves.toBe(true);
+    await expect(canUpdateBoard(viewOnlyAuth, 'board-1')).resolves.toBe(false);
+    await expect(canDeleteBoard(viewOnlyAuth, 'board-1')).resolves.toBe(false);
+    await expect(canShareBoardEntities(viewOnlyAuth, BOARD_TYPES.website)).resolves.toBe(false);
+  }
 });
 
 test('canViewBoardEntities validates board IDs with user auth only', async () => {

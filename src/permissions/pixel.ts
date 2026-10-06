@@ -2,6 +2,7 @@ import { hasPermission } from '@/lib/auth';
 import { PERMISSIONS } from '@/lib/constants';
 import type { Auth } from '@/lib/types';
 import { getPixel, getTeamUser } from '@/queries/prisma';
+import { canMutateResource } from './mutation';
 
 export async function canViewPixel({ user, shareToken }: Auth, pixelId: string) {
   if (
@@ -40,7 +41,7 @@ export async function canViewPixel({ user, shareToken }: Auth, pixelId: string) 
 }
 
 export async function canUpdatePixel({ user }: Auth, pixelId: string) {
-  if (!user) {
+  if (!canMutateResource(user)) {
     return false;
   }
 
@@ -68,7 +69,7 @@ export async function canUpdatePixel({ user }: Auth, pixelId: string) {
 }
 
 export async function canDeletePixel({ user }: Auth, pixelId: string) {
-  if (!user) {
+  if (!canMutateResource(user)) {
     return false;
   }
 

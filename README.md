@@ -68,6 +68,7 @@ The exact artifact and clean-runtime acceptance rules are documented in
 
 ## Operational Notes
 
+- A global `view-only` account can read resources it owns or belongs to, but cannot create, edit, transfer, share, or delete resources through an owner or team role. Ordinary account self-service remains available.
 - PostgreSQL 15 or newer is required. Redis and ClickHouse are optional, but readiness reports them when configured.
 - Public-share analytics requests have bounded date/filter complexity and a per-share, 60-second query budget. Overly complex requests return 400, exhausted budgets return 429, and a configured but unavailable Redis budget store returns 503. Read-only PostgreSQL and ClickHouse queries also have execution and resource limits, including both phases of paged reports.
 - Production requires `APP_SECRET`, `PUBLIC_URL`, and `CLIENT_IP_HEADER`. The configured IP header must be overwritten by a trusted edge or reverse proxy; arbitrary forwarding headers are not trusted.

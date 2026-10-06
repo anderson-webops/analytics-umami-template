@@ -368,3 +368,22 @@ describe('canTransferWebsiteToTeam', () => {
     ).resolves.toBe(false);
   });
 });
+
+test('globally view-only website owners and team owners cannot mutate websites', async () => {
+  for (const website of [{ userId: viewOnlyUser.id }, { teamId: 'team-1' }]) {
+    vi.mocked(getWebsite).mockResolvedValue(website as any);
+    vi.mocked(getTeamUser).mockResolvedValue({ role: 'team-owner' } as any);
+
+    await expect(canUpdateWebsite({ user: viewOnlyUser }, 'website-1')).resolves.toBe(false);
+    await expect(canDeleteWebsite({ user: viewOnlyUser }, 'website-1')).resolves.toBe(false);
+    await expect(
+      canTransferWebsiteToUser({ user: viewOnlyUser }, 'website-1', viewOnlyUser.id),
+    ).resolves.toBe(false);
+    await expect(
+      canTransferWebsiteToTeam({ user: viewOnlyUser }, 'website-1', 'team-1'),
+    ).resolves.toBe(false);
+  }
+
+  expect(getWebsite).not.toHaveBeenCalled();
+  expect(getTeamUser).not.toHaveBeenCalled();
+});

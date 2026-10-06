@@ -3,6 +3,7 @@ import { PERMISSIONS } from '@/lib/constants';
 import { getEntity } from '@/lib/entity';
 import type { Auth } from '@/lib/types';
 import { getTeamUser } from '@/queries/prisma';
+import { canMutateResource } from './mutation';
 
 export async function canViewEntity({ user }: Auth, entityId: string) {
   if (!user) {
@@ -33,7 +34,7 @@ export async function canViewEntity({ user }: Auth, entityId: string) {
 }
 
 export async function canUpdateEntity({ user }: Auth, entityId: string) {
-  if (!user) {
+  if (!canMutateResource(user)) {
     return false;
   }
 
@@ -61,7 +62,7 @@ export async function canUpdateEntity({ user }: Auth, entityId: string) {
 }
 
 export async function canDeleteEntity({ user }: Auth, entityId: string) {
-  if (!user) {
+  if (!canMutateResource(user)) {
     return false;
   }
 

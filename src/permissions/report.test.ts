@@ -74,8 +74,24 @@ test('canDeleteReport requires current website access even for its author', asyn
   await expect(canDeleteReport(auth, report)).resolves.toBe(false);
   await expect(
     canDeleteReport({ user: { ...auth.user, role: 'view-only' } }, report),
-  ).resolves.toBe(true);
+  ).resolves.toBe(false);
   expect(canViewWebsite).toHaveBeenCalledWith({ user: auth.user }, 'website-1');
+  expect(canDeleteWebsite).not.toHaveBeenCalled();
+});
+
+test('a globally view-only report author cannot mutate despite website access', async () => {
+  const auth = {
+    user: { id: 'author-1', username: 'author', role: 'view-only', isAdmin: false },
+  };
+  const report = { id: 'report-1', userId: 'author-1', websiteId: 'website-1' } as any;
+  vi.mocked(canViewWebsite).mockResolvedValue(true);
+  vi.mocked(canUpdateWebsite).mockResolvedValue(true);
+  vi.mocked(canDeleteWebsite).mockResolvedValue(true);
+
+  await expect(canUpdateReport(auth, report)).resolves.toBe(false);
+  await expect(canDeleteReport(auth, report)).resolves.toBe(false);
+  expect(canViewWebsite).not.toHaveBeenCalled();
+  expect(canUpdateWebsite).not.toHaveBeenCalled();
   expect(canDeleteWebsite).not.toHaveBeenCalled();
 });
 
