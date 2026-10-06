@@ -21,7 +21,7 @@ export function ApiKeyAddButton({ onSave }: { onSave?: () => void }) {
         <Text>{t(labels.createApiKey)}</Text>
       </Button>
       <Modal>
-        <Dialog title={t(labels.createApiKey)} style={{ width: 480 }}>
+        <Dialog title={t(labels.createApiKey)} className="rr-block" style={{ width: 480 }}>
           {({ close }) => <ApiKeyAddForm onSave={handleSave} onClose={close} />}
         </Dialog>
       </Modal>

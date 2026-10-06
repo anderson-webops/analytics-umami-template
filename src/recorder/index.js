@@ -491,6 +491,7 @@ import { addCustomEvent, record } from 'rrweb';
       recordCanvas: false,
       recordCrossOriginIframes: false,
       checkoutEveryNms: 30000,
+      blockClass: 'rr-block',
       ...(blockSelector && { blockSelector }),
     });
 

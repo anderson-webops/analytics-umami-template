@@ -125,7 +125,10 @@ export function TwoFactorSetupModal({ required, onClose }: TwoFactorSetupModalPr
   return (
     <ControlledDialog>
       <Modal isOpen={true} onOpenChange={preventDismiss}>
-        <Dialog title={t(labels.twoFactorSetupTitle)} className={styles.twoFactorSetupModal}>
+        <Dialog
+          title={t(labels.twoFactorSetupTitle)}
+          className={`${styles.twoFactorSetupModal} rr-block`}
+        >
           {() => (
             <Column gap="9">
               <Text>

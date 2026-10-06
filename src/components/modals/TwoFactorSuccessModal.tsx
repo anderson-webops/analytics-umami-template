@@ -33,7 +33,7 @@ export function TwoFactorSuccessModal({ backupCodes, onClose }: TwoFactorSuccess
   return (
     <ControlledDialog>
       <Modal isOpen={true}>
-        <Dialog title={t(labels.twoFactorSuccessTitle)} className={styles.dialog}>
+        <Dialog title={t(labels.twoFactorSuccessTitle)} className={`${styles.dialog} rr-block`}>
           {() => (
             <Column gap="5">
               <Text>{t(messages.twoFactorEnabledDescription)}</Text>
