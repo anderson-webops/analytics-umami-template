@@ -127,6 +127,12 @@ export function OPTIONS() {
 
 export async function POST(request: Request) {
   try {
+    const collectionLimit = await getCollectionIpLimit(request);
+
+    if (collectionLimit.blocked) {
+      return withCorsHeaders(tooManyRequests(collectionLimit.retryAfter));
+    }
+
     const { body, error } = await parseRequest(request, schema, {
       skipAuth: true,
       maxBodyBytes: MAX_RECORD_REQUEST_BYTES,
@@ -139,12 +145,6 @@ export async function POST(request: Request) {
     const { website: websiteId } = body.payload;
     const events = body.payload.events;
     const timestamp = body.payload.timestamp;
-    const collectionLimit = await getCollectionIpLimit(request);
-
-    if (collectionLimit.blocked) {
-      return tooManyRequests(collectionLimit.retryAfter);
-    }
-
     if (!events?.length) {
       return withCorsHeaders(json({ ok: true }));
     }

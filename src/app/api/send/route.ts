@@ -161,6 +161,12 @@ const schema = z
 
 export async function POST(request: Request) {
   try {
+    const collectionLimit = await getCollectionIpLimit(request);
+
+    if (collectionLimit.blocked) {
+      return tooManyRequests(collectionLimit.retryAfter);
+    }
+
     const { body, error } = await parseRequest(request, schema, {
       skipAuth: true,
       maxBodyBytes: 128 * 1024,
@@ -196,12 +202,6 @@ export async function POST(request: Request) {
 
     const sourceId = websiteId || pixelId || linkId;
     const sourceType = websiteId ? 'website' : linkId ? 'link' : 'pixel';
-    const collectionLimit = await getCollectionIpLimit(request);
-
-    if (collectionLimit.blocked) {
-      return tooManyRequests(collectionLimit.retryAfter);
-    }
-
     const sourceStatus = await getCollectionSourceStatus(sourceId);
 
     if (sourceStatus.blocked) {

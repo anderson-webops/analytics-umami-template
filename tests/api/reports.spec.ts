@@ -225,7 +225,7 @@ test.describe('Saved reports', () => {
     reportId = '';
   });
 
-  test('report authors cannot access reports after losing website access through any route', async ({
+  test('report authors cannot delete after demotion or access after losing website access', async ({
     admin,
     user,
     seed,
@@ -289,6 +289,7 @@ test.describe('Saved reports', () => {
         200,
         'create current-author report',
       ).body;
+      reportIds.push(authorizedReport.id);
       assertStatus(
         await admin.post(`/api/teams/${team.id}/users/${seed.user.id}`, {
           role: 'team-view-only',
@@ -301,10 +302,11 @@ test.describe('Saved reports', () => {
       expect((await user.get(`/api/websites/${websiteId}/funnels/${reportIds[1]}`)).status).toBe(
         200,
       );
-      assertStatus(
-        await user.del(`/api/reports/${authorizedReport.id}`),
-        200,
-        'delete report with current website access',
+      expect((await user.get(`/api/reports/${authorizedReport.id}`)).status).toBe(200);
+      expect((await user.del(`/api/reports/${authorizedReport.id}`)).status).toBe(401);
+      expect((await user.del(`/api/websites/${websiteId}/goals/${reportIds[0]}`)).status).toBe(401);
+      expect((await user.del(`/api/websites/${websiteId}/funnels/${reportIds[1]}`)).status).toBe(
+        401,
       );
 
       assertStatus(

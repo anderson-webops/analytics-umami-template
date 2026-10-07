@@ -3,11 +3,7 @@ import { PERMISSIONS, ROLES } from '@/lib/constants';
 import { isUuid } from '@/lib/crypto';
 import prisma from '@/lib/prisma';
 import type { QueryFilters } from '@/lib/types';
-import {
-  assertActorCanAccessEntities,
-  assertActorCanMutateEntity,
-  runSerializable,
-} from './authorization';
+import { assertActorCanMutateEntity, runSerializable } from './authorization';
 
 import ReportFindManyArgs = Prisma.ReportFindManyArgs;
 
@@ -209,25 +205,19 @@ export async function deleteReport(reportId: string, actorUserId: string) {
       throw new Error('REPORT_NOT_FOUND');
     }
 
-    if (!actor) {
+    if (!actor || actor.role === ROLES.viewOnly) {
       throw new Error('REPORT_ACTOR_NOT_AUTHORIZED');
     }
 
     if (actor.role !== ROLES.admin) {
       try {
-        if (report.userId === actorUserId) {
-          await assertActorCanAccessEntities(transaction, actorUserId, [
-            { entityType: 'website', entityId: report.websiteId },
-          ]);
-        } else {
-          await assertActorCanMutateEntity(
-            transaction,
-            actorUserId,
-            'website',
-            report.websiteId,
-            PERMISSIONS.websiteDelete,
-          );
-        }
+        await assertActorCanMutateEntity(
+          transaction,
+          actorUserId,
+          'website',
+          report.websiteId,
+          PERMISSIONS.websiteDelete,
+        );
       } catch (error: any) {
         if (
           [

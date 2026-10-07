@@ -189,8 +189,23 @@ describe('parseRequest error handling', () => {
     const response = await POST(new Request('http://localhost/api/send', { method: 'POST' }));
 
     expect(response.status).toBe(400);
+    expect(getCollectionIpLimit).toHaveBeenCalledOnce();
+    expect(vi.mocked(getCollectionIpLimit).mock.invocationCallOrder[0]).toBeLessThan(
+      parseRequestMock.mock.invocationCallOrder[0],
+    );
     expect(saveEventMock).not.toHaveBeenCalled();
     expect(getClientInfoMock).not.toHaveBeenCalled();
+  });
+
+  test('rejects a blocked IP without parsing the request body', async () => {
+    vi.mocked(getCollectionIpLimit).mockResolvedValueOnce({ blocked: true, retryAfter: 60 });
+
+    const response = await POST(new Request('http://localhost/api/send', { method: 'POST' }));
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get('Retry-After')).toBe('60');
+    expect(parseRequestMock).not.toHaveBeenCalled();
+    expect(getCollectionSourceStatus).not.toHaveBeenCalled();
   });
 
   test('calls parseRequest with skipAuth so tracker requests are unauthenticated', async () => {

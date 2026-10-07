@@ -69,6 +69,34 @@ beforeEach(() => {
   vi.mocked(getCollectionSourceStatus).mockResolvedValue({ blocked: false, retryAfter: 60 });
 });
 
+test('recording blocks a saturated IP before parsing and preserves CORS headers', async () => {
+  vi.mocked(getCollectionIpLimit).mockResolvedValueOnce({ blocked: true, retryAfter: 60 });
+
+  const response = await POST(new Request('http://localhost/api/record', { method: 'POST' }));
+
+  expect(response.status).toBe(429);
+  expect(response.headers.get('Retry-After')).toBe('60');
+  expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
+  expect(parseRequestMock).not.toHaveBeenCalled();
+  expect(getCollectionSourceStatus).not.toHaveBeenCalled();
+});
+
+test('recording charges malformed bodies before parsing', async () => {
+  parseRequestMock.mockResolvedValue({
+    body: undefined,
+    error: () => Response.json({ error: 'bad request' }, { status: 400 }),
+  });
+
+  const response = await POST(new Request('http://localhost/api/record', { method: 'POST' }));
+
+  expect(response.status).toBe(400);
+  expect(getCollectionIpLimit).toHaveBeenCalledOnce();
+  expect(vi.mocked(getCollectionIpLimit).mock.invocationCallOrder[0]).toBeLessThan(
+    parseRequestMock.mock.invocationCallOrder[0],
+  );
+  expect(getCollectionSourceStatus).not.toHaveBeenCalled();
+});
+
 afterEach(() => {
   vi.unstubAllEnvs();
 });

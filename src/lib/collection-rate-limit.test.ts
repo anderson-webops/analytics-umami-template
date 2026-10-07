@@ -3,6 +3,7 @@ import {
   getCollectionIpLimit,
   getCollectionSourceLimit,
   getCollectionSourceStatus,
+  transferCollectionIpLimit,
 } from './collection-rate-limit';
 
 const redisState = vi.hoisted(() => ({ enabled: false, counters: new Map<string, number>() }));
@@ -55,6 +56,51 @@ test('the IP gate has one stable counter and blocks before any source is charged
 
   expect(limit).toEqual({ blocked: true, retryAfter: 60 });
   expect([...counters.keys()]).toEqual([expect.stringMatching(/^collection-rate:ip:/)]);
+});
+
+test('a batch admission transfers to exactly one child without a second charge', async () => {
+  const envelope = new Request('https://analytics.example.com/api/batch', {
+    headers: { 'x-real-ip': '203.0.113.7' },
+  });
+  const firstChild = new Request('https://analytics.example.com/api/send', {
+    headers: { 'x-real-ip': '203.0.113.7' },
+  });
+  const secondChild = new Request('https://analytics.example.com/api/send', {
+    headers: { 'x-real-ip': '203.0.113.7' },
+  });
+
+  expect((await getCollectionIpLimit(envelope)).blocked).toBe(false);
+  transferCollectionIpLimit(envelope, firstChild);
+  expect(() => transferCollectionIpLimit(envelope, secondChild)).toThrow(
+    'COLLECTION_IP_LIMIT_NOT_RESERVED',
+  );
+  expect((await getCollectionIpLimit(firstChild)).blocked).toBe(false);
+  expect((await getCollectionIpLimit(secondChild)).blocked).toBe(false);
+
+  const counters = (
+    globalThis as typeof globalThis & Record<string, Map<string, { count: number }>>
+  )[countersKey];
+  expect([...counters.values()].map(counter => counter.count)).toEqual([2]);
+});
+
+test('a blocked admission cannot be transferred to a child', async () => {
+  const envelope = new Request('https://analytics.example.com/api/batch', {
+    headers: { 'x-real-ip': '203.0.113.7' },
+  });
+
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    await getCollectionIpLimit(envelope);
+  }
+
+  expect((await getCollectionIpLimit(envelope)).blocked).toBe(true);
+  expect(() =>
+    transferCollectionIpLimit(
+      envelope,
+      new Request('https://analytics.example.com/api/send', {
+        headers: { 'x-real-ip': '203.0.113.7' },
+      }),
+    ),
+  ).toThrow('COLLECTION_IP_LIMIT_NOT_RESERVED');
 });
 
 test('a verified source uses one shared counter across requests', async () => {

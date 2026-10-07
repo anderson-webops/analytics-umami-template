@@ -1,13 +1,20 @@
 import { z } from 'zod';
 import * as send from '@/app/api/send/route';
+import { getCollectionIpLimit, transferCollectionIpLimit } from '@/lib/collection-rate-limit';
 import { parseRequest } from '@/lib/request';
-import { json, serverError } from '@/lib/response';
+import { json, serverError, tooManyRequests } from '@/lib/response';
 import { anyObjectParam } from '@/lib/schema';
 
 const schema = z.array(anyObjectParam).min(1).max(20);
 
 export async function POST(request: Request) {
   try {
+    const collectionLimit = await getCollectionIpLimit(request);
+
+    if (collectionLimit.blocked) {
+      return tooManyRequests(collectionLimit.retryAfter);
+    }
+
     const { body, error } = await parseRequest(request, schema, {
       skipAuth: true,
       maxBodyBytes: 1024 * 1024,
@@ -35,6 +42,10 @@ export async function POST(request: Request) {
         headers,
         body: JSON.stringify(data),
       });
+
+      if (index === 0) {
+        transferCollectionIpLimit(request, newRequest);
+      }
 
       const response = await send.POST(newRequest);
       const responseJson = await response.json();

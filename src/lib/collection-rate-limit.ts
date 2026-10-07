@@ -14,6 +14,8 @@ export interface CollectionLimit {
 
 const MEMORY_COUNTERS = 'analytics-collection-rate-limit-counters';
 const MAX_MEMORY_COUNTERS = 20_000;
+const transferableRequests = new WeakSet<Request>();
+const transferredRequests = new WeakSet<Request>();
 
 function getBoundedInteger(
   name: string,
@@ -120,13 +122,31 @@ async function increment(key: string): Promise<number> {
 }
 
 export async function getCollectionIpLimit(request: Request): Promise<CollectionLimit> {
+  if (transferredRequests.delete(request)) {
+    return { blocked: false, retryAfter: getWindowSeconds() };
+  }
+
+  transferableRequests.delete(request);
   const ip = getIpAddress(request.headers) || 'unknown';
   const count = await increment(`collection-rate:ip:${hash(ip).slice(0, 32)}`);
+  const blocked = count > getPerIpLimit();
+
+  if (!blocked) {
+    transferableRequests.add(request);
+  }
 
   return {
-    blocked: count > getPerIpLimit(),
+    blocked,
     retryAfter: getWindowSeconds(),
   };
+}
+
+export function transferCollectionIpLimit(from: Request, to: Request): void {
+  if (!transferableRequests.delete(from)) {
+    throw new Error('COLLECTION_IP_LIMIT_NOT_RESERVED');
+  }
+
+  transferredRequests.add(to);
 }
 
 export async function getCollectionSourceLimit(sourceId: string): Promise<CollectionLimit> {
