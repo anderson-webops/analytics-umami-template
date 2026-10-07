@@ -52,7 +52,7 @@ export function Journey({ websiteId, steps, startStep, endStep, view }: JourneyP
     const columns = [];
 
     for (let columnIndex = 0; columnIndex < +steps; columnIndex++) {
-      const nodes = {};
+      const nodes = Object.create(null);
 
       data.forEach(({ items, count }: any, nodeIndex: any) => {
         const name = items[columnIndex];
