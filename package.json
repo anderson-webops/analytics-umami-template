@@ -1,6 +1,6 @@
 {
   "name": "umami",
-  "version": "4.2.74",
+  "version": "4.2.75",
   "private": true,
   "description": "A modern, privacy-focused alternative to Google Analytics.",
   "author": "Umami Software, Inc. <hello@umami.is>",
@@ -157,7 +157,7 @@
     "lucide-react": "^1.47.0",
     "maxmind": "^5.0.7",
     "motion": "^12.43.0",
-    "next": "16.3.6",
+    "next": "16.3.8",
     "next-intl": "4.14.5",
     "npm-run-all2": "^9.0.3",
     "otplib": "^13.5.0",
