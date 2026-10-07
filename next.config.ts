@@ -23,7 +23,6 @@ const defaultCurrency = process.env.DEFAULT_CURRENCY || '';
 const defaultLocale = process.env.DEFAULT_LOCALE || '';
 const forceSSL = isProd || isEnabled('FORCE_SSL');
 const trackerScriptName = process.env.TRACKER_SCRIPT_NAME || '';
-const trackerScriptURL = process.env.TRACKER_SCRIPT_URL || '';
 const selfTrack = process.env.UMAMI_SELF_TRACK || '';
 const selfRecord = process.env.UMAMI_SELF_RECORD || '';
 
@@ -55,24 +54,6 @@ function getSafeRoutePath(value: string, name: string, allowRoot = false) {
   }
 
   return normalized;
-}
-
-function getSafeHttpsUrl(value: string, name: string) {
-  if (!value) {
-    return '';
-  }
-
-  try {
-    const url = new URL(value);
-
-    if (url.protocol !== 'https:' || url.username || url.password) {
-      throw new Error();
-    }
-
-    return url.toString();
-  } catch {
-    throw new Error(`${name} must be an HTTPS URL without embedded credentials.`);
-  }
 }
 
 function getAllowedFrameAncestors(value: string) {
@@ -251,13 +232,6 @@ if (isProd) {
 
 const rewrites = [];
 
-if (trackerScriptURL) {
-  rewrites.push({
-    source: TRACKER_SCRIPT,
-    destination: getSafeHttpsUrl(trackerScriptURL, 'TRACKER_SCRIPT_URL'),
-  });
-}
-
 if (collectApiEndpoint) {
   const normalizedCollectApiEndpoint = getSafeRoutePath(collectApiEndpoint, 'COLLECT_API_ENDPOINT');
 
@@ -352,13 +326,6 @@ if (trackerScriptName) {
       source: normalizedSource,
       headers: trackerHeaders,
     });
-  });
-}
-
-if (isProd && cloudMode) {
-  rewrites.push({
-    source: '/script.js',
-    destination: 'https://cloud.umami.is/script.js',
   });
 }
 

@@ -73,17 +73,42 @@ function customScriptName(request: NextRequest) {
     const names = scriptName.split(',').map(name => name.trim().replace(/^\/+/, ''));
 
     if (names.find(name => matchesConfiguredPath(url.pathname, name, BASE_PATH))) {
+      const scriptUrl = getExternalTrackerUrl();
+
+      if (scriptUrl) {
+        return rewriteExternalTracker(scriptUrl);
+      }
+
       url.pathname = TRACKER_PATH;
       return NextResponse.rewrite(url, { headers: trackerHeaders });
     }
   }
 }
 
+function getExternalTrackerUrl() {
+  const configuredUrl = getSafeTrackerUrl(process.env.TRACKER_SCRIPT_URL);
+
+  if (configuredUrl) {
+    return configuredUrl;
+  }
+
+  return process.env.NODE_ENV === 'production' && isEnabled(process.env.CLOUD_MODE)
+    ? new URL('https://cloud.umami.is/script.js')
+    : null;
+}
+
+function rewriteExternalTracker(scriptUrl: URL) {
+  return NextResponse.rewrite(scriptUrl, {
+    headers: trackerHeaders,
+    request: { headers: new Headers({ Accept: '*/*' }) },
+  });
+}
+
 function customScriptUrl(request: NextRequest) {
-  const scriptUrl = getSafeTrackerUrl(process.env.TRACKER_SCRIPT_URL);
+  const scriptUrl = getExternalTrackerUrl();
 
   if (scriptUrl && matchesConfiguredPath(request.nextUrl.pathname, TRACKER_PATH, BASE_PATH)) {
-    return NextResponse.rewrite(scriptUrl, { headers: trackerHeaders });
+    return rewriteExternalTracker(scriptUrl);
   }
 }
 
