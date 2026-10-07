@@ -257,7 +257,8 @@ const operation3 = defineOperation({
   operation: {
     operationId: 'updateShare',
     summary: 'Update a share',
-    description: "Updates the specified share's name, slug, and parameters.",
+    description:
+      "Updates the specified share's name, slug, and parameters. Changing the slug rotates the share ID and revokes previously issued access tokens; use the returned ID for future management requests.",
     tags: ['Shares'],
     parameters: [
       {

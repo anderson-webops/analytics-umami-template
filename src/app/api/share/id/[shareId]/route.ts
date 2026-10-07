@@ -65,7 +65,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ sha
         name,
         slug,
         parameters,
-      } as any,
+      },
       auth.user.id,
     );
   } catch (error: any) {

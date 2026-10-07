@@ -1,7 +1,7 @@
 import type { Prisma } from '@/generated/prisma/client';
 import { getBoardEntityIds } from '@/lib/boards';
 import { ENTITY_TYPE, PERMISSIONS } from '@/lib/constants';
-import { isUuid } from '@/lib/crypto';
+import { isUuid, uuid } from '@/lib/crypto';
 import prisma from '@/lib/prisma';
 import type { BoardParameters, QueryFilters } from '@/lib/types';
 import {
@@ -169,7 +169,11 @@ export async function createShare(
 
 export async function updateShare(
   shareId: string,
-  data: Prisma.ShareUpdateInput | Prisma.ShareUncheckedUpdateInput,
+  data: {
+    name: string;
+    slug: string;
+    parameters: Prisma.ShareUncheckedUpdateInput['parameters'];
+  },
   actorUserId: string,
 ) {
   return runSerializable(async transaction => {
@@ -178,6 +182,7 @@ export async function updateShare(
       select: {
         entityId: true,
         shareType: true,
+        slug: true,
       },
     });
 
@@ -211,7 +216,10 @@ export async function updateShare(
       where: {
         id: shareId,
       },
-      data,
+      data: {
+        ...data,
+        ...(data.slug !== share.slug ? { id: uuid() } : {}),
+      },
     });
   });
 }

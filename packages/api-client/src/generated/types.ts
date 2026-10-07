@@ -961,7 +961,7 @@ export interface paths {
     put?: never;
     /**
      * Update a share
-     * @description Updates the specified share's name, slug, and parameters.
+     * @description Updates the specified share's name, slug, and parameters. Changing the slug rotates the share ID and revokes previously issued access tokens; use the returned ID for future management requests.
      */
     post: operations['updateShare'];
     /**

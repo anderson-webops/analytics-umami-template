@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { SHARE_TOKEN_HEADER, SHARE_TOKEN_TYPE } from '@/lib/constants';
 import { hash } from '@/lib/crypto';
-import { parseSecureToken } from '@/lib/jwt';
+import { parseSecureToken, parseToken } from '@/lib/jwt';
 import redis from '@/lib/redis';
+import { resolveShareAccess } from '@/lib/share-access';
+import { getShare } from '@/queries/prisma';
 import { getApiKeyByHash, updateApiKeyLastUsed } from '@/queries/prisma/apiKey';
 import { getUser } from '@/queries/prisma/user';
 import { hashApiKey } from './api-key';
-import { checkAuth } from './auth';
+import { checkAuth, parseShareToken } from './auth';
 
 const twoFactorMocks = vi.hoisted(() => ({
   findTwoFactorAuth: vi.fn(),
@@ -120,6 +123,34 @@ beforeEach(() => {
   twoFactorMocks.findUser.mockReset().mockResolvedValue({ twoFactorRequired: false });
   twoFactorMocks.findTeamUsers.mockReset().mockResolvedValue([]);
   twoFactorMocks.findRequiredTeams.mockReset().mockResolvedValue([]);
+});
+
+test('a token for a rotated share ID cannot access the current share', async () => {
+  vi.stubEnv('APP_SECRET', 'test-only-share-token-secret-value');
+  vi.stubEnv('DISABLE_PUBLIC_SHARES', '');
+  const oldId = '26a3b489-e0ee-4ba8-9b4d-f47b3efcd699';
+  const currentId = '7ba1eb80-10e2-42d4-902f-8b78999fb263';
+  const request = new Request('http://localhost/api/websites', {
+    headers: { [SHARE_TOKEN_HEADER]: 'signed-share-token' },
+  });
+
+  vi.mocked(parseToken).mockReturnValueOnce({ type: SHARE_TOKEN_TYPE, shareId: oldId });
+  vi.mocked(getShare).mockResolvedValueOnce(null);
+  expect(await parseShareToken(request)).toBeNull();
+  expect(resolveShareAccess).not.toHaveBeenCalled();
+
+  vi.mocked(parseToken).mockReturnValueOnce({
+    type: SHARE_TOKEN_TYPE,
+    shareId: currentId,
+    shareType: 1,
+  });
+  vi.mocked(getShare).mockResolvedValueOnce({ id: currentId, shareType: 1 } as any);
+  vi.mocked(resolveShareAccess).mockResolvedValueOnce({
+    data: { shareId: currentId, shareType: 1 },
+    entity: { id: currentId },
+  } as any);
+
+  expect(await parseShareToken(request)).toMatchObject({ shareId: currentId });
 });
 
 describe('checkAuth required 2FA enrollment', () => {

@@ -304,7 +304,8 @@ export const operationDescriptions: Record<string, OperationDescription> = {
   },
   'POST /api/share/id/{shareId}': {
     summary: 'Update a share',
-    description: "Updates the specified share's name, slug, and parameters.",
+    description:
+      "Updates the specified share's name, slug, and parameters. Changing the slug rotates the share ID and revokes previously issued access tokens; use the returned ID for future management requests.",
   },
   'GET /api/teams': {
     summary: 'List my teams',

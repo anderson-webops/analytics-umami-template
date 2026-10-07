@@ -4,7 +4,7 @@
 import type { RequestOptions } from '../types';
 import type { components, operations as OperationTypes } from './types';
 
-export const API_VERSION = '4.2.72';
+export const API_VERSION = '4.2.73';
 
 export type HttpMethod = 'get' | 'post' | 'put' | 'patch' | 'delete';
 
@@ -5057,7 +5057,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Update a share
-   * Updates the specified share's name, slug, and parameters.
+   * Updates the specified share's name, slug, and parameters. Changing the slug rotates the share ID and revokes previously issued access tokens; use the returned ID for future management requests.
    * `POST /api/share/id/{shareId}`
    */
   updateShare(
