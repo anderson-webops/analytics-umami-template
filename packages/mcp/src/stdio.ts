@@ -1,5 +1,5 @@
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
-import { UmamiClient, type UmamiClientOptions } from '@umami/api-client';
+import { assertSecureApiUrl, UmamiClient, type UmamiClientOptions } from '@umami/api-client';
 import { type McpLogger, stderrLogger } from './lib/logger';
 import { createUmamiMcpServer } from './server';
 
@@ -51,6 +51,10 @@ export function resolveClientOptions(env: StdioEnvironment = process.env): Umami
 
   if (!baseUrl && !cloudKeyOnly) {
     throw new Error('A bearer token or non-Cloud API key requires UMAMI_URL or UMAMI_API_URL.');
+  }
+
+  if (baseUrl) {
+    assertSecureApiUrl(new URL(baseUrl));
   }
 
   return { baseUrl, token, apiKey, timeout: 30_000, maxResponseBytes: 4 * 1024 * 1024 };

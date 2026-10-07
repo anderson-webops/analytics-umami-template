@@ -149,6 +149,7 @@ describe('sendRequest', () => {
 
     expect(result).toEqual({ ok: true });
     expect(captured?.init?.method).toBe('POST');
+    expect(captured?.init?.redirect).toBe('error');
     expect(captured?.init?.body).toBe(JSON.stringify({ websiteId: 'w' }));
     expect(captured?.init?.headers).toMatchObject({
       authorization: 'Bearer t',
@@ -156,6 +157,49 @@ describe('sendRequest', () => {
       'content-type': 'application/json',
       accept: 'application/json',
     });
+  });
+
+  test.each([
+    'http://analytics.example.com/api',
+    'http://192.168.1.10/api',
+    'http://127.0.0.1.evil.example/api',
+    'http://127.0.0.1@evil.example/api',
+    'ftp://analytics.example.com/api',
+    'https://user:password@analytics.example.com/api',
+    'https://analytics.example.com/api#fragment',
+  ])('rejects an unsafe API destination before sending credentials: %s', async value => {
+    let called = false;
+
+    await expect(
+      sendRequest(
+        async () => {
+          called = true;
+          return jsonResponse({ ok: true });
+        },
+        {
+          method: 'get',
+          url: new URL(value),
+          headers: { authorization: 'Bearer synthetic-token', 'x-umami-api-key': 'synthetic-key' },
+        },
+      ),
+    ).rejects.toThrow(/HTTPS or local loopback HTTP/);
+    expect(called).toBe(false);
+  });
+
+  test.each([
+    'https://analytics.example.com/api',
+    'http://localhost:3000/api',
+    'http://127.0.0.1:3000/api',
+    'http://[::1]:3000/api',
+    'http://127.1:3000/api',
+  ])('allows a secure or local API destination: %s', async value => {
+    await expect(
+      sendRequest(async () => jsonResponse({ ok: true }), {
+        method: 'get',
+        url: new URL(value),
+        headers: { authorization: 'Bearer synthetic-token' },
+      }),
+    ).resolves.toEqual({ ok: true });
   });
 
   test('throws UmamiApiError with the API error code for 4xx responses', async () => {

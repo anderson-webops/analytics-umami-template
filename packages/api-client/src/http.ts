@@ -8,6 +8,7 @@ export const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 export const DEFAULT_MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
 const MAX_REQUEST_TIMEOUT_MS = 5 * 60_000;
 const MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
+const LOCAL_HTTP_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
 type QueryValue = string | number | boolean | Date | null | undefined | QueryValue[];
 
@@ -81,6 +82,18 @@ export function buildAuthHeaders(options: Pick<UmamiClientOptions, 'token' | 'ap
   }
 
   return headers;
+}
+
+export function assertSecureApiUrl(url: URL) {
+  if (
+    !url.hostname ||
+    url.username ||
+    url.password ||
+    url.hash ||
+    (url.protocol !== 'https:' && !(url.protocol === 'http:' && LOCAL_HTTP_HOSTS.has(url.hostname)))
+  ) {
+    throw new TypeError('API URL must use HTTPS or local loopback HTTP without URL credentials.');
+  }
 }
 
 export interface SplitInput {
@@ -240,8 +253,9 @@ export interface HttpRequest {
 }
 
 export async function sendRequest<T>(fetchImpl: FetchLike, request: HttpRequest): Promise<T> {
+  assertSecureApiUrl(request.url);
   const headers: Record<string, string> = { accept: 'application/json', ...request.headers };
-  const init: RequestInit = { method: request.method.toUpperCase(), headers };
+  const init: RequestInit = { method: request.method.toUpperCase(), headers, redirect: 'error' };
 
   if (request.body !== undefined) {
     headers['content-type'] = 'application/json';

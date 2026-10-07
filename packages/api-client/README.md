@@ -49,6 +49,8 @@ response types, or import `OperationInput<'getWebsiteStats'>` / `OperationOutput
 | `timeout` | Total request timeout, including the body, in milliseconds (default: 60,000; maximum: 300,000).             |
 | `maxResponseBytes` | Response body limit in bytes (default: 16 MiB; maximum: 64 MiB).                                |
 
+Requests require HTTPS, except HTTP to `localhost`, `127.0.0.1`, or `[::1]` for a local instance. The default network transport rejects redirects rather than forwarding credentials to a different endpoint. Custom `fetch` implementations must honor the supplied `redirect: 'error'` option.
+
 ### Errors
 
 Non-2xx responses throw `UmamiApiError` with `status`, `code` (`unauthorized`, `forbidden`,

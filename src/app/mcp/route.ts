@@ -3,7 +3,6 @@ import type { McpLogger } from '@umami/mcp';
 import { createUmamiMcpHttpHandler } from '@umami/mcp';
 import debug from 'debug';
 import { uuid } from '@/lib/crypto';
-import { getBaseUrl } from '@/lib/get-base-url';
 import { authenticateMcpRequest, mcpAuthErrorResponse } from '@/lib/mcp/auth';
 import { createInProcessFetch } from '@/lib/mcp/dispatch';
 import { RequestBodyTooLargeError, readRequestBodyBytes } from '@/lib/request-body';
@@ -28,12 +27,11 @@ const logger: McpLogger = {
 const handler = createUmamiMcpHttpHandler({
   logger,
   onerror: error => log('handler error: %s', error?.message),
-  createClient: (authInfo, ctx) => {
-    const baseUrl = getBaseUrl(ctx.requestInfo?.headers).toString().replace(/\/+$/, '');
+  createClient: authInfo => {
     const basePath = (process.env.BASE_PATH ?? '').replace(/\/+$/, '');
 
     return new UmamiClient({
-      baseUrl: `${baseUrl}${basePath}/api`,
+      baseUrl: `https://mcp-internal.invalid${basePath}/api`,
       token: authInfo.token,
       fetch: createInProcessFetch(),
     });

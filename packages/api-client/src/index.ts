@@ -11,5 +11,5 @@ export {
   type Schemas,
 } from './generated/operations';
 export type { components, operations as OperationTypes, paths } from './generated/types';
-export { API_KEY_HEADER, DEFAULT_BASE_URL } from './http';
+export { API_KEY_HEADER, assertSecureApiUrl, DEFAULT_BASE_URL } from './http';
 export type { FetchLike, RequestOptions, UmamiClientOptions } from './types';

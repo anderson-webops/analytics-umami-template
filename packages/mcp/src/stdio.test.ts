@@ -61,6 +61,23 @@ describe('resolveClientOptions', () => {
   });
 
   test.each([
+    { UMAMI_URL: 'http://localhost:3000', UMAMI_API_TOKEN: 'synthetic-token' },
+    { UMAMI_API_URL: 'http://127.0.0.1:3000/api', UMAMI_API_KEY: 'synthetic-key' },
+    { UMAMI_API_URL: 'http://[::1]:3000/api', UMAMI_API_TOKEN: 'synthetic-token' },
+  ])('allows loopback HTTP for local stdio clients: %j', env => {
+    expect(resolveClientOptions(env).baseUrl).toMatch(/^http:\/\//);
+  });
+
+  test.each([
+    { UMAMI_URL: 'http://analytics.example.com', UMAMI_API_TOKEN: 'synthetic-token' },
+    { UMAMI_API_URL: 'http://192.168.1.10/api', UMAMI_API_KEY: 'synthetic-key' },
+    { UMAMI_URL: 'http://127.0.0.1.evil.example', UMAMI_API_TOKEN: 'synthetic-token' },
+    { UMAMI_API_URL: 'http://127.0.0.1@evil.example/api', UMAMI_API_KEY: 'synthetic-key' },
+  ])('rejects nonlocal cleartext stdio API endpoints: %j', env => {
+    expect(() => resolveClientOptions(env)).toThrow(/HTTPS or local loopback HTTP/);
+  });
+
+  test.each([
     { UMAMI_API_TOKEN: 'self-hosted-token' },
     { UMAMI_API_TOKEN: 'self-hosted-token', UMAMI_API_KEY: 'api_cloud-key' },
     { UMAMI_API_KEY: 'umami_self-hosted-key' },
