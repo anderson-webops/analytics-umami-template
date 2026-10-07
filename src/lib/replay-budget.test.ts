@@ -81,4 +81,8 @@ test('reserves visit, minute, and day budgets for an ordinary chunk', async () =
   expect(await reserveReplayBudget(client, args)).toBe(true);
   expect(query).toHaveBeenCalledTimes(5);
   expect(execute).toHaveBeenCalledOnce();
+  const visitExpiry = query.mock.calls[2].find(value => value instanceof Date);
+  expect(visitExpiry).toBeInstanceOf(Date);
+  expect(visitExpiry.getTime()).toBeGreaterThan(Date.now() + 37 * 24 * 60 * 60 * 1000);
+  expect(visitExpiry.getTime()).toBeLessThan(Date.now() + 39 * 24 * 60 * 60 * 1000);
 });

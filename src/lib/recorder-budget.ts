@@ -1,0 +1,1 @@
+export const RECORDER_VISIT_BUDGET_RETENTION_MS = 38 * 24 * 60 * 60 * 1000;

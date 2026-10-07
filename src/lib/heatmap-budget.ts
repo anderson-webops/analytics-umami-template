@@ -1,4 +1,5 @@
 import type { Prisma } from '@/generated/prisma/client';
+import { RECORDER_VISIT_BUDGET_RETENTION_MS } from '@/lib/recorder-budget';
 
 export const MAX_HEATMAP_VISIT_BYTES = 4 * 1024 * 1024;
 export const MAX_HEATMAP_VISIT_EVENTS = 5_000;
@@ -48,7 +49,7 @@ export async function reserveHeatmapBudget(
       byteLimit: MAX_HEATMAP_VISIT_BYTES,
       eventLimit: MAX_HEATMAP_VISIT_EVENTS,
       requestLimit: MAX_HEATMAP_VISIT_REQUESTS,
-      expiry: null,
+      expiry: new Date(now + RECORDER_VISIT_BUDGET_RETENTION_MS),
       retryAfter: undefined,
     },
     {
@@ -82,7 +83,7 @@ export async function reserveHeatmapBudget(
         bytes = replay_ingest_budget.bytes + EXCLUDED.bytes,
         events = replay_ingest_budget.events + EXCLUDED.events,
         chunks = replay_ingest_budget.chunks + 1,
-        expires_at = GREATEST(replay_ingest_budget.expires_at, EXCLUDED.expires_at)
+        expires_at = GREATEST(COALESCE(replay_ingest_budget.expires_at, EXCLUDED.expires_at), EXCLUDED.expires_at)
       WHERE replay_ingest_budget.bytes + EXCLUDED.bytes <= ${byteLimit}::bigint
         AND replay_ingest_budget.events + EXCLUDED.events <= ${eventLimit}
         AND replay_ingest_budget.chunks < ${requestLimit}

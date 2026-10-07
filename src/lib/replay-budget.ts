@@ -1,4 +1,5 @@
 import type { Prisma } from '@/generated/prisma/client';
+import { RECORDER_VISIT_BUDGET_RETENTION_MS } from '@/lib/recorder-budget';
 
 export const MAX_REPLAY_CHUNKS = 2048;
 export const MAX_REPLAY_BYTES = 8 * 1024 * 1024;
@@ -49,17 +50,19 @@ export async function reserveReplayBudget(
   }
 
   const now = Date.now();
+  const visitExpiry = new Date(now + RECORDER_VISIT_BUDGET_RETENTION_MS);
   const visitBudget = await transaction.$queryRaw<Array<{ bytes: bigint }>>`
     INSERT INTO replay_ingest_budget
       (website_id, scope, scope_key, bytes, events, chunks, chunk_indices, expires_at)
     VALUES
       (${websiteId}::uuid, 'visit', ${visitId}, ${bytes}::bigint, ${events}, 1,
        CASE WHEN ${idempotent} THEN ARRAY[${chunkIndex}]::integer[]
-         ELSE ARRAY[]::integer[] END, NULL)
+         ELSE ARRAY[]::integer[] END, ${visitExpiry})
     ON CONFLICT (website_id, scope, scope_key) DO UPDATE SET
       bytes = replay_ingest_budget.bytes + EXCLUDED.bytes,
       events = replay_ingest_budget.events + EXCLUDED.events,
       chunks = replay_ingest_budget.chunks + 1,
+      expires_at = GREATEST(COALESCE(replay_ingest_budget.expires_at, EXCLUDED.expires_at), EXCLUDED.expires_at),
       chunk_indices = CASE WHEN ${idempotent}
         THEN array_append(replay_ingest_budget.chunk_indices, ${chunkIndex})
         ELSE replay_ingest_budget.chunk_indices END

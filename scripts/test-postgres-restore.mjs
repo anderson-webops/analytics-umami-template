@@ -111,6 +111,27 @@ try {
   await active.connect();
   const original = await roles();
   assert.ok(original.every(row => row.definition.endsWith(']::text[]))')));
+  const seededAdminId = '41e2b680-648e-4b09-bcd7-3e2b10c06264';
+  const legacyBudgetWebsiteId = crypto.randomUUID();
+  await active.query(
+    'INSERT INTO website (website_id, name, domain, user_id) VALUES ($1, $2, $3, $4)',
+    [
+      legacyBudgetWebsiteId,
+      'Synthetic legacy recorder budgets',
+      'legacy.example.com',
+      seededAdminId,
+    ],
+  );
+  for (const key of ['legacy-replay', 'heatmap:legacy-heatmap']) {
+    await active.query(
+      "INSERT INTO replay_ingest_budget (website_id, scope, scope_key, bytes, events, chunks, chunk_indices, expires_at) VALUES ($1, 'visit', $2, 100, 1, 1, ARRAY[1], NULL)",
+      [legacyBudgetWebsiteId, key],
+    );
+  }
+  await active.query(
+    "INSERT INTO replay_ingest_budget (website_id, scope, scope_key, bytes, events, chunks, expires_at) VALUES ($1, 'minute', 'legacy-window', 25, 1, 1, now() + INTERVAL '2 days')",
+    [legacyBudgetWebsiteId],
+  );
 
   // Reconstruct only a synthetic legacy state, never modify a real ledger.
   const pending = (await ledger()).filter(row =>
@@ -126,6 +147,9 @@ try {
   await active.query('DROP TABLE collection_ingest_budget');
   await active.query(
     "DELETE FROM _prisma_migrations WHERE migration_name = '31_bound_event_ingestion'",
+  );
+  await active.query(
+    "DELETE FROM _prisma_migrations WHERE migration_name = '32_expire_replay_visit_budgets'",
   );
   await active.query(
     "INSERT INTO _prisma_migrations (id, checksum, migration_name, started_at, rolled_back_at, applied_steps_count) VALUES ($1, $2, '16_boards', now(), now(), 0)",
@@ -152,6 +176,28 @@ try {
     (await active.query("SELECT to_regclass('collection_ingest_budget') AS name")).rows[0].name,
     'collection_ingest_budget',
   );
+  const legacyBudgets = (
+    await active.query(
+      'SELECT scope, scope_key, bytes, events, chunks, chunk_indices, expires_at FROM replay_ingest_budget WHERE website_id = $1 ORDER BY scope, scope_key',
+      [legacyBudgetWebsiteId],
+    )
+  ).rows;
+  assert.equal(legacyBudgets.length, 3);
+  for (const row of legacyBudgets) {
+    assert.equal(row.events, 1);
+    assert.equal(row.chunks, 1);
+    if (row.scope === 'visit') {
+      assert.equal(BigInt(row.bytes), 100n);
+      assert.deepEqual(row.chunk_indices, [1]);
+      assert.ok(row.expires_at instanceof Date);
+      assert.ok(row.expires_at.getTime() >= Date.now() + 37 * 24 * 60 * 60 * 1000);
+      assert.ok(row.expires_at.getTime() <= Date.now() + 39 * 24 * 60 * 60 * 1000);
+    } else {
+      assert.equal(row.scope_key, 'legacy-window');
+      assert.equal(BigInt(row.bytes), 25n);
+      assert.ok(row.expires_at.getTime() < Date.now() + 3 * 24 * 60 * 60 * 1000);
+    }
+  }
   for (const row of history)
     assert.deepEqual(
       (await ledger()).find(item => item.id === row.id),
@@ -189,7 +235,6 @@ try {
     path.join(fixture, 'server.js'),
     "console.log('RESTORED_STARTUP_ACCEPTED');\n",
   );
-  const seededAdminId = '41e2b680-648e-4b09-bcd7-3e2b10c06264';
   const deniedDefault = startup();
   assert.notEqual(deniedDefault.status, 0, deniedDefault.output);
   assert.match(deniedDefault.output, /known default password/);

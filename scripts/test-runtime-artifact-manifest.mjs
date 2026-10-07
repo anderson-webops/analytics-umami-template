@@ -275,6 +275,7 @@ test('rejects missing required modules and forbidden writable state', async () =
 for (const migrationPath of [
   'prisma/migrations/30_revoke_sessions_on_factor_reset/migration.sql',
   'prisma/migrations/31_bound_event_ingestion/migration.sql',
+  'prisma/migrations/32_expire_replay_visit_budgets/migration.sql',
 ]) {
   test(`requires ${migrationPath} in every runtime artifact`, async () => {
     const trustedContract = JSON.parse(

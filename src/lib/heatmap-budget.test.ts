@@ -84,4 +84,8 @@ test('reserves visit and source windows under separate heatmap keys', async () =
   expect(keys[0]).toBe(`heatmap:${args.visitId}`);
   expect(keys[1]).toMatch(/^heatmap:\d{4}-\d\d-\d\dT\d\d:\d\d:00\.000Z$/);
   expect(keys[2]).toMatch(/^heatmap:\d{4}-\d\d-\d\dT00:00:00\.000Z$/);
+  const visitExpiry = query.mock.calls[0].find(value => value instanceof Date);
+  expect(visitExpiry).toBeInstanceOf(Date);
+  expect(visitExpiry.getTime()).toBeGreaterThan(Date.now() + 37 * 24 * 60 * 60 * 1000);
+  expect(visitExpiry.getTime()).toBeLessThan(Date.now() + 39 * 24 * 60 * 60 * 1000);
 });
