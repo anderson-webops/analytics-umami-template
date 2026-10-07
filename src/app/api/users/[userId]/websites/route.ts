@@ -3,6 +3,7 @@ import { isUuid } from '@/lib/crypto';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import { badRequest, json, unauthorized } from '@/lib/response';
 import { pagingParams, searchParams, sortingParams } from '@/lib/schema';
+import { redactWebsiteListShareIds } from '@/permissions';
 import { getAllUserWebsitesIncludingTeamAccess, getUserWebsites } from '@/queries/prisma/website';
 
 export async function GET(request: Request, { params }: { params: Promise<{ userId: string }> }) {
@@ -32,8 +33,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ user
   const filters = await getQueryFilters(query);
 
   if (query.includeTeams) {
-    return json(await getAllUserWebsitesIncludingTeamAccess(userId, filters));
+    const websites = await getAllUserWebsitesIncludingTeamAccess(userId, filters);
+    return json({ ...websites, data: await redactWebsiteListShareIds(auth, websites.data) });
   }
 
-  return json(await getUserWebsites(userId, filters));
+  const websites = await getUserWebsites(userId, filters);
+  return json({ ...websites, data: await redactWebsiteListShareIds(auth, websites.data) });
 }

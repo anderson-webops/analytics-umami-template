@@ -1,8 +1,8 @@
 import { z } from 'zod';
-import { redactWebsiteShareId } from '@/lib/api-key';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import { json } from '@/lib/response';
 import { pagingParams, sortingParams } from '@/lib/schema';
+import { redactWebsiteListShareIds } from '@/permissions';
 import { getAllUserWebsitesIncludingTeamAccess, getUserWebsites } from '@/queries/prisma';
 
 export async function GET(request: Request) {
@@ -24,13 +24,13 @@ export async function GET(request: Request) {
     const websites = await getAllUserWebsitesIncludingTeamAccess(auth.user.id, filters);
     return json({
       ...websites,
-      data: websites.data.map(website => redactWebsiteShareId(website, auth.authType, true)),
+      data: await redactWebsiteListShareIds(auth, websites.data),
     });
   }
 
   const websites = await getUserWebsites(auth.user.id, filters);
   return json({
     ...websites,
-    data: websites.data.map(website => redactWebsiteShareId(website, auth.authType, true)),
+    data: await redactWebsiteListShareIds(auth, websites.data),
   });
 }

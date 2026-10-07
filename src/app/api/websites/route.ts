@@ -1,4 +1,3 @@
-import { redactWebsiteShareId } from '@/lib/api-key';
 import { uuid } from '@/lib/crypto';
 import { isEnvEnabled } from '@/lib/env';
 import { fetchAccount, fetchTeam } from '@/lib/load';
@@ -6,7 +5,7 @@ import { getQueryFilters, parseRequest } from '@/lib/request';
 import { conflict, forbidden, json, unauthorized } from '@/lib/response';
 import { publicSharesDisabled } from '@/lib/security';
 import { getCloudWebsiteLimit } from '@/lib/subscription';
-import { canCreateTeamWebsite, canCreateWebsite } from '@/permissions';
+import { canCreateTeamWebsite, canCreateWebsite, redactWebsiteListShareIds } from '@/permissions';
 import { createWebsite } from '@/queries/prisma';
 import { getAllUserWebsitesIncludingTeamAccess, getUserWebsites } from '@/queries/prisma/website';
 import { createWebsiteRequestSchema, listWebsitesQuerySchema } from './request-schema';
@@ -26,14 +25,14 @@ export async function GET(request: Request) {
     const websites = await getAllUserWebsitesIncludingTeamAccess(userId, filters);
     return json({
       ...websites,
-      data: websites.data.map(website => redactWebsiteShareId(website, auth.authType, true)),
+      data: await redactWebsiteListShareIds(auth, websites.data),
     });
   }
 
   const websites = await getUserWebsites(userId, filters);
   return json({
     ...websites,
-    data: websites.data.map(website => redactWebsiteShareId(website, auth.authType, true)),
+    data: await redactWebsiteListShareIds(auth, websites.data),
   });
 }
 

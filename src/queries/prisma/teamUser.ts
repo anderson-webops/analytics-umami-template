@@ -12,7 +12,9 @@ export async function getTeamUser(teamId: string, userId: string) {
     return null;
   }
 
-  return prisma.client.teamUser.findFirst({
+  const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
+
+  return client.teamUser.findFirst({
     where: {
       teamId,
       userId,

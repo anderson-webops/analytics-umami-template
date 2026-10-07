@@ -10,11 +10,19 @@ import {
   canViewAllWebsites,
   canViewBatchWebsites,
   canViewWebsite,
+  redactWebsiteListShareIds,
 } from './website';
 
-const { websiteFindManyMock, teamUserFindManyMock } = vi.hoisted(() => ({
+const {
+  websiteFindManyMock,
+  teamUserFindManyMock,
+  primaryWebsiteFindManyMock,
+  primaryTeamUserFindManyMock,
+} = vi.hoisted(() => ({
   websiteFindManyMock: vi.fn(),
   teamUserFindManyMock: vi.fn(),
+  primaryWebsiteFindManyMock: vi.fn(),
+  primaryTeamUserFindManyMock: vi.fn(),
 }));
 
 vi.mock('@/lib/entity', () => ({
@@ -35,6 +43,10 @@ vi.mock('@/lib/prisma', () => ({
       teamUser: {
         findMany: teamUserFindManyMock,
       },
+      $primary: () => ({
+        website: { findMany: primaryWebsiteFindManyMock },
+        teamUser: { findMany: primaryTeamUserFindManyMock },
+      }),
     },
   },
 }));
@@ -60,6 +72,8 @@ beforeEach(() => {
   vi.mocked(getTeamUser).mockReset();
   websiteFindManyMock.mockReset();
   teamUserFindManyMock.mockReset();
+  primaryWebsiteFindManyMock.mockReset();
+  primaryTeamUserFindManyMock.mockReset();
 });
 
 describe('canViewWebsite', () => {
@@ -145,12 +159,12 @@ describe('canViewBatchWebsites', () => {
   });
 
   test('returns owned, team, and share allowed ids for a user', async () => {
-    websiteFindManyMock.mockResolvedValue([
+    primaryWebsiteFindManyMock.mockResolvedValue([
       { id: 'owned', userId: 'user-1', teamId: null },
       { id: 'team', userId: null, teamId: 'team-1' },
       { id: 'foreign', userId: 'other', teamId: null },
     ] as any);
-    teamUserFindManyMock.mockResolvedValue([{ teamId: 'team-1' }] as any);
+    primaryTeamUserFindManyMock.mockResolvedValue([{ teamId: 'team-1' }] as any);
 
     await expect(
       canViewBatchWebsites({ user: normalUser, shareToken: { websiteId: 'shared' } as any }, [
@@ -163,10 +177,112 @@ describe('canViewBatchWebsites', () => {
   });
 
   test('excludes team websites when the user is not a team member', async () => {
-    websiteFindManyMock.mockResolvedValue([{ id: 'team', userId: null, teamId: 'team-1' }] as any);
-    teamUserFindManyMock.mockResolvedValue([] as any);
+    primaryWebsiteFindManyMock.mockResolvedValue([
+      { id: 'team', userId: null, teamId: 'team-1' },
+    ] as any);
+    primaryTeamUserFindManyMock.mockResolvedValue([] as any);
 
     await expect(canViewBatchWebsites({ user: normalUser }, ['team'])).resolves.toEqual([]);
+  });
+
+  test('does not authorize stale replica website ownership', async () => {
+    websiteFindManyMock.mockResolvedValue([{ id: 'old', userId: 'user-1' }] as any);
+    primaryWebsiteFindManyMock.mockResolvedValue([{ id: 'old', userId: 'new-owner' }] as any);
+
+    await expect(canViewBatchWebsites({ user: normalUser }, ['old'])).resolves.toEqual([]);
+    expect(websiteFindManyMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('redactWebsiteListShareIds', () => {
+  const websites = [
+    { id: 'owned', userId: 'user-1', teamId: null, shareId: 'owned-slug' },
+    { id: 'managed-team', userId: null, teamId: 'team-1', shareId: 'managed-slug' },
+    { id: 'read-only-team', userId: null, teamId: 'team-2', shareId: 'read-only-slug' },
+    { id: 'foreign', userId: 'other', teamId: null, shareId: 'foreign-slug' },
+  ];
+
+  beforeEach(() => {
+    primaryWebsiteFindManyMock.mockResolvedValue(websites);
+  });
+
+  test('does not disclose slugs to a downgraded owner or an API key', async () => {
+    for (const auth of [
+      { authType: 'session' as const, user: { ...viewOnlyUser, id: 'user-1' } },
+      { authType: 'api-key' as const, user: normalUser },
+    ]) {
+      const result = await redactWebsiteListShareIds(auth, websites);
+      expect(result.map(website => website.shareId)).toEqual([null, null, null, null]);
+    }
+
+    expect(primaryWebsiteFindManyMock).not.toHaveBeenCalled();
+    expect(primaryTeamUserFindManyMock).not.toHaveBeenCalled();
+  });
+
+  test('preserves only slugs for websites the actor can currently update', async () => {
+    primaryTeamUserFindManyMock.mockResolvedValue([
+      { teamId: 'team-1', role: 'team-manager' },
+      { teamId: 'team-2', role: 'team-view-only' },
+    ] as any);
+
+    const result = await redactWebsiteListShareIds(
+      { authType: 'session', user: normalUser },
+      websites,
+    );
+
+    expect(result.map(website => website.shareId)).toEqual([
+      'owned-slug',
+      'managed-slug',
+      null,
+      null,
+    ]);
+    expect(primaryWebsiteFindManyMock).toHaveBeenCalledWith({
+      where: {
+        id: { in: ['owned', 'managed-team', 'read-only-team', 'foreign'] },
+        deletedAt: null,
+      },
+      select: { id: true, userId: true, teamId: true },
+    });
+    expect(primaryTeamUserFindManyMock).toHaveBeenCalledTimes(1);
+    expect(primaryTeamUserFindManyMock).toHaveBeenCalledWith({
+      where: {
+        userId: normalUser.id,
+        teamId: { in: ['team-1', 'team-2'] },
+        team: { deletedAt: null },
+        user: { deletedAt: null },
+      },
+      select: { teamId: true, role: true },
+    });
+    expect(websites[2].shareId).toBe('read-only-slug');
+  });
+
+  test('ignores stale replica ownership and team membership after access changes', async () => {
+    primaryWebsiteFindManyMock.mockResolvedValue([
+      { id: 'owned', userId: 'new-owner', teamId: null },
+      { id: 'managed-team', userId: null, teamId: 'team-1' },
+    ] as any);
+    primaryTeamUserFindManyMock.mockResolvedValue([] as any);
+
+    const result = await redactWebsiteListShareIds(
+      { authType: 'session', user: normalUser },
+      websites,
+    );
+
+    expect(result.map(website => website.shareId)).toEqual([null, null, null, null]);
+    expect(websiteFindManyMock).not.toHaveBeenCalled();
+    expect(teamUserFindManyMock).not.toHaveBeenCalled();
+  });
+
+  test('preserves slugs for an interactive administrator only', async () => {
+    await expect(
+      redactWebsiteListShareIds({ authType: 'session', user: adminUser }, websites),
+    ).resolves.toEqual(websites);
+    await expect(
+      redactWebsiteListShareIds(
+        { authType: 'session', user: { ...adminUser, role: 'view-only' } },
+        websites,
+      ),
+    ).resolves.toEqual(websites.map(website => ({ ...website, shareId: null })));
   });
 });
 

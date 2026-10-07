@@ -77,7 +77,8 @@ async function deleteWebsiteDependentData(tx: any, websiteId: string) {
 }
 
 export async function findWebsite(criteria: Prisma.WebsiteFindUniqueArgs) {
-  return prisma.client.website.findUnique(criteria);
+  const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
+  return client.website.findUnique(criteria);
 }
 
 export async function getWebsite(websiteId: string) {

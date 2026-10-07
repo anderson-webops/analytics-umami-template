@@ -2,37 +2,47 @@ import { beforeEach, expect, test, vi } from 'vitest';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import {
   canCreateWebsite,
-  canUpdateTeamWebsites,
   canUpdateWebsite,
+  canViewAllWebsites,
   canViewSharedWebsite,
   canViewTeam,
+  redactWebsiteListShareIds,
 } from '@/permissions';
 import { createWebsite, getTeamWebsites, getWebsite, updateWebsite } from '@/queries/prisma';
-import { getAllUserWebsitesIncludingTeamAccess, getUserWebsites } from '@/queries/prisma/website';
+import {
+  getAllUserWebsitesIncludingTeamAccess,
+  getUserWebsites,
+  getWebsites,
+} from '@/queries/prisma/website';
+import { GET as getAdminWebsitesRoute } from '../admin/websites/route';
 import { GET as getMyWebsitesRoute } from '../me/websites/route';
 import { GET as getTeamWebsitesRoute } from '../teams/[teamId]/websites/route';
+import { GET as getUserWebsitesRoute } from '../users/[userId]/websites/route';
 import { GET as getWebsiteRoute, POST as update } from './[websiteId]/route';
 import { POST as create, GET as listWebsitesRoute } from './route';
 
 const websiteListMocks = vi.hoisted(() => ({
   getAllUserWebsitesIncludingTeamAccess: vi.fn(),
   getUserWebsites: vi.fn(),
+  getWebsites: vi.fn(),
 }));
 
 vi.mock('@/lib/load', () => ({ fetchAccount: vi.fn(), fetchTeam: vi.fn() }));
 vi.mock('@/lib/request', () => ({ getQueryFilters: vi.fn(), parseRequest: vi.fn() }));
 vi.mock('@/permissions', () => ({
   canCreateWebsite: vi.fn(),
-  canUpdateTeamWebsites: vi.fn(),
   canUpdateWebsite: vi.fn(),
+  canViewAllWebsites: vi.fn(),
   canViewSharedWebsite: vi.fn(),
   canViewTeam: vi.fn(),
+  redactWebsiteListShareIds: vi.fn(),
 }));
 vi.mock('@/queries/prisma', () => ({
   createWebsite: vi.fn(),
   getAllUserWebsitesIncludingTeamAccess: websiteListMocks.getAllUserWebsitesIncludingTeamAccess,
   getTeamWebsites: vi.fn(),
   getUserWebsites: websiteListMocks.getUserWebsites,
+  getWebsites: websiteListMocks.getWebsites,
   getWebsite: vi.fn(),
   updateWebsite: vi.fn(),
 }));
@@ -41,21 +51,23 @@ vi.mock('@/queries/prisma/website', () => websiteListMocks);
 const getQueryFiltersMock = vi.mocked(getQueryFilters);
 const parseRequestMock = vi.mocked(parseRequest);
 const canCreateWebsiteMock = vi.mocked(canCreateWebsite);
-const canUpdateTeamWebsitesMock = vi.mocked(canUpdateTeamWebsites);
 const canUpdateWebsiteMock = vi.mocked(canUpdateWebsite);
+const canViewAllWebsitesMock = vi.mocked(canViewAllWebsites);
 const canViewSharedWebsiteMock = vi.mocked(canViewSharedWebsite);
 const canViewTeamMock = vi.mocked(canViewTeam);
+const redactWebsiteListShareIdsMock = vi.mocked(redactWebsiteListShareIds);
 const createWebsiteMock = vi.mocked(createWebsite);
 const getAllUserWebsitesMock = vi.mocked(getAllUserWebsitesIncludingTeamAccess);
 const getTeamWebsitesMock = vi.mocked(getTeamWebsites);
 const getUserWebsitesMock = vi.mocked(getUserWebsites);
+const getWebsitesMock = vi.mocked(getWebsites);
 const getWebsiteMock = vi.mocked(getWebsite);
 const updateWebsiteMock = vi.mocked(updateWebsite);
 const websiteId = '3979e857-a987-4795-9380-12024a4440a9';
 
 function setAuth(authType: 'api-key' | 'session', shareId?: string | null, includeTeams = false) {
   parseRequestMock.mockResolvedValue({
-    auth: { authType, user: { id: 'user-1', isAdmin: false } },
+    auth: { authType, user: { id: 'user-1', username: 'user', role: 'user', isAdmin: false } },
     body: { name: 'Example', domain: 'example.com', ...(shareId !== undefined && { shareId }) },
     query: includeTeams ? { includeTeams: 'true' } : {},
   });
@@ -65,8 +77,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.unstubAllEnvs();
   canCreateWebsiteMock.mockResolvedValue(true);
-  canUpdateTeamWebsitesMock.mockResolvedValue(true);
   canUpdateWebsiteMock.mockResolvedValue(true);
+  canViewAllWebsitesMock.mockResolvedValue(true);
   canViewSharedWebsiteMock.mockResolvedValue(true);
   canViewTeamMock.mockResolvedValue(true);
   getQueryFiltersMock.mockResolvedValue({} as any);
@@ -80,6 +92,14 @@ beforeEach(() => {
   getAllUserWebsitesMock.mockResolvedValue(page as any);
   getTeamWebsitesMock.mockResolvedValue(page as any);
   getUserWebsitesMock.mockResolvedValue(page as any);
+  getWebsitesMock.mockResolvedValue(page as any);
+  redactWebsiteListShareIdsMock.mockImplementation(async (auth, websites) =>
+    websites.map(website => ({
+      ...website,
+      shareId:
+        auth.authType === 'session' && auth.user?.role !== 'view-only' ? website.shareId : null,
+    })),
+  );
 });
 
 test('API keys cannot create public shares through website creation', async () => {
@@ -167,7 +187,9 @@ test.each(['api-key', 'session'] as const)(
 test('read-only website access does not reveal a public share slug', async () => {
   setAuth('session');
   canUpdateWebsiteMock.mockResolvedValue(false);
-  canUpdateTeamWebsitesMock.mockResolvedValue(false);
+  redactWebsiteListShareIdsMock.mockImplementation(async (_auth, websites) =>
+    websites.map(website => ({ ...website, shareId: null })),
+  );
 
   const detail = await getWebsiteRoute(new Request(`http://localhost/api/websites/${websiteId}`), {
     params: Promise.resolve({ websiteId }),
@@ -181,6 +203,49 @@ test('read-only website access does not reveal a public share slug', async () =>
   expect((await detail.json()).shareId).toBeNull();
   expect(teamList.status).toBe(200);
   expect((await teamList.json()).data[0].shareId).toBeNull();
+});
+
+test('a downgraded view-only owner cannot discover public share slugs through website lists', async () => {
+  const userId = '9ba94192-bc42-4786-9c5a-aa109aebcd77';
+  for (const includeTeams of [false, true]) {
+    const search = includeTeams ? '?includeTeams=true' : '';
+    parseRequestMock.mockResolvedValue({
+      auth: {
+        authType: 'session',
+        user: { id: userId, username: 'viewer', role: 'view-only', isAdmin: false },
+      },
+      query: includeTeams ? { includeTeams: 'true' } : {},
+    } as any);
+
+    for (const response of await Promise.all([
+      listWebsitesRoute(new Request(`http://localhost/api/websites${search}`)),
+      getMyWebsitesRoute(new Request(`http://localhost/api/me/websites${search}`)),
+      getTeamWebsitesRoute(new Request('http://localhost/api/teams/team-1/websites'), {
+        params: Promise.resolve({ teamId: 'team-1' }),
+      }),
+      getUserWebsitesRoute(new Request(`http://localhost/api/users/${userId}/websites${search}`), {
+        params: Promise.resolve({ userId }),
+      }),
+    ])) {
+      expect(response.status).toBe(200);
+      expect((await response.json()).data[0].shareId).toBeNull();
+    }
+  }
+});
+
+test('admin website lists also honor current share-management authority', async () => {
+  parseRequestMock.mockResolvedValue({
+    auth: {
+      authType: 'session',
+      user: { id: 'admin-1', username: 'admin', role: 'view-only', isAdmin: true },
+    },
+    query: {},
+  } as any);
+
+  const response = await getAdminWebsitesRoute(new Request('http://localhost/api/admin/websites'));
+  expect(response.status).toBe(200);
+  expect((await response.json()).data[0].shareId).toBeNull();
+  expect(redactWebsiteListShareIdsMock).toHaveBeenCalledTimes(1);
 });
 
 test('interactive sessions retain website share management', async () => {

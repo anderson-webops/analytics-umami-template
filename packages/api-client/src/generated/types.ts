@@ -2979,7 +2979,7 @@ export interface components {
       replayConfig: components['schemas']['ReplayConfig'] | null;
       /** @description Date and time the website analytics were last reset. */
       resetAt: string | null;
-      /** @description Identifier used to access a shared resource. */
+      /** @description Sole public share slug for an interactive session with current website-update authority; otherwise null. */
       shareId: string | null;
       /** @description ID of the associated team. */
       teamId: string | null;

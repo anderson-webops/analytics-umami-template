@@ -1,3 +1,4 @@
+import { redactWebsiteShareId } from '@/lib/api-key';
 import { hasPermission } from '@/lib/auth';
 import { PERMISSIONS } from '@/lib/constants';
 import { getEntity } from '@/lib/entity';
@@ -71,7 +72,8 @@ export async function canViewBatchWebsites({ user, shareToken }: Auth, websiteId
     return requestedIds.filter(id => shareAllowedIds.has(id));
   }
 
-  const websites = await prisma.client.website.findMany({
+  const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
+  const websites = await client.website.findMany({
     where: {
       id: {
         in: requestedIds,
@@ -93,7 +95,7 @@ export async function canViewBatchWebsites({ user, shareToken }: Auth, websiteId
     ),
   );
   const teamUsers = teamIds.length
-    ? await prisma.client.teamUser.findMany({
+    ? await client.teamUser.findMany({
         where: {
           userId: user.id,
           teamId: {
@@ -120,6 +122,74 @@ export async function canViewBatchWebsites({ user, shareToken }: Auth, websiteId
 
 export async function canViewAllWebsites({ user }: Auth) {
   return user?.isAdmin ?? false;
+}
+
+export async function redactWebsiteListShareIds<
+  T extends {
+    id: string;
+    userId?: string | null;
+    teamId?: string | null;
+    shareId?: string | null;
+  },
+>(auth: Auth, websites: T[]) {
+  const { user, authType } = auth;
+
+  if (authType !== 'session' || !canMutateResource(user)) {
+    return websites.map(website => redactWebsiteShareId(website, authType ?? ''));
+  }
+
+  if (user.isAdmin) {
+    return websites;
+  }
+
+  const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
+  const shareWebsiteIds = websites.filter(website => website.shareId).map(website => website.id);
+  const currentWebsites = shareWebsiteIds.length
+    ? await client.website.findMany({
+        where: { id: { in: shareWebsiteIds }, deletedAt: null },
+        select: { id: true, userId: true, teamId: true },
+      })
+    : [];
+  const currentWebsiteById = new Map(currentWebsites.map(website => [website.id, website]));
+  const teamIds = Array.from(
+    new Set(
+      currentWebsites
+        .filter(website => !website.userId)
+        .map(website => website.teamId)
+        .filter((teamId): teamId is string => Boolean(teamId)),
+    ),
+  );
+  const teamUsers = teamIds.length
+    ? await client.teamUser.findMany({
+        where: {
+          userId: user.id,
+          teamId: { in: teamIds },
+          team: { deletedAt: null },
+          user: { deletedAt: null },
+        },
+        select: { teamId: true, role: true },
+      })
+    : [];
+  const permittedTeamIds = await Promise.all(
+    teamUsers.map(async teamUser =>
+      (await hasPermission(teamUser.role, PERMISSIONS.websiteUpdate)) ? teamUser.teamId : null,
+    ),
+  );
+  const manageableTeamIds = new Set(
+    permittedTeamIds.filter((teamId): teamId is string => Boolean(teamId)),
+  );
+
+  return websites.map(website => {
+    const currentWebsite = currentWebsiteById.get(website.id);
+
+    return redactWebsiteShareId(
+      website,
+      authType,
+      currentWebsite?.userId
+        ? currentWebsite.userId === user.id
+        : !!currentWebsite?.teamId && manageableTeamIds.has(currentWebsite.teamId),
+    );
+  });
 }
 
 export async function canCreateWebsite({ user }: Auth) {

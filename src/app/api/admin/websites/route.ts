@@ -3,7 +3,7 @@ import { ROLES } from '@/lib/constants';
 import { parseRequest } from '@/lib/request';
 import { json, unauthorized } from '@/lib/response';
 import { pagingParams, searchParams, sortingParams } from '@/lib/schema';
-import { canViewAllWebsites } from '@/permissions';
+import { canViewAllWebsites, redactWebsiteListShareIds } from '@/permissions';
 import { getWebsites } from '@/queries/prisma/website';
 
 export async function GET(request: Request) {
@@ -55,5 +55,5 @@ export async function GET(request: Request) {
     query,
   );
 
-  return json(websites);
+  return json({ ...websites, data: await redactWebsiteListShareIds(auth, websites.data) });
 }

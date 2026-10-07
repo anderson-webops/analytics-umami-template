@@ -36,7 +36,10 @@ export const websiteSchema = z
     deletedAt: nullableDateTimeSchema,
     recorderEnabled: z.boolean(),
     replayConfig: replayConfigSchema.nullable(),
-    shareId: z.string().nullable(),
+    shareId: z.string().nullable().meta({
+      description:
+        'Sole public share slug for an interactive session with current website-update authority; otherwise null.',
+    }),
     user: websiteUserSchema.optional(),
   })
   .meta({ id: 'Website' });
