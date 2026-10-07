@@ -15,15 +15,19 @@ if (!appDir) {
 
 const startupScripts = [
   { path: 'scripts/check-env.js', cwd: repositoryRoot },
-  { path: 'scripts/check-db.js', cwd: repositoryRoot },
+  { path: 'scripts/check-db.js', cwd: repositoryRoot, args: ['--verify-only'] },
 ];
 
 for (const startupScript of startupScripts) {
-  const result = spawnSync(process.execPath, [path.join(repositoryRoot, startupScript.path)], {
-    cwd: startupScript.cwd,
-    env: productionEnvironment,
-    stdio: 'inherit',
-  });
+  const result = spawnSync(
+    process.execPath,
+    [path.join(repositoryRoot, startupScript.path), ...(startupScript.args ?? [])],
+    {
+      cwd: startupScript.cwd,
+      env: productionEnvironment,
+      stdio: 'inherit',
+    },
+  );
 
   if (result.error) {
     console.error('A required production startup check could not run.');

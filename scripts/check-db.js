@@ -81,8 +81,12 @@ function databaseConnectionOptions(url) {
 }
 
 async function initialize() {
-  if (verifyOnly && migrationOnly) {
-    throw new Error('--verify-only and --migrate-only cannot be used together.');
+  const modeArguments = process.argv.slice(2);
+  if (
+    modeArguments.length > 1 ||
+    (modeArguments.length === 1 && !['--verify-only', '--migrate-only'].includes(modeArguments[0]))
+  ) {
+    throw new Error('Unsupported database check mode.');
   }
 
   if (isEnabled(process.env.SKIP_DB_CHECK)) {
@@ -90,8 +94,15 @@ async function initialize() {
       throw new Error('SKIP_DB_CHECK is not permitted in production.');
     }
 
-    console.log('Skipping database check.');
-    process.exit(0);
+    throw new Error('SKIP_DB_CHECK is not permitted for migration or verification.');
+  }
+
+  if (isEnabled(process.env.SKIP_DB_MIGRATION)) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('SKIP_DB_MIGRATION is not permitted in production.');
+    }
+
+    throw new Error('SKIP_DB_MIGRATION is not permitted for migration or verification.');
   }
 
   databaseUrl = parseDatabaseUrl('DATABASE_URL', { required: true });
@@ -192,15 +203,6 @@ async function checkMigrationTargetIdentity() {
 async function applyMigration() {
   if (verifyOnly) {
     success('Migration execution is reserved for the pre-promotion deployment step.');
-    return;
-  }
-
-  if (isEnabled(process.env.SKIP_DB_MIGRATION)) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('SKIP_DB_MIGRATION is not permitted in production.');
-    }
-
-    warning('Database migration was explicitly skipped.');
     return;
   }
 

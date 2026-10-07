@@ -72,7 +72,10 @@ describe('direct production startup', () => {
           "if (process.env.NODE_ENV === 'production' && process.env.UMAMI_BIND_ADDRESS === '0.0.0.0') { console.error('Public listener rejected.'); process.exit(71); }\n";
         const checkExtension = launcherKind === 'artifact' ? 'mjs' : 'js';
         fs.writeFileSync(path.join(scriptDirectory, `check-env.${checkExtension}`), checkSource);
-        fs.writeFileSync(path.join(scriptDirectory, `check-db.${checkExtension}`), '');
+        fs.writeFileSync(
+          path.join(scriptDirectory, `check-db.${checkExtension}`),
+          "if (!process.argv.includes('--verify-only')) { console.error('Startup database gate must be verify-only.'); process.exit(73); }\n",
+        );
 
         const appRoot =
           launcherKind === 'artifact' ? fixtureRoot : path.join(fixtureRoot, '.next', 'standalone');
@@ -188,6 +191,160 @@ describe('direct production startup', () => {
 
     expect(result.status).toBe(1);
     expect(`${result.stdout}${result.stderr}`).toContain(
+      'SKIP_DB_CHECK is not permitted in production.',
+    );
+  });
+
+  test.each(['db:migrate', 'update-db'])(
+    '%s refuses to skip database validation when called outside production mode',
+    command => {
+      const result = spawnSync('pnpm', ['run', command], {
+        cwd: repositoryRoot,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          NODE_ENV: 'development',
+          SKIP_DB_CHECK: '1',
+          DATABASE_URL: 'postgresql://synthetic:synthetic@127.0.0.1:65534/synthetic',
+        },
+      });
+
+      expect(result.status).toBe(1);
+      expect(`${result.stdout}${result.stderr}`).toContain(
+        'SKIP_DB_CHECK is not permitted for migration or verification.',
+      );
+      expect(result.stdout).not.toContain('Skipping database check.');
+    },
+  );
+
+  test.each(['check:db', 'check-db'])(
+    '%s refuses to report a skipped migration-capable database check as success',
+    command => {
+      const result = spawnSync('pnpm', ['run', command], {
+        cwd: repositoryRoot,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          NODE_ENV: 'development',
+          SKIP_DB_CHECK: '1',
+          DATABASE_URL: 'postgresql://synthetic:synthetic@127.0.0.1:65534/synthetic',
+        },
+      });
+
+      expect(result.status).toBe(1);
+      expect(`${result.stdout}${result.stderr}`).toContain(
+        'SKIP_DB_CHECK is not permitted for migration or verification.',
+      );
+      expect(result.stdout).not.toContain('Skipping database check.');
+    },
+  );
+
+  test('migration-capable aliases cannot opt into the build-only skip', () => {
+    const result = spawnSync('pnpm', ['run', 'check:db', '--build-check'], {
+      cwd: repositoryRoot,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        NODE_ENV: 'development',
+        SKIP_DB_CHECK: '1',
+        DATABASE_URL: 'postgresql://synthetic:synthetic@127.0.0.1:65534/synthetic',
+      },
+    });
+
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain('Unsupported database check mode.');
+    expect(result.stdout).not.toContain('Skipping database check for development build.');
+  });
+
+  test('the migration gate refuses to skip migration even outside production mode', () => {
+    const result = spawnSync(process.execPath, ['scripts/check-db.js', '--migrate-only'], {
+      cwd: repositoryRoot,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        NODE_ENV: 'development',
+        SKIP_DB_CHECK: '0',
+        SKIP_DB_MIGRATION: '1',
+        DATABASE_URL: 'postgresql://synthetic:synthetic@127.0.0.1:65534/synthetic',
+      },
+    });
+
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      'SKIP_DB_MIGRATION is not permitted for migration or verification.',
+    );
+  });
+
+  test.each(['SKIP_DB_CHECK', 'SKIP_DB_MIGRATION'])(
+    'the verify-only gate refuses %s even outside production mode',
+    flag => {
+      const result = spawnSync(process.execPath, ['scripts/check-db.js', '--verify-only'], {
+        cwd: repositoryRoot,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          NODE_ENV: 'development',
+          SKIP_DB_CHECK: '0',
+          SKIP_DB_MIGRATION: '0',
+          [flag]: '1',
+          DATABASE_URL: 'postgresql://synthetic:synthetic@127.0.0.1:65534/synthetic',
+        },
+      });
+
+      expect(result.status).toBe(1);
+      expect(`${result.stdout}${result.stderr}`).toContain(
+        `${flag} is not permitted for migration or verification.`,
+      );
+    },
+  );
+
+  test('the non-migrating development build check supports an explicit database skip', () => {
+    const result = spawnSync('pnpm', ['run', 'check:db:build'], {
+      cwd: repositoryRoot,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        NODE_ENV: 'development',
+        SKIP_DB_CHECK: '1',
+        DATABASE_URL: 'postgresql://synthetic:synthetic@127.0.0.1:65534/synthetic',
+      },
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Skipping database check for development build.');
+    expect(JSON.parse(read('package.json')).scripts.build).toContain('check:db:build');
+    expect(read('scripts/check-build-db.js')).toContain("'--verify-only'");
+  });
+
+  test('the build check rejects migration options and production skip flags', () => {
+    const syntheticDatabaseUrl = 'postgresql://synthetic:synthetic@127.0.0.1:65534/synthetic';
+    const migrationOption = spawnSync('pnpm', ['run', 'check:db:build', '--migrate-only'], {
+      cwd: repositoryRoot,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        NODE_ENV: 'development',
+        SKIP_DB_CHECK: '1',
+        DATABASE_URL: syntheticDatabaseUrl,
+      },
+    });
+    const productionSkip = spawnSync('pnpm', ['run', 'check:db:build'], {
+      cwd: repositoryRoot,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        NODE_ENV: 'production',
+        SKIP_DB_CHECK: '1',
+        DATABASE_URL: syntheticDatabaseUrl,
+      },
+    });
+
+    expect(migrationOption.status).toBe(1);
+    expect(`${migrationOption.stdout}${migrationOption.stderr}`).toContain(
+      'The development build database check accepts no arguments.',
+    );
+    expect(productionSkip.status).toBe(1);
+    expect(`${productionSkip.stdout}${productionSkip.stderr}`).toContain(
       'SKIP_DB_CHECK is not permitted in production.',
     );
   });

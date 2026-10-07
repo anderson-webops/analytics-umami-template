@@ -36,11 +36,17 @@ serve both address families.
    `node scripts/check-db.js` from the source release. This is the only step
    that executes Prisma migrations. It then verifies every migration checksum
    and fails closed on invalid role, ownership, share, or relational state.
+   `pnpm db:migrate` and `pnpm update-db` also use this guarded source gate;
+   all migration-capable and verification modes reject `SKIP_DB_CHECK` and
+   `SKIP_DB_MIGRATION` even if a caller supplies a nonproduction `NODE_ENV`.
+   Only `pnpm check:db:build` may skip its non-migrating probe during a
+   development build; its success is not pre-promotion database acceptance.
 6. Point `/srv/umami/<instance>/current` at the new release atomically.
 7. Install `deploy/systemd/umami@.service` as
    `/etc/systemd/system/umami@.service`, reload systemd, and restart
-   `umami@<instance>.service`. Runtime startup uses the self-contained artifact
-   checks in verify-only mode; it never needs the Prisma CLI or development
+   `umami@<instance>.service`. Runtime and source `start` aliases use verify-only
+   database checks; neither applies migrations at startup. The self-contained
+   artifact never needs the Prisma CLI or development
    dependencies and cannot mutate the tracker bundle. The runtime database
    check is bounded to release migrations, required schema, an active
    administrator, supported roles, and one active owner per active team. The

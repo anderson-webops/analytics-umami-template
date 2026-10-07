@@ -28,7 +28,8 @@ database, while the application listens only on loopback behind Nginx.
 - `scripts/repair-standalone.js` - fixes standalone runtime alias resolution after build
 - `scripts/check-env.js` - rejects unsafe or ambiguous production configuration
 - `scripts/check-db.js` - applies migrations and performs the full pre-promotion security/data audit; `--verify-only` performs bounded runtime checks
-- `scripts/start-production.js` - checks configuration/database state and starts the loopback-only standalone server
+- `scripts/check-build-db.js` - performs a non-migrating build check and alone permits a development-only database skip
+- `scripts/start-production.js` - checks configuration and verifies database state without migrating, then starts the loopback-only standalone server
 - `scripts/runtime-artifact.mjs` - creates and verifies the independent hashed runtime manifest and staged copies
 - `deploy/runtime-artifact.json` - reviewed entrypoint, dependency, native binding, asset, and writable-state contract
 - `scripts/change-password.js` - rotates a user's password without exposing it as a command-line argument
@@ -56,9 +57,13 @@ pnpm start:production
 Use PostgreSQL 15 or newer, Node 24.18.1, pnpm 11.18.0, the supplied systemd
 unit, and Nginx. Each release is built from an exact commit in its own directory
 and promoted by changing the `current` symlink. Both source and packaged
-production launchers and the legacy `start` aliases use the same guarded path,
-which sets production mode before configuration and database checks even when
-the calling shell does not. The service defaults to
+production launchers and the legacy `start` aliases use guarded, verify-only
+database startup checks and never apply migrations. Run the guarded source
+pre-promotion database step separately before activation. Migration and
+verification commands reject database skip flags regardless of the caller's
+`NODE_ENV`; the separate non-migrating build check may skip its database probe
+only outside production. The launchers set production mode before checks even when the
+calling shell does not. The service defaults to
 `127.0.0.1:3000`; production validation rejects a public bind address.
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for installation, migration, verification,
