@@ -12,6 +12,8 @@ const MAX_MEMORY_COUNTERS = 20_000;
 const MEMORY_COUNTERS = 'analytics-share-query-budget-counters';
 const PROPERTY_FILTER = /^(?:pf_[A-Za-z0-9_-]+|epf\d+|spf\d+)$/;
 
+export type ShareQueryWorkMultiplier = 1 | 2 | 3 | 5 | 6 | 8;
+
 interface Counter {
   cost: number;
   expiresAt: number;
@@ -77,8 +79,12 @@ export function getStepFilterCount(value: unknown) {
 export function getShareQueryCost(
   query: Record<string, unknown>,
   body?: unknown,
-  workMultiplier: 1 | 2 = 1,
+  workMultiplier: ShareQueryWorkMultiplier = 1,
 ) {
+  if (!Number.isSafeInteger(workMultiplier) || workMultiplier < 1 || workMultiplier > 8) {
+    return null;
+  }
+
   const topLevel = filterCost(Object.keys(query));
   const report =
     body && typeof body === 'object' && 'filters' in body
@@ -109,7 +115,7 @@ export function getShareQueryCost(
   const months = Math.max(1, Math.ceil(duration / MONTH_MS));
   const cost = months * (1 + topLevel.weight + reportFilters.weight + stepFilters * 4);
 
-  const charge = Math.min(cost * workMultiplier, MAX_WINDOW_COST);
+  const charge = cost * workMultiplier;
 
   return Number.isSafeInteger(cost) && cost <= MAX_QUERY_COST ? { cost, charge } : null;
 }
@@ -129,13 +135,15 @@ function reserveLocal(key: string, cost: number) {
     for (const [storedKey, counter] of counters) {
       if (counter.expiresAt <= now) counters.delete(storedKey);
     }
-    if (counters.size >= MAX_MEMORY_COUNTERS) return MAX_WINDOW_COST + 1;
+    if (counters.size >= MAX_MEMORY_COUNTERS) {
+      return { total: MAX_WINDOW_COST + 1, first: false };
+    }
     counters.set(key, { cost, expiresAt: now + WINDOW_SECONDS * 1000 });
-    return cost;
+    return { total: cost, first: true };
   }
 
   current.cost += cost;
-  return current.cost;
+  return { total: current.cost, first: false };
 }
 
 export async function reserveShareQueryCost(shareId: string, cost: number) {
@@ -150,11 +158,22 @@ export async function reserveShareQueryCost(shareId: string, cost: number) {
          return total`,
         { keys: [key], arguments: [String(cost), String(WINDOW_SECONDS)] },
       );
-      return { blocked: Number(total) > MAX_WINDOW_COST, retryAfter: WINDOW_SECONDS };
+      const reserved = Number(total);
+      return {
+        blocked:
+          !Number.isSafeInteger(reserved) ||
+          reserved < cost ||
+          (reserved > MAX_WINDOW_COST && reserved !== cost),
+        retryAfter: WINDOW_SECONDS,
+      };
     } catch {
       return { blocked: true, unavailable: true, retryAfter: WINDOW_SECONDS };
     }
   }
 
-  return { blocked: reserveLocal(key, cost) > MAX_WINDOW_COST, retryAfter: WINDOW_SECONDS };
+  const reservation = reserveLocal(key, cost);
+  return {
+    blocked: reservation.total > MAX_WINDOW_COST && !reservation.first,
+    retryAfter: WINDOW_SECONDS,
+  };
 }

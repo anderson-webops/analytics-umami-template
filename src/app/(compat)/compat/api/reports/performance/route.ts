@@ -9,7 +9,11 @@ import {
 import { getPerformanceMetrics } from '@/queries/sql/performance/getPerformanceMetrics';
 
 export async function POST(request: Request) {
-  const { auth, body, error } = await parseRequest(request, reportResultSchema);
+  const { auth, body, error } = await parseRequest(request, reportResultSchema, {
+    budgetShareQuery: true,
+    shareQueryContext: { section: 'performance' },
+    shareQueryWorkMultiplier: 6,
+  });
 
   if (error) {
     return error();

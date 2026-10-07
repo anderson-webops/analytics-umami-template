@@ -6,7 +6,11 @@ import { canViewWebsiteSection } from '@/permissions';
 import { getUTM, type UTMParameters } from '@/queries/sql';
 
 export async function POST(request: Request) {
-  const { auth, body, error } = await parseRequest(request, reportResultSchema);
+  const { auth, body, error } = await parseRequest(request, reportResultSchema, {
+    budgetShareQuery: true,
+    shareQueryContext: { section: 'utm' },
+    shareQueryWorkMultiplier: 5,
+  });
 
   if (error) {
     return error();

@@ -11,7 +11,11 @@ import {
 import { getRevenueStats } from '@/queries/sql/revenue/getRevenueStats';
 
 export async function POST(request: Request) {
-  const { auth, body, error } = await parseRequest(request, reportResultSchema);
+  const { auth, body, error } = await parseRequest(request, reportResultSchema, {
+    budgetShareQuery: true,
+    shareQueryContext: { section: 'revenue' },
+    shareQueryWorkMultiplier: 8,
+  });
 
   if (error) {
     return error();

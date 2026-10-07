@@ -8,7 +8,11 @@ import {
 } from '@/queries/sql/attribution/getAttribution';
 
 export async function POST(request: Request) {
-  const { auth, body, error } = await parseRequest(request, reportResultSchema);
+  const { auth, body, error } = await parseRequest(request, reportResultSchema, {
+    budgetShareQuery: true,
+    shareQueryContext: { section: 'attribution' },
+    shareQueryWorkMultiplier: 8,
+  });
 
   if (error) {
     return error();

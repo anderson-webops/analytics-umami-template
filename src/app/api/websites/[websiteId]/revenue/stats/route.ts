@@ -11,18 +11,21 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ websiteId: string }> },
 ) {
+  const { websiteId } = await params;
   const schema = withDateRange({
     currency: z.string(),
     ...filterParams,
   });
 
-  const { auth, query, error } = await parseRequest(request, schema);
+  const { auth, query, error } = await parseRequest(request, schema, {
+    budgetShareQuery: true,
+    shareQueryContext: { section: 'revenue', websiteId },
+    shareQueryWorkMultiplier: 3,
+  });
 
   if (error) {
     return error();
   }
-
-  const { websiteId } = await params;
 
   if (!(await canViewWebsiteSection(auth, websiteId, 'revenue'))) {
     return unauthorized();

@@ -20,13 +20,16 @@ import {
   unauthorized,
 } from '@/lib/response';
 import { savedSegmentSchema } from '@/lib/schema';
+import type { ShareSection } from '@/lib/share';
 import { hasShareFilterParams } from '@/lib/share-filter';
 import {
   getShareQueryCost,
   getStepFilterCount,
   reserveShareQueryCost,
+  type ShareQueryWorkMultiplier,
 } from '@/lib/share-query-budget';
 import type { QueryFilters, SessionPropertyFilter } from '@/lib/types';
+import { canViewWebsiteSection } from '@/permissions';
 import { getWebsiteSegment } from '@/queries/prisma';
 
 const MAX_QUERY_DATE_RANGE_MS = 20 * 366 * 24 * 60 * 60 * 1000;
@@ -56,7 +59,8 @@ export async function parseRequest(
     skipAuth?: boolean;
     maxBodyBytes?: number;
     budgetShareQuery?: boolean;
-    shareQueryWorkMultiplier?: 2;
+    shareQueryContext?: { section: ShareSection; websiteId?: string };
+    shareQueryWorkMultiplier?: ShareQueryWorkMultiplier;
     allowShareSearch?: boolean;
   },
 ): Promise<any> {
@@ -182,6 +186,19 @@ export async function parseRequest(
       ? (body as { parameters?: { startDate?: unknown; endDate?: unknown } }).parameters
       : undefined;
   const hasBodyRange = bodyParameters?.startDate != null && bodyParameters.endDate != null;
+
+  if (!error && auth?.shareToken && options?.shareQueryContext) {
+    const websiteId =
+      options.shareQueryContext.websiteId ??
+      (body && typeof body === 'object' && 'websiteId' in body ? body.websiteId : undefined);
+
+    if (
+      typeof websiteId !== 'string' ||
+      !(await canViewWebsiteSection(auth, websiteId, options.shareQueryContext.section))
+    ) {
+      error = () => unauthorized();
+    }
+  }
 
   if (
     !error &&

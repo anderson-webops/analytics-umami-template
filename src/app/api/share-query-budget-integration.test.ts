@@ -11,14 +11,27 @@ import {
 import { canViewBatchWebsites } from '@/permissions/website';
 import {
   getActiveVisitors,
+  getUTM,
   getWebsiteDateRange,
   getWebsiteListCharts,
   getWebsiteStats,
 } from '@/queries/sql';
+import { getAttribution } from '@/queries/sql/attribution/getAttribution';
+import { getPerformance } from '@/queries/sql/performance/getPerformance';
+import { getPerformanceMetrics } from '@/queries/sql/performance/getPerformanceMetrics';
+import { getRevenueChart } from '@/queries/sql/revenue/getRevenueChart';
+import { getRevenueMetrics } from '@/queries/sql/revenue/getRevenueMetrics';
+import { getRevenueStats } from '@/queries/sql/revenue/getRevenueStats';
+import { POST as getAttributionReport } from '../(compat)/compat/api/reports/attribution/route';
+import { POST as getPerformanceReport } from '../(compat)/compat/api/reports/performance/route';
+import { POST as getRevenueReport } from '../(compat)/compat/api/reports/revenue/route';
+import { POST as getUtmReport } from '../(compat)/compat/api/reports/utm/route';
 import { GET as getLinkChartsRoute } from './links/charts/route';
 import { GET as getPixelChartsRoute } from './pixels/charts/route';
 import { GET as getActiveVisitorsRoute } from './websites/[websiteId]/active/route';
+import { GET as getAttributionRoute } from './websites/[websiteId]/attribution/route';
 import { GET as getDateRangeRoute } from './websites/[websiteId]/daterange/route';
+import { GET as getRevenueStatsRoute } from './websites/[websiteId]/revenue/stats/route';
 import { GET as getWebsiteStatsRoute } from './websites/[websiteId]/stats/route';
 import { GET as getWebsiteChartsRoute } from './websites/charts/route';
 
@@ -38,10 +51,19 @@ vi.mock('@/permissions', () => ({
 vi.mock('@/permissions/website', () => ({ canViewBatchWebsites: vi.fn() }));
 vi.mock('@/queries/sql', () => ({
   getActiveVisitors: vi.fn(),
+  getUTM: vi.fn(),
   getWebsiteDateRange: vi.fn(),
   getWebsiteListCharts: vi.fn(),
   getWebsiteStats: vi.fn(),
 }));
+vi.mock('@/queries/sql/attribution/getAttribution', () => ({ getAttribution: vi.fn() }));
+vi.mock('@/queries/sql/performance/getPerformance', () => ({ getPerformance: vi.fn() }));
+vi.mock('@/queries/sql/performance/getPerformanceMetrics', () => ({
+  getPerformanceMetrics: vi.fn(),
+}));
+vi.mock('@/queries/sql/revenue/getRevenueChart', () => ({ getRevenueChart: vi.fn() }));
+vi.mock('@/queries/sql/revenue/getRevenueMetrics', () => ({ getRevenueMetrics: vi.fn() }));
+vi.mock('@/queries/sql/revenue/getRevenueStats', () => ({ getRevenueStats: vi.fn() }));
 
 const checkAuthMock = vi.mocked(checkAuth);
 const fetchWebsiteMock = vi.mocked(fetchWebsite);
@@ -51,6 +73,13 @@ const canViewSharedWebsiteMock = vi.mocked(canViewSharedWebsite);
 const canViewWebsiteSectionMock = vi.mocked(canViewWebsiteSection);
 const canViewBatchWebsitesMock = vi.mocked(canViewBatchWebsites);
 const getActiveVisitorsMock = vi.mocked(getActiveVisitors);
+const getAttributionMock = vi.mocked(getAttribution);
+const getPerformanceMock = vi.mocked(getPerformance);
+const getPerformanceMetricsMock = vi.mocked(getPerformanceMetrics);
+const getRevenueChartMock = vi.mocked(getRevenueChart);
+const getRevenueMetricsMock = vi.mocked(getRevenueMetrics);
+const getRevenueStatsMock = vi.mocked(getRevenueStats);
+const getUtmMock = vi.mocked(getUTM);
 const getWebsiteDateRangeMock = vi.mocked(getWebsiteDateRange);
 const getWebsiteListChartsMock = vi.mocked(getWebsiteListCharts);
 const getWebsiteStatsMock = vi.mocked(getWebsiteStats);
@@ -66,10 +95,24 @@ beforeEach(() => {
   canViewWebsiteSectionMock.mockReset();
   canViewBatchWebsitesMock.mockReset();
   getActiveVisitorsMock.mockReset();
+  getAttributionMock.mockReset();
+  getPerformanceMock.mockReset();
+  getPerformanceMetricsMock.mockReset();
+  getRevenueChartMock.mockReset();
+  getRevenueMetricsMock.mockReset();
+  getRevenueStatsMock.mockReset();
+  getUtmMock.mockReset();
   getWebsiteDateRangeMock.mockReset();
   getWebsiteListChartsMock.mockReset();
   getWebsiteStatsMock.mockReset();
   fetchWebsiteMock.mockResolvedValue({ id: WEBSITE_ID } as any);
+  getAttributionMock.mockResolvedValue({} as any);
+  getPerformanceMock.mockResolvedValue({ chart: [], summary: {} } as any);
+  getPerformanceMetricsMock.mockResolvedValue([] as any);
+  getRevenueChartMock.mockResolvedValue({ chart: [] } as any);
+  getRevenueMetricsMock.mockResolvedValue([] as any);
+  getRevenueStatsMock.mockResolvedValue({} as any);
+  getUtmMock.mockResolvedValue([] as any);
 });
 
 test('public stats shares reserve both maximum-range scans before concurrent execution', async () => {
@@ -245,3 +288,175 @@ test.each([
     expect(getWebsiteListChartsMock).toHaveBeenCalledWith([], expect.any(Object));
   },
 );
+
+const reportStartDate = '2025-01-29T12:00:00.000Z';
+const reportEndDate = '2025-03-01T12:00:00.000Z';
+
+function analyticsCalls() {
+  return [
+    getAttributionMock,
+    getPerformanceMock,
+    getPerformanceMetricsMock,
+    getRevenueChartMock,
+    getRevenueMetricsMock,
+    getRevenueStatsMock,
+    getUtmMock,
+  ].reduce((count, query) => count + query.mock.calls.length, 0);
+}
+
+const compatibilityReports = [
+  {
+    name: 'performance',
+    multiplier: 6,
+    dispatchedCalls: 5,
+    parameters: {},
+    run: getPerformanceReport,
+  },
+  {
+    name: 'revenue',
+    multiplier: 8,
+    dispatchedCalls: 7,
+    parameters: { currency: 'USD', compare: 'yoy' },
+    run: getRevenueReport,
+  },
+  {
+    name: 'utm',
+    multiplier: 5,
+    dispatchedCalls: 5,
+    parameters: {},
+    run: getUtmReport,
+  },
+  {
+    name: 'attribution',
+    multiplier: 8,
+    dispatchedCalls: 1,
+    parameters: { model: 'first-click', type: 'path', step: '/checkout' },
+    run: getAttributionReport,
+  },
+] as const;
+
+function compatibilityRequest(
+  report: (typeof compatibilityReports)[number],
+  dates = { startDate: reportStartDate, endDate: reportEndDate },
+) {
+  return new Request(`https://analytics.example/compat/api/reports/${report.name}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      websiteId: WEBSITE_ID,
+      type: report.name,
+      filters: {},
+      parameters: {
+        ...dates,
+        ...report.parameters,
+      },
+    }),
+  });
+}
+
+test.each(compatibilityReports)(
+  '$name share reserves its full query fan-out before dispatch',
+  async report => {
+    const shareId = `compat-budget-${crypto.randomUUID()}`;
+    checkAuthMock.mockResolvedValue({
+      shareToken: { shareId, websiteId: WEBSITE_ID, parameters: { allowFilter: true } },
+    } as any);
+    canViewWebsiteSectionMock.mockResolvedValue(true);
+    expect((await reserveShareQueryCost(shareId, 600 - report.multiplier)).blocked).toBe(false);
+
+    const responses = await Promise.all([
+      report.run(compatibilityRequest(report)),
+      report.run(compatibilityRequest(report)),
+    ]);
+
+    expect(responses.map(response => response.status).sort()).toEqual([200, 429]);
+    expect(analyticsCalls()).toBe(report.dispatchedCalls);
+  },
+);
+
+test('ordinary authenticated report requests retain access without a share budget', async () => {
+  checkAuthMock.mockResolvedValue({ user: { id: 'website-owner' } } as any);
+  canViewWebsiteSectionMock.mockResolvedValue(true);
+  const report = compatibilityReports[0];
+
+  const responses = await Promise.all([
+    report.run(compatibilityRequest(report)),
+    report.run(compatibilityRequest(report)),
+  ]);
+
+  expect(responses.map(response => response.status)).toEqual([200, 200]);
+  expect(analyticsCalls()).toBe(10);
+});
+
+test('denied report sections do not dispatch analytics', async () => {
+  const shareId = `denied-report-${crypto.randomUUID()}`;
+  checkAuthMock.mockResolvedValue({
+    shareToken: { shareId, websiteId: WEBSITE_ID },
+  } as any);
+  canViewWebsiteSectionMock.mockImplementation(
+    async (_auth, _websiteId, section) => section !== 'revenue',
+  );
+  getWebsiteStatsMock.mockResolvedValue({ pageviews: 0 } as any);
+  expect((await reserveShareQueryCost(shareId, 598)).blocked).toBe(false);
+
+  expect((await getRevenueReport(compatibilityRequest(compatibilityReports[1]))).status).toBe(401);
+  expect(analyticsCalls()).toBe(0);
+  const stats = await getWebsiteStatsRoute(
+    new Request(
+      `https://analytics.example/api/websites/${WEBSITE_ID}/stats?startAt=${Date.UTC(2025, 0, 1)}&endAt=${Date.UTC(2025, 0, 31)}`,
+    ),
+    pathParams,
+  );
+  expect(stats.status).toBe(200);
+  expect(getWebsiteStatsMock).toHaveBeenCalledTimes(2);
+});
+
+test('historical attribution shares execute once per window after full-work reservation', async () => {
+  const shareId = `historical-attribution-${crypto.randomUUID()}`;
+  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  canViewWebsiteSectionMock.mockResolvedValue(true);
+  const report = compatibilityReports[3];
+  const dates = {
+    startDate: '2006-01-01T12:00:00.000Z',
+    endDate: '2025-12-31T12:00:00.000Z',
+  };
+
+  const responses = await Promise.all([
+    report.run(compatibilityRequest(report, dates)),
+    report.run(compatibilityRequest(report, dates)),
+  ]);
+
+  expect(responses.map(response => response.status).sort()).toEqual([200, 429]);
+  expect(getAttributionMock).toHaveBeenCalledTimes(1);
+});
+
+test.each([
+  {
+    name: 'attribution',
+    multiplier: 8,
+    dispatchedCalls: 1,
+    run: getAttributionRoute,
+    extra: '&model=first-click&type=path&step=%2Fcheckout',
+  },
+  {
+    name: 'revenue/stats',
+    multiplier: 3,
+    dispatchedCalls: 2,
+    run: getRevenueStatsRoute,
+    extra: '&currency=USD&compare=yoy',
+  },
+])('$name GET share reserves every query before dispatch', async route => {
+  const shareId = `get-budget-${crypto.randomUUID()}`;
+  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  canViewWebsiteSectionMock.mockResolvedValue(true);
+  expect((await reserveShareQueryCost(shareId, 600 - route.multiplier)).blocked).toBe(false);
+  const url = `https://analytics.example/api/websites/${WEBSITE_ID}/${route.name}?startAt=${new Date(reportStartDate).getTime()}&endAt=${new Date(reportEndDate).getTime()}${route.extra}`;
+
+  const responses = await Promise.all([
+    route.run(new Request(url), pathParams),
+    route.run(new Request(url), pathParams),
+  ]);
+
+  expect(responses.map(response => response.status).sort()).toEqual([200, 429]);
+  expect(analyticsCalls()).toBe(route.dispatchedCalls);
+});

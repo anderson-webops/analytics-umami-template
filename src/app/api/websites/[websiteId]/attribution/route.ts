@@ -11,9 +11,13 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ websiteId: string }> },
 ) {
-  const { auth, query, error } = await parseRequest(request, attributionQuerySchema);
-  if (error) return error();
   const { websiteId } = await params;
+  const { auth, query, error } = await parseRequest(request, attributionQuerySchema, {
+    budgetShareQuery: true,
+    shareQueryContext: { section: 'attribution', websiteId },
+    shareQueryWorkMultiplier: 8,
+  });
+  if (error) return error();
   if (!(await canViewWebsiteSection(auth, websiteId, 'attribution'))) return unauthorized();
   const filters = await getQueryFilters(query, websiteId);
   const parameters = { ...query, ...filters } as AttributionParameters;
