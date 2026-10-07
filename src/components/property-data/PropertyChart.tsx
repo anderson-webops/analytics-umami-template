@@ -65,7 +65,7 @@ export function PropertyChart({
     const totals = data.reduce((obj: Record<string, number>, { x, y }) => {
       obj[x] = (obj[x] ?? 0) + y;
       return obj;
-    }, {});
+    }, Object.create(null));
     return Object.entries(totals)
       .map(([value, total]) => ({ value, total: total as number }))
       .sort((a, b) => b.total - a.total);
@@ -79,7 +79,7 @@ export function PropertyChart({
           obj[label] = CHART_COLORS[index % CHART_COLORS.length];
           return obj;
         },
-        {} as Record<string, string>,
+        Object.create(null) as Record<string, string>,
       ),
     [valueLabels],
   );
@@ -91,7 +91,7 @@ export function PropertyChart({
       if (!obj[x]) obj[x] = [];
       obj[x].push({ x, t, y });
       return obj;
-    }, {});
+    }, Object.create(null));
 
     if (!Object.keys(map).length) {
       return {

@@ -107,7 +107,7 @@ export function RevenueChart({
         obj[x].push({ x: t, y });
         return obj;
       },
-      {} as Record<string, { x: string; y: number }[]>,
+      Object.create(null) as Record<string, { x: string; y: number }[]>,
     );
 
     return {

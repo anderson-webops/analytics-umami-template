@@ -49,7 +49,7 @@ export function EventsChart({ websiteId, focusLabel, limit }: EventsChartProps) 
       obj[x].push({ x: t, y });
 
       return obj;
-    }, {});
+    }, Object.create(null));
 
     if (!map || Object.keys(map).length === 0) {
       return {
@@ -62,7 +62,7 @@ export function EventsChart({ websiteId, focusLabel, limit }: EventsChartProps) 
         ],
       };
     } else {
-      const colorByKey: Record<string, string> = {};
+      const colorByKey: Record<string, string> = Object.create(null);
       const used = new Set<string>();
       const hashOf = Object.fromEntries(
         Object.keys(map).map(key => [key, parseInt(hex6(key), 16)]),
