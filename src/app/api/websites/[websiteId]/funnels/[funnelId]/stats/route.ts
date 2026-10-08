@@ -10,6 +10,7 @@ import {
   unauthorized,
 } from '@/lib/response';
 import {
+  getFunnelShareWorkMultiplier,
   getShareQueryCost,
   getStepFilterCount,
   reserveShareQueryCost,
@@ -43,7 +44,11 @@ export async function GET(
     }
 
     const base = getShareQueryCost(query);
-    const combined = getShareQueryCost(query, { parameters: { steps: parsed.data.steps } });
+    const combined = getShareQueryCost(
+      query,
+      { parameters: { steps: parsed.data.steps } },
+      getFunnelShareWorkMultiplier(parsed.data.steps, parsed.data.window),
+    );
     if (!base || !combined) {
       return badRequest({ message: 'The public-share query is too complex.' });
     }

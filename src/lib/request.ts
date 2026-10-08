@@ -60,7 +60,9 @@ export async function parseRequest(
     maxBodyBytes?: number;
     budgetShareQuery?: boolean;
     shareQueryContext?: { section: ShareSection; websiteId?: string };
-    shareQueryWorkMultiplier?: ShareQueryWorkMultiplier;
+    shareQueryWorkMultiplier?:
+      | ShareQueryWorkMultiplier
+      | ((query: Record<string, any>, body: unknown) => ShareQueryWorkMultiplier | null);
     allowShareSearch?: boolean;
   },
 ): Promise<any> {
@@ -206,7 +208,11 @@ export async function parseRequest(
     schema &&
     (hasQueryRange || hasBodyRange || options?.budgetShareQuery)
   ) {
-    const budget = getShareQueryCost(query, body, options?.shareQueryWorkMultiplier ?? 1);
+    const workMultiplier =
+      typeof options?.shareQueryWorkMultiplier === 'function'
+        ? options.shareQueryWorkMultiplier(query, body)
+        : (options?.shareQueryWorkMultiplier ?? 1);
+    const budget = getShareQueryCost(query, body, workMultiplier);
 
     if (budget === null) {
       error = () => badRequest({ message: 'The public-share query is too complex.' });

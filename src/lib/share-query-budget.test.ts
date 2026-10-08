@@ -1,7 +1,15 @@
 import { expect, test, vi } from 'vitest';
 import { getCompareDate } from '@/lib/date';
 import redis from '@/lib/redis';
-import { getShareQueryCost, reserveShareQueryCost } from './share-query-budget';
+import {
+  getBreakdownShareWorkMultiplier,
+  getFunnelShareWorkMultiplier,
+  getJourneyShareWorkMultiplier,
+  getPagedShareWorkMultiplier,
+  getPageviewShareWorkMultiplier,
+  getShareQueryCost,
+  reserveShareQueryCost,
+} from './share-query-budget';
 
 test('rejects excessive GET and report property-filter fan-out', () => {
   const manyProperties = Object.fromEntries(
@@ -61,7 +69,7 @@ test('charges the full historical range and each aggregate scan', () => {
       undefined,
       2,
     ),
-  ).toEqual({ cost: 401, charge: 802 });
+  ).toBeNull();
 });
 
 test('charges report fan-out and covers a longer year-over-year comparison range', () => {
@@ -83,8 +91,62 @@ test('charges report fan-out and covers a longer year-over-year comparison range
 
 test('rejects invalid work multipliers rather than weakening share charges', () => {
   expect(getShareQueryCost({}, undefined, 0 as 1)).toBeNull();
-  expect(getShareQueryCost({}, undefined, 9 as 1)).toBeNull();
+  expect(getShareQueryCost({}, undefined, 1025)).toBeNull();
   expect(getShareQueryCost({}, undefined, 1.5 as 1)).toBeNull();
+  expect(getShareQueryCost({}, undefined, null)).toBeNull();
+});
+
+test('prices pageview fan-out and breakdown grouping dimensions', () => {
+  expect(getPageviewShareWorkMultiplier(undefined)).toBe(2);
+  expect(getPageviewShareWorkMultiplier('yoy')).toBe(6);
+  expect(getPageviewShareWorkMultiplier('invalid')).toBeNull();
+  expect(getBreakdownShareWorkMultiplier(['path'])).toBe(2);
+  expect(getBreakdownShareWorkMultiplier(Array.from({ length: 20 }, () => 'path'))).toBe(40);
+  expect(getBreakdownShareWorkMultiplier([])).toBeNull();
+  expect(getShareQueryCost({ startAt: 0, endAt: 1 }, undefined, 40)).toEqual({
+    cost: 1,
+    charge: 40,
+  });
+});
+
+test('prices funnel steps, join windows and wildcard predicates', () => {
+  const steps = [
+    { type: 'path', value: '/start' },
+    { type: 'event', value: 'complete' },
+  ];
+
+  expect(getFunnelShareWorkMultiplier(steps, 60)).toBe(4);
+  expect(getFunnelShareWorkMultiplier(steps, 1440 * 7)).toBe(16);
+  expect(getFunnelShareWorkMultiplier([{ ...steps[0], value: '/start*' }, steps[1]], 60)).toBe(8);
+  expect(
+    getFunnelShareWorkMultiplier(
+      [steps[0], { ...steps[1], filters: [{ property: 'plan', operator: 'c', value: 'pro' }] }],
+      60,
+    ),
+  ).toBe(8);
+  expect(
+    getFunnelShareWorkMultiplier(
+      Array.from({ length: 8 }, () => steps[0]),
+      525_600,
+    ),
+  ).toBe(2928);
+  expect(getShareQueryCost({ startAt: 0, endAt: 1 }, undefined, 2928)).toBeNull();
+  expect(getFunnelShareWorkMultiplier(steps, 0)).toBeNull();
+  expect(getFunnelShareWorkMultiplier([], 60)).toBeNull();
+});
+
+test('prices journey depth and paged count, result, and skipped rows', () => {
+  expect(getJourneyShareWorkMultiplier(2)).toBe(4);
+  expect(getJourneyShareWorkMultiplier(7)).toBe(14);
+  expect(getJourneyShareWorkMultiplier(8)).toBeNull();
+  expect(getJourneyShareWorkMultiplier(2.5)).toBeNull();
+  expect(getPagedShareWorkMultiplier(undefined, undefined)).toBe(2);
+  expect(getPagedShareWorkMultiplier(3, 20)).toBe(4);
+  expect(getPagedShareWorkMultiplier(1, 500)).toBe(26);
+  expect(getPagedShareWorkMultiplier(10_000, 500)).toBe(250_001);
+  expect(getShareQueryCost({ startAt: 0, endAt: 1 }, undefined, 250_001)).toBeNull();
+  expect(getPagedShareWorkMultiplier(0, 20)).toBeNull();
+  expect(getPagedShareWorkMultiplier(1, 501)).toBeNull();
 });
 
 test('prices saved segments at their maximum stored filter fan-out', () => {
@@ -103,11 +165,13 @@ test('prices saved segments at their maximum stored filter fan-out', () => {
 test('bounds repeated queries per share in a fixed window', async () => {
   const shareId = `budget-test-${crypto.randomUUID()}`;
 
-  expect((await reserveShareQueryCost(shareId, 600)).blocked).toBe(false);
+  expect((await reserveShareQueryCost(shareId, 599)).blocked).toBe(false);
+  expect((await reserveShareQueryCost(shareId, 2)).blocked).toBe(true);
+  expect((await reserveShareQueryCost(shareId, 1)).blocked).toBe(false);
   expect((await reserveShareQueryCost(shareId, 1)).blocked).toBe(true);
 });
 
-test('records complete multi-query work while allowing only one oversized request per window', async () => {
+test('rejects a multi-query request larger than the complete window allowance', async () => {
   const shareId = `historical-report-${crypto.randomUUID()}`;
   const budget = getShareQueryCost(
     { startAt: Date.UTC(2006, 0, 1), endAt: Date.UTC(2025, 11, 31) },
@@ -115,14 +179,13 @@ test('records complete multi-query work while allowing only one oversized reques
     8,
   );
 
-  const charge = budget?.charge ?? 0;
-  expect(charge).toBe((budget?.cost ?? 0) * 8);
-  expect(charge).toBeGreaterThan(600);
-  expect((await reserveShareQueryCost(shareId, charge)).blocked).toBe(false);
-  expect((await reserveShareQueryCost(shareId, charge)).blocked).toBe(true);
+  expect(budget).toBeNull();
+  expect((await reserveShareQueryCost(shareId, 1888)).blocked).toBe(true);
+  expect((await reserveShareQueryCost(shareId, 600)).blocked).toBe(false);
+  expect((await reserveShareQueryCost(shareId, 1)).blocked).toBe(true);
 });
 
-test('Redis reservations block the second oversized request', async () => {
+test('Redis reservations reject oversized charges before connecting', async () => {
   const enabled = redis.enabled;
   const connect = vi.spyOn(redis.client, 'connect').mockResolvedValue();
   let total = 0;
@@ -130,7 +193,9 @@ test('Redis reservations block the second oversized request', async () => {
     () =>
       ({
         eval: (_script: string, options: { arguments: string[] }) => {
-          total += Number(options.arguments[0]);
+          const charge = Number(options.arguments[0]);
+          if (total + charge > Number(options.arguments[2])) return Promise.resolve(-1);
+          total += charge;
           return Promise.resolve(total);
         },
       }) as any,
@@ -139,7 +204,11 @@ test('Redis reservations block the second oversized request', async () => {
 
   try {
     const shareId = `redis-historical-report-${crypto.randomUUID()}`;
-    expect((await reserveShareQueryCost(shareId, 1888)).blocked).toBe(false);
+    expect((await reserveShareQueryCost(shareId, 1888)).blocked).toBe(true);
+    expect(connect).not.toHaveBeenCalled();
+    expect((await reserveShareQueryCost(shareId, 599)).blocked).toBe(false);
+    expect((await reserveShareQueryCost(shareId, 2)).blocked).toBe(true);
+    expect((await reserveShareQueryCost(shareId, 1)).blocked).toBe(false);
     expect((await reserveShareQueryCost(shareId, 1888)).blocked).toBe(true);
   } finally {
     redis.enabled = enabled;

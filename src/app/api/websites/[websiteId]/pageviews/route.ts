@@ -2,6 +2,7 @@ import { getCompareDate } from '@/lib/date';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import { json, unauthorized } from '@/lib/response';
 import { filterParams, withDateRange } from '@/lib/schema';
+import { getPageviewShareWorkMultiplier } from '@/lib/share-query-budget';
 import { canViewWebsiteSection } from '@/permissions';
 import { getPageviewStats, getSessionStats } from '@/queries/sql';
 
@@ -13,7 +14,9 @@ export async function GET(
     ...filterParams,
   });
 
-  const { auth, query, error } = await parseRequest(request, schema);
+  const { auth, query, error } = await parseRequest(request, schema, {
+    shareQueryWorkMultiplier: query => getPageviewShareWorkMultiplier(query.compare),
+  });
 
   if (error) {
     return error();

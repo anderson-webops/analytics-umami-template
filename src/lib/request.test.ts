@@ -193,6 +193,25 @@ test('budgets parameterless aggregate shares without pricing ignored URL dates',
   expect((await parseRequest(request(), schema, { budgetShareQuery: true })).error).toBeUndefined();
 });
 
+test('prices public shares from validated route-specific work without charging signed-in owners', async () => {
+  const shareId = `route-work-${crypto.randomUUID()}`;
+  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: 'website-1' } } as any);
+  expect((await reserveShareQueryCost(shareId, 596)).blocked).toBe(false);
+
+  const schema = z.object({
+    startAt: z.coerce.number(),
+    endAt: z.coerce.number(),
+    work: z.coerce.number(),
+  });
+  const request = () => new Request('https://analytics.example/api/test?startAt=1&endAt=2&work=5');
+  const options = { shareQueryWorkMultiplier: query => query.work };
+
+  expect((await parseRequest(request(), schema, options)).error?.().status).toBe(429);
+
+  checkAuthMock.mockResolvedValue({ user: { id: 'website-owner' } } as any);
+  expect((await parseRequest(request(), schema, options)).error).toBeUndefined();
+});
+
 test('bounds wide filtered shares but preserves unfiltered historical views', async () => {
   const shareId = `historical-share-${crypto.randomUUID()}`;
   checkAuthMock.mockResolvedValue({

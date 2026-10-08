@@ -1,9 +1,11 @@
+import { DEFAULT_PAGE_SIZE } from '@/lib/constants';
 import { hash } from '@/lib/crypto';
 import redis from '@/lib/redis';
 import { excludeShareFilterParam } from '@/lib/share-filter';
 
 const MONTH_MS = 31 * 24 * 60 * 60 * 1000;
 const MAX_QUERY_COST = 600;
+const MAX_WORK_MULTIPLIER = 1024;
 const MAX_FILTERS = 24;
 const MAX_PROPERTY_FILTERS = 16;
 const WINDOW_SECONDS = 60;
@@ -12,7 +14,7 @@ const MAX_MEMORY_COUNTERS = 20_000;
 const MEMORY_COUNTERS = 'analytics-share-query-budget-counters';
 const PROPERTY_FILTER = /^(?:pf_[A-Za-z0-9_-]+|epf\d+|spf\d+)$/;
 
-export type ShareQueryWorkMultiplier = 1 | 2 | 3 | 5 | 6 | 8;
+export type ShareQueryWorkMultiplier = number;
 
 interface Counter {
   cost: number;
@@ -76,12 +78,102 @@ export function getStepFilterCount(value: unknown) {
   );
 }
 
+export function getFunnelShareWorkMultiplier(steps: unknown, window: unknown): number | null {
+  if (
+    !Array.isArray(steps) ||
+    steps.length < 2 ||
+    steps.length > 8 ||
+    typeof window !== 'number' ||
+    !Number.isSafeInteger(window) ||
+    window < 1 ||
+    window > 525_600
+  ) {
+    return null;
+  }
+
+  let expensivePredicates = 0;
+
+  for (const step of steps) {
+    if (!step || typeof step !== 'object' || typeof step.value !== 'string') {
+      return null;
+    }
+
+    if (step.value.startsWith('*') || step.value.endsWith('*')) {
+      expensivePredicates += 1;
+    }
+
+    if (step.filters != null) {
+      if (!Array.isArray(step.filters)) {
+        return null;
+      }
+
+      expensivePredicates += step.filters.filter(
+        filter => filter?.operator === 'c' || filter?.operator === 'dnc',
+      ).length;
+    }
+  }
+
+  return steps.length * (1 + Math.ceil(window / 1440)) * (1 + expensivePredicates);
+}
+
+export function getBreakdownShareWorkMultiplier(fields: unknown): number | null {
+  if (
+    !Array.isArray(fields) ||
+    fields.length < 1 ||
+    fields.length > 20 ||
+    !fields.every(field => typeof field === 'string')
+  ) {
+    return null;
+  }
+
+  return fields.length * 2;
+}
+
+export function getPageviewShareWorkMultiplier(compare: unknown): number | null {
+  if (compare == null) {
+    return 2;
+  }
+
+  return compare === 'prev' || compare === 'yoy' ? 6 : null;
+}
+
+export function getJourneyShareWorkMultiplier(steps: unknown): number | null {
+  return typeof steps === 'number' && Number.isSafeInteger(steps) && steps >= 2 && steps <= 7
+    ? steps * 2
+    : null;
+}
+
+export function getPagedShareWorkMultiplier(page: unknown, pageSize: unknown): number | null {
+  const pageNumber = page ?? 1;
+  const size = pageSize ?? DEFAULT_PAGE_SIZE;
+
+  if (
+    typeof pageNumber !== 'number' ||
+    !Number.isSafeInteger(pageNumber) ||
+    pageNumber < 1 ||
+    pageNumber > 10_000 ||
+    typeof size !== 'number' ||
+    !Number.isSafeInteger(size) ||
+    size < 1 ||
+    size > 500
+  ) {
+    return null;
+  }
+
+  return 1 + Math.ceil((pageNumber * size) / DEFAULT_PAGE_SIZE);
+}
+
 export function getShareQueryCost(
   query: Record<string, unknown>,
   body?: unknown,
-  workMultiplier: ShareQueryWorkMultiplier = 1,
+  workMultiplier: ShareQueryWorkMultiplier | null = 1,
 ) {
-  if (!Number.isSafeInteger(workMultiplier) || workMultiplier < 1 || workMultiplier > 8) {
+  if (
+    typeof workMultiplier !== 'number' ||
+    !Number.isSafeInteger(workMultiplier) ||
+    workMultiplier < 1 ||
+    workMultiplier > MAX_WORK_MULTIPLIER
+  ) {
     return null;
   }
 
@@ -117,7 +209,9 @@ export function getShareQueryCost(
 
   const charge = cost * workMultiplier;
 
-  return Number.isSafeInteger(cost) && cost <= MAX_QUERY_COST ? { cost, charge } : null;
+  return Number.isSafeInteger(cost) && cost <= MAX_QUERY_COST && charge <= MAX_WINDOW_COST
+    ? { cost, charge }
+    : null;
 }
 
 function memoryCounters(): Map<string, Counter> {
@@ -136,34 +230,45 @@ function reserveLocal(key: string, cost: number) {
       if (counter.expiresAt <= now) counters.delete(storedKey);
     }
     if (counters.size >= MAX_MEMORY_COUNTERS) {
-      return { total: MAX_WINDOW_COST + 1, first: false };
+      return MAX_WINDOW_COST + 1;
     }
     counters.set(key, { cost, expiresAt: now + WINDOW_SECONDS * 1000 });
-    return { total: cost, first: true };
+    return cost;
+  }
+
+  if (current.cost + cost > MAX_WINDOW_COST) {
+    return MAX_WINDOW_COST + 1;
   }
 
   current.cost += cost;
-  return { total: current.cost, first: false };
+  return current.cost;
 }
 
 export async function reserveShareQueryCost(shareId: string, cost: number) {
+  if (!Number.isSafeInteger(cost) || cost < 1 || cost > MAX_WINDOW_COST) {
+    return { blocked: true, retryAfter: WINDOW_SECONDS };
+  }
+
   const key = `share-query-budget:${hash(shareId).slice(0, 32)}`;
 
   if (redis.enabled) {
     try {
       await redis.client.connect(1000);
       const total = await redis.client.client.withAbortSignal(AbortSignal.timeout(1000)).eval(
-        `local total = redis.call('INCRBY', KEYS[1], ARGV[1])
-         if total == tonumber(ARGV[1]) then redis.call('EXPIRE', KEYS[1], ARGV[2]) end
+        `local current = tonumber(redis.call('GET', KEYS[1]) or '0')
+         local charge = tonumber(ARGV[1])
+         local capacity = tonumber(ARGV[3])
+         if not current or current < 0 or current > capacity or current + charge > capacity then
+           return -1
+         end
+         local total = redis.call('INCRBY', KEYS[1], charge)
+         if current == 0 then redis.call('EXPIRE', KEYS[1], ARGV[2]) end
          return total`,
-        { keys: [key], arguments: [String(cost), String(WINDOW_SECONDS)] },
+        { keys: [key], arguments: [String(cost), String(WINDOW_SECONDS), String(MAX_WINDOW_COST)] },
       );
       const reserved = Number(total);
       return {
-        blocked:
-          !Number.isSafeInteger(reserved) ||
-          reserved < cost ||
-          (reserved > MAX_WINDOW_COST && reserved !== cost),
+        blocked: !Number.isSafeInteger(reserved) || reserved < cost || reserved > MAX_WINDOW_COST,
         retryAfter: WINDOW_SECONDS,
       };
     } catch {
@@ -173,7 +278,7 @@ export async function reserveShareQueryCost(shareId: string, cost: number) {
 
   const reservation = reserveLocal(key, cost);
   return {
-    blocked: reservation.total > MAX_WINDOW_COST && !reservation.first,
+    blocked: reservation > MAX_WINDOW_COST,
     retryAfter: WINDOW_SECONDS,
   };
 }

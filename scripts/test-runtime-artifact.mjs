@@ -141,9 +141,11 @@ async function runIsolatedSmoke(runtime, cache, port) {
 
 async function clearRuntimeCache(runtime) {
   const cache = path.join(runtime, '.next', 'cache');
+  const mode = (await fs.stat(cache)).mode & 0o777;
 
   await fs.rm(cache, { recursive: true, force: true });
-  await fs.mkdir(cache, { recursive: true, mode: 0o750 });
+  await fs.mkdir(cache, { recursive: true, mode });
+  await fs.chmod(cache, mode);
 }
 
 async function expectMissingModuleFailure(runtime) {

@@ -1,5 +1,6 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { getQueryFilters, parseRequest } from '@/lib/request';
+import { reserveShareQueryCost } from '@/lib/share-query-budget';
 import { canViewReport, canViewWebsiteSection } from '@/permissions';
 import { getReport } from '@/queries/prisma';
 import { getFunnel } from '@/queries/sql/funnels/getFunnel';
@@ -78,6 +79,26 @@ test('preserves ordinary saved funnel analytics for a public share', async () =>
 
   expect(response.status).toBe(200);
   expect(getFunnel).toHaveBeenCalledTimes(1);
+});
+
+test('reserves saved funnel join work before executing analytics', async () => {
+  const shareId = `saved-funnel-work-${crypto.randomUUID()}`;
+  vi.mocked(parseRequest).mockResolvedValue({
+    auth: { shareToken: { shareId, websiteId } },
+    query: { startAt, endAt, window: 10080 },
+  } as any);
+  const savedReport = report(0);
+  savedReport.parameters.window = 10080;
+  vi.mocked(getReport).mockResolvedValue(savedReport as any);
+  expect((await reserveShareQueryCost(shareId, 600)).blocked).toBe(false);
+
+  const response = await GET(
+    new Request('https://analytics.example/api/websites/site/funnels/report/stats'),
+    { params: Promise.resolve({ websiteId, funnelId: 'report' }) },
+  );
+
+  expect(response.status).toBe(429);
+  expect(getFunnel).not.toHaveBeenCalled();
 });
 
 test('rejects a filtered saved funnel when the public share disables filters', async () => {
