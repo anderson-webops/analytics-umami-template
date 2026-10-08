@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import { deleteWebsite, resetWebsite } from './website';
+import { deleteWebsite, resetWebsite, transferWebsiteByActor } from './website';
 
 const { transactionMock, redisDelMock, redisSetMock } = vi.hoisted(() => ({
   transactionMock: vi.fn(),
@@ -199,5 +199,69 @@ describe('website delete dependencies', () => {
       'session',
       'websiteUpdate',
     ]);
+  });
+});
+
+describe('website transfer authorization after role changes', () => {
+  beforeEach(() => {
+    transactionMock.mockReset();
+    redisDelMock.mockReset();
+  });
+
+  test('a demoted team owner cannot transfer a team website', async () => {
+    const update = vi.fn().mockResolvedValue({ id: 'website-1' });
+    const actorLookup = vi
+      .fn()
+      .mockResolvedValueOnce({ role: 'view-only' })
+      .mockResolvedValueOnce({ id: 'actor-1' });
+    transactionMock.mockImplementation(async callback =>
+      callback({
+        $queryRaw: vi.fn(),
+        user: { findFirst: actorLookup },
+        website: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: 'website-1',
+            userId: null,
+            teamId: 'team-1',
+          }),
+          update,
+        },
+        teamUser: { findFirst: vi.fn().mockResolvedValue({ role: 'team-owner' }) },
+      }),
+    );
+
+    await expect(
+      transferWebsiteByActor('website-1', { userId: 'actor-1' }, 'actor-1'),
+    ).rejects.toThrow('WEBSITE_TRANSFER_NOT_AUTHORIZED');
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  test('an ordinary team owner can still transfer a team website to self', async () => {
+    const update = vi.fn().mockResolvedValue({ id: 'website-1', userId: 'actor-1' });
+    transactionMock.mockImplementation(async callback =>
+      callback({
+        $queryRaw: vi.fn(),
+        user: {
+          findFirst: vi
+            .fn()
+            .mockResolvedValueOnce({ role: 'user' })
+            .mockResolvedValueOnce({ id: 'actor-1' }),
+        },
+        website: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: 'website-1',
+            userId: null,
+            teamId: 'team-1',
+          }),
+          update,
+        },
+        teamUser: { findFirst: vi.fn().mockResolvedValue({ role: 'team-owner' }) },
+      }),
+    );
+
+    await expect(
+      transferWebsiteByActor('website-1', { userId: 'actor-1' }, 'actor-1'),
+    ).resolves.toMatchObject({ userId: 'actor-1' });
+    expect(update).toHaveBeenCalledOnce();
   });
 });

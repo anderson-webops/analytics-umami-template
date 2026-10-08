@@ -3,6 +3,7 @@ import { ROLES, TEAM_ROLE_RANK } from '@/lib/constants';
 import { isUuid, uuid } from '@/lib/crypto';
 import prisma from '@/lib/prisma';
 import type { QueryFilters } from '@/lib/types';
+import { hasMutableGlobalRole } from '@/permissions/mutation';
 import { runSerializable } from './authorization';
 
 import TeamUserFindManyArgs = Prisma.TeamUserFindManyArgs;
@@ -56,7 +57,7 @@ async function getActorState(
     select: { role: true, deletedAt: true },
   });
 
-  if (!actor || actor.deletedAt) {
+  if (!actor || actor.deletedAt || !hasMutableGlobalRole(actor.role)) {
     return null;
   }
 

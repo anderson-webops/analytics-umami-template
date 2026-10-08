@@ -1,5 +1,5 @@
 import { beforeEach, expect, test, vi } from 'vitest';
-import { getTeamAccessCodeForActor, getTeams, getUserTeams, updateTeam } from './team';
+import { deleteTeam, getTeamAccessCodeForActor, getTeams, getUserTeams, updateTeam } from './team';
 
 const {
   pagedQueryMock,
@@ -8,6 +8,7 @@ const {
   teamFindFirstMock,
   membershipFindFirstMock,
   teamUpdateMock,
+  websiteFindManyMock,
 } = vi.hoisted(() => ({
   pagedQueryMock: vi.fn(),
   transactionMock: vi.fn(),
@@ -15,6 +16,7 @@ const {
   teamFindFirstMock: vi.fn(),
   membershipFindFirstMock: vi.fn(),
   teamUpdateMock: vi.fn(),
+  websiteFindManyMock: vi.fn(),
 }));
 
 const TEAM_ID = '3979e857-a987-4795-9380-12024a4440a9';
@@ -38,6 +40,7 @@ beforeEach(() => {
       user: { findFirst: userFindFirstMock },
       team: { findFirst: teamFindFirstMock, update: teamUpdateMock },
       teamUser: { findFirst: membershipFindFirstMock },
+      website: { findMany: websiteFindManyMock },
     }),
   );
   userFindFirstMock.mockReset();
@@ -51,6 +54,7 @@ beforeEach(() => {
   membershipFindFirstMock.mockResolvedValue({ role: 'team-manager' });
   teamUpdateMock.mockReset();
   teamUpdateMock.mockResolvedValue({ id: TEAM_ID, accessCode: ACCESS_CODE });
+  websiteFindManyMock.mockReset();
 });
 
 test('team lists omit invitation codes before reading from Prisma', async () => {
@@ -125,4 +129,20 @@ test('current team managers can still update team settings', async () => {
     id: TEAM_ID,
   });
   expect(teamUpdateMock).toHaveBeenCalledOnce();
+});
+
+test('a demoted team owner cannot delete the team', async () => {
+  userFindFirstMock.mockResolvedValue({ role: 'view-only' });
+  membershipFindFirstMock.mockResolvedValue({ role: 'team-owner' });
+
+  await expect(deleteTeam(TEAM_ID, ACTOR_ID)).rejects.toThrow('TEAM_ACTOR_NOT_AUTHORIZED');
+  expect(websiteFindManyMock).not.toHaveBeenCalled();
+});
+
+test('a deleted team owner cannot delete the team', async () => {
+  userFindFirstMock.mockResolvedValue(null);
+  membershipFindFirstMock.mockResolvedValue({ role: 'team-owner' });
+
+  await expect(deleteTeam(TEAM_ID, ACTOR_ID)).rejects.toThrow('TEAM_ACTOR_NOT_AUTHORIZED');
+  expect(websiteFindManyMock).not.toHaveBeenCalled();
 });

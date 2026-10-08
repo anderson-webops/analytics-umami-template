@@ -1,6 +1,7 @@
 import type { Prisma } from '@/generated/prisma/client';
 import { PERMISSIONS, ROLE_PERMISSIONS, ROLES } from '@/lib/constants';
 import prisma from '@/lib/prisma';
+import { hasMutableGlobalRole } from '@/permissions/mutation';
 
 export type OwnedEntityType = 'website' | 'link' | 'pixel' | 'board';
 export type EntityMutationPermission =
@@ -198,7 +199,7 @@ export async function assertActorCanMutateEntity(
     throw new Error('ENTITY_NOT_FOUND');
   }
 
-  if (!actor) {
+  if (!actor || !hasMutableGlobalRole(actor.role)) {
     throw new Error('ENTITY_ACTOR_NOT_AUTHORIZED');
   }
 
@@ -254,7 +255,7 @@ export async function assertActorCanAccessEntities(
     );
   }
 
-  if (!actor || entities.some(entity => !entity)) {
+  if (!actor || !hasMutableGlobalRole(actor.role) || entities.some(entity => !entity)) {
     throw new Error('ENTITY_REFERENCE_NOT_AUTHORIZED');
   }
 
@@ -327,6 +328,7 @@ export async function assertActorCanCreateOwnedEntity(
 
   if (
     !actor ||
+    !hasMutableGlobalRole(actor.role) ||
     (requireGlobalCreatePermission && !roleHasPermission(actor.role, PERMISSIONS.websiteCreate))
   ) {
     throw new Error('ENTITY_ACTOR_NOT_AUTHORIZED');

@@ -6,6 +6,7 @@ import prisma from '@/lib/prisma';
 import redis from '@/lib/redis';
 import { sanitizeSortFilters } from '@/lib/sort';
 import type { PageResult, QueryFilters } from '@/lib/types';
+import { hasMutableGlobalRole } from '@/permissions/mutation';
 import { deleteClickhouseCollectionSources } from '@/queries/sql/deleteCollectionSources';
 import { runSerializable } from './authorization';
 import { lockCollectionSources } from './collection';
@@ -321,7 +322,10 @@ export async function deleteTeam(teamId: string, actorUserId: string) {
         throw new Error('TEAM_NOT_FOUND');
       }
 
-      if (actor?.role !== ROLES.admin && membership?.role !== ROLES.teamOwner) {
+      if (
+        !hasMutableGlobalRole(actor?.role) ||
+        (actor?.role !== ROLES.admin && membership?.role !== ROLES.teamOwner)
+      ) {
         throw new Error('TEAM_ACTOR_NOT_AUTHORIZED');
       }
 

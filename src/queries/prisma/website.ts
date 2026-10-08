@@ -8,6 +8,7 @@ import { getRecorderConfig, getRecorderEnabled } from '@/lib/recorder';
 import redis from '@/lib/redis';
 import { sanitizeSortFilters } from '@/lib/sort';
 import type { QueryFilters } from '@/lib/types';
+import { hasMutableGlobalRole } from '@/permissions/mutation';
 import { deleteClickhouseCollectionSources } from '@/queries/sql/deleteCollectionSources';
 import {
   assertActorCanCreateOwnedEntity,
@@ -406,7 +407,7 @@ export async function transferWebsiteByActor(
       throw new Error('WEBSITE_NOT_FOUND');
     }
 
-    if (!actor) {
+    if (!actor || !hasMutableGlobalRole(actor.role)) {
       throw new Error('WEBSITE_TRANSFER_NOT_AUTHORIZED');
     }
 
