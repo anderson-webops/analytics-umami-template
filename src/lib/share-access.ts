@@ -1,18 +1,21 @@
 import 'server-only';
+import { z } from 'zod';
 import type { Board, Link, Pixel, Share, Website } from '@/generated/prisma/client';
 import { getBoardEntityIds } from '@/lib/boards';
 import { ENTITY_TYPE } from '@/lib/constants';
+import { isUuid } from '@/lib/crypto';
+import prisma from '@/lib/prisma';
 import { getBoard, getLink, getPixel, getWebsite } from '@/queries/prisma';
 import type { BoardParameters } from './types';
 
 type BoardEntityIds = ReturnType<typeof getBoardEntityIds>;
+type BoardOwnedEntity = Pick<Website, 'id' | 'userId' | 'teamId' | 'deletedAt'>;
+
+const websiteIdSchema = z.uuid();
 
 export type ShareEntity = Website | Link | Pixel | Board;
 
-function isOwnedByBoard(
-  entity: Website | Link | Pixel | null,
-  board: Pick<Board, 'userId' | 'teamId'>,
-) {
+function isOwnedByBoard(entity: BoardOwnedEntity | null, board: Pick<Board, 'userId' | 'teamId'>) {
   if (!entity || entity.deletedAt) {
     return false;
   }
@@ -24,36 +27,59 @@ function isOwnedByBoard(
 
 async function filterEntityIds(
   ids: string[],
-  isAllowed: (id: string) => Promise<boolean>,
+  board: Pick<Board, 'userId' | 'teamId'>,
+  isValid: (id: string) => boolean,
+  read: (ids: string[]) => Promise<BoardOwnedEntity[]>,
 ): Promise<string[]> {
-  const results = await Promise.all(
-    ids.map(async id => {
-      try {
-        return (await isAllowed(id)) ? id : null;
-      } catch {
-        return null;
-      }
-    }),
-  );
+  const validIds = ids.filter(isValid);
 
-  return results.filter((id): id is string => !!id);
+  if (!validIds.length) {
+    return [];
+  }
+
+  try {
+    const entities = await read(validIds);
+    const allowedIds = new Set(
+      entities.filter(entity => isOwnedByBoard(entity, board)).map(entity => entity.id),
+    );
+
+    return ids.filter(id => allowedIds.has(id));
+  } catch {
+    return [];
+  }
 }
 
 async function filterBoardEntityIds(
   board: Pick<Board, 'userId' | 'teamId'>,
   ids: BoardEntityIds,
 ): Promise<BoardEntityIds> {
-  return {
-    websiteIds: await filterEntityIds(ids.websiteIds, async id =>
-      isOwnedByBoard(await getWebsite(id), board),
+  const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
+  const [websiteIds, pixelIds, linkIds] = await Promise.all([
+    filterEntityIds(
+      ids.websiteIds,
+      board,
+      id => websiteIdSchema.safeParse(id).success,
+      validIds =>
+        client.website.findMany({
+          where: { id: { in: validIds }, deletedAt: null },
+          select: { id: true, userId: true, teamId: true, deletedAt: true },
+        }),
     ),
-    pixelIds: await filterEntityIds(ids.pixelIds, async id =>
-      isOwnedByBoard(await getPixel(id), board),
+    filterEntityIds(ids.pixelIds, board, isUuid, validIds =>
+      client.pixel.findMany({
+        where: { id: { in: validIds }, deletedAt: null },
+        select: { id: true, userId: true, teamId: true, deletedAt: true },
+      }),
     ),
-    linkIds: await filterEntityIds(ids.linkIds, async id =>
-      isOwnedByBoard(await getLink(id), board),
+    filterEntityIds(ids.linkIds, board, isUuid, validIds =>
+      client.link.findMany({
+        where: { id: { in: validIds }, deletedAt: null },
+        select: { id: true, userId: true, teamId: true, deletedAt: true },
+      }),
     ),
-  };
+  ]);
+
+  return { websiteIds, pixelIds, linkIds };
 }
 
 export async function resolveShareAccess(
