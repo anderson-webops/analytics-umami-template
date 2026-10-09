@@ -1,5 +1,4 @@
-import { getCompareDate } from '@/lib/date';
-import { getQueryFilters, parseRequest } from '@/lib/request';
+import { getBoundedCompareDate, getQueryFilters, parseRequest } from '@/lib/request';
 import { json, unauthorized } from '@/lib/response';
 import { filterParams, withDateRange } from '@/lib/schema';
 import { getPageviewShareWorkMultiplier } from '@/lib/share-query-budget';
@@ -36,7 +35,8 @@ export async function GET(
   ]);
 
   if (filters.compare) {
-    const { startDate: compareStartDate, endDate: compareEndDate } = getCompareDate(
+    const { startDate: compareStartDate, endDate: compareEndDate } = await getBoundedCompareDate(
+      websiteId,
       filters.compare,
       filters.startDate,
       filters.endDate,

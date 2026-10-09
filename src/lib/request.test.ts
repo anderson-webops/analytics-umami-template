@@ -1,9 +1,9 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 import { checkAuth } from '@/lib/auth';
-import { fetchWebsite } from '@/lib/load';
+import { fetchAccount, fetchWebsite } from '@/lib/load';
 import { getWebsiteSegment } from '@/queries/prisma';
-import { getQueryFilters, parseRequest } from './request';
+import { getBoundedCompareDate, getQueryFilters, parseRequest } from './request';
 import { readRequestBodyBytes } from './request-body';
 import { fieldsParam, reportResultSchema, searchParams, withDateRange } from './schema';
 import { reserveShareQueryCost } from './share-query-budget';
@@ -27,14 +27,54 @@ vi.mock('@/queries/prisma', () => ({
 }));
 
 const checkAuthMock = vi.mocked(checkAuth);
+const fetchAccountMock = vi.mocked(fetchAccount);
 const fetchWebsiteMock = vi.mocked(fetchWebsite);
 const getWebsiteSegmentMock = vi.mocked(getWebsiteSegment);
 
 beforeEach(() => {
   checkAuthMock.mockReset();
+  fetchAccountMock.mockReset();
   fetchWebsiteMock.mockReset();
   getWebsiteSegmentMock.mockReset();
   fetchWebsiteMock.mockResolvedValue({ id: 'website-1' } as any);
+});
+
+test.each(['prev', 'yoy'] as const)(
+  'bounds %s comparison to the website reset even when the requested range is newer',
+  async compare => {
+    const resetAt = new Date('2026-09-01T12:00:00.000Z');
+    fetchWebsiteMock.mockResolvedValue({ id: 'website-1', resetAt } as any);
+
+    const comparison = await getBoundedCompareDate(
+      'website-1',
+      compare,
+      new Date('2026-09-02T00:00:00.000Z'),
+      new Date('2026-09-03T00:00:00.000Z'),
+    );
+
+    expect(comparison.startDate).toEqual(resetAt);
+    expect(fetchWebsiteMock).toHaveBeenCalledWith('website-1');
+  },
+);
+
+test('bounds a year-over-year comparison to the cloud subscription history limit', async () => {
+  const previousCloudMode = process.env.CLOUD_MODE;
+  process.env.CLOUD_MODE = '1';
+  try {
+    fetchWebsiteMock.mockResolvedValue({ id: 'website-1', userId: 'account-1' } as any);
+    fetchAccountMock.mockResolvedValue({ hasSubscription: false } as any);
+
+    const comparison = await getBoundedCompareDate('website-1', 'yoy', new Date(), new Date());
+
+    expect(comparison.startDate.getTime()).toBeGreaterThan(comparison.endDate.getTime());
+    expect(fetchAccountMock).toHaveBeenCalledWith('account-1');
+  } finally {
+    if (previousCloudMode === undefined) {
+      delete process.env.CLOUD_MODE;
+    } else {
+      process.env.CLOUD_MODE = previousCloudMode;
+    }
+  }
 });
 
 test('rejects direct query filters when a public share disables filters', async () => {

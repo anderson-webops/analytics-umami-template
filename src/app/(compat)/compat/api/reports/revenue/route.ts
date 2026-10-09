@@ -1,5 +1,9 @@
-import { getCompareDate } from '@/lib/date';
-import { getQueryFilters, parseRequest, setWebsiteDate } from '@/lib/request';
+import {
+  getBoundedCompareDate,
+  getQueryFilters,
+  parseRequest,
+  setWebsiteDate,
+} from '@/lib/request';
 import { json, unauthorized } from '@/lib/response';
 import { reportResultSchema } from '@/lib/schema';
 import { canViewWebsiteSection } from '@/permissions';
@@ -30,7 +34,12 @@ export async function POST(request: Request) {
   const parameters = await setWebsiteDate(websiteId, body.parameters);
   const filters = await getQueryFilters(body.filters, websiteId);
   const { compare = 'prev' } = parameters as RevenuParameters;
-  const { startDate, endDate } = getCompareDate(compare, parameters.startDate, parameters.endDate);
+  const { startDate, endDate } = await getBoundedCompareDate(
+    websiteId,
+    compare,
+    parameters.startDate,
+    parameters.endDate,
+  );
   const comparisonParameters = { ...(parameters as RevenuParameters), startDate, endDate };
 
   const [{ chart }, total, comparison, country, region, referrer, channel] = await Promise.all([

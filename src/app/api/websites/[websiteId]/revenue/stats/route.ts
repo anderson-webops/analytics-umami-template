@@ -1,6 +1,5 @@
 import { z } from 'zod';
-import { getCompareDate } from '@/lib/date';
-import { getQueryFilters, parseRequest } from '@/lib/request';
+import { getBoundedCompareDate, getQueryFilters, parseRequest } from '@/lib/request';
 import { json, unauthorized } from '@/lib/response';
 import { filterParams, withDateRange } from '@/lib/schema';
 import { canViewWebsiteSection } from '@/permissions';
@@ -35,7 +34,12 @@ export async function GET(
   const filters = await getQueryFilters(query, websiteId);
   const parameters = { ...filters, currency } as RevenuParameters;
   const { compare = 'prev' } = parameters;
-  const { startDate, endDate } = getCompareDate(compare, parameters.startDate, parameters.endDate);
+  const { startDate, endDate } = await getBoundedCompareDate(
+    websiteId,
+    compare,
+    parameters.startDate,
+    parameters.endDate,
+  );
   const comparisonParameters = { ...parameters, startDate, endDate };
 
   const [stats, comparison] = await Promise.all([

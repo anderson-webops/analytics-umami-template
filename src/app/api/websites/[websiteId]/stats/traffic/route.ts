@@ -1,5 +1,4 @@
-import { getCompareDate } from '@/lib/date';
-import { getQueryFilters, parseRequest } from '@/lib/request';
+import { getBoundedCompareDate, getQueryFilters, parseRequest } from '@/lib/request';
 import { json, unauthorized } from '@/lib/response';
 import { filterParams, withDateRange } from '@/lib/schema';
 import { canViewWebsiteSection } from '@/permissions';
@@ -30,7 +29,8 @@ export async function GET(
 
   const filters = await getQueryFilters(query, websiteId);
   const data = await getWebsiteStats(websiteId, filters);
-  const { startDate, endDate } = getCompareDate(
+  const { startDate, endDate } = await getBoundedCompareDate(
+    websiteId,
     filters.compare ?? 'prev',
     filters.startDate,
     filters.endDate,

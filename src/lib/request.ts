@@ -2,7 +2,13 @@ import { startOfMonth, subMonths } from 'date-fns';
 import { z } from 'zod';
 import { checkAuth } from '@/lib/auth';
 import { DEFAULT_PAGE_SIZE, FILTER_COLUMNS, OPERATORS } from '@/lib/constants';
-import { getAllowedUnits, getMinimumUnit, maxDate, parseDateRange } from '@/lib/date';
+import {
+  getAllowedUnits,
+  getCompareDate,
+  getMinimumUnit,
+  maxDate,
+  parseDateRange,
+} from '@/lib/date';
 import { isEnvEnabled } from '@/lib/env';
 import { fetchAccount, fetchWebsite } from '@/lib/load';
 import {
@@ -274,7 +280,8 @@ export function getRequestFilters(query: Record<string, any>) {
   return result;
 }
 
-export async function setWebsiteDate(websiteId: string, data: Record<string, any>) {
+export async function setWebsiteDate<T extends object>(websiteId: string, data: T): Promise<T> {
+  const datedData = data as T & { startDate?: Date };
   const website = await fetchWebsite(websiteId);
   const cloudMode = isEnvEnabled('CLOUD_MODE');
 
@@ -282,15 +289,34 @@ export async function setWebsiteDate(websiteId: string, data: Record<string, any
     const account = await fetchAccount(website.userId);
 
     if (!account?.hasSubscription) {
-      data.startDate = maxDate(data.startDate, startOfMonth(subMonths(new Date(), 6)));
+      datedData.startDate = maxDate(datedData.startDate, startOfMonth(subMonths(new Date(), 6)));
     }
   }
 
   if (website?.resetAt) {
-    data.startDate = maxDate(data.startDate, new Date(website?.resetAt));
+    datedData.startDate = maxDate(datedData.startDate, new Date(website?.resetAt));
   }
 
   return data;
+}
+
+export async function getBoundedCompareDate(
+  websiteId: string,
+  compare: string,
+  startDate: Date,
+  endDate: Date,
+) {
+  const comparison = getCompareDate(compare, startDate, endDate);
+
+  if (!comparison.startDate || !comparison.endDate) {
+    throw new Error('INVALID_COMPARE_PERIOD');
+  }
+
+  return setWebsiteDate(websiteId, {
+    compare,
+    startDate: comparison.startDate,
+    endDate: comparison.endDate,
+  });
 }
 
 export async function getQueryFilters(
