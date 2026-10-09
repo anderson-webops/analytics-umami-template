@@ -29,8 +29,13 @@ if [[ "${1:-}" == --login-admission ]]; then
   ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm exec tsx scripts/test-login-account-admission.ts
   exit 0
 fi
+if [[ "${1:-}" == --session-data-bulk ]]; then
+  ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-session-data-bulk.ts
+  exit 0
+fi
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node scripts/test-postgres-restore.mjs "$@"
 pnpm run db:migrate
+ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-session-data-bulk.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-heatmap-budget.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-recorder-budget-retention.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-collection-budget.ts
