@@ -19,6 +19,33 @@ async function copyRuntimePath(sourcePath, destinationPath) {
   await fs.cp(sourcePath, destinationPath, { force: true, recursive: true });
 }
 
+async function copyReplayCssBindings(appDir) {
+  const packageRoot = await fs.realpath(path.resolve('node_modules/lightningcss'));
+  const dependencyRoot = path.dirname(packageRoot);
+  const { version } = JSON.parse(await fs.readFile(path.join(packageRoot, 'package.json'), 'utf8'));
+  const bindings = new Set(['lightningcss-linux-arm64-gnu']);
+
+  if (process.platform === 'darwin') {
+    bindings.add(`lightningcss-darwin-${process.arch}`);
+  }
+
+  for (const name of bindings) {
+    const sourcePath = await fs.realpath(path.join(dependencyRoot, name));
+    const metadata = JSON.parse(await fs.readFile(path.join(sourcePath, 'package.json'), 'utf8'));
+    const nativeFile = `${name.replace('lightningcss-', 'lightningcss.')}.node`;
+
+    if (
+      metadata.name !== name ||
+      metadata.version !== version ||
+      !(await fs.stat(path.join(sourcePath, nativeFile))).isFile()
+    ) {
+      throw new Error(`The locked ${name} native binding is unavailable.`);
+    }
+
+    await copyRuntimePath(sourcePath, path.join(appDir, 'node_modules', name));
+  }
+}
+
 async function bundleRuntimeScript(entryPoint, outputPath) {
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
   await build({
@@ -63,6 +90,8 @@ async function run() {
   if (!appDir) {
     throw new Error('The standalone production runtime was not generated.');
   }
+
+  await copyReplayCssBindings(appDir);
 
   for (const relativePath of ['public', 'geo', 'prisma', 'generated', '.next/static']) {
     await copyRuntimePath(path.resolve(relativePath), path.join(appDir, relativePath));

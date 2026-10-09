@@ -181,6 +181,22 @@ async function expectMissingModuleFailure(runtime) {
   }
 }
 
+function expectReplayCssBinding(runtime) {
+  const result = spawnSync(
+    process.execPath,
+    [
+      '-e',
+      'const { createRequire } = require("node:module"); const css = createRequire(process.argv[1])("lightningcss"); if (typeof css.transform !== "function") process.exit(1);',
+      path.join(runtime, 'server.js'),
+    ],
+    { cwd: runtime, encoding: 'utf8', env: { ...process.env } },
+  );
+
+  if (result.status !== 0) {
+    throw new Error(`The copied runtime cannot load its replay CSS binding: ${result.stderr}`);
+  }
+}
+
 async function expectStartupDependencyFailure(runtime) {
   const port = await availablePort();
   const unavailableDatabaseUrl =
@@ -229,6 +245,7 @@ const isolatedCache = path.join(temporaryRoot, 'cache');
 
 try {
   await copyRuntimeArtifact(sourceRuntime, copiedRuntime, { release, expectedCommit });
+  expectReplayCssBinding(copiedRuntime);
   await fs.mkdir(isolatedCache, { mode: 0o750 });
   await expectStartupDependencyFailure(copiedRuntime);
 
