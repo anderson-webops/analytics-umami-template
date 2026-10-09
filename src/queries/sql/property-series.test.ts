@@ -107,6 +107,7 @@ describe.each(['prisma', 'clickhouse'] as const)('%s property series', backend =
         backend === 'prisma' ? 'count(distinct session_id)' : 'uniq(session_id)',
       );
       if (backend === 'clickhouse') {
+        expect(sql).toContain('session_data.created_at as created_at');
         expect(sql).toContain('session_data.session_id as session_id');
         expect(sql).toContain('uniq(session_id) as frequency');
         expect(sql).toContain('order by frequency desc');

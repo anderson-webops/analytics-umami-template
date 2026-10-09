@@ -120,7 +120,7 @@ async function clickhouseQuery(
     `
     with matched_data as (
       select arrayJoin(JSONExtract(ifNull(session_data.string_value, '[]'), 'Array(String)')) as x,
-        session_data.created_at, session_data.session_id as session_id
+        session_data.created_at as created_at, session_data.session_id as session_id
       from website_event
       ${cohortQuery}
       join session_data final

@@ -120,7 +120,7 @@ async function clickhouseQuery(
     with matched_data as (
       select session_data.string_value as x,
         tuple(isNull(session_data.string_value), ifNull(session_data.string_value, '')) as x_key,
-        session_data.created_at,
+        session_data.created_at as created_at,
         session_data.session_id as session_id
       from website_event
       ${cohortQuery}
