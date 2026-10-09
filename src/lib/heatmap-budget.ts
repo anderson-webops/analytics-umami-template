@@ -1,6 +1,8 @@
 import type { Prisma } from '@/generated/prisma/client';
+import { reserveCollectionAccountBudget } from '@/lib/collection-budget';
 import {
   RECORDER_VISIT_BUDGET_RETENTION_MS,
+  type RecorderAccount,
   reserveRecorderVisitKeyBudget,
 } from '@/lib/recorder-budget';
 
@@ -22,7 +24,7 @@ export class HeatmapBudgetExceededError extends Error {
   }
 }
 
-interface ReserveHeatmapBudgetArgs {
+interface ReserveHeatmapBudgetArgs extends RecorderAccount {
   websiteId: string;
   visitId: string;
   bytes: number;
@@ -31,7 +33,7 @@ interface ReserveHeatmapBudgetArgs {
 
 export async function reserveHeatmapBudget(
   transaction: Prisma.TransactionClient,
-  { websiteId, visitId, bytes, events }: ReserveHeatmapBudgetArgs,
+  { websiteId, visitId, bytes, events, accountType, accountId }: ReserveHeatmapBudgetArgs,
 ) {
   if (
     !Number.isSafeInteger(bytes) ||
@@ -105,8 +107,17 @@ export async function reserveHeatmapBudget(
     }
   }
 
+  await reserveCollectionAccountBudget(
+    transaction,
+    { accountType, accountId },
+    { bytes: bytes + events * 512, rows: events, requests: 1 },
+  );
+
   if (existing.length === 0) {
-    const retryAfter = await reserveRecorderVisitKeyBudget(transaction, websiteId, now);
+    const retryAfter = await reserveRecorderVisitKeyBudget(transaction, websiteId, now, {
+      accountType,
+      accountId,
+    });
 
     if (retryAfter !== null) {
       throw new HeatmapBudgetExceededError(retryAfter);

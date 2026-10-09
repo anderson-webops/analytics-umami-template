@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { CollectionBudgetExceededError } from '@/lib/collection-budget';
 import {
   getCollectionIpLimit,
   getCollectionSourceLimit,
@@ -67,6 +68,7 @@ vi.mock('@/queries/sql/heatmap/saveHeatmapEvents', () => ({
 }));
 
 const parseRequestMock = vi.mocked(parseRequest);
+const ACCOUNT_ID = '44444444-4444-4444-8444-444444444444';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -117,6 +119,8 @@ function prepareHeatmapRequest() {
       findFirst: vi.fn().mockResolvedValue({
         recorderEnabled: true,
         replayConfig: { heatmapEnabled: true, replayEnabled: true },
+        userId: ACCOUNT_ID,
+        teamId: null,
       }),
     },
   };
@@ -146,7 +150,7 @@ function prepareHeatmapRequest() {
     error: undefined,
   });
 
-  return { websiteId, visitId };
+  return { websiteId, visitId, transaction };
 }
 
 function prepareReplayRequest() {
@@ -259,7 +263,13 @@ describe('heatmap intake budget', () => {
     expect(response.status).toBe(200);
     expect(reserveHeatmapBudget).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ websiteId, visitId, events: 1 }),
+      expect.objectContaining({
+        websiteId,
+        visitId,
+        events: 1,
+        accountType: 'user',
+        accountId: ACCOUNT_ID,
+      }),
     );
     expect(saveHeatmapEvents).toHaveBeenCalledOnce();
     expect(getCollectionSourceLimit).toHaveBeenCalledWith(websiteId);
@@ -270,6 +280,51 @@ describe('heatmap intake budget', () => {
     expect(vi.mocked(reserveHeatmapBudget).mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(saveHeatmapEvents).mock.invocationCallOrder[0],
     );
+  });
+
+  test('charges the team owner of a team-owned website', async () => {
+    const { transaction } = prepareHeatmapRequest();
+    const teamId = '55555555-5555-4555-8555-555555555555';
+    transaction.website.findFirst.mockResolvedValue({
+      recorderEnabled: true,
+      replayConfig: { heatmapEnabled: true },
+      userId: null,
+      teamId,
+    });
+
+    const response = await POST(
+      new Request('http://localhost/api/record', {
+        method: 'POST',
+        headers: { 'x-umami-cache': 'signed-token' },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(reserveHeatmapBudget).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ accountType: 'team', accountId: teamId }),
+    );
+  });
+
+  test('does not write when a website has no owner', async () => {
+    const { transaction } = prepareHeatmapRequest();
+    transaction.website.findFirst.mockResolvedValue({
+      recorderEnabled: true,
+      replayConfig: { heatmapEnabled: true },
+      userId: null,
+      teamId: null,
+    });
+
+    const response = await POST(
+      new Request('http://localhost/api/record', {
+        method: 'POST',
+        headers: { 'x-umami-cache': 'signed-token' },
+      }),
+    );
+
+    expect(response.status).toBe(500);
+    expect(reserveHeatmapBudget).not.toHaveBeenCalled();
+    expect(saveHeatmapEvents).not.toHaveBeenCalled();
   });
 
   test('normalizes recorder website UUIDs before token and source checks', async () => {
@@ -325,6 +380,22 @@ describe('heatmap intake budget', () => {
     expect(saveHeatmapEvents).not.toHaveBeenCalled();
   });
 
+  test('does not write heatmaps when the shared owner budget is exhausted', async () => {
+    prepareHeatmapRequest();
+    vi.mocked(reserveHeatmapBudget).mockRejectedValueOnce(new CollectionBudgetExceededError(60));
+
+    const response = await POST(
+      new Request('http://localhost/api/record', {
+        method: 'POST',
+        headers: { 'x-umami-cache': 'signed-token' },
+      }),
+    );
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get('Retry-After')).toBe('60');
+    expect(saveHeatmapEvents).not.toHaveBeenCalled();
+  });
+
   test('commits the budget before an external ClickHouse or Kafka write', async () => {
     prepareHeatmapRequest();
     clickhouseState.enabled = true;
@@ -353,6 +424,7 @@ describe('heatmap intake budget', () => {
           findFirst: vi.fn().mockResolvedValue({
             recorderEnabled: true,
             replayConfig: { heatmapEnabled: true },
+            userId: ACCOUNT_ID,
           }),
         },
       } as any);
@@ -380,6 +452,7 @@ describe('heatmap intake budget', () => {
           findFirst: vi.fn().mockResolvedValue({
             recorderEnabled: true,
             replayConfig: { heatmapEnabled: true },
+            userId: ACCOUNT_ID,
           }),
         },
       } as any),
@@ -390,6 +463,7 @@ describe('heatmap intake budget', () => {
           findFirst: vi.fn().mockResolvedValue({
             recorderEnabled: true,
             replayConfig: { heatmapEnabled: false },
+            userId: ACCOUNT_ID,
           }),
         },
       } as any),
@@ -404,6 +478,38 @@ describe('heatmap intake budget', () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: false, reason: 'heatmap_disabled' });
+    expect(saveHeatmapEvents).not.toHaveBeenCalled();
+  });
+
+  test('does not write to an external sink after website ownership changes', async () => {
+    prepareHeatmapRequest();
+    clickhouseState.enabled = true;
+    let lookup = 0;
+    vi.mocked(withActiveCollectionSource).mockImplementation((_, __, operation) =>
+      operation({
+        website: {
+          findFirst: vi.fn().mockImplementation(async () => {
+            lookup += 1;
+            return {
+              recorderEnabled: true,
+              replayConfig: { heatmapEnabled: true },
+              userId: lookup === 1 ? ACCOUNT_ID : null,
+              teamId: lookup === 1 ? null : '55555555-5555-4555-8555-555555555555',
+            };
+          }),
+        },
+      } as any),
+    );
+
+    const response = await POST(
+      new Request('http://localhost/api/record', {
+        method: 'POST',
+        headers: { 'x-umami-cache': 'signed-token' },
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    expect(reserveHeatmapBudget).toHaveBeenCalledOnce();
     expect(saveHeatmapEvents).not.toHaveBeenCalled();
   });
 });
@@ -423,6 +529,10 @@ describe('external replay budget commit', () => {
 
     expect(response.status).toBe(200);
     expect(reserveReplayBudget).toHaveBeenCalledOnce();
+    expect(reserveReplayBudget).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ accountType: 'user', accountId: ACCOUNT_ID }),
+    );
     expect(withActiveCollectionSource).toHaveBeenCalledTimes(2);
     expect(saveRecording).toHaveBeenCalledWith(expect.objectContaining({ eventCount: 1 }));
     expect(vi.mocked(withActiveCollectionSource).mock.invocationCallOrder[1]).toBeLessThan(
@@ -440,6 +550,17 @@ describe('external replay budget commit', () => {
     expect(saveRecording).toHaveBeenCalledWith(expect.any(Object), expect.any(Object));
   });
 
+  test('does not write replays when the shared owner budget is exhausted', async () => {
+    prepareReplayRequest();
+    vi.mocked(reserveReplayBudget).mockRejectedValueOnce(new CollectionBudgetExceededError(86_400));
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get('Retry-After')).toBe('86400');
+    expect(saveRecording).not.toHaveBeenCalled();
+  });
+
   test('never writes to an external sink when the budget transaction rolls back', async () => {
     prepareReplayRequest();
     clickhouseState.enabled = true;
@@ -449,6 +570,7 @@ describe('external replay budget commit', () => {
           findFirst: vi.fn().mockResolvedValue({
             recorderEnabled: true,
             replayConfig: { replayEnabled: true },
+            userId: ACCOUNT_ID,
           }),
         },
       } as any);
@@ -476,6 +598,7 @@ describe('external replay budget commit', () => {
           findFirst: vi.fn().mockResolvedValue({
             recorderEnabled: true,
             replayConfig: { replayEnabled: true },
+            userId: ACCOUNT_ID,
           }),
         },
       } as any),
@@ -486,6 +609,7 @@ describe('external replay budget commit', () => {
           findFirst: vi.fn().mockResolvedValue({
             recorderEnabled: true,
             replayConfig: { replayEnabled: false },
+            userId: ACCOUNT_ID,
           }),
         },
       } as any),

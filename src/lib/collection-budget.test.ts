@@ -3,6 +3,7 @@ import type { Prisma } from '@/generated/prisma/client';
 import {
   CollectionBudgetExceededError,
   getCollectionCost,
+  reserveCollectionAccountBudget,
   reserveCollectionBudget,
 } from './collection-budget';
 
@@ -85,6 +86,37 @@ test('source and account minute/day reservations use distinct atomic keys', asyn
     ['user', identity.accountId, 'day'],
   ]);
   expect(execute).toHaveBeenCalledOnce();
+});
+
+test('recorder reservations share owner windows without reducing recorder-specific website limits', async () => {
+  const { client, query, execute } = transaction([
+    [{ currentTime: new Date('2026-10-06T11:30:00Z') }],
+    [{ requests: 1n }],
+    [{ requests: 1n }],
+  ]);
+
+  await reserveCollectionAccountBudget(client, identity, cost);
+
+  expect(query).toHaveBeenCalledTimes(3);
+  expect(query.mock.calls.slice(1).map(call => call.slice(1, 4))).toEqual([
+    ['user', identity.accountId, 'minute'],
+    ['user', identity.accountId, 'day'],
+  ]);
+  expect(execute).toHaveBeenCalledOnce();
+});
+
+test('recorder account-only reservations reject an exhausted owner window', async () => {
+  const { client, query, execute } = transaction([
+    [{ currentTime: new Date('2026-10-06T11:30:00Z') }],
+    [{ requests: 1n }],
+    [],
+  ]);
+
+  await expect(reserveCollectionAccountBudget(client, identity, cost)).rejects.toMatchObject({
+    retryAfter: 86_400,
+  });
+  expect(query).toHaveBeenCalledTimes(3);
+  expect(execute).not.toHaveBeenCalled();
 });
 
 test('exhausted source and account windows fail with bounded retry intervals', async () => {

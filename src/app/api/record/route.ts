@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { type CacheToken, parseCacheToken } from '@/lib/cache-token';
 import clickhouse from '@/lib/clickhouse';
+import { CollectionBudgetExceededError } from '@/lib/collection-budget';
 import {
   getCollectionIpLimit,
   getCollectionSourceLimit,
@@ -20,6 +21,7 @@ import { ReplayBudgetExceededError, reserveReplayBudget } from '@/lib/replay-bud
 import { parseRequest } from '@/lib/request';
 import {
   badRequest,
+  conflict,
   forbidden,
   json,
   payloadTooLarge,
@@ -218,12 +220,22 @@ export async function POST(request: Request) {
             select: {
               recorderEnabled: true,
               replayConfig: true,
+              userId: true,
+              teamId: true,
             },
           });
 
           if (!currentWebsite?.recorderEnabled) {
             throw new Error('RECORDER_DISABLED');
           }
+
+          const accountId = currentWebsite.teamId || currentWebsite.userId;
+
+          if (!accountId) {
+            throw new Error('COLLECTION_SOURCE_OWNER_MISSING');
+          }
+
+          const accountType = currentWebsite.teamId ? 'team' : 'user';
 
           const recorderConfig = getRecorderConfig(currentWebsite.replayConfig);
           if (body.type === 'record') {
@@ -242,6 +254,8 @@ export async function POST(request: Request) {
             const isNewChunk = await reserveReplayBudget(transaction, {
               websiteId,
               visitId,
+              accountType,
+              accountId,
               chunkIndex,
               idempotent: timestamp !== undefined,
               bytes: Buffer.byteLength(JSON.stringify(events), 'utf8'),
@@ -264,7 +278,7 @@ export async function POST(request: Request) {
             };
 
             if (clickhouse.enabled) {
-              return { kind: 'replay' as const, recording };
+              return { kind: 'replay' as const, recording, accountType, accountId };
             }
 
             await saveRecording(recording, transaction);
@@ -298,12 +312,14 @@ export async function POST(request: Request) {
           await reserveHeatmapBudget(transaction, {
             websiteId,
             visitId,
+            accountType,
+            accountId,
             bytes: Buffer.byteLength(JSON.stringify(events), 'utf8'),
             events: events.length,
           });
 
           if (clickhouse.enabled) {
-            return { kind: 'heatmap' as const, heatmapRows };
+            return { kind: 'heatmap' as const, heatmapRows, accountType, accountId };
           }
 
           await saveHeatmapEvents(heatmapRows, transaction);
@@ -315,11 +331,18 @@ export async function POST(request: Request) {
         await withActiveCollectionSource('website', websiteId, async transaction => {
           const currentWebsite = await transaction.website.findFirst({
             where: { id: websiteId, deletedAt: null },
-            select: { recorderEnabled: true, replayConfig: true },
+            select: { recorderEnabled: true, replayConfig: true, userId: true, teamId: true },
           });
 
           if (!currentWebsite?.recorderEnabled) {
             throw new Error('RECORDER_DISABLED');
+          }
+
+          if (
+            (currentWebsite.teamId ? 'team' : 'user') !== externalWrite.accountType ||
+            (currentWebsite.teamId || currentWebsite.userId) !== externalWrite.accountId
+          ) {
+            throw new Error('COLLECTION_SOURCE_OWNER_CHANGED');
           }
 
           const currentConfig = getRecorderConfig(currentWebsite.replayConfig);
@@ -356,6 +379,12 @@ export async function POST(request: Request) {
         return withCorsHeaders(badRequest({ message: 'Website not found.' }));
       }
 
+      if (error?.message === 'COLLECTION_SOURCE_OWNER_CHANGED') {
+        return withCorsHeaders(
+          conflict({ message: 'Website ownership changed. Retry collection.' }),
+        );
+      }
+
       if (error instanceof ReplayBudgetExceededError) {
         return withCorsHeaders(
           error.retryAfter
@@ -370,6 +399,10 @@ export async function POST(request: Request) {
             ? tooManyRequests(error.retryAfter)
             : payloadTooLarge({ message: 'Heatmap budget exceeded.' }),
         );
+      }
+
+      if (error instanceof CollectionBudgetExceededError) {
+        return withCorsHeaders(tooManyRequests(error.retryAfter));
       }
 
       throw error;

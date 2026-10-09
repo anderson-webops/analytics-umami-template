@@ -1,6 +1,8 @@
 import type { Prisma } from '@/generated/prisma/client';
+import { reserveCollectionAccountBudget } from '@/lib/collection-budget';
 import {
   RECORDER_VISIT_BUDGET_RETENTION_MS,
+  type RecorderAccount,
   reserveRecorderVisitKeyBudget,
 } from '@/lib/recorder-budget';
 
@@ -23,7 +25,7 @@ export class ReplayBudgetExceededError extends Error {
   }
 }
 
-interface ReserveReplayBudgetArgs {
+interface ReserveReplayBudgetArgs extends RecorderAccount {
   websiteId: string;
   visitId: string;
   chunkIndex: number;
@@ -34,7 +36,16 @@ interface ReserveReplayBudgetArgs {
 
 export async function reserveReplayBudget(
   transaction: Prisma.TransactionClient,
-  { websiteId, visitId, chunkIndex, idempotent, bytes, events }: ReserveReplayBudgetArgs,
+  {
+    websiteId,
+    visitId,
+    chunkIndex,
+    idempotent,
+    bytes,
+    events,
+    accountType,
+    accountId,
+  }: ReserveReplayBudgetArgs,
 ): Promise<boolean> {
   if (bytes > MAX_REPLAY_BYTES || events > MAX_REPLAY_EVENTS) {
     throw new ReplayBudgetExceededError();
@@ -124,8 +135,17 @@ export async function reserveReplayBudget(
     }
   }
 
+  await reserveCollectionAccountBudget(
+    transaction,
+    { accountType, accountId },
+    { bytes: bytes + events * 512, rows: events, requests: 1 },
+  );
+
   if (existing.length === 0) {
-    const retryAfter = await reserveRecorderVisitKeyBudget(transaction, websiteId, now);
+    const retryAfter = await reserveRecorderVisitKeyBudget(transaction, websiteId, now, {
+      accountType,
+      accountId,
+    });
 
     if (retryAfter !== null) {
       throw new ReplayBudgetExceededError(retryAfter);

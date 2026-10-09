@@ -4,6 +4,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@/generated/prisma/client';
 import { HeatmapBudgetExceededError, reserveHeatmapBudget } from '@/lib/heatmap-budget';
 import {
+  MAX_RECORDER_ACCOUNT_NEW_VISIT_KEYS_PER_DAY,
   MAX_RECORDER_NEW_VISIT_KEYS_PER_DAY,
   MAX_RECORDER_NEW_VISIT_KEYS_PER_MINUTE,
   reserveRecorderVisitKeyBudget,
@@ -16,15 +17,19 @@ assert.ok(databaseUrl);
 assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(new URL(databaseUrl).hostname));
 
 const client = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
+const account = { accountType: 'user' as const, accountId: randomUUID() };
 const websiteId = randomUUID();
+const otherWebsiteId = randomUUID();
 const replayVisitId = randomUUID();
 const heatmapVisitId = randomUUID();
 let created = false;
+let otherCreated = false;
 
-async function replay(visitId: string, chunkIndex: number) {
+async function replay(visitId: string, chunkIndex: number, sourceId = websiteId) {
   return client.$transaction(transaction =>
     reserveReplayBudget(transaction, {
-      websiteId,
+      websiteId: sourceId,
+      ...account,
       visitId,
       chunkIndex,
       idempotent: true,
@@ -34,9 +39,15 @@ async function replay(visitId: string, chunkIndex: number) {
   );
 }
 
-async function heatmap(visitId: string) {
+async function heatmap(visitId: string, sourceId = websiteId) {
   return client.$transaction(transaction =>
-    reserveHeatmapBudget(transaction, { websiteId, visitId, bytes: 100, events: 1 }),
+    reserveHeatmapBudget(transaction, {
+      websiteId: sourceId,
+      ...account,
+      visitId,
+      bytes: 100,
+      events: 1,
+    }),
   );
 }
 
@@ -53,11 +64,19 @@ function assertBoundedExpiry(expiresAt: Date | null) {
 }
 
 try {
+  await client.user.create({
+    data: {
+      id: account.accountId,
+      username: `recorder-budget-${account.accountId}`,
+      password: 'x'.repeat(60),
+      role: 'user',
+    },
+  });
   await client.website.create({
     data: {
       id: websiteId,
       name: 'Synthetic recorder budget retention',
-      userId: '41e2b680-648e-4b09-bcd7-3e2b10c06264',
+      userId: account.accountId,
       recorderEnabled: true,
       replayConfig: { replayEnabled: true, heatmapEnabled: true },
     },
@@ -66,6 +85,21 @@ try {
 
   assert.equal(await replay(replayVisitId, 1), true);
   await heatmap(heatmapVisitId);
+  const accountDayBudgets = await client.collectionIngestBudget.findMany({
+    where: { subjectType: 'user', subjectKey: account.accountId, scope: 'day' },
+  });
+  assert.equal(
+    accountDayBudgets.reduce((total, row) => total + row.requests, 0n),
+    2n,
+  );
+  assert.equal(
+    accountDayBudgets.reduce((total, row) => total + row.rows, 0n),
+    2n,
+  );
+  assert.equal(
+    accountDayBudgets.reduce((total, row) => total + row.bytes, 0n),
+    1_224n,
+  );
   assertBoundedExpiry((await budget(replayVisitId)).expiresAt);
   assertBoundedExpiry((await budget(`heatmap:${heatmapVisitId}`)).expiresAt);
   const initialKeyBudgets = await client.replayIngestBudget.findMany({
@@ -157,7 +191,7 @@ try {
   });
   assert.equal(
     await client.$transaction(transaction =>
-      reserveRecorderVisitKeyBudget(transaction, websiteId, minuteNow),
+      reserveRecorderVisitKeyBudget(transaction, websiteId, minuteNow, account),
     ),
     60,
   );
@@ -199,6 +233,67 @@ try {
     await client.replayIngestBudget.count({ where: { websiteId, scope: 'visit' } }),
     priorVisits + 1,
   );
+
+  await client.website.create({
+    data: {
+      id: otherWebsiteId,
+      name: 'Synthetic second recorder website',
+      userId: account.accountId,
+      recorderEnabled: true,
+      replayConfig: { replayEnabled: true, heatmapEnabled: true },
+    },
+  });
+  otherCreated = true;
+  const ownerDay = await client.collectionIngestBudget.findFirstOrThrow({
+    where: {
+      subjectType: 'user',
+      subjectKey: `recorder-visits:${account.accountId}`,
+      scope: 'day',
+    },
+    orderBy: { windowStart: 'desc' },
+  });
+  await client.collectionIngestBudget.update({
+    where: {
+      subjectType_subjectKey_scope_windowStart: {
+        subjectType: 'user',
+        subjectKey: `recorder-visits:${account.accountId}`,
+        scope: 'day',
+        windowStart: ownerDay.windowStart,
+      },
+    },
+    data: { requests: BigInt(MAX_RECORDER_ACCOUNT_NEW_VISIT_KEYS_PER_DAY - 1) },
+  });
+  const ownerConcurrent = await Promise.allSettled([
+    replay(randomUUID(), 1, otherWebsiteId),
+    heatmap(randomUUID(), otherWebsiteId),
+  ]);
+  assert.equal(ownerConcurrent.filter(result => result.status === 'fulfilled').length, 1);
+  const ownerRejected = ownerConcurrent.find(result => result.status === 'rejected');
+  assert.ok(ownerRejected?.status === 'rejected');
+  assert.ok(
+    ownerRejected.reason instanceof ReplayBudgetExceededError ||
+      ownerRejected.reason instanceof HeatmapBudgetExceededError,
+  );
+  assert.equal(ownerRejected.reason.retryAfter, 86_400);
+  assert.equal(
+    await client.replayIngestBudget.count({ where: { websiteId: otherWebsiteId, scope: 'visit' } }),
+    1,
+  );
+  assert.equal(
+    (
+      await client.collectionIngestBudget.findUniqueOrThrow({
+        where: {
+          subjectType_subjectKey_scope_windowStart: {
+            subjectType: 'user',
+            subjectKey: `recorder-visits:${account.accountId}`,
+            scope: 'day',
+            windowStart: ownerDay.windowStart,
+          },
+        },
+      })
+    ).requests,
+    BigInt(MAX_RECORDER_ACCOUNT_NEW_VISIT_KEYS_PER_DAY),
+  );
   await assert.rejects(
     () => heatmap(randomUUID()),
     error => error instanceof HeatmapBudgetExceededError && error.retryAfter === 86_400,
@@ -218,9 +313,24 @@ try {
     'Recorder visit budgets passed PostgreSQL expiry, cleanup and atomic new-key cap checks.',
   );
 } finally {
+  await client.collectionIngestBudget.deleteMany({
+    where: {
+      OR: [
+        { subjectType: 'source', subjectKey: `website:${websiteId}` },
+        { subjectType: 'source', subjectKey: `website:${otherWebsiteId}` },
+        { subjectType: 'user', subjectKey: account.accountId },
+        { subjectType: 'user', subjectKey: `recorder-visits:${account.accountId}` },
+      ],
+    },
+  });
   if (created) {
     await client.replayIngestBudget.deleteMany({ where: { websiteId } });
     await client.website.delete({ where: { id: websiteId } });
   }
+  if (otherCreated) {
+    await client.replayIngestBudget.deleteMany({ where: { websiteId: otherWebsiteId } });
+    await client.website.delete({ where: { id: otherWebsiteId } });
+  }
+  await client.user.deleteMany({ where: { id: account.accountId } });
   await client.$disconnect();
 }

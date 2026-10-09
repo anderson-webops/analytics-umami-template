@@ -36,11 +36,20 @@ export interface CollectionCost {
   requests: number;
 }
 
-interface CollectionIdentity {
-  sourceType: CollectionSourceType;
-  sourceId: string;
+export interface CollectionAccount {
   accountType: 'user' | 'team';
   accountId: string;
+}
+
+interface CollectionIdentity extends CollectionAccount {
+  sourceType: CollectionSourceType;
+  sourceId: string;
+}
+
+interface BudgetSubject {
+  type: 'source' | 'user' | 'team';
+  key: string;
+  limits: (typeof COLLECTION_BUDGET_LIMITS)[keyof typeof COLLECTION_BUDGET_LIMITS];
 }
 
 export function getCollectionCost(body: CollectionBody): CollectionCost {
@@ -60,6 +69,33 @@ export function getCollectionCost(body: CollectionBody): CollectionCost {
 export async function reserveCollectionBudget(
   transaction: Prisma.TransactionClient,
   { sourceType, sourceId, accountType, accountId }: CollectionIdentity,
+  cost: CollectionCost,
+) {
+  return reserveBudget(
+    transaction,
+    [
+      { type: 'source', key: `${sourceType}:${sourceId}`, limits: COLLECTION_BUDGET_LIMITS.source },
+      { type: accountType, key: accountId, limits: COLLECTION_BUDGET_LIMITS.account },
+    ],
+    cost,
+  );
+}
+
+export async function reserveCollectionAccountBudget(
+  transaction: Prisma.TransactionClient,
+  { accountType, accountId }: CollectionAccount,
+  cost: CollectionCost,
+) {
+  return reserveBudget(
+    transaction,
+    [{ type: accountType, key: accountId, limits: COLLECTION_BUDGET_LIMITS.account }],
+    cost,
+  );
+}
+
+async function reserveBudget(
+  transaction: Prisma.TransactionClient,
+  subjects: BudgetSubject[],
   cost: CollectionCost,
 ) {
   if (
@@ -82,10 +118,6 @@ export async function reserveCollectionBudget(
 
   const minuteStart = new Date(Math.floor(now.getTime() / 60_000) * 60_000);
   const dayStart = new Date(Math.floor(now.getTime() / 86_400_000) * 86_400_000);
-  const subjects = [
-    { type: 'source', key: `${sourceType}:${sourceId}`, limits: COLLECTION_BUDGET_LIMITS.source },
-    { type: accountType, key: accountId, limits: COLLECTION_BUDGET_LIMITS.account },
-  ];
   let cleanup = false;
 
   for (const subject of subjects) {
@@ -119,7 +151,7 @@ export async function reserveCollectionBudget(
         throw new CollectionBudgetExceededError(retryAfter);
       }
 
-      if (subject.type === 'source' && scope === 'minute' && reserved[0].requests === 1n) {
+      if (scope === 'minute' && reserved[0].requests === 1n) {
         cleanup = true;
       }
     }

@@ -1,5 +1,6 @@
 import { expect, test, vi } from 'vitest';
 import type { Prisma } from '@/generated/prisma/client';
+import { reserveCollectionAccountBudget } from '@/lib/collection-budget';
 import {
   MAX_REPLAY_BYTES,
   MAX_REPLAY_EVENTS,
@@ -7,9 +8,16 @@ import {
   reserveReplayBudget,
 } from './replay-budget';
 
+vi.mock('@/lib/collection-budget', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/lib/collection-budget')>()),
+  reserveCollectionAccountBudget: vi.fn(),
+}));
+
 const args = {
   websiteId: '11111111-1111-4111-8111-111111111111',
   visitId: '22222222-2222-4222-8222-222222222222',
+  accountType: 'user' as const,
+  accountId: '33333333-3333-4333-8333-333333333333',
   chunkIndex: 100,
   idempotent: true,
   bytes: 100,
@@ -45,6 +53,7 @@ test('returns an idempotent result for a previously accepted chunk', async () =>
   expect(await reserveReplayBudget(client, args)).toBe(false);
   expect(query).toHaveBeenCalledTimes(2);
   expect(execute).not.toHaveBeenCalled();
+  expect(reserveCollectionAccountBudget).not.toHaveBeenCalled();
 });
 
 test('blocks a source-minute budget without reporting a successful write', async () => {
@@ -78,11 +87,18 @@ test('reserves visit, minute, and day budgets for an ordinary chunk', async () =
     [{ bytes: 100n }],
     [{ chunks: 1 }],
     [{ chunks: 1 }],
+    [{ requests: 1n }],
+    [{ requests: 1n }],
   ]);
 
   expect(await reserveReplayBudget(client, args)).toBe(true);
-  expect(query).toHaveBeenCalledTimes(7);
+  expect(query).toHaveBeenCalledTimes(9);
   expect(execute).toHaveBeenCalledOnce();
+  expect(reserveCollectionAccountBudget).toHaveBeenCalledWith(
+    client,
+    { accountType: args.accountType, accountId: args.accountId },
+    { bytes: args.bytes + args.events * 512, rows: args.events, requests: 1 },
+  );
   const visitExpiry = query.mock.calls[2].find(value => value instanceof Date);
   expect(visitExpiry).toBeInstanceOf(Date);
   expect(visitExpiry.getTime()).toBeGreaterThan(Date.now() + 37 * 24 * 60 * 60 * 1000);
@@ -100,6 +116,11 @@ test('does not charge a new key when a visit already has a budget row', async ()
 
   expect(await reserveReplayBudget(client, args)).toBe(true);
   expect(query).toHaveBeenCalledTimes(5);
+  expect(reserveCollectionAccountBudget).toHaveBeenCalledWith(
+    client,
+    expect.objectContaining({ accountId: args.accountId }),
+    expect.objectContaining({ rows: args.events }),
+  );
 });
 
 test('rejects new replay visit keys when minute or day cardinality is exhausted', async () => {

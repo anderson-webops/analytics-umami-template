@@ -11,6 +11,7 @@ assert.ok(databaseUrl);
 assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(new URL(databaseUrl).hostname));
 
 const client = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
+const account = { accountType: 'user' as const, accountId: randomUUID() };
 const websiteId = randomUUID();
 const visitId = randomUUID();
 const sessionId = randomUUID();
@@ -20,6 +21,7 @@ async function reserve(visit: string, events: number) {
   return client.$transaction(transaction =>
     reserveHeatmapBudget(transaction, {
       websiteId,
+      ...account,
       visitId: visit,
       bytes: events * 5,
       events,
@@ -45,11 +47,19 @@ async function rejectedReservation(visit: string, retryAfter?: number) {
 }
 
 try {
+  await client.user.create({
+    data: {
+      id: account.accountId,
+      username: `heatmap-budget-${account.accountId}`,
+      password: 'x'.repeat(60),
+      role: 'user',
+    },
+  });
   await client.website.create({
     data: {
       id: websiteId,
       name: 'Synthetic heatmap budget',
-      userId: '41e2b680-648e-4b09-bcd7-3e2b10c06264',
+      userId: account.accountId,
       recorderEnabled: true,
       replayConfig: { heatmapEnabled: true },
     },
@@ -57,7 +67,13 @@ try {
   created = true;
 
   await client.$transaction(async transaction => {
-    await reserveHeatmapBudget(transaction, { websiteId, visitId, bytes: 120, events: 1 });
+    await reserveHeatmapBudget(transaction, {
+      websiteId,
+      ...account,
+      visitId,
+      bytes: 120,
+      events: 1,
+    });
     await saveHeatmapEvents(
       [
         {
@@ -165,10 +181,20 @@ try {
 
   console.log('Heatmap budget passed PostgreSQL visit, window, rollback and sink checks.');
 } finally {
+  await client.collectionIngestBudget.deleteMany({
+    where: {
+      OR: [
+        { subjectType: 'source', subjectKey: `website:${websiteId}` },
+        { subjectType: 'user', subjectKey: account.accountId },
+        { subjectType: 'user', subjectKey: `recorder-visits:${account.accountId}` },
+      ],
+    },
+  });
   if (created) {
     await client.heatmapEvent.deleteMany({ where: { websiteId } });
     await client.replayIngestBudget.deleteMany({ where: { websiteId } });
     await client.website.delete({ where: { id: websiteId } });
   }
+  await client.user.deleteMany({ where: { id: account.accountId } });
   await client.$disconnect();
 }
