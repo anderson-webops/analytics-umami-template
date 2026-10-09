@@ -28,6 +28,7 @@ describe('createSecureToken/parseSecureToken', () => {
     const token = await createSecureToken({ userId: '456' }, SECRET);
     const parsed = (await parseSecureToken(token, SECRET)) as any;
 
+    expect(token.startsWith('v2.')).toBe(true);
     expect(parsed.userId).toBe('456');
   });
 
@@ -48,7 +49,6 @@ describe('createSecureToken/parseSecureToken', () => {
   test('produces an opaque (encrypted) token, not a raw jwt', async () => {
     const token = await createSecureToken({ userId: '456' }, SECRET);
 
-    // Raw jwts have exactly two dots; the encrypted wrapper is base64.
     expect(token.split('.').length).not.toBe(3);
   });
 
