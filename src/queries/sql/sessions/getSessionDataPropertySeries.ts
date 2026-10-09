@@ -121,7 +121,7 @@ async function clickhouseQuery(
       select session_data.string_value as x,
         tuple(isNull(session_data.string_value), ifNull(session_data.string_value, '')) as x_key,
         session_data.created_at,
-        session_data.session_id
+        session_data.session_id as session_id
       from website_event
       ${cohortQuery}
       join session_data final
@@ -137,10 +137,10 @@ async function clickhouseQuery(
         ${filterQuery}
         ${pfSQL}
     ), top_values as (
-      select x_key
+      select x_key, uniq(session_id) as frequency
       from matched_data
       group by x_key
-      order by uniq(session_id) desc, x_key
+      order by frequency desc, x_key
       limit {valueLimit:UInt32}
     )
     select
