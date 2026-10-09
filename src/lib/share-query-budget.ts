@@ -1,5 +1,11 @@
-import { DEFAULT_PAGE_SIZE } from '@/lib/constants';
+import { DEFAULT_PAGE_SIZE, FILTER_COLUMNS, OPERATORS } from '@/lib/constants';
 import { hash } from '@/lib/crypto';
+import {
+  parseFilterValue,
+  parsePropertyFilters,
+  parseSessionPropertyFilters,
+  parseUniversalEventPropertyFilters,
+} from '@/lib/params';
 import redis from '@/lib/redis';
 import { excludeShareFilterParam } from '@/lib/share-filter';
 
@@ -13,6 +19,7 @@ const MAX_WINDOW_COST = 600;
 const MAX_MEMORY_COUNTERS = 20_000;
 const MEMORY_COUNTERS = 'analytics-share-query-budget-counters';
 const PROPERTY_FILTER = /^(?:pf_[A-Za-z0-9_-]+|epf\d+|spf\d+)$/;
+const REGEX_FILTER_WEIGHT = 200;
 
 export const MAX_SHARE_SESSION_ROWS = 500;
 
@@ -23,19 +30,35 @@ interface Counter {
   expiresAt: number;
 }
 
-function filterCost(keys: string[]) {
-  return keys.reduce(
-    (result, key) => {
+function isRegexFilter(key: string, value: unknown) {
+  if (typeof value !== 'string') return false;
+
+  const operator = key.startsWith('pf_')
+    ? parsePropertyFilters({ [key]: value })[0]?.operator
+    : /^epf\d+$/.test(key)
+      ? parseUniversalEventPropertyFilters({ [key]: value })[0]?.operator
+      : /^spf\d+$/.test(key)
+        ? parseSessionPropertyFilters({ [key]: value })[0]?.operator
+        : Object.hasOwn(FILTER_COLUMNS, key.replace(/\d+$/, ''))
+          ? parseFilterValue(value).operator
+          : undefined;
+
+  return operator === OPERATORS.regex || operator === OPERATORS.notRegex;
+}
+
+function filterCost(values: Record<string, unknown>) {
+  return Object.entries(values).reduce(
+    (result, [key, value]) => {
       if (PROPERTY_FILTER.test(key)) {
         result.filters += 1;
         result.properties += 1;
-        result.weight += 4;
+        result.weight += isRegexFilter(key, value) ? REGEX_FILTER_WEIGHT : 4;
       } else if (key === 'segment' || key === 'cohort') {
         result.filters += 1;
         result.weight += 400;
       } else if (excludeShareFilterParam(key)) {
         result.filters += 1;
-        result.weight += 1;
+        result.weight += isRegexFilter(key, value) ? REGEX_FILTER_WEIGHT : 1;
       }
 
       return result;
@@ -179,13 +202,15 @@ export function getShareQueryCost(
     return null;
   }
 
-  const topLevel = filterCost(Object.keys(query));
+  const topLevel = filterCost(query);
   const report =
     body && typeof body === 'object' && 'filters' in body
       ? (body as { filters?: unknown }).filters
       : null;
   const reportFilters = filterCost(
-    report && typeof report === 'object' && !Array.isArray(report) ? Object.keys(report) : [],
+    report && typeof report === 'object' && !Array.isArray(report)
+      ? (report as Record<string, unknown>)
+      : {},
   );
   const parameters =
     body && typeof body === 'object' && 'parameters' in body

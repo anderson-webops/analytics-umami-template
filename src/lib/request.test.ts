@@ -228,6 +228,30 @@ test('prices public shares from validated route-specific work without charging s
   expect((await parseRequest(request(), schema, options)).error).toBeUndefined();
 });
 
+test('limits public regex scans while preserving ordinary shared filters', async () => {
+  const shareId = `regex-share-${crypto.randomUUID()}`;
+  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: 'website-1' } } as any);
+  const schema = z.object({
+    startAt: z.coerce.number(),
+    endAt: z.coerce.number(),
+    path: z.string(),
+  });
+  const request = path =>
+    new Request(
+      `https://analytics.example/api/test?startAt=0&endAt=1&path=${encodeURIComponent(path)}`,
+    );
+
+  expect((await parseRequest(request('re.^/private'), schema)).error).toBeUndefined();
+  expect((await parseRequest(request('nre.^/private'), schema)).error).toBeUndefined();
+  expect((await parseRequest(request('re.^/private'), schema)).error?.().status).toBe(429);
+
+  const ordinaryShareId = `ordinary-share-${crypto.randomUUID()}`;
+  checkAuthMock.mockResolvedValue({
+    shareToken: { shareId: ordinaryShareId, websiteId: 'website-1' },
+  } as any);
+  expect((await parseRequest(request('eq.re.literal'), schema)).error).toBeUndefined();
+});
+
 test('bounds wide filtered shares but preserves unfiltered historical views', async () => {
   const shareId = `historical-share-${crypto.randomUUID()}`;
   checkAuthMock.mockResolvedValue({

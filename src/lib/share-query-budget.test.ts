@@ -40,6 +40,32 @@ test('weights date range and filters without rejecting ordinary shares', () => {
   expect(getShareQueryCost({ startAt: endAt, endAt: startAt })).toBeNull();
 });
 
+test('prices parsed regex operators instead of their filter keys', () => {
+  const range = { startAt: 0, endAt: 1 };
+
+  expect(getShareQueryCost({ ...range, path: 'eq.re.literal' })).toEqual({ cost: 2, charge: 2 });
+  expect(getShareQueryCost({ ...range, path: 're.^/private' })).toEqual({
+    cost: 201,
+    charge: 201,
+  });
+  expect(getShareQueryCost({ ...range, path: 'nre.^/private' })).toEqual({
+    cost: 201,
+    charge: 201,
+  });
+  expect(getShareQueryCost({ ...range, path1: 're.^/private' })?.charge).toBe(201);
+  expect(getShareQueryCost({ ...range, pf_plan: '1.re.^pro' })?.charge).toBe(201);
+  expect(getShareQueryCost({ ...range, pf_plan: 'nre.^pro' })?.charge).toBe(201);
+  expect(getShareQueryCost({ ...range, epf0: '1.nre.plan.^pro' })?.charge).toBe(201);
+  expect(getShareQueryCost({ ...range, spf0: '1.re.plan.^pro' })?.charge).toBe(201);
+  expect(getShareQueryCost(range, { filters: { path: 're.^/private' } })?.charge).toBe(201);
+  expect(getShareQueryCost({ ...range, search: 're.literal' })).toEqual({
+    cost: 2,
+    charge: 2,
+  });
+  expect(getShareQueryCost({ ...range, path: 're.a', referrer: 'nre.b' })?.charge).toBe(401);
+  expect(getShareQueryCost({ ...range, path: 're.a' }, undefined, 4)).toBeNull();
+});
+
 test('uses executed POST dates over unrelated URL dates', () => {
   const result = getShareQueryCost(
     { startAt: 0, endAt: 1 },
