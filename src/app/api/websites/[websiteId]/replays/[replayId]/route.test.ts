@@ -118,3 +118,52 @@ test('redacts a historical navigation event restored from fragments', async () =
   ]);
   expect(JSON.stringify(payload)).not.toContain('secret');
 });
+
+test('removes resource URLs from a restored legacy snapshot before returning it', async () => {
+  const event = {
+    type: 2,
+    timestamp: 100,
+    data: {
+      node: {
+        type: 0,
+        id: 1,
+        childNodes: [
+          {
+            type: 2,
+            id: 2,
+            tagName: 'img',
+            attributes: { src: 'https://attacker.invalid/beacon', alt: 'Recorded image' },
+            childNodes: [],
+          },
+        ],
+      },
+    },
+  };
+  const serialized = JSON.stringify(event);
+  const midpoint = Math.floor(serialized.length / 2);
+  const fragments = [serialized.slice(0, midpoint), serialized.slice(midpoint)].map(
+    (value, index) => ({
+      type: 'umami:rrweb-event-fragment',
+      timestamp: 100,
+      data: { id: 'legacy-snapshot', index, total: 2, value },
+    }),
+  );
+  vi.mocked(getReplayChunks).mockResolvedValue([
+    {
+      sessionId: '33333333-3333-4333-8333-333333333333',
+      visitId: replayId,
+      events: fragments,
+      chunkIndex: 1,
+      eventCount: 1,
+      startedAt: new Date('2026-01-01T00:00:00Z'),
+      endedAt: new Date('2026-01-01T00:00:01Z'),
+    },
+  ]);
+
+  const response = await GET(request, params);
+  const payload = await response.json();
+
+  expect(response.status).toBe(200);
+  expect(payload.events).toHaveLength(1);
+  expect(payload.events[0].data.node.childNodes[0].attributes).toEqual({ alt: 'Recorded image' });
+});

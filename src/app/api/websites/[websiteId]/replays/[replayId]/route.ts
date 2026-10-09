@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { restoreReplayEventFragments } from '@/lib/replay';
 import { ReplayBudgetExceededError } from '@/lib/replay-budget';
+import { sanitizeReplayResourceEvents } from '@/lib/replay-resources.server';
 import { parseRequest } from '@/lib/request';
 import { badRequest, json, payloadTooLarge, unauthorized } from '@/lib/response';
 import { canViewAuthenticatedWebsite } from '@/permissions';
@@ -113,8 +114,12 @@ export async function GET(
 
     throw error;
   }
-  const allEvents = redactReplayNavigationEvents(
-    restoreReplayEventFragments(mergeReplayEvents(chunks, { until, endChunkIndex, endEventIndex })),
+  const allEvents = sanitizeReplayResourceEvents(
+    redactReplayNavigationEvents(
+      restoreReplayEventFragments(
+        mergeReplayEvents(chunks, { until, endChunkIndex, endEventIndex }),
+      ),
+    ),
   );
   const sessionId = chunks.length > 0 ? chunks[0].sessionId : null;
   const startedAt = chunks.length > 0 ? chunks[0].startedAt : null;

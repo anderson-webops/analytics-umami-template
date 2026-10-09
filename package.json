@@ -1,6 +1,6 @@
 {
   "name": "umami",
-  "version": "4.2.80",
+  "version": "4.2.81",
   "private": true,
   "description": "A modern, privacy-focused alternative to Google Analytics.",
   "author": "Umami Software, Inc. <hello@umami.is>",
@@ -65,6 +65,7 @@
     "runtime:manifest": "node scripts/runtime-artifact.mjs create .next/standalone",
     "runtime:verify": "node scripts/runtime-artifact.mjs verify .next/standalone",
     "test:runtime-artifact": "node --test scripts/test-runtime-artifact-manifest.mjs && node scripts/test-runtime-artifact.mjs",
+    "test:replay-browser": "node --test scripts/test-replay-resources-browser.mjs",
     "test:migration-bridge": "node scripts/test-session-data-migration-bridge.js",
     "test:migration-history": "node --test scripts/test-migration-ledger-contract.mjs scripts/test-applied-migrations.mjs",
     "test:database-host-policy": "node --test scripts/test-database-host-policy.mjs",
@@ -156,6 +157,7 @@
     "jsonwebtoken": "^9.0.3",
     "jszip": "^3.10.2",
     "kafkajs": "^2.2.4",
+    "lightningcss": "1.32.0",
     "lucide-react": "^1.47.0",
     "maxmind": "^5.0.7",
     "motion": "^12.43.0",
