@@ -8,6 +8,7 @@ import {
   clearFailedLogins,
   getLoginLimit,
   recordFailedLogin,
+  releaseLoginAccountAttempt,
   reserveLoginAccountAttempt,
 } from '@/lib/login-rate-limit';
 import { checkPassword, hashPassword, passwordNeedsRehash } from '@/lib/password';
@@ -120,6 +121,12 @@ export async function POST(request: Request) {
 
   if (!user || !passwordMatches) {
     return rejectInvalidCredentials(username);
+  }
+
+  try {
+    await releaseLoginAccountAttempt(user.id, accountLimit.windowExpiresAt);
+  } catch {
+    return serviceUnavailable({ message: 'Login verification is temporarily unavailable' });
   }
 
   const { id, role, createdAt, sessionGeneration } = user;

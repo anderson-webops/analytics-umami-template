@@ -13,6 +13,10 @@ interface LoginLimit {
   retryAfter: number;
 }
 
+type LoginAccountAttempt =
+  | { blocked: false; retryAfter: 0; windowExpiresAt: string }
+  | { blocked: true; retryAfter: number };
+
 const MEMORY_COUNTERS = 'analytics-login-rate-limit-counters';
 const MAX_MEMORY_COUNTERS = 10_000;
 
@@ -87,12 +91,12 @@ export function getLoginAccountAttemptKey(userId?: string): string {
   return `login-admission:${userId ? hash(userId).slice(0, 32) : 'unknown'}`;
 }
 
-export async function reserveLoginAccountAttempt(userId?: string): Promise<LoginLimit> {
+export async function reserveLoginAccountAttempt(userId?: string): Promise<LoginAccountAttempt> {
   const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
   const key = getLoginAccountAttemptKey(userId);
   const limit = getAccountLimit();
   const windowSeconds = Math.min(getWindowSeconds(), 15 * 60);
-  const rows = await client.$queryRaw<Array<{ retryAfter: number }>>`
+  const rows = await client.$queryRaw<Array<{ windowExpiresAt: string }>>`
     INSERT INTO "app_setting" ("key", "value")
     VALUES (
       ${key},
@@ -116,13 +120,13 @@ export async function reserveLoginAccountAttempt(userId?: string): Promise<Login
     WHERE ("app_setting"."value"::jsonb->>'expiresAt')::timestamptz IS NOT NULL
       AND (
         ("app_setting"."value"::jsonb->>'expiresAt')::timestamptz <= clock_timestamp()
-        OR ("app_setting"."value"::jsonb->>'attempts')::integer BETWEEN 1 AND ${limit - 1}
+        OR ("app_setting"."value"::jsonb->>'attempts')::integer BETWEEN 0 AND ${limit - 1}
       )
-    RETURNING 0::integer AS "retryAfter"
+    RETURNING "app_setting"."value"::jsonb->>'expiresAt' AS "windowExpiresAt"
   `;
 
   if (rows.length === 1) {
-    return { blocked: false, retryAfter: 0 };
+    return { blocked: false, retryAfter: 0, windowExpiresAt: rows[0].windowExpiresAt };
   }
 
   const lock = await client.$queryRaw<Array<{ retryAfter: number }>>`
@@ -138,6 +142,25 @@ export async function reserveLoginAccountAttempt(userId?: string): Promise<Login
     blocked: true,
     retryAfter: Math.min(windowSeconds, Math.max(1, lock[0]?.retryAfter ?? windowSeconds)),
   };
+}
+
+export async function releaseLoginAccountAttempt(
+  userId: string,
+  windowExpiresAt: string,
+): Promise<void> {
+  const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
+
+  await client.$executeRaw`
+    UPDATE "app_setting"
+    SET "value" = jsonb_set(
+      "value"::jsonb,
+      '{attempts}',
+      to_jsonb(GREATEST(0, ("value"::jsonb->>'attempts')::integer - 1))
+    )::text
+    WHERE "key" = ${getLoginAccountAttemptKey(userId)}
+      AND "value"::jsonb->>'expiresAt' = ${windowExpiresAt}
+      AND ("value"::jsonb->>'attempts')::integer >= 1
+  `;
 }
 
 function getSourceKeys(request: Request, username: string): { ip: string; accountIp: string } {

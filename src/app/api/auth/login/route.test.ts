@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   isTwoFactorConfigured: vi.fn(),
   getLoginLimit: vi.fn(),
   reserveLoginAccountAttempt: vi.fn(),
+  releaseLoginAccountAttempt: vi.fn(),
   recordFailedLogin: vi.fn(),
   clearFailedLogins: vi.fn(),
   hashPassword: vi.fn(),
@@ -45,6 +46,7 @@ vi.mock('@/lib/password', () => ({
 vi.mock('@/lib/login-rate-limit', () => ({
   clearFailedLogins: mocks.clearFailedLogins,
   getLoginLimit: mocks.getLoginLimit,
+  releaseLoginAccountAttempt: mocks.releaseLoginAccountAttempt,
   reserveLoginAccountAttempt: mocks.reserveLoginAccountAttempt,
   recordFailedLogin: mocks.recordFailedLogin,
 }));
@@ -118,6 +120,7 @@ beforeEach(() => {
   mocks.isTwoFactorConfigured.mockReset();
   mocks.getLoginLimit.mockReset();
   mocks.reserveLoginAccountAttempt.mockReset();
+  mocks.releaseLoginAccountAttempt.mockReset();
   mocks.recordFailedLogin.mockReset();
   mocks.clearFailedLogins.mockReset();
   mocks.hashPassword.mockReset();
@@ -142,7 +145,12 @@ beforeEach(() => {
   mocks.checkPassword.mockReturnValue(true);
   mocks.hash.mockReturnValue('password-fingerprint');
   mocks.getLoginLimit.mockResolvedValue({ blocked: false, retryAfter: 900 });
-  mocks.reserveLoginAccountAttempt.mockResolvedValue({ blocked: false, retryAfter: 0 });
+  mocks.reserveLoginAccountAttempt.mockResolvedValue({
+    blocked: false,
+    retryAfter: 0,
+    windowExpiresAt: '2030-01-01T00:00:00Z',
+  });
+  mocks.releaseLoginAccountAttempt.mockResolvedValue(undefined);
   mocks.recordFailedLogin.mockResolvedValue({ blocked: false, retryAfter: 900 });
   mocks.clearFailedLogins.mockResolvedValue(undefined);
   mocks.passwordNeedsRehash.mockReturnValue(false);
@@ -247,6 +255,7 @@ test('valid CAPTCHA preserves the existing two-factor login step', async () => {
   });
   expect(mocks.verifyLoginCaptcha).toHaveBeenCalledWith('test-token', loginRequest().url);
   expect(mocks.reserveLoginAccountAttempt).toHaveBeenCalledWith('user-1');
+  expect(mocks.releaseLoginAccountAttempt).toHaveBeenCalledWith('user-1', '2030-01-01T00:00:00Z');
   expect(mocks.checkPassword).toHaveBeenCalled();
 });
 
@@ -265,6 +274,7 @@ test('a failed login does not block a later correct password while admission rem
   });
   expect(mocks.recordFailedLogin).toHaveBeenCalledTimes(1);
   expect(mocks.reserveLoginAccountAttempt).toHaveBeenCalledTimes(2);
+  expect(mocks.releaseLoginAccountAttempt).toHaveBeenCalledTimes(1);
   expect(mocks.clearFailedLogins).toHaveBeenCalledWith(expect.any(Request), 'alice');
 });
 
@@ -286,6 +296,7 @@ test.each([false, true])(
     });
     expect(mocks.reserveLoginAccountAttempt).toHaveBeenCalledWith('user-1');
     expect(mocks.checkPassword).not.toHaveBeenCalled();
+    expect(mocks.releaseLoginAccountAttempt).not.toHaveBeenCalled();
     expect(mocks.createSecureToken).not.toHaveBeenCalled();
   },
 );
@@ -308,6 +319,15 @@ test('without CAPTCHA, database admission failure stops password verification', 
 
   expect(response.status).toBe(503);
   expect(mocks.checkPassword).not.toHaveBeenCalled();
+});
+
+test('database release failure does not issue a session after password verification', async () => {
+  mocks.releaseLoginAccountAttempt.mockRejectedValue(new Error('database unavailable'));
+
+  const response = await POST(loginRequest());
+
+  expect(response.status).toBe(503);
+  expect(mocks.saveAuth).not.toHaveBeenCalled();
 });
 
 test('per-IP limit stops password checks before they consume bcrypt work', async () => {

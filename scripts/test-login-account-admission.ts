@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { getLoginAccountAttemptKey, reserveLoginAccountAttempt } from '@/lib/login-rate-limit';
+import {
+  getLoginAccountAttemptKey,
+  releaseLoginAccountAttempt,
+  reserveLoginAccountAttempt,
+} from '@/lib/login-rate-limit';
 import prisma from '@/lib/prisma';
 
 assert.equal(process.env.ALLOW_DESTRUCTIVE_MIGRATION_TEST, '1');
@@ -10,6 +14,8 @@ assert.equal(address.pathname, '/postgres');
 
 const userId = randomUUID();
 const accountKey = getLoginAccountAttemptKey(userId);
+const successfulUserId = randomUUID();
+const successfulKey = getLoginAccountAttemptKey(successfulUserId);
 const unknownKey = getLoginAccountAttemptKey();
 const originalAccountLimit = process.env.LOGIN_RATE_LIMIT_ACCOUNT_FAILURES;
 
@@ -36,6 +42,42 @@ try {
   );
   assert.equal(unknownAttempts.filter(attempt => !attempt.blocked).length, 10);
   assert.equal(unknownAttempts.filter(attempt => attempt.blocked).length, 2);
+
+  let firstSuccessfulWindow = '';
+
+  for (let index = 0; index < 12; index += 1) {
+    const admission = await reserveLoginAccountAttempt(successfulUserId);
+    assert.equal(admission.blocked, false);
+
+    if (!admission.blocked) {
+      firstSuccessfulWindow ||= admission.windowExpiresAt;
+      await releaseLoginAccountAttempt(successfulUserId, admission.windowExpiresAt);
+      const releasedWindow = await prisma.client.appSetting.findUniqueOrThrow({
+        where: { key: successfulKey },
+      });
+      assert.equal(JSON.parse(releasedWindow.value).attempts, 0);
+    }
+  }
+
+  const successfulWindow = await prisma.client.appSetting.findUniqueOrThrow({
+    where: { key: successfulKey },
+  });
+  assert.equal(JSON.parse(successfulWindow.value).attempts, 0);
+
+  await prisma.client.$executeRaw`
+    UPDATE "app_setting"
+    SET "value" = jsonb_set("value"::jsonb, '{expiresAt}',
+      to_jsonb(clock_timestamp() - interval '1 minute'))::text
+    WHERE "key" = ${successfulKey}
+  `;
+
+  const renewedSuccess = await reserveLoginAccountAttempt(successfulUserId);
+  assert.equal(renewedSuccess.blocked, false);
+  await releaseLoginAccountAttempt(successfulUserId, firstSuccessfulWindow);
+  const retainedNewWindow = await prisma.client.appSetting.findUniqueOrThrow({
+    where: { key: successfulKey },
+  });
+  assert.equal(JSON.parse(retainedNewWindow.value).attempts, 1);
 
   process.env.LOGIN_RATE_LIMIT_ACCOUNT_FAILURES = '3';
   assert.equal((await reserveLoginAccountAttempt(userId)).blocked, true);
@@ -72,6 +114,8 @@ try {
   } else {
     process.env.LOGIN_RATE_LIMIT_ACCOUNT_FAILURES = originalAccountLimit;
   }
-  await prisma.client.appSetting.deleteMany({ where: { key: { in: [accountKey, unknownKey] } } });
+  await prisma.client.appSetting.deleteMany({
+    where: { key: { in: [accountKey, successfulKey, unknownKey] } },
+  });
   await prisma.client.$disconnect();
 }

@@ -4,6 +4,7 @@ import {
   getLoginAccountAttemptKey,
   getLoginLimit,
   recordFailedLogin,
+  releaseLoginAccountAttempt,
   reserveLoginAccountAttempt,
 } from './login-rate-limit';
 
@@ -13,6 +14,7 @@ const mocks = vi.hoisted(() => {
   return {
     counts,
     queryRaw: vi.fn(),
+    executeRaw: vi.fn(),
     redis: {
       enabled: false,
       client: {
@@ -39,7 +41,9 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock('@/lib/redis', () => ({ default: mocks.redis }));
-vi.mock('@/lib/prisma', () => ({ default: { client: { $queryRaw: mocks.queryRaw } } }));
+vi.mock('@/lib/prisma', () => ({
+  default: { client: { $queryRaw: mocks.queryRaw, $executeRaw: mocks.executeRaw } },
+}));
 
 afterEach(() => {
   const state = globalThis as typeof globalThis & Record<string, any>;
@@ -50,6 +54,7 @@ afterEach(() => {
   mocks.redis.client.del.mockClear();
   mocks.redis.client.decrementFloorZero.mockClear();
   mocks.queryRaw.mockReset();
+  mocks.executeRaw.mockReset();
   vi.useRealTimers();
   vi.unstubAllEnvs();
 });
@@ -127,14 +132,26 @@ test('account failure window expires without extending an existing lockout', asy
 });
 
 test('account admission uses stable user keys and admits only a successful database reservation', async () => {
-  mocks.queryRaw.mockResolvedValueOnce([{ retryAfter: 0 }]);
+  mocks.queryRaw.mockResolvedValueOnce([{ windowExpiresAt: '2030-01-01T00:00:00Z' }]);
 
   expect(getLoginAccountAttemptKey('user-1')).toBe(getLoginAccountAttemptKey('user-1'));
   expect(getLoginAccountAttemptKey('user-1')).not.toBe(getLoginAccountAttemptKey('user-2'));
   expect(getLoginAccountAttemptKey()).toBe('login-admission:unknown');
-  expect(await reserveLoginAccountAttempt('user-1')).toEqual({ blocked: false, retryAfter: 0 });
+  expect(await reserveLoginAccountAttempt('user-1')).toEqual({
+    blocked: false,
+    retryAfter: 0,
+    windowExpiresAt: '2030-01-01T00:00:00Z',
+  });
   expect(mocks.queryRaw).toHaveBeenCalledTimes(1);
   expect(mocks.queryRaw.mock.calls[0]).toContain(getLoginAccountAttemptKey('user-1'));
+});
+
+test('a successful password check releases only its reserved account window', async () => {
+  await releaseLoginAccountAttempt('user-1', '2030-01-01T00:00:00Z');
+
+  expect(mocks.executeRaw).toHaveBeenCalledTimes(1);
+  expect(mocks.executeRaw.mock.calls[0]).toContain(getLoginAccountAttemptKey('user-1'));
+  expect(mocks.executeRaw.mock.calls[0]).toContain('2030-01-01T00:00:00Z');
 });
 
 test('account admission denies at capacity with a bounded remaining wait', async () => {
