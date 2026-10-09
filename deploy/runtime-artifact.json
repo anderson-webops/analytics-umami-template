@@ -25,6 +25,7 @@
     "prisma/migrations/migration_lock.toml",
     "prisma/schema.prisma",
     "public/openapi.json",
+    "public/recorder.js",
     "public/script.js",
     "runtime-scripts/artifact-smoke.mjs",
     "runtime-scripts/check-db.mjs",

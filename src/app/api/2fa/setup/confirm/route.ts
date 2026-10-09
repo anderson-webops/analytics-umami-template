@@ -1,8 +1,12 @@
-import { z } from 'zod';
 import { saveAuth } from '@/lib/auth';
 import { hash, secret } from '@/lib/crypto';
 import { isEnvEnabled } from '@/lib/env';
 import { createSecureToken } from '@/lib/jwt';
+import { checkPassword } from '@/lib/password';
+import {
+  getPasswordVerificationBudgetKey,
+  reservePasswordVerificationAttempt,
+} from '@/lib/password-verification-rate-limit';
 import prisma from '@/lib/prisma';
 import redis from '@/lib/redis';
 import { parseRequest } from '@/lib/request';
@@ -13,6 +17,7 @@ import {
   json,
   notFound,
   serviceUnavailable,
+  tooManyRequests,
   unauthorized,
 } from '@/lib/response';
 import { getAuthSessionTtlSeconds } from '@/lib/security';
@@ -27,6 +32,7 @@ import { reserveTwoFactorAttempt, resetRateLimit } from '@/lib/two-factor/rate-l
 import { consumeOtp } from '@/lib/two-factor/replay-prevention';
 import { verifyTotp } from '@/lib/two-factor/totp';
 import { getUser } from '@/queries/prisma/user';
+import { confirmTwoFactorSetupSchema } from './schema';
 
 class SetupChangedError extends Error {}
 
@@ -39,12 +45,16 @@ export async function POST(request: Request) {
     return notFound();
   }
 
-  const schema = z.object({ token: z.string().length(6) });
-
-  const { auth, body, error } = await parseRequest(request, schema);
+  const { auth, body, error } = await parseRequest(request, confirmTwoFactorSetupSchema, {
+    maxBodyBytes: 16 * 1024,
+  });
 
   if (error) {
     return error();
+  }
+
+  if (auth.authType !== 'session' || !auth.user?.id) {
+    return unauthorized();
   }
 
   if (auth.enrollmentOnly && isEnvEnabled('DISABLE_LOGIN')) {
@@ -56,15 +66,39 @@ export async function POST(request: Request) {
   }
 
   const userId = auth.user.id;
-  const { token } = body;
+  const { token, password } = body;
+
+  const userWithPassword = await getUser(userId, { includePassword: true });
+  if (!userWithPassword) {
+    return unauthorized();
+  }
 
   const twoFactor = await prisma.client.twoFactorAuth.findUnique({ where: { userId } });
 
-  // Verify if 2FA is waiting for setup
   if (!twoFactor || twoFactor.isEnabled) {
     return badRequest({
       code: 'two-factor-error-no-pending-setup',
       message: 'No pending 2FA setup found',
+    });
+  }
+
+  let passwordAttempt;
+  try {
+    passwordAttempt = await reservePasswordVerificationAttempt(userId);
+  } catch {
+    return serviceUnavailable({ message: 'Credential verification is temporarily unavailable' });
+  }
+
+  if (!passwordAttempt.allowed) {
+    return tooManyRequests(passwordAttempt.retryAfter, {
+      message: 'Too many password attempts',
+    });
+  }
+
+  if (!(await checkPassword(password, userWithPassword.password))) {
+    return badRequest({
+      code: 'two-factor-error-incorrect-password',
+      message: 'Incorrect password',
     });
   }
 
@@ -98,7 +132,12 @@ export async function POST(request: Request) {
   try {
     await prisma.transaction(async tx => {
       const userUpdated = await tx.user.updateMany({
-        where: { id: userId, deletedAt: null, sessionGeneration: auth.sessionGeneration },
+        where: {
+          id: userId,
+          password: userWithPassword.password,
+          deletedAt: null,
+          sessionGeneration: auth.sessionGeneration,
+        },
         data: { sessionGeneration: { increment: 1 } },
       });
 
@@ -124,6 +163,7 @@ export async function POST(request: Request) {
         data: hashed.map(codeHash => ({ userId, codeHash })),
       });
       await tx.apiKey.deleteMany({ where: { userId } });
+      await tx.appSetting.deleteMany({ where: { key: getPasswordVerificationBudgetKey(userId) } });
     });
   } catch (error) {
     if (error instanceof CredentialsChangedError) {

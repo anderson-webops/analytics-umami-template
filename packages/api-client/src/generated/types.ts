@@ -53,7 +53,7 @@ export interface paths {
     put?: never;
     /**
      * Confirm two-factor authentication setup
-     * @description Verifies the current pending authenticator, enables two-factor authentication, returns new backup codes, and replaces the session cookie with a verified session.
+     * @description Requires the current password and a code from the pending authenticator, enables two-factor authentication, returns new backup codes, and replaces the session cookie with a verified session. Password verification shares a five-attempt, 15-minute account limit with password changes.
      */
     post: operations['confirmTwoFactorSetup'];
     delete?: never;
@@ -73,7 +73,7 @@ export interface paths {
     put?: never;
     /**
      * Set up two-factor authentication
-     * @description Starts or replaces only the current user's still-pending setup and returns a QR code and manual setup key for an authenticator app.
+     * @description Verifies the current password, then starts or replaces only the current user's still-pending setup and returns a QR code and manual setup key for an authenticator app. Password verification shares a five-attempt, 15-minute account limit with password changes and 2FA disablement.
      */
     post: operations['initiateTwoFactorSetup'];
     delete?: never;
@@ -261,7 +261,7 @@ export interface paths {
     put?: never;
     /**
      * Log in
-     * @description Authenticates a self-hosted user with a username and password. Enabled two-factor authentication requires a short-lived partial token; users required to enroll receive a setup-only session until they confirm a factor.
+     * @description Authenticates a self-hosted user with a username and password. When Turnstile is configured, a fresh captchaToken is required before password verification. Enabled two-factor authentication requires a short-lived partial token; users required to enroll receive a setup-only session until they confirm a factor.
      */
     post: operations['login'];
     delete?: never;
@@ -281,7 +281,7 @@ export interface paths {
     put?: never;
     /**
      * Log out
-     * @description Ends the current authentication session by removing its stored token when Redis-backed sessions are enabled.
+     * @description Ends the current Redis-backed session or revokes all stateless sessions for the account when no stored session key is available.
      */
     post: operations['logout'];
     delete?: never;
@@ -661,7 +661,7 @@ export interface paths {
     put?: never;
     /**
      * Create an API key
-     * @description Creates a named API key for the current user and returns its secret value. Available on self-hosted installations.
+     * @description Verifies the current password, then creates a named API key for the current user and returns its secret value once. Password verification shares a five-attempt, 15-minute account limit with other sensitive account changes. Available on self-hosted installations.
      */
     post: operations['createMyApiKey'];
     delete?: never;
@@ -866,6 +866,46 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/realtime/{websiteId}/series': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Get real-time chart series
+     * @description Returns only the pageview and visitor time series for the real-time view.
+     */
+    get: operations['getRealtimeSeries'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/realtime/{websiteId}/totals': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Get real-time totals
+     * @description Returns only the aggregate totals for the real-time view.
+     */
+    get: operations['getRealtimeTotals'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/record': {
     parameters: {
       query?: never;
@@ -897,7 +937,7 @@ export interface paths {
     put?: never;
     /**
      * Send tracking data
-     * @description Collects a pageview, custom event, visitor identification, or performance payload and returns session information and a tracking cache token when accepted.
+     * @description Collects a pageview, custom event, visitor identification, or performance payload and returns an opaque tracking cache token for website events when accepted.
      */
     post: operations['send'];
     delete?: never;
@@ -2309,6 +2349,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/websites/{websiteId}/revenue/total': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Get website revenue total
+     * @description Returns only the total revenue for the selected currency and date range.
+     */
+    get: operations['getWebsiteRevenueTotal'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/websites/{websiteId}/segments': {
     parameters: {
       query?: never;
@@ -2729,6 +2789,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/websites/{websiteId}/stats/traffic': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Get website traffic totals
+     * @description Returns only pageview, visitor, and visit totals with their comparison period.
+     */
+    get: operations['getWebsiteTrafficStats'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/websites/{websiteId}/transfer': {
     parameters: {
       query?: never;
@@ -2839,6 +2919,8 @@ export interface components {
       teamId?: string | null;
     };
     LoginRequest: {
+      /** @description Turnstile token when login verification is configured. */
+      captchaToken?: string;
       /** @description Umami password. */
       password: string;
       /** @description Umami username. */
@@ -3550,35 +3632,23 @@ export interface operations {
     requestBody: {
       content: {
         'application/json': {
+          /** @description Current account password. */
+          password: string;
           token: string;
         };
       };
     };
     responses: {
-      /** @description The operation completed successfully. */
+      /** @description Two-factor authentication enabled; save the single-use backup codes. */
       200: {
         headers: {
           [name: string]: unknown;
         };
         content: {
-          'application/json':
-            | {
-                /** @description Error details returned when the operation fails. */
-                error: {
-                  code: string;
-                  /**
-                   * Format: date-time
-                   * @description Time until which further authentication attempts are blocked.
-                   */
-                  lockedUntil: string;
-                  /** @description Human-readable explanation of the result. */
-                  message: string;
-                };
-              }
-            | {
-                /** @description Single-use backup codes for two-factor authentication. */
-                backupCodes: string[];
-              };
+          'application/json': {
+            /** @description Single-use backup codes for two-factor authentication. */
+            backupCodes: string[];
+          };
         };
       };
       /** @description Bad request. */
@@ -3617,6 +3687,24 @@ export interface operations {
           'application/json': components['schemas']['ApiError'];
         };
       };
+      /** @description Forbidden. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "forbidden",
+           *         "message": "Forbidden.",
+           *         "status": 403
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
       /** @description Not found. */
       404: {
         headers: {
@@ -3635,25 +3723,54 @@ export interface operations {
           'application/json': components['schemas']['ApiError'];
         };
       };
-      /** @description The operation completed successfully. */
+      /** @description Pending setup changed. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+      /** @description Payload too large. */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "payload-too-large",
+           *         "message": "Payload too large.",
+           *         "status": 413
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+      /** @description Too many verification attempts. */
       429: {
         headers: {
           [name: string]: unknown;
         };
         content: {
-          'application/json': {
-            /** @description Error details returned when the operation fails. */
-            error: {
-              code: string;
-              /**
-               * Format: date-time
-               * @description Time until which further authentication attempts are blocked.
-               */
-              lockedUntil: string;
-              /** @description Human-readable explanation of the result. */
-              message: string;
-            };
-          };
+          'application/json':
+            | components['schemas']['ApiError']
+            | {
+                /** @description Error details returned when the operation fails. */
+                error: {
+                  code: string;
+                  /**
+                   * Format: date-time
+                   * @description Time until which further authentication attempts are blocked.
+                   */
+                  lockedUntil?: string;
+                  /** @description Human-readable explanation of the result. */
+                  message: string;
+                };
+              };
         };
       };
       /** @description Service unavailable. */
@@ -3683,9 +3800,16 @@ export interface operations {
       path?: never;
       cookie?: never;
     };
-    requestBody?: never;
+    requestBody: {
+      content: {
+        'application/json': {
+          /** @description Current account password. */
+          password: string;
+        };
+      };
+    };
     responses: {
-      /** @description The operation completed successfully. */
+      /** @description Pending setup created; store the secret only in the authenticator app. */
       200: {
         headers: {
           [name: string]: unknown;
@@ -3735,6 +3859,24 @@ export interface operations {
           'application/json': components['schemas']['ApiError'];
         };
       };
+      /** @description Forbidden. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "forbidden",
+           *         "message": "Forbidden.",
+           *         "status": 403
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
       /** @description Not found. */
       404: {
         headers: {
@@ -3750,6 +3892,42 @@ export interface operations {
            *       }
            *     }
            */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+      /** @description Pending setup changed. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+      /** @description Payload too large. */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "payload-too-large",
+           *         "message": "Payload too large.",
+           *         "status": 413
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+      /** @description Too many password attempts. */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
           'application/json': components['schemas']['ApiError'];
         };
       };
@@ -3935,6 +4113,24 @@ export interface operations {
            *         "code": "unauthorized",
            *         "message": "Unauthorized.",
            *         "status": 401
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+      /** @description Forbidden. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "forbidden",
+           *         "message": "Forbidden.",
+           *         "status": 403
            *       }
            *     }
            */
@@ -4414,7 +4610,7 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description The operation completed successfully. */
+      /** @description Successful response. */
       200: {
         headers: {
           [name: string]: unknown;
@@ -4482,17 +4678,20 @@ export interface operations {
       };
     };
     responses: {
-      /** @description The operation completed successfully. */
+      /** @description Successful response. */
       200: {
         headers: {
           [name: string]: unknown;
         };
         content: {
           'application/json': {
-            /** @description Whether the operation succeeded. */
-            ok: boolean;
+            /**
+             * @description Whether the operation succeeded.
+             * @constant
+             */
+            ok: true;
             /** @description Whether two-factor authentication is required. */
-            twoFactorRequired: unknown;
+            twoFactorRequired: boolean;
             /** @description ID of the associated user. */
             userId: string;
           };
@@ -4584,15 +4783,18 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description The operation completed successfully. */
+      /** @description Successful response. */
       200: {
         headers: {
           [name: string]: unknown;
         };
         content: {
           'application/json': {
-            /** @description Whether the operation succeeded. */
-            ok: boolean;
+            /**
+             * @description Whether the operation succeeded.
+             * @constant
+             */
+            ok: true;
             reset: {
               /** @description Single-use backup codes for two-factor authentication. */
               backupCodes: number;
@@ -4675,7 +4877,16 @@ export interface operations {
             /** @description Number of matching records. */
             count: unknown;
             /** @description Data returned by the operation. */
-            data: unknown;
+            data: {
+              /** @description Unique identifier of the resource. */
+              id: string;
+              /** @description Identifier used to access a shared resource. */
+              shareId?: string;
+              /** @description ID of the associated team. */
+              teamId?: string;
+              /** @description ID of the associated user. */
+              userId?: string;
+            }[];
             /** @description Field to sort the results by. */
             orderBy: string;
             /** @description Page number, starting at 1. */
@@ -7012,7 +7223,7 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description The operation completed successfully. */
+      /** @description Successful response. */
       200: {
         headers: {
           [name: string]: unknown;
@@ -7024,15 +7235,15 @@ export interface operations {
              * @description Date and time the record was created.
              */
             createdAt: string;
-            /** @description Unique identifier of the resource. */
+            /**
+             * Format: uuid
+             * @description Unique identifier of the resource.
+             */
             id: string;
             /** @description Visible prefix used to identify an API key. */
             keyPrefix: string;
-            /**
-             * Format: date-time
-             * @description Date and time the credential was last used.
-             */
-            lastUsedAt: string;
+            /** @description Date and time the credential was last used. */
+            lastUsedAt: string | null;
             /** @description Display name of the resource. */
             name: string;
           }[];
@@ -7086,13 +7297,15 @@ export interface operations {
     requestBody: {
       content: {
         'application/json': {
+          /** @description Current account password. */
+          currentPassword: string;
           /** @description Display name of the resource. */
-          name: unknown;
+          name: string;
         };
       };
     };
     responses: {
-      /** @description The operation completed successfully. */
+      /** @description API key created; its secret is returned only once. */
       200: {
         headers: {
           [name: string]: unknown;
@@ -7104,7 +7317,10 @@ export interface operations {
              * @description Date and time the record was created.
              */
             createdAt: string;
-            /** @description Unique identifier of the resource. */
+            /**
+             * Format: uuid
+             * @description Unique identifier of the resource.
+             */
             id: string;
             key: string;
             /** @description Visible prefix used to identify an API key. */
@@ -7162,6 +7378,51 @@ export interface operations {
            *         "code": "not-found",
            *         "message": "Not found.",
            *         "status": 404
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+      /** @description Payload too large. */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "payload-too-large",
+           *         "message": "Payload too large.",
+           *         "status": 413
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+      /** @description Too many password attempts. */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+      /** @description Service unavailable. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "service-unavailable",
+           *         "message": "Service unavailable.",
+           *         "status": 503
            *       }
            *     }
            */
@@ -7460,7 +7721,16 @@ export interface operations {
             /** @description Number of matching records. */
             count: unknown;
             /** @description Data returned by the operation. */
-            data: unknown;
+            data: {
+              /** @description Unique identifier of the resource. */
+              id: string;
+              /** @description Identifier used to access a shared resource. */
+              shareId?: string;
+              /** @description ID of the associated team. */
+              teamId?: string;
+              /** @description ID of the associated user. */
+              userId?: string;
+            }[];
             /** @description Field to sort the results by. */
             orderBy: string;
             /** @description Page number, starting at 1. */
@@ -8429,6 +8699,52 @@ export interface operations {
       };
     };
   };
+  getRealtimeSeries: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description ID of the website. */
+        websiteId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful response. The response shape is inferred as free-form because the handler does not expose a reusable response schema. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': unknown;
+        };
+      };
+    };
+  };
+  getRealtimeTotals: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description ID of the website. */
+        websiteId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful response. The response shape is inferred as free-form because the handler does not expose a reusable response schema. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': unknown;
+        };
+      };
+    };
+  };
   record: {
     parameters: {
       query?: never;
@@ -8666,11 +8982,7 @@ export interface operations {
         };
         content: {
           'text/plain': {
-            cache: unknown;
-            /** @description ID of the visitor session. */
-            sessionId: unknown;
-            /** @description ID of the visit. */
-            visitId: unknown;
+            cache: string;
           };
         };
       };
@@ -10251,7 +10563,16 @@ export interface operations {
             /** @description Number of matching records. */
             count: unknown;
             /** @description Data returned by the operation. */
-            data: unknown;
+            data: {
+              /** @description Unique identifier of the resource. */
+              id: string;
+              /** @description Identifier used to access a shared resource. */
+              shareId?: string;
+              /** @description ID of the associated team. */
+              teamId?: string;
+              /** @description ID of the associated user. */
+              userId?: string;
+            }[];
             /** @description Field to sort the results by. */
             orderBy: string;
             /** @description Page number, starting at 1. */
@@ -10852,7 +11173,16 @@ export interface operations {
             /** @description Number of matching records. */
             count: unknown;
             /** @description Data returned by the operation. */
-            data: unknown;
+            data: {
+              /** @description Unique identifier of the resource. */
+              id: string;
+              /** @description Identifier used to access a shared resource. */
+              shareId?: string;
+              /** @description ID of the associated team. */
+              teamId?: string;
+              /** @description ID of the associated user. */
+              userId?: string;
+            }[];
             /** @description Field to sort the results by. */
             orderBy: string;
             /** @description Page number, starting at 1. */
@@ -18032,6 +18362,8 @@ export interface operations {
   getWebsiteRevenueMetrics: {
     parameters: {
       query: {
+        botCategory?: string;
+        botName?: string;
         /** @description Browser used by the visitor. */
         browser?: string;
         /** @description City of the visitor. */
@@ -18062,6 +18394,8 @@ export interface operations {
         hostname?: string;
         /** @description Preferred language reported by the visitor browser. */
         language?: string;
+        /** @description Maximum number of rows to return. */
+        limit?: number;
         /** @description Whether records must match all filters or any filter. */
         match?: 'all' | 'any';
         /** @description Operating system used by the visitor. */
@@ -18086,6 +18420,7 @@ export interface operations {
         timezone?: string;
         /** @description Filter by page title. */
         title?: string;
+        trafficType?: 'human' | 'bot' | 'all';
         /** @description Type of resource or analytics dimension to return. */
         type: 'country' | 'region' | 'referrer' | 'channel';
         /** @description Time interval used to group results: minute, hour, day, month, or year. */
@@ -18442,6 +18777,134 @@ export interface operations {
           'application/json': {
             /** @description Analytics for the comparison period. */
             comparison: unknown;
+          };
+        };
+      };
+      /** @description Bad request. */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "bad-request",
+           *         "message": "Bad request.",
+           *         "status": 400
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+      /** @description Unauthorized. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "unauthorized",
+           *         "message": "Unauthorized.",
+           *         "status": 401
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+    };
+  };
+  getWebsiteRevenueTotal: {
+    parameters: {
+      query: {
+        /** @description Browser used by the visitor. */
+        browser?: string;
+        /** @description City of the visitor. */
+        city?: string;
+        /** @description ID of a saved cohort used to filter visitors. */
+        cohort?: string;
+        /** @description Comparison period: prev for the previous period or yoy for the same period last year. */
+        compare?: 'prev' | 'yoy';
+        /** @description Country code of the visitor. */
+        country?: string;
+        /** @description Currency code used for revenue values. */
+        currency: string;
+        /** @description Device category used by the visitor. */
+        device?: string;
+        /** @description Custom identifier assigned to the visitor. */
+        distinctId?: string;
+        /** @description End of the date range as a Unix timestamp in milliseconds. */
+        endAt?: number;
+        /** @description End of the date range as an ISO 8601 date or date-time. */
+        endDate?: string;
+        /** @description Filter by custom event name. */
+        event?: string;
+        /** @description Event type: 1 for a pageview or 2 for a custom event. */
+        eventType?: number;
+        /** @description Set a non-empty value to exclude visits with only one pageview. */
+        excludeBounce?: string;
+        /** @description Hostname on which the activity occurred. */
+        hostname?: string;
+        /** @description Preferred language reported by the visitor browser. */
+        language?: string;
+        /** @description Whether records must match all filters or any filter. */
+        match?: 'all' | 'any';
+        /** @description Operating system used by the visitor. */
+        os?: string;
+        /** @description Filter by page URL path. */
+        path?: string;
+        /** @description Filter by page URL query string. */
+        query?: string;
+        /** @description Filter by referring URL. */
+        referrer?: string;
+        /** @description Region or subdivision of the visitor. */
+        region?: string;
+        /** @description ID of a saved segment used to filter results. */
+        segment?: string;
+        /** @description Start of the date range as a Unix timestamp in milliseconds. */
+        startAt?: number;
+        /** @description Start of the date range as an ISO 8601 date or date-time. */
+        startDate?: string;
+        /** @description Tag attached to the tracked activity. */
+        tag?: string;
+        /** @description IANA time zone used to interpret dates and group results, for example America/New_York. */
+        timezone?: string;
+        /** @description Filter by page title. */
+        title?: string;
+        /** @description Time interval used to group results: minute, hour, day, month, or year. */
+        unit?: string;
+        /** @description UTM campaign name. */
+        utmCampaign?: string;
+        /** @description UTM campaign content. */
+        utmContent?: string;
+        /** @description UTM campaign medium. */
+        utmMedium?: string;
+        /** @description UTM campaign source. */
+        utmSource?: string;
+        /** @description UTM campaign search term. */
+        utmTerm?: string;
+      };
+      header?: never;
+      path: {
+        /** @description ID of the website. */
+        websiteId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The operation completed successfully. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            sum: unknown;
           };
         };
       };
@@ -21220,6 +21683,146 @@ export interface operations {
       };
     };
   };
+  getWebsiteTrafficStats: {
+    parameters: {
+      query?: {
+        /** @description Browser used by the visitor. */
+        browser?: string;
+        /** @description City of the visitor. */
+        city?: string;
+        /** @description ID of a saved cohort used to filter visitors. */
+        cohort?: string;
+        /** @description Comparison period: prev for the previous period or yoy for the same period last year. */
+        compare?: 'prev' | 'yoy';
+        /** @description Country code of the visitor. */
+        country?: string;
+        /** @description Device category used by the visitor. */
+        device?: string;
+        /** @description Custom identifier assigned to the visitor. */
+        distinctId?: string;
+        /** @description End of the date range as a Unix timestamp in milliseconds. */
+        endAt?: number;
+        /** @description End of the date range as an ISO 8601 date or date-time. */
+        endDate?: string;
+        /** @description Filter by custom event name. */
+        event?: string;
+        /** @description Event type: 1 for a pageview or 2 for a custom event. */
+        eventType?: number;
+        /** @description Set a non-empty value to exclude visits with only one pageview. */
+        excludeBounce?: string;
+        /** @description Hostname on which the activity occurred. */
+        hostname?: string;
+        /** @description Preferred language reported by the visitor browser. */
+        language?: string;
+        /** @description Whether records must match all filters or any filter. */
+        match?: 'all' | 'any';
+        /** @description Operating system used by the visitor. */
+        os?: string;
+        /** @description Filter by page URL path. */
+        path?: string;
+        /** @description Filter by page URL query string. */
+        query?: string;
+        /** @description Filter by referring URL. */
+        referrer?: string;
+        /** @description Region or subdivision of the visitor. */
+        region?: string;
+        /** @description ID of a saved segment used to filter results. */
+        segment?: string;
+        /** @description Start of the date range as a Unix timestamp in milliseconds. */
+        startAt?: number;
+        /** @description Start of the date range as an ISO 8601 date or date-time. */
+        startDate?: string;
+        /** @description Tag attached to the tracked activity. */
+        tag?: string;
+        /** @description IANA time zone used to interpret dates and group results, for example America/New_York. */
+        timezone?: string;
+        /** @description Filter by page title. */
+        title?: string;
+        /** @description Time interval used to group results: minute, hour, day, month, or year. */
+        unit?: string;
+        /** @description UTM campaign name. */
+        utmCampaign?: string;
+        /** @description UTM campaign content. */
+        utmContent?: string;
+        /** @description UTM campaign medium. */
+        utmMedium?: string;
+        /** @description UTM campaign source. */
+        utmSource?: string;
+        /** @description UTM campaign search term. */
+        utmTerm?: string;
+      };
+      header?: never;
+      path: {
+        /** @description ID of the website. */
+        websiteId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The operation completed successfully. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            /** @description Analytics for the comparison period. */
+            comparison: {
+              /** @description Pageview counts for the selected period. */
+              pageviews: number;
+              /** @description Unique visitor counts for the selected period. */
+              visitors: number;
+              /** @description Visit counts for the selected period. */
+              visits: number;
+            };
+            /** @description Pageview counts for the selected period. */
+            pageviews: number;
+            /** @description Unique visitor counts for the selected period. */
+            visitors: number;
+            /** @description Visit counts for the selected period. */
+            visits: number;
+          };
+        };
+      };
+      /** @description Bad request. */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "bad-request",
+           *         "message": "Bad request.",
+           *         "status": 400
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+      /** @description Unauthorized. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "unauthorized",
+           *         "message": "Unauthorized.",
+           *         "status": 401
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+    };
+  };
   transferWebsite: {
     parameters: {
       query?: never;
@@ -21396,6 +21999,8 @@ export interface operations {
         hostname?: string;
         /** @description Preferred language reported by the visitor browser. */
         language?: string;
+        /** @description Maximum number of rows to return. */
+        limit?: number;
         /** @description Whether records must match all filters or any filter. */
         match?: 'all' | 'any';
         /** @description Operating system used by the visitor. */

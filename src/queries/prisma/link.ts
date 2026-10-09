@@ -18,7 +18,8 @@ import { lockCollectionSources } from './collection';
 const LINK_SORT_FIELDS = ['name', 'slug', 'url', 'createdAt'] as const;
 
 export async function findLink(criteria: Prisma.LinkFindUniqueArgs) {
-  return prisma.client.link.findUnique(criteria);
+  const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
+  return client.link.findUnique(criteria);
 }
 
 export async function getLink(linkId: string) {

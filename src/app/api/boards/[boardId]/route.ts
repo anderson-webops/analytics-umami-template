@@ -32,7 +32,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ boar
     return notFound();
   }
 
-  if (!auth.user) {
+  if (!auth.user || !(await canViewBoard({ user: auth.user }, boardId))) {
     return json({
       id: board.id,
       type: board.type,

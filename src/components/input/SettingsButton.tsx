@@ -10,6 +10,7 @@ import {
 } from '@umami/react-zen';
 import type { Key } from 'react';
 import { useConfig, useLoginQuery, useMessages, useNavigation } from '@/components/hooks';
+import { useLogout } from '@/components/hooks/useLogout';
 import {
   BookText,
   ExternalLink,
@@ -20,19 +21,23 @@ import {
   UserCircle,
 } from '@/components/icons';
 import { DOCS_URL } from '@/lib/constants';
+import { openNewTab } from '@/lib/open-new-tab';
 
 export function SettingsButton() {
   const { t, labels } = useMessages();
   const { user } = useLoginQuery();
   const { router } = useNavigation();
   const { cloudMode } = useConfig();
+  const logout = useLogout();
 
   const handleAction = (id: Key) => {
     const url = id.toString();
 
-    if (cloudMode) {
+    if (url === '/logout' && !cloudMode) {
+      logout();
+    } else if (cloudMode) {
       if (url === '/docs') {
-        window.open(DOCS_URL, '_blank');
+        openNewTab(DOCS_URL);
       } else {
         window.location.href = url;
       }

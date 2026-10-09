@@ -1,7 +1,12 @@
-const FORMULA_TRIGGER = /^[\t\r ]*[=+\-@]/;
+const FORMULA_TRIGGER = /^[\s\p{Cc}\p{Cf}]*[=+\-@]/u;
+const CONTROL_PREFIX = /^\p{Cc}/u;
+
+export function isUnsafeSpreadsheetValue(value: unknown): value is string {
+  return typeof value === 'string' && (FORMULA_TRIGGER.test(value) || CONTROL_PREFIX.test(value));
+}
 
 export function sanitizeCsvValue(value: unknown): unknown {
-  return typeof value === 'string' && FORMULA_TRIGGER.test(value) ? `'${value}` : value;
+  return isUnsafeSpreadsheetValue(value) ? `'${value}` : value;
 }
 
 export function sanitizeCsvData(data: unknown): unknown {

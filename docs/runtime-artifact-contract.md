@@ -158,8 +158,13 @@ to the same PostgreSQL cluster, database, and schema as `DATABASE_URL` before
 mutation. The artifact bundles `check-env.js` and
 `check-db.js`; runtime startup passes `--verify-only`, verifies every included
 migration name and checksum plus required schema, active-administrator, role,
-and team-owner invariants, then starts `server.js`. Runtime checks have bounded
-execution time and do not repeat password hashing or historical analytics-table
+and team-owner invariants. The launcher then replaces itself with `server.js`,
+retaining its PID and runtime working directory while excluding
+`DIRECT_DATABASE_URL` and the dotenv config path from the server environment.
+The source launcher refuses `DIRECT_DATABASE_URL` altogether; migrations use
+the separate pre-promotion database command, never a start alias.
+Runtime checks have bounded execution time and do not repeat password hashing
+or historical analytics-table
 relationship scans on each restart. Those full checks remain mandatory in the
 pre-promotion source step. The Prisma CLI and development dependency tree are
 not runtime requirements.

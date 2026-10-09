@@ -202,6 +202,10 @@ export async function parseRequest(
     }
   }
 
+  if (!error && auth?.shareToken && options?.budgetShareQuery && !schema) {
+    error = () => badRequest({ message: 'The public-share query is too complex.' });
+  }
+
   if (
     !error &&
     auth?.shareToken &&

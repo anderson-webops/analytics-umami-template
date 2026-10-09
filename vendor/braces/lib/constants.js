@@ -3,6 +3,7 @@
 module.exports = {
   MAX_LENGTH: 10000,
   MAX_DEPTH: 256,
+  MAX_EXPANSIONS: 10000,
 
   // Digits
   CHAR_0: '0', /* 0 */

@@ -84,6 +84,29 @@ const operation1 = defineOperation({
               type: 'object',
               properties: {
                 data: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      id: {
+                        type: 'string',
+                        description: 'Unique identifier of the resource.',
+                      },
+                      userId: {
+                        type: 'string',
+                        description: 'ID of the associated user.',
+                      },
+                      teamId: {
+                        type: 'string',
+                        description: 'ID of the associated team.',
+                      },
+                      shareId: {
+                        type: 'string',
+                        description: 'Identifier used to access a shared resource.',
+                      },
+                    },
+                    required: ['id'],
+                  },
                   description: 'Data returned by the operation.',
                 },
                 count: {

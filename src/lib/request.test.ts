@@ -97,6 +97,22 @@ test('allows date and paging parameters when a public share disables filters', a
   expect(result.error).toBeUndefined();
 });
 
+test('an empty expanded-view search is not a filter', async () => {
+  checkAuthMock.mockResolvedValue({
+    shareToken: {
+      websiteId: '00000000-0000-4000-8000-000000000001',
+      parameters: { allowFilter: false },
+    },
+  } as any);
+
+  const schema = withDateRange({ type: fieldsParam, ...searchParams });
+  const base = `https://analytics.example/api/websites/website-1/metrics/expanded?startAt=${Date.UTC(2025, 0, 1)}&endAt=${Date.UTC(2025, 0, 2)}&type=referrer`;
+  expect((await parseRequest(new Request(`${base}&search=`), schema)).error).toBeUndefined();
+  expect((await parseRequest(new Request(`${base}&search=private`), schema)).error?.().status).toBe(
+    403,
+  );
+});
+
 test('allows only bounded path and event selector search when explicitly enabled', async () => {
   checkAuthMock.mockResolvedValue({
     shareToken: {

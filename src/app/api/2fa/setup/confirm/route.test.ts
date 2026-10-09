@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { POST } from './route';
+import { confirmTwoFactorSetupSchema } from './schema';
 
 const mocks = vi.hoisted(() => {
   const tx = {
@@ -14,6 +15,9 @@ const mocks = vi.hoisted(() => {
       createMany: vi.fn(),
     },
     apiKey: {
+      deleteMany: vi.fn(),
+    },
+    appSetting: {
       deleteMany: vi.fn(),
     },
   };
@@ -31,6 +35,9 @@ const mocks = vi.hoisted(() => {
     consumeOtp: vi.fn(),
     verifyTotp: vi.fn(),
     getUser: vi.fn(),
+    checkPassword: vi.fn(),
+    reservePasswordVerificationAttempt: vi.fn(),
+    getPasswordVerificationBudgetKey: vi.fn(),
     hash: vi.fn(),
     secret: vi.fn(),
     createSecureToken: vi.fn(),
@@ -43,6 +50,16 @@ vi.mock('@/lib/request', () => ({
 
 vi.mock('@/queries/prisma/user', () => ({
   getUser: mocks.getUser,
+}));
+
+vi.mock('@/lib/password', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/lib/password')>()),
+  checkPassword: mocks.checkPassword,
+}));
+
+vi.mock('@/lib/password-verification-rate-limit', () => ({
+  reservePasswordVerificationAttempt: mocks.reservePasswordVerificationAttempt,
+  getPasswordVerificationBudgetKey: mocks.getPasswordVerificationBudgetKey,
 }));
 
 vi.mock('@/lib/crypto', () => ({
@@ -110,6 +127,7 @@ beforeEach(() => {
   mocks.tx.twoFactorBackupCode.deleteMany.mockReset();
   mocks.tx.twoFactorBackupCode.createMany.mockReset();
   mocks.tx.apiKey.deleteMany.mockReset();
+  mocks.tx.appSetting.deleteMany.mockReset();
   mocks.generateBackupCodes.mockReset();
   mocks.decryptSecret.mockReset();
   mocks.isTwoFactorConfigured.mockReset();
@@ -118,13 +136,16 @@ beforeEach(() => {
   mocks.consumeOtp.mockReset();
   mocks.verifyTotp.mockReset();
   mocks.getUser.mockReset();
+  mocks.checkPassword.mockReset();
+  mocks.reservePasswordVerificationAttempt.mockReset();
+  mocks.getPasswordVerificationBudgetKey.mockReset();
   mocks.hash.mockReset();
   mocks.secret.mockReset();
   mocks.createSecureToken.mockReset();
 
   mocks.parseRequest.mockResolvedValue({
-    auth: { user: { id: 'user-1', role: 'user' }, sessionGeneration: 0 },
-    body: { token: '123456' },
+    auth: { authType: 'session', user: { id: 'user-1', role: 'user' }, sessionGeneration: 0 },
+    body: { token: '123456', password: 'current-password' },
     error: undefined,
   });
   mocks.findUnique.mockResolvedValue({
@@ -154,6 +175,9 @@ beforeEach(() => {
     password: 'hashed-password',
     sessionGeneration: 1,
   });
+  mocks.checkPassword.mockResolvedValue(true);
+  mocks.reservePasswordVerificationAttempt.mockResolvedValue({ allowed: true, retryAfter: 0 });
+  mocks.getPasswordVerificationBudgetKey.mockReturnValue('password-verification:user-1');
   mocks.hash.mockReturnValue('password-fingerprint');
   mocks.secret.mockReturnValue('app-secret');
   mocks.createSecureToken.mockReturnValue('verified-session-token');
@@ -163,11 +187,112 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
+test('POST stays unavailable in cloud mode before reading a session', async () => {
+  vi.stubEnv('CLOUD_MODE', '1');
+
+  const response = await POST(
+    new Request('http://localhost/api/2fa/setup/confirm', { method: 'POST' }),
+  );
+
+  expect(response.status).toBe(404);
+  expect(mocks.parseRequest).not.toHaveBeenCalled();
+  expect(mocks.getUser).not.toHaveBeenCalled();
+});
+
+test('a current password and a six-digit token are required for confirmation', () => {
+  expect(confirmTwoFactorSetupSchema.safeParse({ token: '123456' }).success).toBe(false);
+  expect(confirmTwoFactorSetupSchema.safeParse({ token: '123456', password: '' }).success).toBe(
+    false,
+  );
+  expect(
+    confirmTwoFactorSetupSchema.safeParse({ token: '123456', password: 'current-password' })
+      .success,
+  ).toBe(true);
+});
+
+test('POST rejects a known pending secret when the current password is wrong', async () => {
+  mocks.checkPassword.mockResolvedValue(false);
+
+  const response = await POST(
+    new Request('http://localhost/api/2fa/setup/confirm', { method: 'POST' }),
+  );
+
+  expect(response.status).toBe(400);
+  await expect(response.json()).resolves.toMatchObject({
+    error: { code: 'two-factor-error-incorrect-password' },
+  });
+  expect(mocks.findUnique).toHaveBeenCalledWith({ where: { userId: 'user-1' } });
+  expect(mocks.reserveTwoFactorAttempt).not.toHaveBeenCalled();
+  expect(mocks.transaction).not.toHaveBeenCalled();
+});
+
+test('POST stops guessing when the shared password limit is exhausted', async () => {
+  mocks.reservePasswordVerificationAttempt.mockResolvedValue({ allowed: false, retryAfter: 71 });
+
+  const response = await POST(
+    new Request('http://localhost/api/2fa/setup/confirm', { method: 'POST' }),
+  );
+
+  expect(response.status).toBe(429);
+  expect(mocks.checkPassword).not.toHaveBeenCalled();
+  expect(mocks.findUnique).toHaveBeenCalledWith({ where: { userId: 'user-1' } });
+});
+
+test('POST fails closed if the password-attempt budget is unavailable', async () => {
+  mocks.reservePasswordVerificationAttempt.mockRejectedValue(new Error('database unavailable'));
+
+  const response = await POST(
+    new Request('http://localhost/api/2fa/setup/confirm', { method: 'POST' }),
+  );
+
+  expect(response.status).toBe(503);
+  expect(mocks.checkPassword).not.toHaveBeenCalled();
+  expect(mocks.findUnique).toHaveBeenCalledWith({ where: { userId: 'user-1' } });
+});
+
+test('POST rejects share-only authorization before reading a password hash', async () => {
+  mocks.parseRequest.mockResolvedValue({
+    auth: { authType: 'share', shareToken: { shareId: 'share-1' } },
+    body: { token: '123456', password: 'current-password' },
+  });
+
+  const response = await POST(
+    new Request('http://localhost/api/2fa/setup/confirm', { method: 'POST' }),
+  );
+
+  expect(response.status).toBe(401);
+  expect(mocks.getUser).not.toHaveBeenCalled();
+  expect(mocks.transaction).not.toHaveBeenCalled();
+});
+
+test.each([null, { id: 'enrollment-1', userId: 'user-1', isEnabled: true }])(
+  'POST rejects an absent or completed setup before password verification',
+  async existing => {
+    mocks.findUnique.mockResolvedValue(existing);
+
+    const response = await POST(
+      new Request('http://localhost/api/2fa/setup/confirm', { method: 'POST' }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: 'two-factor-error-no-pending-setup' },
+    });
+    expect(mocks.reservePasswordVerificationAttempt).not.toHaveBeenCalled();
+    expect(mocks.transaction).not.toHaveBeenCalled();
+  },
+);
+
 test('disabled login cannot elevate a pending password-login enrollment session', async () => {
   vi.stubEnv('DISABLE_LOGIN', '1');
   mocks.parseRequest.mockResolvedValue({
-    auth: { user: { id: 'user-1', role: 'user' }, sessionGeneration: 0, enrollmentOnly: true },
-    body: { token: '123456' },
+    auth: {
+      authType: 'session',
+      user: { id: 'user-1', role: 'user' },
+      sessionGeneration: 0,
+      enrollmentOnly: true,
+    },
+    body: { token: '123456', password: 'current-password' },
     error: undefined,
   });
 
@@ -199,11 +324,14 @@ test('POST confirms setup, enables 2FA, stores backup codes, and resets the rate
     new Request('http://localhost/api/2fa/setup/confirm', { method: 'POST' }),
   );
 
+  expect(mocks.getUser).toHaveBeenCalledWith('user-1', { includePassword: true });
+  expect(mocks.reservePasswordVerificationAttempt).toHaveBeenCalledWith('user-1');
+  expect(mocks.checkPassword).toHaveBeenCalledWith('current-password', 'hashed-password');
   expect(mocks.reserveTwoFactorAttempt).toHaveBeenCalledWith('user-1');
   expect(mocks.decryptSecret).toHaveBeenCalledWith('encrypted');
   expect(mocks.verifyTotp).toHaveBeenCalledWith('123456', 'plain-secret');
   expect(mocks.tx.user.updateMany).toHaveBeenCalledWith({
-    where: { id: 'user-1', deletedAt: null, sessionGeneration: 0 },
+    where: { id: 'user-1', password: 'hashed-password', deletedAt: null, sessionGeneration: 0 },
     data: { sessionGeneration: { increment: 1 } },
   });
   expect(mocks.tx.twoFactorAuth.updateMany).toHaveBeenCalledWith({
@@ -226,6 +354,9 @@ test('POST confirms setup, enables 2FA, stores backup codes, and resets the rate
   });
   expect(mocks.consumeOtp).toHaveBeenCalledWith('user-1', '123456', mocks.tx);
   expect(mocks.tx.apiKey.deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-1' } });
+  expect(mocks.tx.appSetting.deleteMany).toHaveBeenCalledWith({
+    where: { key: 'password-verification:user-1' },
+  });
   expect(mocks.resetRateLimit).toHaveBeenCalledWith('user-1');
   expect(mocks.createSecureToken).toHaveBeenCalledWith(
     {
@@ -273,6 +404,23 @@ test('POST rejects a stale session before enabling a factor or revoking keys', a
   await expect(response.json()).resolves.toMatchObject({ error: { code: 'credentials-changed' } });
   expect(mocks.tx.twoFactorAuth.updateMany).not.toHaveBeenCalled();
   expect(mocks.tx.apiKey.deleteMany).not.toHaveBeenCalled();
+  expect(mocks.tx.appSetting.deleteMany).not.toHaveBeenCalled();
+  expect(mocks.createSecureToken).not.toHaveBeenCalled();
+});
+
+test('POST rejects a password change between verification and the enrollment write', async () => {
+  mocks.tx.user.updateMany.mockResolvedValue({ count: 0 });
+
+  const response = await POST(
+    new Request('http://localhost/api/2fa/setup/confirm', { method: 'POST' }),
+  );
+
+  expect(mocks.tx.user.updateMany).toHaveBeenCalledWith({
+    where: { id: 'user-1', password: 'hashed-password', deletedAt: null, sessionGeneration: 0 },
+    data: { sessionGeneration: { increment: 1 } },
+  });
+  expect(response.status).toBe(401);
+  expect(mocks.tx.twoFactorAuth.updateMany).not.toHaveBeenCalled();
   expect(mocks.createSecureToken).not.toHaveBeenCalled();
 });
 
@@ -304,6 +452,7 @@ test('POST leaves setup pending when another request consumes the TOTP first', a
     error: { code: 'two-factor-error-code-used' },
   });
   expect(mocks.tx.twoFactorAuth.updateMany).toHaveBeenCalled();
+  expect(mocks.tx.appSetting.deleteMany).not.toHaveBeenCalled();
   expect(mocks.resetRateLimit).not.toHaveBeenCalled();
 });
 

@@ -5,7 +5,6 @@ import {
   FormField,
   FormSubmitButton,
   Row,
-  Switch,
   TextField,
 } from '@umami/react-zen';
 import { useState } from 'react';
@@ -27,7 +26,7 @@ export function SimpleShareCreateForm({
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<any>(null);
 
-  const handleSubmit = async (data: { name: string; allowFilter?: boolean; theme?: string }) => {
+  const handleSubmit = async (data: { name: string; theme?: string }) => {
     setIsPending(true);
     setError(null);
 
@@ -35,7 +34,7 @@ export function SimpleShareCreateForm({
       await post(createPath, {
         name: data.name,
         parameters: {
-          allowFilter: data.allowFilter ?? true,
+          allowFilter: false,
           theme: data.theme === 'system' ? undefined : data.theme,
         },
       });
@@ -53,30 +52,20 @@ export function SimpleShareCreateForm({
     <Form
       onSubmit={handleSubmit}
       error={getErrorMessage(error)}
-      defaultValues={{ name: '', allowFilter: true, theme: 'system' }}
+      defaultValues={{ name: '', theme: 'system' }}
     >
       {({ watch, setValue }) => (
         <Column gap="4">
           <FormField label={t(labels.name)} name="name" rules={{ required: t(labels.required) }}>
             <TextField autoComplete="off" autoFocus />
           </FormField>
-          <Row gap="6">
-            <FormField label={t(labels.filters)} name="allowFilter">
-              <Switch
-                isSelected={watch('allowFilter')}
-                onChange={value => setValue('allowFilter', value, { shouldDirty: true })}
-              >
-                {t(labels.filtersEnabled)}
-              </Switch>
-            </FormField>
-            <FormField label={t(labels.theme)} name="theme">
-              <ThemeModeSelector
-                value={watch('theme')}
-                includeSystem
-                onChange={value => setValue('theme', value, { shouldDirty: true })}
-              />
-            </FormField>
-          </Row>
+          <FormField label={t(labels.theme)} name="theme">
+            <ThemeModeSelector
+              value={watch('theme')}
+              includeSystem
+              onChange={value => setValue('theme', value, { shouldDirty: true })}
+            />
+          </FormField>
           <Row justifyContent="flex-end" gap="3">
             {onCancel && (
               <Button isDisabled={isPending} onPress={onCancel}>

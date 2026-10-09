@@ -5,6 +5,7 @@ import { uuid } from '@/lib/crypto';
 import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
 import kafka from '@/lib/kafka';
 import prisma from '@/lib/prisma';
+import { redactReplayNavigationEvents } from '@/recorder/url';
 
 export interface SaveRecordingArgs {
   websiteId: string;
@@ -21,13 +22,15 @@ export async function saveRecording(
   args: SaveRecordingArgs,
   transaction?: Prisma.TransactionClient,
 ) {
+  const safeArgs = { ...args, events: redactReplayNavigationEvents(args.events) };
+
   if (transaction) {
-    return relationalQuery(args, transaction);
+    return relationalQuery(safeArgs, transaction);
   }
 
   return runQuery({
-    [PRISMA]: () => relationalQuery(args),
-    [CLICKHOUSE]: () => clickhouseQuery(args),
+    [PRISMA]: () => relationalQuery(safeArgs),
+    [CLICKHOUSE]: () => clickhouseQuery(safeArgs),
   });
 }
 

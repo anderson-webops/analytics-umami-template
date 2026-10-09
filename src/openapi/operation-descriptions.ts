@@ -21,12 +21,12 @@ export const operationDescriptions: Record<string, OperationDescription> = {
   'POST /api/2fa/setup/confirm': {
     summary: 'Confirm two-factor authentication setup',
     description:
-      'Verifies the current pending authenticator, enables two-factor authentication, returns new backup codes, and replaces the session cookie with a verified session.',
+      'Requires the current password and a code from the pending authenticator, enables two-factor authentication, returns new backup codes, and replaces the session cookie with a verified session. Password verification shares a five-attempt, 15-minute account limit with password changes.',
   },
   'POST /api/2fa/setup/initiate': {
     summary: 'Set up two-factor authentication',
     description:
-      "Starts or replaces only the current user's still-pending setup and returns a QR code and manual setup key for an authenticator app.",
+      "Verifies the current password, then starts or replaces only the current user's still-pending setup and returns a QR code and manual setup key for an authenticator app. Password verification shares a five-attempt, 15-minute account limit with password changes and 2FA disablement.",
   },
   'GET /api/2fa/status': {
     summary: 'Get two-factor authentication status',
@@ -80,12 +80,12 @@ export const operationDescriptions: Record<string, OperationDescription> = {
   'POST /api/auth/login': {
     summary: 'Log in',
     description:
-      'Authenticates a self-hosted user with a username and password. Enabled two-factor authentication requires a short-lived partial token; users required to enroll receive a setup-only session until they confirm a factor.',
+      'Authenticates a self-hosted user with a username and password. When Turnstile is configured, a fresh captchaToken is required before password verification. Enabled two-factor authentication requires a short-lived partial token; users required to enroll receive a setup-only session until they confirm a factor.',
   },
   'POST /api/auth/logout': {
     summary: 'Log out',
     description:
-      'Ends the current authentication session by removing its stored token when Redis-backed sessions are enabled.',
+      'Ends the current Redis-backed session or revokes all stateless sessions for the account when no stored session key is available.',
   },
   'POST /api/auth/sso': {
     summary: 'Create a single sign-on token',
@@ -211,7 +211,7 @@ export const operationDescriptions: Record<string, OperationDescription> = {
   'POST /api/me/api-keys': {
     summary: 'Create an API key',
     description:
-      'Creates a named API key for the current user and returns its secret value. Available on self-hosted installations.',
+      'Verifies the current password, then creates a named API key for the current user and returns its secret value once. Password verification shares a five-attempt, 15-minute account limit with other sensitive account changes. Available on self-hosted installations.',
   },
   'DELETE /api/me/api-keys/{keyId}': {
     summary: 'Delete an API key',
@@ -273,6 +273,14 @@ export const operationDescriptions: Record<string, OperationDescription> = {
     description:
       'Returns recent website activity and visitor data for the real-time view, applying the supplied filters.',
   },
+  'GET /api/realtime/{websiteId}/totals': {
+    summary: 'Get real-time totals',
+    description: 'Returns only the aggregate totals for the real-time view.',
+  },
+  'GET /api/realtime/{websiteId}/series': {
+    summary: 'Get real-time chart series',
+    description: 'Returns only the pageview and visitor time series for the real-time view.',
+  },
   'POST /api/record': {
     summary: 'Send session recordings or heatmap data',
     description:
@@ -281,7 +289,7 @@ export const operationDescriptions: Record<string, OperationDescription> = {
   'POST /api/send': {
     summary: 'Send tracking data',
     description:
-      'Collects a pageview, custom event, visitor identification, or performance payload and returns session information and a tracking cache token when accepted.',
+      'Collects a pageview, custom event, visitor identification, or performance payload and returns an opaque tracking cache token for website events when accepted.',
   },
   'POST /api/share': {
     summary: 'Create a share',
@@ -610,6 +618,10 @@ export const operationDescriptions: Record<string, OperationDescription> = {
     description:
       'Returns revenue summary statistics for the selected currency and date range, including totals for the comparison period.',
   },
+  'GET /api/websites/{websiteId}/revenue/total': {
+    summary: 'Get website revenue total',
+    description: 'Returns only the total revenue for the selected currency and date range.',
+  },
   'GET /api/websites/{websiteId}/segments': {
     summary: 'List website segments and cohorts',
     description:
@@ -729,6 +741,10 @@ export const operationDescriptions: Record<string, OperationDescription> = {
     summary: 'Get website summary statistics',
     description:
       'Returns pageviews, unique visitors, visits, bounces, and total time on site for the selected date range and comparison period.',
+  },
+  'GET /api/websites/{websiteId}/stats/traffic': {
+    summary: 'Get website traffic totals',
+    description: 'Returns only pageview, visitor, and visit totals with their comparison period.',
   },
   'POST /api/websites/{websiteId}/transfer': {
     summary: 'Transfer website ownership',

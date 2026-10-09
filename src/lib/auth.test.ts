@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import { SHARE_TOKEN_HEADER, SHARE_TOKEN_TYPE } from '@/lib/constants';
+import {
+  ENTITY_TYPE,
+  SHARE_CONTEXT_HEADER,
+  SHARE_TOKEN_HEADER,
+  SHARE_TOKEN_TYPE,
+} from '@/lib/constants';
 import { hash } from '@/lib/crypto';
 import { parseSecureToken, parseToken } from '@/lib/jwt';
 import redis from '@/lib/redis';
@@ -9,6 +14,7 @@ import { getApiKeyByHash, updateApiKeyLastUsed } from '@/queries/prisma/apiKey';
 import { getUser } from '@/queries/prisma/user';
 import { hashApiKey } from './api-key';
 import { checkAuth, parseShareToken } from './auth';
+import { parseRequest } from './request';
 
 const twoFactorMocks = vi.hoisted(() => ({
   findTwoFactorAuth: vi.fn(),
@@ -151,6 +157,116 @@ test('a token for a rotated share ID cannot access the current share', async () 
   } as any);
 
   expect(await parseShareToken(request)).toMatchObject({ shareId: currentId });
+});
+
+test('link shares cannot authenticate raw website APIs', async () => {
+  vi.stubEnv('APP_SECRET', 'test-only-share-token-secret-value');
+  vi.stubEnv('DISABLE_PUBLIC_SHARES', '');
+  const shareId = '7ba1eb80-10e2-42d4-902f-8b78999fb263';
+  vi.mocked(parseToken).mockReturnValue({
+    type: SHARE_TOKEN_TYPE,
+    shareId,
+    shareType: ENTITY_TYPE.link,
+  });
+  vi.mocked(getShare).mockResolvedValue({ id: shareId, shareType: ENTITY_TYPE.link } as any);
+  vi.mocked(resolveShareAccess).mockResolvedValue({
+    data: { shareId, shareType: ENTITY_TYPE.link, linkId: 'link-1', websiteId: 'link-1' },
+    entity: { id: 'link-1' },
+  } as any);
+
+  const request = (path: string) =>
+    new Request(`http://localhost${path}`, {
+      headers: {
+        [SHARE_TOKEN_HEADER]: 'signed-share-token',
+        [SHARE_CONTEXT_HEADER]: '1',
+      },
+    });
+
+  expect(await parseShareToken(request('/api/websites/link-1/sessions'))).toBeNull();
+  expect(await parseShareToken(request('/api/websites/link-1/event-data'))).toBeNull();
+  expect(await checkAuth(request('/api/websites/link-1/sessions'))).toBeNull();
+  expect((await parseRequest(request('/api/websites/link-1/sessions'))).error?.().status).toBe(401);
+  expect(await checkAuth(request('/api/websites/link-1/stats'))).toBeNull();
+  expect((await checkAuth(request('/api/websites/link-1/stats/traffic')))?.authType).toBe('share');
+  expect(await parseShareToken(request('/api/websites/link-1/stats/traffic'))).toMatchObject({
+    linkId: 'link-1',
+  });
+  expect(await parseShareToken(request('/api/websites/link-1/metrics?type=country'))).toMatchObject(
+    {
+      linkId: 'link-1',
+    },
+  );
+});
+
+test.each([
+  {
+    name: 'pixel',
+    shareType: ENTITY_TYPE.pixel,
+    entityId: 'pixel-1',
+    data: { pixelId: 'pixel-1', websiteId: 'pixel-1' },
+    entity: { id: 'pixel-1' },
+    allowedPath: '/api/websites/pixel-1/stats/traffic',
+  },
+  {
+    name: 'board',
+    shareType: ENTITY_TYPE.board,
+    entityId: 'website-1',
+    data: { boardId: 'board-1', websiteIds: ['website-1'], pixelIds: [], linkIds: [] },
+    entity: {
+      id: 'board-1',
+      type: 'mixed',
+      parameters: {
+        rows: [
+          {
+            columns: [
+              {
+                component: {
+                  type: 'WebsiteChart',
+                  entityType: 'website',
+                  entityId: 'website-1',
+                },
+              },
+            ],
+          },
+        ],
+      },
+    },
+    allowedPath: '/api/websites/website-1/pageviews',
+  },
+])('$name shares reject raw website APIs while retaining represented charts', async scenario => {
+  vi.stubEnv('APP_SECRET', 'test-only-share-token-secret-value');
+  vi.stubEnv('DISABLE_PUBLIC_SHARES', '');
+  const shareId = '7ba1eb80-10e2-42d4-902f-8b78999fb263';
+  vi.mocked(parseToken).mockReturnValue({
+    type: SHARE_TOKEN_TYPE,
+    shareId,
+    shareType: scenario.shareType,
+  });
+  vi.mocked(getShare).mockResolvedValue({ id: shareId, shareType: scenario.shareType } as any);
+  vi.mocked(resolveShareAccess).mockResolvedValue({
+    data: { shareId, shareType: scenario.shareType, ...scenario.data },
+    entity: scenario.entity,
+  } as any);
+
+  const request = (path: string) =>
+    new Request(`http://localhost${path}`, {
+      headers: {
+        [SHARE_TOKEN_HEADER]: 'signed-share-token',
+        [SHARE_CONTEXT_HEADER]: '1',
+      },
+    });
+
+  for (const path of [
+    `/api/websites/${scenario.entityId}/sessions`,
+    `/api/websites/${scenario.entityId}/event-data`,
+    `/api/websites/${scenario.entityId}/revenue/stats`,
+    `/teams/team-1/api/websites/${scenario.entityId}/sessions`,
+  ]) {
+    expect(await parseShareToken(request(path)), path).toBeNull();
+    expect(await checkAuth(request(path)), path).toBeNull();
+  }
+
+  expect((await checkAuth(request(scenario.allowedPath)))?.authType).toBe('share');
 });
 
 describe('checkAuth required 2FA enrollment', () => {

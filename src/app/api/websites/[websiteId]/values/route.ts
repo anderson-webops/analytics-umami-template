@@ -2,7 +2,7 @@ import { EVENT_COLUMNS, FILTER_COLUMNS, SESSION_COLUMNS } from '@/lib/constants'
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import { badRequest, json, unauthorized } from '@/lib/response';
 import { fieldsParam, searchParams, withDateRange } from '@/lib/schema';
-import { FILTERABLE_SHARE_SECTIONS } from '@/lib/share';
+import { getValueShareSections } from '@/lib/share';
 import { canViewSharedWebsiteFilters, canViewWebsiteSection } from '@/permissions';
 import { getValues } from '@/queries/sql';
 
@@ -24,13 +24,9 @@ export async function GET(
   const { websiteId } = await params;
   const { type } = query;
   const canFilter = await canViewSharedWebsiteFilters(auth, websiteId);
-  const sections = canFilter
-    ? FILTERABLE_SHARE_SECTIONS
-    : type === 'path' || type === 'event'
-      ? (['journeys', 'attribution'] as const)
-      : null;
+  const sections = getValueShareSections(type, canFilter);
 
-  if (!sections || !(await canViewWebsiteSection(auth, websiteId, [...sections]))) {
+  if (!sections || !(await canViewWebsiteSection(auth, websiteId, sections))) {
     return unauthorized();
   }
 

@@ -1,6 +1,6 @@
 import { LoadingPanel } from '@/components/common/LoadingPanel';
 import { useDateRange, useMessages } from '@/components/hooks';
-import { useWebsiteStatsQuery } from '@/components/hooks/queries/useWebsiteStatsQuery';
+import { useTrafficStatsQuery } from '@/components/hooks/queries/useTrafficStatsQuery';
 import { MetricCard } from '@/components/metrics/MetricCard';
 import { MetricsBar } from '@/components/metrics/MetricsBar';
 import { formatLongNumber } from '@/lib/format';
@@ -14,7 +14,7 @@ export function LinkMetricsBar({
 }) {
   const { isAllTime } = useDateRange();
   const { t, labels } = useMessages();
-  const { data, isLoading, isFetching, error } = useWebsiteStatsQuery({ websiteId: linkId });
+  const { data, isLoading, isFetching, error } = useTrafficStatsQuery(linkId);
 
   const { pageviews, visitors, visits, comparison } = data || {};
 

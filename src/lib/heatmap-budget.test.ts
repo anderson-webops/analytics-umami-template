@@ -44,48 +44,85 @@ test('rejects invalid or oversized heatmap chunks before database access', async
 });
 
 test('rejects an exhausted visit without reserving source windows', async () => {
-  const { client, query, execute } = transaction([[]]);
+  const { client, query, execute } = transaction([[], [], []]);
 
   await expect(reserveHeatmapBudget(client, args)).rejects.toMatchObject({
     retryAfter: undefined,
   });
-  expect(query).toHaveBeenCalledOnce();
+  expect(query).toHaveBeenCalledTimes(3);
   expect(execute).not.toHaveBeenCalled();
 });
 
 test('rejects exhausted source windows with bounded retry intervals', async () => {
-  const minute = transaction([[{ bytes: 100n }], []]);
+  const minute = transaction([[], [], [{ bytes: 100n }], []]);
   await expect(reserveHeatmapBudget(minute.client, args)).rejects.toMatchObject({
     retryAfter: 60,
   });
-  expect(minute.query).toHaveBeenCalledTimes(2);
+  expect(minute.query).toHaveBeenCalledTimes(4);
   expect(minute.execute).not.toHaveBeenCalled();
 
-  const day = transaction([[{ bytes: 100n }], [{ bytes: 100n }], []]);
+  const day = transaction([[], [], [{ bytes: 100n }], [{ bytes: 100n }], []]);
   await expect(reserveHeatmapBudget(day.client, args)).rejects.toMatchObject({
     retryAfter: 86_400,
   });
-  expect(day.query).toHaveBeenCalledTimes(3);
+  expect(day.query).toHaveBeenCalledTimes(5);
   expect(day.execute).not.toHaveBeenCalled();
 });
 
 test('reserves visit and source windows under separate heatmap keys', async () => {
   const { client, query, execute } = transaction([
+    [],
+    [],
+    [{ bytes: 100n }],
+    [{ bytes: 100n }],
+    [{ bytes: 100n }],
+    [{ chunks: 1 }],
+    [{ chunks: 1 }],
+  ]);
+
+  await reserveHeatmapBudget(client, args);
+
+  expect(query).toHaveBeenCalledTimes(7);
+  expect(execute).toHaveBeenCalledOnce();
+  const keys = query.mock.calls.slice(2, 5).map(([, , , key]) => key);
+  expect(keys[0]).toBe(`heatmap:${args.visitId}`);
+  expect(keys[1]).toMatch(/^heatmap:\d{4}-\d\d-\d\dT\d\d:\d\d:00\.000Z$/);
+  expect(keys[2]).toMatch(/^heatmap:\d{4}-\d\d-\d\dT00:00:00\.000Z$/);
+  const visitExpiry = query.mock.calls[2].find(value => value instanceof Date);
+  expect(visitExpiry).toBeInstanceOf(Date);
+  expect(visitExpiry.getTime()).toBeGreaterThan(Date.now() + 37 * 24 * 60 * 60 * 1000);
+  expect(visitExpiry.getTime()).toBeLessThan(Date.now() + 39 * 24 * 60 * 60 * 1000);
+});
+
+test('does not charge a new key when a heatmap visit already has a budget row', async () => {
+  const { client, query } = transaction([
+    [],
+    [{ present: true }],
     [{ bytes: 100n }],
     [{ bytes: 100n }],
     [{ bytes: 100n }],
   ]);
 
   await reserveHeatmapBudget(client, args);
+  expect(query).toHaveBeenCalledTimes(5);
+});
 
-  expect(query).toHaveBeenCalledTimes(3);
-  expect(execute).toHaveBeenCalledOnce();
-  const keys = query.mock.calls.map(([, , , key]) => key);
-  expect(keys[0]).toBe(`heatmap:${args.visitId}`);
-  expect(keys[1]).toMatch(/^heatmap:\d{4}-\d\d-\d\dT\d\d:\d\d:00\.000Z$/);
-  expect(keys[2]).toMatch(/^heatmap:\d{4}-\d\d-\d\dT00:00:00\.000Z$/);
-  const visitExpiry = query.mock.calls[0].find(value => value instanceof Date);
-  expect(visitExpiry).toBeInstanceOf(Date);
-  expect(visitExpiry.getTime()).toBeGreaterThan(Date.now() + 37 * 24 * 60 * 60 * 1000);
-  expect(visitExpiry.getTime()).toBeLessThan(Date.now() + 39 * 24 * 60 * 60 * 1000);
+test('rejects new heatmap visit keys when minute or day cardinality is exhausted', async () => {
+  for (const [quotaResponses, retryAfter] of [
+    [[[]], 60],
+    [[[{ chunks: 1 }], []], 86_400],
+  ] as const) {
+    const { client, query, execute } = transaction([
+      [],
+      [],
+      [{ bytes: 100n }],
+      [{ bytes: 100n }],
+      [{ bytes: 100n }],
+      ...quotaResponses,
+    ]);
+
+    await expect(reserveHeatmapBudget(client, args)).rejects.toMatchObject({ retryAfter });
+    expect(query).toHaveBeenCalledTimes(5 + quotaResponses.length);
+    expect(execute).not.toHaveBeenCalled();
+  }
 });

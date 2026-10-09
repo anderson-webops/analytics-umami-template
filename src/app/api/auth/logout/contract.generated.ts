@@ -12,7 +12,7 @@ const operation1 = defineOperation({
     operationId: 'logout',
     summary: 'Log out',
     description:
-      'Ends the current authentication session by removing its stored token when Redis-backed sessions are enabled.',
+      'Ends the current Redis-backed session or revokes all stateless sessions for the account when no stored session key is available.',
     tags: ['Authentication'],
     responses: {
       '200': {

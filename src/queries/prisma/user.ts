@@ -70,6 +70,15 @@ export async function getUserByUsername(username: string, options: GetUserOption
   return findUser({ where: { username: username.trim().toLowerCase() } }, options);
 }
 
+export async function revokeStatelessSessions(userId: string, sessionGeneration: number) {
+  const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
+
+  await client.user.updateMany({
+    where: { id: userId, deletedAt: null, sessionGeneration },
+    data: { sessionGeneration: { increment: 1 } },
+  });
+}
+
 export async function getUsers(criteria: UserFindManyArgs, filters: QueryFilters = {}) {
   const sortFilters = sanitizeSortFilters(filters, USER_SORT_FIELDS, {
     orderBy: 'createdAt',

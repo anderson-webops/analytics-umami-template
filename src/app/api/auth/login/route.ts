@@ -3,6 +3,7 @@ import { ENROLLMENT_AUTH_TOKEN_TYPE, PARTIAL_AUTH_TOKEN_TYPE, ROLES } from '@/li
 import { hash, secret } from '@/lib/crypto';
 import { isEnvEnabled } from '@/lib/env';
 import { createSecureToken } from '@/lib/jwt';
+import { isLoginCaptchaEnabled, verifyLoginCaptcha } from '@/lib/login-captcha';
 import { clearFailedLogins, getLoginLimit, recordFailedLogin } from '@/lib/login-rate-limit';
 import { checkPassword, hashPassword, passwordNeedsRehash } from '@/lib/password';
 import prisma from '@/lib/prisma';
@@ -66,13 +67,25 @@ export async function POST(request: Request) {
     return error();
   }
 
-  const { username, password } = body;
+  const { username, password, captchaToken } = body;
   const loginLimit = await getLoginLimit(request, username);
 
   if (loginLimit.blocked) {
     return tooManyRequests(loginLimit.retryAfter, {
       message: 'Too many login attempts. Please try again later.',
     });
+  }
+
+  if (isLoginCaptchaEnabled()) {
+    const captchaResult = await verifyLoginCaptcha(captchaToken, request.url);
+
+    if (captchaResult === 'unavailable') {
+      return serviceUnavailable({ message: 'Login verification is temporarily unavailable' });
+    }
+
+    if (captchaResult !== 'valid') {
+      return unauthorized({ code: 'captcha-required', message: 'Complete login verification' });
+    }
   }
 
   if (password === 'umami') {

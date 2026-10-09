@@ -5,14 +5,13 @@ import { defineOperation } from '@/openapi/operation';
 
 const operation1 = defineOperation({
   method: 'get',
-  path: '/api/websites/{websiteId}/revenue/metrics',
+  path: '/api/websites/{websiteId}/stats/traffic',
   audience: 'public',
   auth: 'bearer-or-share',
   operation: {
-    operationId: 'getWebsiteRevenueMetrics',
-    summary: 'Get website revenue by dimension',
-    description:
-      'Returns revenue grouped by the requested dimension, such as country or referrer, for the selected currency and date range.',
+    operationId: 'getWebsiteTrafficStats',
+    summary: 'Get website traffic totals',
+    description: 'Returns only pageview, visitor, and visit totals with their comparison period.',
     tags: ['Websites'],
     parameters: [
       {
@@ -91,25 +90,6 @@ const operation1 = defineOperation({
         },
         description:
           'Comparison period: prev for the previous period or yoy for the same period last year.',
-      },
-      {
-        name: 'type',
-        in: 'query',
-        required: true,
-        schema: {
-          type: 'string',
-          enum: ['country', 'region', 'referrer', 'channel'],
-        },
-        description: 'Type of resource or analytics dimension to return.',
-      },
-      {
-        name: 'currency',
-        in: 'query',
-        required: true,
-        schema: {
-          type: 'string',
-        },
-        description: 'Currency code used for revenue values.',
       },
       {
         name: 'path',
@@ -347,44 +327,41 @@ const operation1 = defineOperation({
         content: {
           'application/json': {
             schema: {
-              anyOf: [
-                {
-                  type: 'array',
-                  items: {
-                    type: 'object',
-                    properties: {
-                      name: {
-                        type: 'string',
-                        description: 'Display name of the resource.',
-                      },
-                      value: {
-                        type: 'number',
-                      },
+              type: 'object',
+              properties: {
+                comparison: {
+                  type: 'object',
+                  properties: {
+                    pageviews: {
+                      type: 'number',
+                      description: 'Pageview counts for the selected period.',
                     },
-                    required: ['name', 'value'],
-                  },
-                },
-                {
-                  type: 'array',
-                  items: {
-                    type: 'object',
-                    properties: {
-                      name: {
-                        type: 'string',
-                        description: 'Display name of the resource.',
-                      },
-                      value: {
-                        type: 'number',
-                      },
-                      country: {
-                        type: 'string',
-                        description: 'Country code of the visitor.',
-                      },
+                    visitors: {
+                      type: 'number',
+                      description: 'Unique visitor counts for the selected period.',
                     },
-                    required: ['name', 'value', 'country'],
+                    visits: {
+                      type: 'number',
+                      description: 'Visit counts for the selected period.',
+                    },
                   },
+                  required: ['pageviews', 'visitors', 'visits'],
+                  description: 'Analytics for the comparison period.',
                 },
-              ],
+                pageviews: {
+                  type: 'number',
+                  description: 'Pageview counts for the selected period.',
+                },
+                visitors: {
+                  type: 'number',
+                  description: 'Unique visitor counts for the selected period.',
+                },
+                visits: {
+                  type: 'number',
+                  description: 'Visit counts for the selected period.',
+                },
+              },
+              required: ['comparison', 'pageviews', 'visitors', 'visits'],
             },
           },
         },

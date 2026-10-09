@@ -4,6 +4,7 @@ const stringify = require('./lib/stringify');
 const compile = require('./lib/compile');
 const expand = require('./lib/expand');
 const parse = require('./lib/parse');
+const { MAX_EXPANSIONS } = require('./lib/constants');
 
 /**
  * Expand the given pattern or create a regex-compatible string.
@@ -25,6 +26,10 @@ const braces = (input, options = {}) => {
   if (Array.isArray(input)) {
     for (const pattern of input) {
       const result = braces.create(pattern, options);
+      const resultCount = Array.isArray(result) ? result.length : 1;
+      if (options.expand === true && output.length + resultCount > MAX_EXPANSIONS) {
+        throw new RangeError('expanded array length exceeds aggregate limit');
+      }
       if (Array.isArray(result)) {
         output.push(...result);
       } else {

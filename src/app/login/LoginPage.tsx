@@ -32,10 +32,10 @@ export function LoginPageWrapper({ children }: PropsWithChildren) {
   );
 }
 
-export function LoginPage() {
+export function LoginPage({ captchaSiteKey }: { captchaSiteKey?: string }) {
   return (
     <LoginPageWrapper>
-      <LoginForm />
+      <LoginForm captchaSiteKey={captchaSiteKey} />
     </LoginPageWrapper>
   );
 }

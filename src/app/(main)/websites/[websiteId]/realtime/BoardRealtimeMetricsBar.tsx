@@ -1,9 +1,9 @@
 import { LoadingPanel } from '@/components/common/LoadingPanel';
-import { useRealtimeQuery } from '@/components/hooks';
+import { useBoardRealtimeQuery } from '@/components/hooks';
 import { RealtimeHeader } from './RealtimeHeader';
 
 export function BoardRealtimeMetricsBar({ websiteId }: { websiteId: string }) {
-  const { data, isLoading, error } = useRealtimeQuery(websiteId);
+  const { data, isLoading, error } = useBoardRealtimeQuery(websiteId, 'totals');
 
   return (
     <LoadingPanel data={data} isLoading={isLoading} error={error} minHeight="136px">

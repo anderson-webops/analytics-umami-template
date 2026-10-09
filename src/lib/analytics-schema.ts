@@ -95,4 +95,5 @@ export const performanceMetricsQuerySchema = analyticsSchema({
 });
 export const utmMetricsQuerySchema = analyticsSchema({
   type: z.enum(['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content']),
+  limit: z.coerce.number().int().positive().max(20).optional(),
 });

@@ -47,9 +47,10 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
         const user = await login(raw, seed.user);
         const viewer = await login(raw, seed.viewer);
 
-        const created = await raw
-          .bearer(admin)
-          .post('/api/me/api-keys', { name: `api-tests-worker-${workerInfo.workerIndex}` });
+        const created = await raw.bearer(admin).post('/api/me/api-keys', {
+          name: `api-tests-worker-${workerInfo.workerIndex}`,
+          currentPassword: seed.admin.password,
+        });
 
         if (created.status !== 200 || !created.body?.key) {
           throw new Error(`Failed to create API key (${created.status}): ${created.text}`);

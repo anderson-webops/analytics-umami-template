@@ -28,7 +28,7 @@ export function RevenueMetricsTable({
   const { t, labels } = useMessages();
   const { data, isLoading, isFetching, error } = useRevenueMetricsQuery(
     websiteId,
-    { type, currency },
+    { type, currency, limit: MAX_ROWS },
     { enabled },
   );
 

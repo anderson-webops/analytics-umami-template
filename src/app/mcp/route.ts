@@ -12,6 +12,25 @@ export const dynamic = 'force-dynamic';
 
 const log = debug('umami:mcp');
 const MAX_MCP_BODY_BYTES = 256 * 1024;
+const MAX_MCP_BATCH_MESSAGES = 8;
+const MAX_MCP_BATCH_TOOL_CALLS = 2;
+
+function exceedsBatchLimits(body: Uint8Array): boolean {
+  let messages: unknown;
+
+  try {
+    messages = JSON.parse(new TextDecoder().decode(body));
+  } catch {
+    return false;
+  }
+
+  return (
+    Array.isArray(messages) &&
+    (messages.length > MAX_MCP_BATCH_MESSAGES ||
+      messages.filter(message => message?.method === 'tools/call').length >
+        MAX_MCP_BATCH_TOOL_CALLS)
+  );
+}
 
 const logger: McpLogger = {
   info: event => log('%j', event),
@@ -54,6 +73,13 @@ async function handle(request: Request) {
   if (!['GET', 'HEAD'].includes(request.method.toUpperCase()) && request.body) {
     try {
       const body = await readRequestBodyBytes(request, MAX_MCP_BODY_BYTES);
+
+      if (request.method.toUpperCase() === 'POST' && exceedsBatchLimits(body)) {
+        return Response.json(
+          { jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Batch limit exceeded.' } },
+          { status: 400, headers: { 'Cache-Control': 'no-store' } },
+        );
+      }
 
       boundedRequest = new Request(request.url, {
         method: request.method,

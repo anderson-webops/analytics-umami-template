@@ -1,6 +1,6 @@
 import { startOfMinute, subMinutes } from 'date-fns';
 import { z } from 'zod';
-import { REALTIME_RANGE } from '@/lib/constants';
+import { ENTITY_TYPE, REALTIME_RANGE } from '@/lib/constants';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import { json, unauthorized } from '@/lib/response';
 import { filterParams, timezoneParam, unitParam } from '@/lib/schema';
@@ -29,6 +29,10 @@ export async function GET(
   const { websiteId } = await params;
 
   if (!(await canViewWebsiteSection(auth, websiteId, 'realtime'))) {
+    return unauthorized();
+  }
+
+  if (auth.shareToken?.shareType === ENTITY_TYPE.board) {
     return unauthorized();
   }
 

@@ -2,7 +2,12 @@ import { redactWebsiteShareId } from '@/lib/api-key';
 import { parseRequest } from '@/lib/request';
 import { badRequest, json, notFound, ok, serverError, unauthorized } from '@/lib/response';
 import { publicSharesDisabled } from '@/lib/security';
-import { canDeleteWebsite, canUpdateWebsite, canViewSharedWebsite } from '@/permissions';
+import {
+  canDeleteWebsite,
+  canUpdateWebsite,
+  canViewAuthenticatedWebsite,
+  canViewSharedWebsite,
+} from '@/permissions';
 import { deleteWebsite, getWebsite, updateWebsite } from '@/queries/prisma';
 import { updateWebsiteRequestSchema } from '../request-schema';
 
@@ -28,7 +33,7 @@ export async function GET(
     return notFound();
   }
 
-  if (!auth.user) {
+  if (!(await canViewAuthenticatedWebsite(auth, websiteId))) {
     return json({
       id: website.id,
       name: website.name,

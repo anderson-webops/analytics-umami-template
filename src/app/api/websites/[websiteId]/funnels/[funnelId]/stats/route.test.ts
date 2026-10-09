@@ -1,4 +1,5 @@
 import { beforeEach, expect, test, vi } from 'vitest';
+import { ENTITY_TYPE } from '@/lib/constants';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import { reserveShareQueryCost } from '@/lib/share-query-budget';
 import { canViewReport, canViewWebsiteSection } from '@/permissions';
@@ -107,6 +108,55 @@ test('rejects a filtered saved funnel when the public share disables filters', a
       shareToken: {
         shareId: 'saved-funnel-test',
         websiteId,
+        parameters: { allowFilter: false },
+      },
+    },
+    query: { startAt, endAt },
+  } as any);
+  vi.mocked(getReport).mockResolvedValue(report(2) as any);
+
+  const response = await GET(
+    new Request('https://analytics.example/api/websites/site/funnels/report/stats'),
+    { params: Promise.resolve({ websiteId, funnelId: 'report' }) },
+  );
+
+  expect(response.status).toBe(403);
+  expect(getFunnel).not.toHaveBeenCalled();
+});
+
+test('allows a scoped board share to use its curated saved funnel filters', async () => {
+  vi.mocked(parseRequest).mockResolvedValue({
+    auth: {
+      shareToken: {
+        shareId: 'saved-funnel-board-share',
+        boardId: 'board-1',
+        websiteIds: [websiteId],
+        shareType: ENTITY_TYPE.board,
+        scopedApiAccess: true,
+        parameters: { allowFilter: false },
+      },
+    },
+    query: { startAt, endAt },
+  } as any);
+  vi.mocked(getReport).mockResolvedValue(report(2) as any);
+
+  const response = await GET(
+    new Request('https://analytics.example/api/websites/site/funnels/report/stats'),
+    { params: Promise.resolve({ websiteId, funnelId: 'report' }) },
+  );
+
+  expect(response.status).toBe(200);
+  expect(getFunnel).toHaveBeenCalledTimes(1);
+});
+
+test('rejects curated filters without a scoped board API grant', async () => {
+  vi.mocked(parseRequest).mockResolvedValue({
+    auth: {
+      shareToken: {
+        shareId: 'saved-funnel-board-share',
+        boardId: 'board-1',
+        websiteIds: [websiteId],
+        shareType: ENTITY_TYPE.board,
         parameters: { allowFilter: false },
       },
     },

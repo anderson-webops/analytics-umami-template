@@ -2,10 +2,6 @@ import type { ApiClient } from '../client';
 import { CACHE_HEADER } from '../helpers/constants';
 import type { Dataset, RecordPayload, SendPayload } from './dataset';
 
-export interface IngestResult {
-  replay: { sessionId: string; visitId: string };
-}
-
 const BATCH_LIMIT = 20;
 
 function chunk<T>(items: T[], size: number) {
@@ -37,7 +33,7 @@ async function send(api: ApiClient, event: SendPayload, cache?: string) {
     throw new Error(`POST /api/send returned no cache token: ${response.text}`);
   }
 
-  return response.body as { cache: string; sessionId: string; visitId: string };
+  return response.body as { cache: string };
 }
 
 async function record(api: ApiClient, payload: RecordPayload, cache: string) {
@@ -50,7 +46,7 @@ async function record(api: ApiClient, payload: RecordPayload, cache: string) {
   }
 }
 
-export async function ingestDataset(api: ApiClient, dataset: Dataset): Promise<IngestResult> {
+export async function ingestDataset(api: ApiClient, dataset: Dataset): Promise<void> {
   for (const visit of dataset.visits) {
     let cache: string | undefined;
 
@@ -83,6 +79,4 @@ export async function ingestDataset(api: ApiClient, dataset: Dataset): Promise<I
   for (const event of dataset.realtime) {
     await send(api, event);
   }
-
-  return { replay: { sessionId: live.sessionId, visitId: live.visitId } };
 }

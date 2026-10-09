@@ -16,6 +16,7 @@ import {
 } from '@umami/react-zen';
 import { useRouter } from 'next/navigation';
 import { useConfig, useLocale, useLoginQuery, useMessages, useMobile } from '@/components/hooks';
+import { useLogout } from '@/components/hooks/useLogout';
 import {
   BookText,
   ExternalLink,
@@ -31,6 +32,7 @@ import {
 } from '@/components/icons';
 import { DOCS_URL } from '@/lib/constants';
 import { languages } from '@/lib/lang';
+import { openNewTab } from '@/lib/open-new-tab';
 
 export interface UserButtonProps {
   showText?: boolean;
@@ -45,16 +47,17 @@ export function UserButton({ showText = true, onClose }: UserButtonProps) {
   const { theme, setTheme } = useTheme();
   const { isMobile } = useMobile();
   const router = useRouter();
+  const logout = useLogout();
 
   const getUrl = (url: string) => {
     return cloudMode ? `${process.env.cloudUrl}${url}` : url;
   };
 
-  const handleNavigate = (url: string, target?: string) => {
+  const handleNavigate = (url: string, target?: '_blank') => {
     onClose?.();
 
     if (target) {
-      window.open(url, target);
+      openNewTab(url);
     } else if (url.startsWith('http')) {
       window.location.href = url;
     } else {
@@ -83,7 +86,7 @@ export function UserButton({ showText = true, onClose }: UserButtonProps) {
       label: t(labels.documentation),
       path: DOCS_URL,
       icon: <BookText />,
-      target: '_blank',
+      target: '_blank' as const,
       external: true,
     },
     cloudMode && {
@@ -219,7 +222,13 @@ export function UserButton({ showText = true, onClose }: UserButtonProps) {
               }
 
               return (
-                <MenuItem key={id} id={id} onAction={() => handleNavigate(path, target)}>
+                <MenuItem
+                  key={id}
+                  id={id}
+                  onAction={() =>
+                    id === 'logout' && !cloudMode ? logout() : handleNavigate(path, target)
+                  }
+                >
                   <Row alignItems="center" gap>
                     <Icon>{icon}</Icon>
                     <Text>{label}</Text>

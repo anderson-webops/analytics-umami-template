@@ -2,7 +2,12 @@ import { beforeEach, expect, test, vi } from 'vitest';
 import { EVENT_COLUMNS, SESSION_COLUMNS } from '@/lib/constants';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import { fieldsParam } from '@/lib/schema';
-import { canViewShareSection, getMetricShareSections, SHARE_SECTIONS } from '@/lib/share';
+import {
+  canViewShareSection,
+  getMetricShareSections,
+  getValueShareSections,
+  SHARE_SECTIONS,
+} from '@/lib/share';
 import { canViewSharedWebsiteFilters, canViewWebsiteSection } from '@/permissions';
 import {
   getChannelExpandedMetrics,
@@ -38,6 +43,9 @@ vi.mock('@/queries/sql', () => ({
 
 const params = Promise.resolve({ websiteId: 'website-1' });
 const metricTypes = [...new Set([...SESSION_COLUMNS, ...EVENT_COLUMNS, 'channel'])];
+const valueTypes = fieldsParam.options.filter(
+  type => SESSION_COLUMNS.includes(type) || EVENT_COLUMNS.includes(type),
+);
 const queries = [
   getChannelMetrics,
   getChannelExpandedMetrics,
@@ -165,8 +173,45 @@ test('saved segment and cohort names are not values route types', () => {
   expect(fieldsParam.safeParse('cohort').success).toBe(false);
 });
 
-test('explicit share filtering and independent membership preserve values access', async () => {
+test('filter permission cannot reveal values from a disabled section', async () => {
   expect((await callRoute(getValuesRoute, 'distinctId', shareAuth('events', true))).status).toBe(
+    401,
+  );
+  expect((await callRoute(getValuesRoute, 'event', shareAuth('sessions', true))).status).toBe(401);
+  expect(getQueryFilters).not.toHaveBeenCalled();
+  expect(getValues).not.toHaveBeenCalled();
+});
+
+test('overview-only shares cannot query event, visitor ID, or UTM sections', async () => {
+  for (const type of ['event', 'tag', 'distinctId', 'utmSource', 'screen', 'language']) {
+    expect((await callRoute(getMetrics, type, shareAuth('overview'))).status, type).toBe(401);
+    expect((await callRoute(getValuesRoute, type, shareAuth('overview', true))).status, type).toBe(
+      401,
+    );
+  }
+
+  expect((await callRoute(getMetrics, 'path', shareAuth('overview'))).status).toBe(200);
+  expect((await callRoute(getMetrics, 'event', shareAuth('compare'))).status).toBe(200);
+  expect(getValues).not.toHaveBeenCalled();
+});
+
+test('every value dimension requires a matching section when filtering is enabled', async () => {
+  for (const type of valueTypes) {
+    const allowedSections = getValueShareSections(type, true);
+    expect(allowedSections, type).not.toBeNull();
+
+    for (const section of SHARE_SECTIONS) {
+      const response = await callRoute(getValuesRoute, type, shareAuth(section, true));
+      expect(response.status, `${type} from ${section}`).toBe(
+        allowedSections?.includes(section) ? 200 : 401,
+      );
+    }
+  }
+});
+
+test('explicit share filtering and independent membership preserve allowed values access', async () => {
+  expect((await callRoute(getValuesRoute, 'event', shareAuth('events', true))).status).toBe(200);
+  expect((await callRoute(getValuesRoute, 'distinctId', shareAuth('sessions', true))).status).toBe(
     200,
   );
   expect((await callRoute(getValuesRoute, 'distinctId', { user: { id: 'owner-1' } })).status).toBe(

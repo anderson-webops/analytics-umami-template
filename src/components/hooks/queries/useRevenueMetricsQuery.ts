@@ -14,7 +14,7 @@ export type RevenueMetricsData = {
 
 export function useRevenueMetricsQuery(
   websiteId: string,
-  params: { type: RevenueMetricType; currency: string },
+  params: { type: RevenueMetricType; currency: string; limit?: number },
   options?: ReactQueryOptions<RevenueMetricsData>,
 ) {
   const { get, useQuery } = useApi();

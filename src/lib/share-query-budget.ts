@@ -14,6 +14,8 @@ const MAX_MEMORY_COUNTERS = 20_000;
 const MEMORY_COUNTERS = 'analytics-share-query-budget-counters';
 const PROPERTY_FILTER = /^(?:pf_[A-Za-z0-9_-]+|epf\d+|spf\d+)$/;
 
+export const MAX_SHARE_SESSION_ROWS = 500;
+
 export type ShareQueryWorkMultiplier = number;
 
 interface Counter {

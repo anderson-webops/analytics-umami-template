@@ -4,6 +4,7 @@ import {
   canCreateWebsite,
   canUpdateWebsite,
   canViewAllWebsites,
+  canViewAuthenticatedWebsite,
   canViewSharedWebsite,
   canViewTeam,
   redactWebsiteListShareIds,
@@ -33,6 +34,7 @@ vi.mock('@/permissions', () => ({
   canCreateWebsite: vi.fn(),
   canUpdateWebsite: vi.fn(),
   canViewAllWebsites: vi.fn(),
+  canViewAuthenticatedWebsite: vi.fn(),
   canViewSharedWebsite: vi.fn(),
   canViewTeam: vi.fn(),
   redactWebsiteListShareIds: vi.fn(),
@@ -53,6 +55,7 @@ const parseRequestMock = vi.mocked(parseRequest);
 const canCreateWebsiteMock = vi.mocked(canCreateWebsite);
 const canUpdateWebsiteMock = vi.mocked(canUpdateWebsite);
 const canViewAllWebsitesMock = vi.mocked(canViewAllWebsites);
+const canViewAuthenticatedWebsiteMock = vi.mocked(canViewAuthenticatedWebsite);
 const canViewSharedWebsiteMock = vi.mocked(canViewSharedWebsite);
 const canViewTeamMock = vi.mocked(canViewTeam);
 const redactWebsiteListShareIdsMock = vi.mocked(redactWebsiteListShareIds);
@@ -79,6 +82,7 @@ beforeEach(() => {
   canCreateWebsiteMock.mockResolvedValue(true);
   canUpdateWebsiteMock.mockResolvedValue(true);
   canViewAllWebsitesMock.mockResolvedValue(true);
+  canViewAuthenticatedWebsiteMock.mockResolvedValue(true);
   canViewSharedWebsiteMock.mockResolvedValue(true);
   canViewTeamMock.mockResolvedValue(true);
   getQueryFiltersMock.mockResolvedValue({} as any);
@@ -203,6 +207,54 @@ test('read-only website access does not reveal a public share slug', async () =>
   expect((await detail.json()).shareId).toBeNull();
   expect(teamList.status).toBe(200);
   expect((await teamList.json()).data[0].shareId).toBeNull();
+});
+
+test('share-only website reads never expose private website metadata', async () => {
+  getWebsiteMock.mockResolvedValue({
+    id: websiteId,
+    name: 'Shared site',
+    domain: 'example.com',
+    resetAt: null,
+    createdAt: '2026-01-01',
+    updatedAt: '2026-01-02',
+    userId: 'owner-1',
+    shareId: 'private-share-slug',
+    replayConfig: { capture: true },
+  } as any);
+  canViewAuthenticatedWebsiteMock.mockResolvedValue(false);
+
+  for (const auth of [
+    { shareToken: { websiteId } },
+    { user: { id: 'unrelated-user' }, shareToken: { websiteId } },
+  ]) {
+    parseRequestMock.mockResolvedValue({ auth } as any);
+    const response = await getWebsiteRoute(
+      new Request(`http://localhost/api/websites/${websiteId}`),
+      {
+        params: Promise.resolve({ websiteId }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      id: websiteId,
+      name: 'Shared site',
+      domain: 'example.com',
+      resetAt: null,
+      createdAt: '2026-01-01',
+      updatedAt: '2026-01-02',
+    });
+  }
+  expect(canViewAuthenticatedWebsiteMock).toHaveBeenCalledTimes(2);
+
+  parseRequestMock.mockResolvedValue({ auth: { user: { id: 'owner-1' } } } as any);
+  canViewAuthenticatedWebsiteMock.mockResolvedValue(true);
+  const ownerResponse = await getWebsiteRoute(
+    new Request(`http://localhost/api/websites/${websiteId}`),
+    { params: Promise.resolve({ websiteId }) },
+  );
+  expect(ownerResponse.status).toBe(200);
+  expect(await ownerResponse.json()).toEqual(expect.objectContaining({ userId: 'owner-1' }));
 });
 
 test('a downgraded view-only owner cannot discover public share slugs through website lists', async () => {

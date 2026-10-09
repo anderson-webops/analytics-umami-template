@@ -2,8 +2,6 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { POST } from '@/app/api/send/route';
-import type { Link } from '@/generated/prisma/client';
-import redis from '@/lib/redis';
 import { notFound } from '@/lib/response';
 import { httpUrlParam, routeSlugParam } from '@/lib/schema';
 import { findLink } from '@/queries/prisma';
@@ -15,39 +13,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
     return notFound();
   }
 
-  let link: Link;
+  const link = await findLink({ where: { slug, deletedAt: null } });
 
-  if (redis.enabled) {
-    link = await redis.client.fetch(
-      `link:${slug}`,
-      async () => {
-        return findLink({
-          where: {
-            slug,
-            deletedAt: null,
-          },
-        });
-      },
-      86400,
-    );
-
-    if (!link) {
-      return notFound();
-    }
-  } else {
-    link = await findLink({
-      where: {
-        slug,
-        deletedAt: null,
-      },
-    });
-
-    if (!link) {
-      return notFound();
-    }
-  }
-
-  if (!httpUrlParam.safeParse(link.url).success) {
+  if (!link || !httpUrlParam.safeParse(link.url).success) {
     return notFound();
   }
 
@@ -75,7 +43,17 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
 
   await POST(req);
 
-  const response = NextResponse.redirect(link.url);
+  const currentLink = await findLink({ where: { slug, deletedAt: null } });
+
+  if (
+    !currentLink ||
+    currentLink.id !== link.id ||
+    !httpUrlParam.safeParse(currentLink.url).success
+  ) {
+    return notFound();
+  }
+
+  const response = NextResponse.redirect(currentLink.url);
   response.headers.set('Cache-Control', 'no-store');
 
   return response;

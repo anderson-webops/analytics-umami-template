@@ -6,7 +6,7 @@ import type { SessionDataValue } from '@/lib/types';
 const FUNCTION_NAME = 'getSessionData';
 
 export async function getSessionData(
-  ...args: [websiteId: string, sessionId: string]
+  ...args: [websiteId: string, sessionId: string, rowLimit?: number]
 ): Promise<SessionDataValue[]> {
   return runQuery({
     [PRISMA]: () => relationalQuery(...args),
@@ -14,7 +14,7 @@ export async function getSessionData(
   });
 }
 
-async function relationalQuery(websiteId: string, sessionId: string) {
+async function relationalQuery(websiteId: string, sessionId: string, rowLimit?: number) {
   const { rawQuery } = prisma;
 
   return rawQuery(
@@ -32,13 +32,14 @@ async function relationalQuery(websiteId: string, sessionId: string) {
     where website_id = {{websiteId::uuid}}
       and session_id = {{sessionId::uuid}}
     order by data_key asc
+    ${rowLimit === undefined ? '' : 'limit {{rowLimit}}'}
     `,
-    { websiteId, sessionId },
+    { websiteId, sessionId, rowLimit },
     FUNCTION_NAME,
   );
 }
 
-async function clickhouseQuery(websiteId: string, sessionId: string) {
+async function clickhouseQuery(websiteId: string, sessionId: string, rowLimit?: number) {
   const { rawQuery } = clickhouse;
 
   return rawQuery(
@@ -56,8 +57,9 @@ async function clickhouseQuery(websiteId: string, sessionId: string) {
     where website_id = {websiteId:UUID}
     and session_id = {sessionId:UUID}
     order by data_key asc
+    ${rowLimit === undefined ? '' : 'limit {rowLimit:UInt32}'}
     `,
-    { websiteId, sessionId },
+    { websiteId, sessionId, rowLimit },
     FUNCTION_NAME,
   );
 }

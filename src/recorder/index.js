@@ -1,4 +1,5 @@
 import { addCustomEvent, record } from 'rrweb';
+import { getReplaySafeUrl, redactReplayNavigationEvent } from './url.js';
 
 (window => {
   const { document } = window;
@@ -440,6 +441,8 @@ import { addCustomEvent, record } from 'rrweb';
       emit(event) {
         if (replayStopped) return;
 
+        event = redactReplayNavigationEvent(event);
+
         if (Date.now() - replayStartTime > maxDuration) {
           stopReplay();
           return;
@@ -521,7 +524,7 @@ import { addCustomEvent, record } from 'rrweb';
 
       queueHeatmapEvent({
         type: 'scroll',
-        url: scrollUrl,
+        url: getReplaySafeUrl(scrollUrl),
         scrollPct: maxScrollPct,
         viewportW: window.innerWidth,
         viewportH: window.innerHeight,
@@ -558,7 +561,7 @@ import { addCustomEvent, record } from 'rrweb';
 
       queueHeatmapEvent({
         type: 'click',
-        url: location.href,
+        url: getReplaySafeUrl(location.href),
         x: Math.round(event.clientX),
         y: Math.round(event.clientY),
         pageX: Math.round(pageX),
@@ -593,7 +596,7 @@ import { addCustomEvent, record } from 'rrweb';
       lastFlushedScrollPct = 0;
 
       if (replayStopFn && !replayStopped) {
-        addCustomEvent('url-change', { url: scrollUrl });
+        addCustomEvent('url-change', { url: getReplaySafeUrl(scrollUrl) });
       }
     };
 

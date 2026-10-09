@@ -5,7 +5,7 @@ import prisma from '@/lib/prisma';
 const FUNCTION_NAME = 'getLinkedDistinctIds';
 
 export async function getLinkedDistinctIds(
-  ...args: [websiteId: string, sessionId: string]
+  ...args: [websiteId: string, sessionId: string, rowLimit?: number]
 ): Promise<string[]> {
   return runQuery({
     [PRISMA]: () => relationalQuery(...args),
@@ -13,7 +13,11 @@ export async function getLinkedDistinctIds(
   });
 }
 
-async function relationalQuery(websiteId: string, sessionId: string): Promise<string[]> {
+async function relationalQuery(
+  websiteId: string,
+  sessionId: string,
+  rowLimit?: number,
+): Promise<string[]> {
   const { rawQuery } = prisma;
 
   return rawQuery(
@@ -22,13 +26,18 @@ async function relationalQuery(websiteId: string, sessionId: string): Promise<st
     from session_link
     where website_id = {{websiteId::uuid}}
       and session_id = {{sessionId::uuid}}
+    ${rowLimit === undefined ? '' : 'limit {{rowLimit}}'}
     `,
-    { websiteId, sessionId },
+    { websiteId, sessionId, rowLimit },
     FUNCTION_NAME,
   ).then(result => (result as { distinctId: string }[]).map(({ distinctId }) => distinctId));
 }
 
-async function clickhouseQuery(websiteId: string, sessionId: string): Promise<string[]> {
+async function clickhouseQuery(
+  websiteId: string,
+  sessionId: string,
+  rowLimit?: number,
+): Promise<string[]> {
   const { rawQuery } = clickhouse;
 
   return rawQuery(
@@ -37,8 +46,9 @@ async function clickhouseQuery(websiteId: string, sessionId: string): Promise<st
     from session_link
     where website_id = {websiteId:UUID}
       and session_id = {sessionId:UUID}
+    ${rowLimit === undefined ? '' : 'limit {rowLimit:UInt32}'}
     `,
-    { websiteId, sessionId },
+    { websiteId, sessionId, rowLimit },
     FUNCTION_NAME,
   ).then(result => (result as { distinctId: string }[]).map(({ distinctId }) => distinctId));
 }

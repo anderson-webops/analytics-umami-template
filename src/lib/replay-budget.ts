@@ -1,5 +1,8 @@
 import type { Prisma } from '@/generated/prisma/client';
-import { RECORDER_VISIT_BUDGET_RETENTION_MS } from '@/lib/recorder-budget';
+import {
+  RECORDER_VISIT_BUDGET_RETENTION_MS,
+  reserveRecorderVisitKeyBudget,
+} from '@/lib/recorder-budget';
 
 export const MAX_REPLAY_CHUNKS = 2048;
 export const MAX_REPLAY_BYTES = 8 * 1024 * 1024;
@@ -117,6 +120,14 @@ export async function reserveReplayBudget(
     `;
 
     if (sourceBudget.length === 0) {
+      throw new ReplayBudgetExceededError(retryAfter);
+    }
+  }
+
+  if (existing.length === 0) {
+    const retryAfter = await reserveRecorderVisitKeyBudget(transaction, websiteId, now);
+
+    if (retryAfter !== null) {
       throw new ReplayBudgetExceededError(retryAfter);
     }
   }

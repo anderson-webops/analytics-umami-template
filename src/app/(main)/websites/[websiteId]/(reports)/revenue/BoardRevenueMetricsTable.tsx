@@ -1,7 +1,7 @@
 import { LoadingPanel } from '@/components/common/LoadingPanel';
-import { useDateRange, useMessages } from '@/components/hooks';
+import { useMessages } from '@/components/hooks';
 import type { RevenueMetricType } from '@/components/hooks/queries/useRevenueMetricsQuery';
-import { useRevenueStatsQuery } from '@/components/hooks/queries/useRevenueStatsQuery';
+import { useRevenueTotalQuery } from '@/components/hooks/queries/useRevenueTotalQuery';
 import { RevenueMetricsTable } from './RevenueMetricsTable';
 import { useBoardRevenueCurrency } from './useBoardRevenueCurrency';
 
@@ -32,12 +32,10 @@ export function BoardRevenueMetricsTable({
   currency?: string;
 }) {
   const currency = useBoardRevenueCurrency(selectedCurrency);
-  const { compare } = useDateRange();
   const { t, labels } = useMessages();
-  const { data, isLoading, isFetching, error } = useRevenueStatsQuery({
+  const { data, isLoading, isFetching, error } = useRevenueTotalQuery({
     websiteId,
     currency,
-    compare,
   });
 
   return (

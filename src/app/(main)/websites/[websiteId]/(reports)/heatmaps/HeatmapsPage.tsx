@@ -7,6 +7,7 @@ import { Panel } from '@/components/common/Panel';
 import { useMessages, useMobile, useSubscription, useWebsite } from '@/components/hooks';
 import { Flame } from '@/components/icons';
 import { FilterButtons } from '@/components/input/FilterButtons';
+import { openNewTab } from '@/lib/open-new-tab';
 import type { HeatmapMode } from '@/queries/sql';
 import { Heatmap } from './Heatmap';
 
@@ -42,7 +43,7 @@ export function HeatmapsPage({ websiteId }: { websiteId: string }) {
           >
             <Button
               variant="primary"
-              onPress={() => window.open(`${process.env.cloudUrl}/settings/billing`, '_blank')}
+              onPress={() => openNewTab(`${process.env.cloudUrl}/settings/billing`)}
             >
               {t(labels.upgrade)}
             </Button>

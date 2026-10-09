@@ -10,11 +10,15 @@ interface PasswordVerificationAttempt {
   retryAfter: number;
 }
 
+export function getPasswordVerificationBudgetKey(userId: string): string {
+  return `password-verification:${hash(userId).slice(0, 32)}`;
+}
+
 export async function reservePasswordVerificationAttempt(
   userId: string,
 ): Promise<PasswordVerificationAttempt> {
   const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
-  const key = `password-verification:${hash(userId).slice(0, 32)}`;
+  const key = getPasswordVerificationBudgetKey(userId);
   const rows = await client.$queryRaw<Array<{ retryAfter: number }>>`
     INSERT INTO "app_setting" ("key", "value")
     VALUES (

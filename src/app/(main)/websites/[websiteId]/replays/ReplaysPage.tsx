@@ -7,6 +7,7 @@ import { EmptyPlaceholder } from '@/components/common/EmptyPlaceholder';
 import { Panel } from '@/components/common/Panel';
 import { useMessages, useSubscription, useWebsite } from '@/components/hooks';
 import { Video } from '@/components/icons';
+import { openNewTab } from '@/lib/open-new-tab';
 import { getItem, setItem } from '@/lib/storage';
 import { ReplayModal } from './ReplayModal';
 import { ReplaysDataTable } from './ReplaysDataTable';
@@ -40,7 +41,7 @@ export function ReplaysPage({ websiteId }: { websiteId: string }) {
           >
             <Button
               variant="primary"
-              onPress={() => window.open(`${process.env.cloudUrl}/settings/billing`, '_blank')}
+              onPress={() => openNewTab(`${process.env.cloudUrl}/settings/billing`)}
             >
               {t(labels.upgrade)}
             </Button>

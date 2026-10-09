@@ -102,13 +102,16 @@ async function stopServer() {
 
   server.kill('SIGTERM');
 
-  return Promise.race([
-    new Promise(resolve => server.once('exit', code => resolve(code ?? 0))),
-    wait(10_000).then(() => {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
       server.kill('SIGKILL');
-      throw new Error('Runtime did not stop within 10 seconds after SIGTERM.');
-    }),
-  ]);
+      reject(new Error('Runtime did not stop within 10 seconds after SIGTERM.'));
+    }, 10_000);
+    server.once('exit', code => {
+      clearTimeout(timeout);
+      resolve(code ?? 0);
+    });
+  });
 }
 
 try {
@@ -125,9 +128,7 @@ try {
 
   const exitCode = await stopServer();
 
-  // The standalone Next server reports SIGTERM as 128 + 15. The production
-  // wrapper forwards the signal and exits cleanly after the child stops.
-  const acceptedExitCodes = useStartupEntrypoint ? [0] : [0, 143];
+  const acceptedExitCodes = [0, 143];
 
   if (!acceptedExitCodes.includes(exitCode)) {
     throw new Error(`Runtime exited with status ${exitCode}.\n${output.join('')}`);

@@ -1,5 +1,5 @@
 /* eslint-disable no-console */
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -42,31 +42,16 @@ for (const check of startupChecks) {
   }
 }
 
-const server = spawn(process.execPath, [path.join(runtimeRoot, 'server.js')], {
-  cwd: runtimeRoot,
-  env: {
-    ...productionEnvironment,
-    HOSTNAME: process.env.UMAMI_BIND_ADDRESS?.trim() || '127.0.0.1',
-    PORT: process.env.PORT?.trim() || '3000',
-  },
-  stdio: 'inherit',
-});
-let shutdownSignal;
-
-function forwardSignal(signal) {
-  shutdownSignal = signal;
-  server.kill(signal);
-}
-
-for (const signal of ['SIGINT', 'SIGTERM']) {
-  process.once(signal, () => forwardSignal(signal));
-}
-
-server.once('error', () => {
-  console.error('The production server could not start.');
-  process.exit(1);
-});
-
-server.once('exit', code => {
-  process.exit(shutdownSignal ? 0 : (code ?? 1));
-});
+const runtimeEnvironment = {
+  ...productionEnvironment,
+  HOSTNAME: process.env.UMAMI_BIND_ADDRESS?.trim() || '127.0.0.1',
+  PORT: process.env.PORT?.trim() || '3000',
+};
+delete runtimeEnvironment.DIRECT_DATABASE_URL;
+delete runtimeEnvironment.DOTENV_CONFIG_PATH;
+process.chdir(runtimeRoot);
+process.execve(
+  process.execPath,
+  [process.execPath, path.join(runtimeRoot, 'server.js')],
+  runtimeEnvironment,
+);

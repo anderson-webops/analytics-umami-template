@@ -30,4 +30,19 @@ describe('tracker cross-origin requests', () => {
       expect(configurationSource).toContain(allowedHeaders);
     }
   });
+
+  test('static route headers cannot override collector origin checks', async () => {
+    const { default: config } = await import('../../next.config');
+    const routes = await config.headers?.();
+
+    if (!routes) {
+      throw new Error('Expected collector header configuration.');
+    }
+
+    for (const route of routes.filter(({ source }) =>
+      ['/api/send', '/api/batch', '/api/record'].includes(source),
+    )) {
+      expect(route.headers.map(({ key }) => key)).not.toContain('Access-Control-Allow-Origin');
+    }
+  });
 });

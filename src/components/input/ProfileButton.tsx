@@ -12,12 +12,14 @@ import {
 } from '@umami/react-zen';
 import { Fragment } from 'react';
 import { useLoginQuery, useMessages, useNavigation } from '@/components/hooks';
+import { useLogout } from '@/components/hooks/useLogout';
 import { LockKeyhole, LogOut, UserCircle } from '@/components/icons';
 
 export function ProfileButton() {
   const { t, labels } = useMessages();
   const { user } = useLoginQuery();
   const { renderUrl, router } = useNavigation();
+  const logout = useLogout();
 
   const items = [
     {
@@ -57,7 +59,12 @@ export function ProfileButton() {
               return (
                 <Fragment key={id}>
                   {separator && <MenuSeparator />}
-                  <MenuItem id={id} onAction={() => router.push(path)}>
+                  <MenuItem
+                    id={id}
+                    onAction={() =>
+                      id === 'logout' && !process.env.cloudMode ? logout() : router.push(path)
+                    }
+                  >
                     <Row alignItems="center" gap>
                       <Icon>{icon}</Icon>
                       <Text>{label}</Text>

@@ -325,12 +325,15 @@ function gitValue(args, root = repositoryRoot) {
 }
 
 export function getSourceIdentity(root = repositoryRoot) {
-  const commit =
-    (root === repositoryRoot ? process.env.SOURCE_COMMIT?.trim() : undefined) ||
-    gitValue(['rev-parse', 'HEAD'], root);
+  const commit = gitValue(['rev-parse', 'HEAD'], root);
+  const suppliedCommit = root === repositoryRoot ? process.env.SOURCE_COMMIT?.trim() : undefined;
 
   if (!/^[0-9a-f]{40}$/.test(commit)) {
     throw new Error('Runtime artifact source commit must be a full lowercase SHA-1.');
+  }
+
+  if (suppliedCommit && suppliedCommit !== commit) {
+    throw new Error('Runtime artifact source commit does not match the Git checkout.');
   }
 
   const dirty = gitValue(['status', '--porcelain'], root).length > 0;

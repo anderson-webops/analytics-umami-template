@@ -13,11 +13,10 @@ export async function GET(
   const { websiteId } = await params;
   if (!(await canViewWebsiteSection(auth, websiteId, 'utm'))) return unauthorized();
   const filters = await getQueryFilters(query, websiteId);
-  return json(
-    await getUTM(
-      websiteId,
-      { startDate: filters.startDate, endDate: filters.endDate, column: query.type },
-      filters,
-    ),
+  const data = await getUTM(
+    websiteId,
+    { startDate: filters.startDate, endDate: filters.endDate, column: query.type },
+    filters,
   );
+  return json(query.limit ? data.slice(0, query.limit) : data);
 }

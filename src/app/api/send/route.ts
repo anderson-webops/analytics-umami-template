@@ -1,6 +1,7 @@
 import { startOfHour } from 'date-fns';
 import { z } from 'zod';
 import type { Prisma } from '@/generated/prisma/client';
+import { type CacheToken, createCacheToken, parseCacheToken } from '@/lib/cache-token';
 import clickhouse from '@/lib/clickhouse';
 import { CollectionBudgetExceededError } from '@/lib/collection-budget';
 import {
@@ -9,16 +10,18 @@ import {
   getCollectionSourceStatus,
 } from '@/lib/collection-rate-limit';
 import { CACHE_TOKEN_TYPE, COLLECTION_TYPE, EVENT_TYPE, FIELD_LENGTH } from '@/lib/constants';
+import { corsPreflight, withTrackingOrigin } from '@/lib/cors';
 import { getSalt, hash, secret, uuid } from '@/lib/crypto';
+import { isUnsafeSpreadsheetValue } from '@/lib/csv';
 import { getClientInfo, hasBlockedIp } from '@/lib/detect';
 import { isEnvEnabled } from '@/lib/env';
 import { truncateString } from '@/lib/format';
-import { createToken, parseToken } from '@/lib/jwt';
 import { fetchWebsite } from '@/lib/load';
 import { parseRequest } from '@/lib/request';
 import { badRequest, json, serverError, tooManyRequests } from '@/lib/response';
 import { analyticsDataParam, domainParam, urlOrPathParam } from '@/lib/schema';
 import { getCacheTokenTtlSeconds, isAllowedTrackingHostname } from '@/lib/security';
+import { getAllowedTrackingOrigin } from '@/lib/tracking-origin';
 import { safeDecodeURI, safeDecodeURIComponent } from '@/lib/url';
 import {
   getLink,
@@ -34,18 +37,6 @@ import {
   updateSession,
 } from '@/queries/sql';
 
-interface Cache {
-  websiteId: string;
-  sessionId: string;
-  visitId: string;
-  iat: number;
-  sessionLinkId?: string;
-  type: string;
-}
-
-// Reject strings whose first character is a spreadsheet formula trigger to
-// prevent CSV formula injection in analytics exports (defense-in-depth).
-const FORMULA_TRIGGER_RE = /^[=+\-@\t\r]/;
 const MAX_ATTRIBUTION_VALUE_LENGTH = 255;
 const truncateAttributionValue = (value?: string | null) =>
   value?.slice(0, MAX_ATTRIBUTION_VALUE_LENGTH);
@@ -53,8 +44,8 @@ const safeStringParam = (maxLength: number) =>
   z
     .string()
     .max(maxLength)
-    .refine(val => !FORMULA_TRIGGER_RE.test(val), {
-      message: 'Value must not start with =, +, -, @, tab, or carriage return',
+    .refine(val => !isUnsafeSpreadsheetValue(val), {
+      message: 'Value must not start with a spreadsheet formula or control character',
     });
 
 const timestampParam = z.coerce
@@ -159,6 +150,14 @@ const schema = z
     }
   });
 
+export function OPTIONS() {
+  return corsPreflight({
+    'Access-Control-Allow-Headers':
+      'Content-Type, X-Umami-Cache, X-Umami-Hostname, X-Umami-Website-Id',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  });
+}
+
 export async function POST(request: Request) {
   try {
     const collectionLimit = await getCollectionIpLimit(request);
@@ -209,13 +208,14 @@ export async function POST(request: Request) {
     }
 
     // Cache check
-    let cache: Cache | null = null;
+    let cache: CacheToken | null = null;
+    let allowedOrigin: string | null = null;
 
     if (websiteId) {
       const cacheHeader = request.headers.get('x-umami-cache');
 
       if (cacheHeader) {
-        const result = await parseToken(cacheHeader, secret());
+        const result = parseCacheToken(cacheHeader, secret());
 
         if (
           result?.type === CACHE_TOKEN_TYPE &&
@@ -230,6 +230,16 @@ export async function POST(request: Request) {
 
       if (!website || !isAllowedTrackingHostname(website.domain, hostname, url)) {
         return badRequest({ message: 'Tracking source not found.' });
+      }
+
+      const requestOrigin = request.headers.get('origin');
+
+      if (requestOrigin) {
+        allowedOrigin = getAllowedTrackingOrigin(requestOrigin, website.domain);
+
+        if (!allowedOrigin) {
+          return badRequest({ message: 'Tracking source not found.' });
+        }
       }
     } else if (linkId) {
       const link = await getLink(linkId);
@@ -573,13 +583,14 @@ export async function POST(request: Request) {
       throw error;
     }
 
-    const token = createToken(
-      { websiteId, sessionId, visitId, iat, sessionLinkId, type: CACHE_TOKEN_TYPE },
-      secret(),
-      { expiresIn: getCacheTokenTtlSeconds() },
-    );
-
-    return json({ cache: token, sessionId, visitId });
+    const token = websiteId
+      ? createCacheToken(
+          { websiteId, sessionId, visitId, iat, sessionLinkId },
+          secret(),
+          getCacheTokenTtlSeconds(),
+        )
+      : null;
+    return withTrackingOrigin(json({ cache: token }), websiteId ? allowedOrigin : '*');
   } catch (e) {
     return serverError(e);
   }

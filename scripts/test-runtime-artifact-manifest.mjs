@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import {
   copyRuntimeArtifact,
   createRuntimeManifest,
@@ -12,6 +13,7 @@ import {
   verifyRuntimeArtifact,
 } from './runtime-artifact.mjs';
 
+const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const temporaryDirectories = [];
 const source = { commit: 'a'.repeat(40), dirty: false };
 
@@ -272,6 +274,32 @@ test('rejects missing required modules and forbidden writable state', async () =
   );
 });
 
+test('requires the recorder bundle in the production artifact', async () => {
+  const trustedContract = JSON.parse(
+    await fs.readFile(new URL('../deploy/runtime-artifact.json', import.meta.url), 'utf8'),
+  );
+  assert.ok(trustedContract.requiredFiles.includes('public/recorder.js'));
+
+  const { root, contractPath } = await createFixture();
+  const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
+  contract.allowedRoots.push('public');
+  contract.requiredFiles.push('public/recorder.js');
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await fs.mkdir(path.join(root, 'public'));
+  await fs.writeFile(path.join(root, 'public', 'recorder.js'), 'console.log("recorder");\n');
+  await createRuntimeManifest(root, { contractPath, source });
+
+  await fs.rm(path.join(root, 'public', 'recorder.js'));
+  await assert.rejects(
+    verifyRuntimeArtifact(root, { contractPath }),
+    /missing required file: public\/recorder\.js/,
+  );
+  await assert.rejects(
+    createRuntimeManifest(root, { contractPath, source }),
+    /missing required file: public\/recorder\.js/,
+  );
+});
+
 for (const migrationPath of [
   'prisma/migrations/30_revoke_sessions_on_factor_reset/migration.sql',
   'prisma/migrations/31_bound_event_ingestion/migration.sql',
@@ -349,4 +377,26 @@ test('marks an otherwise clean checkout dirty when it contains an untracked sour
   assert.equal(getSourceIdentity(repository).dirty, false);
   await fs.writeFile(path.join(repository, 'untracked.js'), 'console.log("untracked");\n');
   assert.equal(getSourceIdentity(repository).dirty, true);
+});
+
+test('environment commit cannot replace the checkout identity', () => {
+  const actualCommit = execFileSync('git', ['rev-parse', 'HEAD'], {
+    cwd: repositoryRoot,
+    encoding: 'utf8',
+  }).trim();
+  const originalCommit = process.env.SOURCE_COMMIT;
+
+  try {
+    process.env.SOURCE_COMMIT = actualCommit;
+    assert.equal(getSourceIdentity().commit, actualCommit);
+
+    process.env.SOURCE_COMMIT = actualCommit === '0'.repeat(40) ? '1'.repeat(40) : '0'.repeat(40);
+    assert.throws(() => getSourceIdentity(), /does not match the Git checkout/);
+  } finally {
+    if (originalCommit === undefined) {
+      delete process.env.SOURCE_COMMIT;
+    } else {
+      process.env.SOURCE_COMMIT = originalCommit;
+    }
+  }
 });

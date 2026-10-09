@@ -8,16 +8,21 @@ import {
   Code,
   Column,
   Dialog,
+  Form,
+  FormButtons,
+  FormField,
+  FormSubmitButton,
   Icon,
   Image,
   Modal,
+  PasswordField,
   Row,
   Tag,
   TagGroup,
   Text,
 } from '@umami/react-zen';
 import { LucideCopy } from 'lucide-react';
-import { type ReactNode, useEffect, useState } from 'react';
+import { type ReactNode, useRef, useState } from 'react';
 import { ControlledDialog } from '@/components/common/ControlledDialog';
 import { OtpInput } from '@/components/common/OtpInput';
 import { useMessages, useUpdateQuery } from '@/components/hooks';
@@ -64,31 +69,34 @@ export function TwoFactorSetupModal({ required, onClose }: TwoFactorSetupModalPr
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [backupCodes, setBackupCodes] = useState<string[] | null>(null);
+  const passwordRef = useRef<string | null>(null);
 
   const queryClient = useQueryClient();
-  const { mutate: initiate } = useUpdateQuery('/2fa/setup/initiate');
+  const { mutateAsync: initiate, isPending: isInitiating } = useUpdateQuery('/2fa/setup/initiate');
   const { mutateAsync: confirm, isPending: isConfirming } = useUpdateQuery('/2fa/setup/confirm');
   const { mutate: cancel } = useUpdateQuery('/2fa/setup/cancel');
 
-  useEffect(() => {
-    initiate(
-      {},
-      {
-        onSuccess: (data: any) => {
-          setQrCodeDataUrl(data.qrCodeDataUrl);
-          setManualKey(data.manualKey);
-        },
-        onError: (err: any) => setError(getErrorMessage(err) || t(messages.error)),
-      },
-    );
-  }, []);
+  const handleInitiate = async ({ password }: { password: string }) => {
+    setError(null);
+    try {
+      const data: any = await initiate({ password });
+      passwordRef.current = password;
+      setQrCodeDataUrl(data.qrCodeDataUrl);
+      setManualKey(data.manualKey);
+    } catch (err: any) {
+      setError(getErrorMessage(err) || t(messages.error));
+    }
+  };
 
   const handleConfirm = async (value?: string) => {
     const token = value ?? otpValue;
     if (token.length !== 6) return;
+    const password = passwordRef.current;
+    if (!password) return;
     setError(null);
     try {
-      const data: any = await confirm({ token });
+      const data: any = await confirm({ token, password });
+      passwordRef.current = null;
       setBackupCodes(data.backupCodes);
     } catch (err: any) {
       setError(getErrorMessage(err) || t(messages.error));
@@ -96,8 +104,17 @@ export function TwoFactorSetupModal({ required, onClose }: TwoFactorSetupModalPr
   };
 
   const handleCancel = async () => {
+    passwordRef.current = null;
     cancel({});
     onClose?.();
+  };
+
+  const handleBack = () => {
+    passwordRef.current = null;
+    setQrCodeDataUrl(null);
+    setManualKey(null);
+    setOtpValue('');
+    setError(null);
   };
 
   const handleCopy = () => {
@@ -136,83 +153,114 @@ export function TwoFactorSetupModal({ required, onClose }: TwoFactorSetupModalPr
                 {t(messages.twoFactorSetupDescription)}
               </Text>
 
-              {/* Step 1 - Scan QR Code */}
-              <Step
-                tag={t(labels.twoFactorStep1)}
-                title={t(labels.twoFactorScanQr)}
-                details={t(messages.twoFactorStep1Description)}
-              >
-                <Box padding="2" shadow="lg" borderRadius="lg" border width="fit">
-                  <Row alignItems="center" gap="2">
-                    {qrCodeDataUrl && (
-                      <Image
-                        src={qrCodeDataUrl}
-                        alt="QR code"
-                        className={styles.qrCodeImage}
-                        borderRadius="lg"
-                      />
+              {!qrCodeDataUrl || !manualKey ? (
+                <Form onSubmit={handleInitiate} error={error} defaultValues={{ password: '' }}>
+                  <FormField
+                    label={t(labels.currentPassword)}
+                    name="password"
+                    rules={{ required: t(labels.required) }}
+                  >
+                    <PasswordField
+                      autoComplete="current-password"
+                      onChange={() => setError(null)}
+                    />
+                  </FormField>
+                  <FormButtons>
+                    {!required && (
+                      <Button variant="outline" onPress={handleCancel} isDisabled={isInitiating}>
+                        {t(labels.cancel)}
+                      </Button>
                     )}
-                    <Column>
-                      <Text weight="bold">{t(labels.twoFactorCantScan)}</Text>
-                      <Column gap="2">
-                        <Text size="sm">{t(labels.twoFactorManualEntry)}</Text>
-                        <Code>{manualKey}</Code>
-                        <div>
-                          <Button variant="outline" onPress={handleCopy}>
-                            <Icon size="sm">
-                              <LucideCopy />
-                            </Icon>
-                            {copied ? t(labels.twoFactorCodeCopied) : t(labels.twoFactorCopyCode)}
-                          </Button>
-                        </div>
-                      </Column>
+                    <FormSubmitButton variant="primary" isDisabled={isInitiating}>
+                      {t(labels.continue)}
+                    </FormSubmitButton>
+                  </FormButtons>
+                </Form>
+              ) : (
+                <>
+                  <Step
+                    tag={t(labels.twoFactorStep1)}
+                    title={t(labels.twoFactorScanQr)}
+                    details={t(messages.twoFactorStep1Description)}
+                  >
+                    <Box padding="2" shadow="lg" borderRadius="lg" border width="fit">
+                      <Row alignItems="center" gap="2">
+                        {qrCodeDataUrl && (
+                          <Image
+                            src={qrCodeDataUrl}
+                            alt="QR code"
+                            className={styles.qrCodeImage}
+                            borderRadius="lg"
+                          />
+                        )}
+                        <Column>
+                          <Text weight="bold">{t(labels.twoFactorCantScan)}</Text>
+                          <Column gap="2">
+                            <Text size="sm">{t(labels.twoFactorManualEntry)}</Text>
+                            <Code>{manualKey}</Code>
+                            <div>
+                              <Button variant="outline" onPress={handleCopy}>
+                                <Icon size="sm">
+                                  <LucideCopy />
+                                </Icon>
+                                {copied
+                                  ? t(labels.twoFactorCodeCopied)
+                                  : t(labels.twoFactorCopyCode)}
+                              </Button>
+                            </div>
+                          </Column>
+                        </Column>
+                      </Row>
+                    </Box>
+                  </Step>
+
+                  {/* Step 2 - Enter Verification Code */}
+                  <Step
+                    tag={t(labels.twoFactorStep2)}
+                    title={t(labels.twoFactorGetCode)}
+                    details={t(messages.twoFactorStep2Description)}
+                  >
+                    <Column gap="3.5">
+                      <Text size="sm" weight="bold">
+                        {t(labels.twoFactorEnterCode)}
+                      </Text>
+                      <OtpInput
+                        value={otpValue}
+                        onChange={val => {
+                          setOtpValue(val);
+                          if (error) setError(null);
+                        }}
+                        onComplete={handleConfirm}
+                        disabled={isConfirming}
+                      />
                     </Column>
+                  </Step>
+
+                  {error && (
+                    <Alert variant="danger">
+                      <AlertTitle>{error}</AlertTitle>
+                    </Alert>
+                  )}
+
+                  <Row gap="2" justifyContent="flex-end">
+                    <Button variant="outline" onPress={handleBack} isDisabled={isConfirming}>
+                      {t(labels.back)}
+                    </Button>
+                    {!required && (
+                      <Button variant="outline" onPress={handleCancel} isDisabled={isConfirming}>
+                        {t(labels.cancel)}
+                      </Button>
+                    )}
+                    <Button
+                      variant="primary"
+                      onPress={() => handleConfirm()}
+                      isDisabled={otpValue.length !== 6 || isConfirming || !!error}
+                    >
+                      {t(labels.confirm)}
+                    </Button>
                   </Row>
-                </Box>
-              </Step>
-
-              {/* Step 2 - Enter Verification Code */}
-              <Step
-                tag={t(labels.twoFactorStep2)}
-                title={t(labels.twoFactorGetCode)}
-                details={t(messages.twoFactorStep2Description)}
-              >
-                <Column gap="3.5">
-                  <Text size="sm" weight="bold">
-                    {t(labels.twoFactorEnterCode)}
-                  </Text>
-                  <OtpInput
-                    value={otpValue}
-                    onChange={val => {
-                      setOtpValue(val);
-                      if (error) setError(null);
-                    }}
-                    onComplete={handleConfirm}
-                    disabled={isConfirming}
-                  />
-                </Column>
-              </Step>
-
-              {error && (
-                <Alert variant="danger">
-                  <AlertTitle>{error}</AlertTitle>
-                </Alert>
+                </>
               )}
-
-              <Row gap="2" justifyContent="flex-end">
-                {!required && (
-                  <Button variant="outline" onPress={handleCancel} isDisabled={isConfirming}>
-                    {t(labels.cancel)}
-                  </Button>
-                )}
-                <Button
-                  variant="primary"
-                  onPress={() => handleConfirm()}
-                  isDisabled={otpValue.length !== 6 || isConfirming || !!error}
-                >
-                  {t(labels.confirm)}
-                </Button>
-              </Row>
             </Column>
           )}
         </Dialog>

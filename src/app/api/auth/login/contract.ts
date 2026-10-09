@@ -49,7 +49,7 @@ const loginOperation = defineOperation({
     operationId: 'login',
     summary: 'Log in',
     description:
-      'Authenticates a self-hosted Umami user. Enabled two-factor authentication requires a short-lived partial token; users required to enroll receive a setup-only session until they confirm a factor.',
+      'Authenticates a self-hosted Umami user. When Turnstile is configured, a fresh captchaToken is required before password verification. Enabled two-factor authentication requires a short-lived partial token; users required to enroll receive a setup-only session until they confirm a factor.',
     tags: ['Authentication'],
     requestBody: {
       required: true,

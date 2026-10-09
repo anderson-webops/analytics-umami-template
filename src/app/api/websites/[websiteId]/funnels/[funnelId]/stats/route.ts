@@ -1,4 +1,5 @@
 import { funnelParametersSchema, savedStatsQuerySchema } from '@/lib/analytics-schema';
+import { ENTITY_TYPE } from '@/lib/constants';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import {
   badRequest,
@@ -33,9 +34,12 @@ export async function GET(
   const parsed = funnelParametersSchema.safeParse(report.parameters);
   if (!parsed.success) return badRequest();
   if (auth?.shareToken) {
+    const canUseCuratedFilters =
+      auth.shareToken.shareType === ENTITY_TYPE.board && auth.shareToken.scopedApiAccess === true;
     if (
       auth.shareToken.parameters?.allowFilter === false &&
-      getStepFilterCount(parsed.data.steps) > 0
+      getStepFilterCount(parsed.data.steps) > 0 &&
+      !canUseCuratedFilters
     ) {
       return forbidden({
         message: 'Filters are disabled for this public share.',

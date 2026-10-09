@@ -26,7 +26,10 @@ export function hasShareFilterParams(value: unknown, allowSearch = false): boole
     return false;
   }
 
-  return Object.keys(value).some(
-    key => !(allowSearch && key === 'search') && excludeShareFilterParam(key),
+  const params = value as Record<string, unknown>;
+
+  return Object.keys(params).some(
+    key =>
+      !(key === 'search' && (allowSearch || params.search === '')) && excludeShareFilterParam(key),
   );
 }

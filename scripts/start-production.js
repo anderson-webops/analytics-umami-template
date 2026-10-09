@@ -1,11 +1,16 @@
 /* eslint-disable no-console */
-import { spawn, spawnSync } from 'node:child_process';
+import 'dotenv/config';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { repairStandaloneRuntime } from './repair-standalone.js';
 
 const repositoryRoot = process.cwd();
 const productionEnvironment = { ...process.env, NODE_ENV: 'production' };
 delete productionEnvironment.DOTENV_CONFIG_OVERRIDE;
+if (productionEnvironment.DIRECT_DATABASE_URL) {
+  console.error('DIRECT_DATABASE_URL is reserved for the pre-promotion database gate.');
+  process.exit(1);
+}
 const { appDir } = await repairStandaloneRuntime();
 
 if (!appDir) {
@@ -43,31 +48,16 @@ for (const startupScript of startupScripts) {
   }
 }
 
-const server = spawn(process.execPath, [path.join(appDir, 'server.js')], {
-  cwd: appDir,
-  env: {
-    ...productionEnvironment,
-    HOSTNAME: process.env.UMAMI_BIND_ADDRESS?.trim() || '127.0.0.1',
-    PORT: process.env.PORT?.trim() || '3000',
-  },
-  stdio: 'inherit',
-});
-let shutdownSignal;
-
-function forwardSignal(signal) {
-  shutdownSignal = signal;
-  server.kill(signal);
-}
-
-for (const signal of ['SIGINT', 'SIGTERM']) {
-  process.once(signal, () => forwardSignal(signal));
-}
-
-server.once('error', () => {
-  console.error('The production server could not start.');
-  process.exit(1);
-});
-
-server.once('exit', code => {
-  process.exit(shutdownSignal ? 0 : (code ?? 1));
-});
+const runtimeEnvironment = {
+  ...productionEnvironment,
+  HOSTNAME: process.env.UMAMI_BIND_ADDRESS?.trim() || '127.0.0.1',
+  PORT: process.env.PORT?.trim() || '3000',
+};
+delete runtimeEnvironment.DIRECT_DATABASE_URL;
+delete runtimeEnvironment.DOTENV_CONFIG_PATH;
+process.chdir(appDir);
+process.execve(
+  process.execPath,
+  [process.execPath, path.join(appDir, 'server.js')],
+  runtimeEnvironment,
+);

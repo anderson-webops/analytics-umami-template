@@ -1,6 +1,7 @@
 /* eslint-disable no-console */
 import 'dotenv/config';
 import ipaddr from 'ipaddr.js';
+import { isPrivateDatabaseHost } from './database-host-policy.mjs';
 
 const TRUE_VALUES = new Set(['1', 'true', 'yes', 'on']);
 const FALSE_VALUES = new Set(['0', 'false', 'no', 'off']);
@@ -90,23 +91,6 @@ function checkMinimumBytes(name, minimum) {
 
   if (PLACEHOLDER_SECRETS.has(value.toLowerCase())) {
     fail(`${name} must not use a known placeholder value.`);
-  }
-}
-
-function isPrivateDatabaseHost(hostname) {
-  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, '');
-
-  if (
-    ['localhost', 'db', 'postgres', 'host.docker.internal'].includes(normalized) ||
-    !normalized.includes('.')
-  ) {
-    return true;
-  }
-
-  try {
-    return ipaddr.parse(normalized).range() !== 'unicast';
-  } catch {
-    return false;
   }
 }
 
@@ -336,6 +320,22 @@ function checkUuid(name) {
 function checkServiceConfiguration({ production = false } = {}) {
   const publicUrl = checkHttpsUrl('PUBLIC_URL');
 
+  if (!!getValue('TURNSTILE_SITE_KEY') !== !!getValue('TURNSTILE_SECRET_KEY')) {
+    fail('TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY must be configured together.');
+  }
+
+  if (getValue('TURNSTILE_SECRET_KEY')) {
+    checkMinimumBytes('TURNSTILE_SECRET_KEY', 16);
+  }
+
+  if (
+    production &&
+    (/^[123]x0{20}(?:AA|AB|BB|FF)$/.test(getValue('TURNSTILE_SITE_KEY')) ||
+      /^[123]x0{31}AA$/.test(getValue('TURNSTILE_SECRET_KEY')))
+  ) {
+    fail('Production login verification must use real Turnstile credentials.');
+  }
+
   if (publicUrl && (publicUrl.pathname !== '/' || publicUrl.search || publicUrl.hash)) {
     fail('PUBLIC_URL must be an HTTPS origin without a path, query, or fragment.');
   }
@@ -547,6 +547,7 @@ if (process.env.NODE_ENV === 'production') {
     getValue('APP_SECRET'),
     getValue('INTERNAL_DIAGNOSTICS_KEY'),
     getValue('CLIENT_INFO_TRUST_KEY'),
+    getValue('TURNSTILE_SECRET_KEY'),
     primary?.password,
     direct?.password,
     replica?.password,

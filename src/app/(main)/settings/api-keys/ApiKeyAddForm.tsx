@@ -8,6 +8,7 @@ import {
   FormField,
   FormSubmitButton,
   Icon,
+  PasswordField,
   Row,
   TextField,
 } from '@umami/react-zen';
@@ -56,6 +57,13 @@ export function ApiKeyAddForm({ onSave, onClose }: { onSave: () => void; onClose
     <Form onSubmit={handleSubmit} error={getErrorMessage(error)}>
       <FormField name="name" label={t(labels.name)}>
         <TextField autoComplete="off" autoFocus />
+      </FormField>
+      <FormField
+        name="currentPassword"
+        label={t(labels.currentPassword)}
+        rules={{ required: t(labels.required) }}
+      >
+        <PasswordField autoComplete="current-password" />
       </FormField>
       <FormButtons>
         <Button isDisabled={isPending} onPress={onClose}>

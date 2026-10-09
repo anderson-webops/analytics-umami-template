@@ -1,25 +1,26 @@
 'use client';
-import { useRouter } from 'next/navigation';
-import { useEffect } from 'react';
-import { useApi } from '@/components/hooks';
-import { removeClientAuthToken } from '@/lib/client';
-import { setUser } from '@/store/app';
+import { Button, Column, Heading } from '@umami/react-zen';
+import { useMessages } from '@/components/hooks';
+import { useLogout } from '@/components/hooks/useLogout';
 
 export function LogoutPage() {
-  const router = useRouter();
-  const { post } = useApi();
+  const { t, labels } = useMessages();
+  const logout = useLogout();
 
-  useEffect(() => {
-    async function logout() {
-      await post('/auth/logout');
-
-      window.location.href = `${process.env.basePath || ''}/login`;
-    }
-
-    removeClientAuthToken();
-    setUser(null);
-    logout();
-  }, [router, post]);
-
-  return null;
+  return (
+    <main>
+      <Column
+        alignItems="center"
+        justifyContent="center"
+        height="100vh"
+        backgroundColor="surface-raised"
+        gap="6"
+      >
+        <Heading>{t(labels.logout)}</Heading>
+        <Button variant="primary" onPress={logout}>
+          {t(labels.logout)}
+        </Button>
+      </Column>
+    </main>
+  );
 }

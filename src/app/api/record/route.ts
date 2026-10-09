@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { type CacheToken, parseCacheToken } from '@/lib/cache-token';
 import clickhouse from '@/lib/clickhouse';
 import {
   getCollectionIpLimit,
@@ -12,7 +13,6 @@ import { getClientInfo, hasBlockedIp } from '@/lib/detect';
 import { isEnvEnabled } from '@/lib/env';
 import { HeatmapBudgetExceededError, reserveHeatmapBudget } from '@/lib/heatmap-budget';
 import { getHeatmapUrlPath } from '@/lib/heatmap-url';
-import { parseToken } from '@/lib/jwt';
 import { fetchAccount, fetchTeam } from '@/lib/load';
 import { getRecorderConfig } from '@/lib/recorder';
 import { getReplayEventCount } from '@/lib/replay';
@@ -30,13 +30,6 @@ import { replayObjectParam, urlOrPathParam } from '@/lib/schema';
 import { getWebsite, withActiveCollectionSource } from '@/queries/prisma';
 import { saveRecording } from '@/queries/sql';
 import { saveHeatmapEvents } from '@/queries/sql/heatmap/saveHeatmapEvents';
-
-interface Cache {
-  websiteId: string;
-  sessionId: string;
-  visitId: string;
-  type: string;
-}
 
 const MAX_RECORD_REQUEST_BYTES = 1024 * 1024;
 const MAX_REPLAY_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -156,7 +149,7 @@ export async function POST(request: Request) {
       return withCorsHeaders(badRequest({ message: 'Missing session token.' }));
     }
 
-    const cache = (await parseToken(cacheHeader, secret())) as Cache | null;
+    const cache: CacheToken | null = parseCacheToken(cacheHeader, secret());
 
     if (
       cache?.type !== CACHE_TOKEN_TYPE ||
@@ -213,7 +206,7 @@ export async function POST(request: Request) {
     }
 
     try {
-      const externalHeatmapRows = await withActiveCollectionSource(
+      const externalWrite = await withActiveCollectionSource(
         'website',
         websiteId,
         async transaction => {
@@ -233,8 +226,6 @@ export async function POST(request: Request) {
           }
 
           const recorderConfig = getRecorderConfig(currentWebsite.replayConfig);
-          const writeTransaction = clickhouse.enabled ? undefined : transaction;
-
           if (body.type === 'record') {
             if (recorderConfig.replayEnabled !== true) {
               throw new Error('REPLAY_DISABLED');
@@ -261,19 +252,22 @@ export async function POST(request: Request) {
               return null;
             }
 
-            await saveRecording(
-              {
-                websiteId,
-                sessionId,
-                visitId,
-                chunkIndex,
-                events,
-                eventCount: getReplayEventCount(events),
-                startedAt: new Date(minTimestamp),
-                endedAt: new Date(maxTimestamp),
-              },
-              writeTransaction,
-            );
+            const recording = {
+              websiteId,
+              sessionId,
+              visitId,
+              chunkIndex,
+              events,
+              eventCount: getReplayEventCount(events),
+              startedAt: new Date(minTimestamp),
+              endedAt: new Date(maxTimestamp),
+            };
+
+            if (clickhouse.enabled) {
+              return { kind: 'replay' as const, recording };
+            }
+
+            await saveRecording(recording, transaction);
             return null;
           }
 
@@ -309,29 +303,40 @@ export async function POST(request: Request) {
           });
 
           if (clickhouse.enabled) {
-            return heatmapRows;
+            return { kind: 'heatmap' as const, heatmapRows };
           }
 
-          await saveHeatmapEvents(heatmapRows, writeTransaction);
+          await saveHeatmapEvents(heatmapRows, transaction);
           return null;
         },
       );
 
-      if (externalHeatmapRows) {
+      if (externalWrite) {
         await withActiveCollectionSource('website', websiteId, async transaction => {
           const currentWebsite = await transaction.website.findFirst({
             where: { id: websiteId, deletedAt: null },
             select: { recorderEnabled: true, replayConfig: true },
           });
 
-          if (
-            !currentWebsite?.recorderEnabled ||
-            getRecorderConfig(currentWebsite.replayConfig).heatmapEnabled !== true
-          ) {
-            throw new Error('HEATMAP_DISABLED');
+          if (!currentWebsite?.recorderEnabled) {
+            throw new Error('RECORDER_DISABLED');
           }
 
-          await saveHeatmapEvents(externalHeatmapRows);
+          const currentConfig = getRecorderConfig(currentWebsite.replayConfig);
+
+          if (externalWrite.kind === 'replay') {
+            if (currentConfig.replayEnabled !== true) {
+              throw new Error('REPLAY_DISABLED');
+            }
+
+            await saveRecording(externalWrite.recording);
+          } else {
+            if (currentConfig.heatmapEnabled !== true) {
+              throw new Error('HEATMAP_DISABLED');
+            }
+
+            await saveHeatmapEvents(externalWrite.heatmapRows);
+          }
         });
       }
     } catch (error: any) {

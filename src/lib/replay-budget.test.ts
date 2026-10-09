@@ -76,13 +76,48 @@ test('reserves visit, minute, and day budgets for an ordinary chunk', async () =
     [{ bytes: 100n }],
     [{ bytes: 100n }],
     [{ bytes: 100n }],
+    [{ chunks: 1 }],
+    [{ chunks: 1 }],
   ]);
 
   expect(await reserveReplayBudget(client, args)).toBe(true);
-  expect(query).toHaveBeenCalledTimes(5);
+  expect(query).toHaveBeenCalledTimes(7);
   expect(execute).toHaveBeenCalledOnce();
   const visitExpiry = query.mock.calls[2].find(value => value instanceof Date);
   expect(visitExpiry).toBeInstanceOf(Date);
   expect(visitExpiry.getTime()).toBeGreaterThan(Date.now() + 37 * 24 * 60 * 60 * 1000);
   expect(visitExpiry.getTime()).toBeLessThan(Date.now() + 39 * 24 * 60 * 60 * 1000);
+});
+
+test('does not charge a new key when a visit already has a budget row', async () => {
+  const { client, query } = transaction([
+    [],
+    [{ chunkIndices: [] }],
+    [{ bytes: 100n }],
+    [{ bytes: 100n }],
+    [{ bytes: 100n }],
+  ]);
+
+  expect(await reserveReplayBudget(client, args)).toBe(true);
+  expect(query).toHaveBeenCalledTimes(5);
+});
+
+test('rejects new replay visit keys when minute or day cardinality is exhausted', async () => {
+  for (const [quotaResponses, retryAfter] of [
+    [[[]], 60],
+    [[[{ chunks: 1 }], []], 86_400],
+  ] as const) {
+    const { client, query, execute } = transaction([
+      [],
+      [],
+      [{ bytes: 100n }],
+      [{ bytes: 100n }],
+      [{ bytes: 100n }],
+      ...quotaResponses,
+    ]);
+
+    await expect(reserveReplayBudget(client, args)).rejects.toMatchObject({ retryAfter });
+    expect(query).toHaveBeenCalledTimes(5 + quotaResponses.length);
+    expect(execute).not.toHaveBeenCalled();
+  }
 });

@@ -7,7 +7,6 @@ import {
   Label,
   Loading,
   Row,
-  Switch,
   TextField,
 } from '@umami/react-zen';
 import { useEffect, useState } from 'react';
@@ -51,7 +50,7 @@ export function SimpleShareEditForm({
     loadShare();
   }, [get, modified, shareId]);
 
-  const handleSubmit = async (data: { name: string; allowFilter?: boolean; theme?: string }) => {
+  const handleSubmit = async (data: { name: string; theme?: string }) => {
     setIsPending(true);
     setError(null);
 
@@ -61,7 +60,7 @@ export function SimpleShareEditForm({
         slug: share.slug,
         parameters: {
           ...(share.parameters || {}),
-          allowFilter: data.allowFilter ?? true,
+          allowFilter: false,
           theme: data.theme === 'system' ? undefined : data.theme,
         },
       });
@@ -86,7 +85,6 @@ export function SimpleShareEditForm({
       error={getErrorMessage(error)}
       defaultValues={{
         name: share?.name || '',
-        allowFilter: share?.parameters?.allowFilter ?? true,
         theme: share?.parameters?.theme || 'system',
       }}
     >
@@ -100,14 +98,6 @@ export function SimpleShareEditForm({
             <TextField autoComplete="off" autoFocus />
           </FormField>
           <Row gap="6">
-            <FormField label={t(labels.filters)} name="allowFilter">
-              <Switch
-                isSelected={watch('allowFilter')}
-                onChange={value => setValue('allowFilter', value, { shouldDirty: true })}
-              >
-                {t(labels.filtersEnabled)}
-              </Switch>
-            </FormField>
             <FormField label={t(labels.theme)} name="theme">
               <ThemeModeSelector
                 value={watch('theme')}

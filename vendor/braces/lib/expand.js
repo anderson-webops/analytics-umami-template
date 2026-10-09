@@ -2,14 +2,36 @@
 
 const fill = require('fill-range');
 const assertDepth = require('./assert-depth');
+const { MAX_EXPANSIONS } = require('./constants');
 const stringify = require('./stringify');
 const utils = require('./utils');
+
+const countValues = values => {
+  let count = 0;
+
+  for (const value of values) {
+    count += Array.isArray(value) ? countValues(value) : 1;
+
+    if (count > MAX_EXPANSIONS) {
+      throw new RangeError('expanded array length exceeds aggregate limit');
+    }
+  }
+
+  return count;
+};
 
 const append = (queue = '', stash = '', enclose = false) => {
   const result = [];
 
   queue = [].concat(queue);
   stash = [].concat(stash);
+
+  const queueCount = countValues(queue);
+  const stashCount = countValues(stash);
+
+  if (stashCount && queueCount > Math.floor(MAX_EXPANSIONS / stashCount)) {
+    throw new RangeError('expanded array length exceeds aggregate limit');
+  }
 
   if (!stash.length) return queue;
   if (!queue.length) {

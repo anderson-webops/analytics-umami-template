@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import { getUser, getUserByUsername } from './user';
+import { getUser, getUserByUsername, revokeStatelessSessions } from './user';
 
-const { primaryFindUniqueMock, replicaFindUniqueMock, primaryMock } = vi.hoisted(() => ({
-  primaryFindUniqueMock: vi.fn(),
-  replicaFindUniqueMock: vi.fn(),
-  primaryMock: vi.fn(),
-}));
+const { primaryFindUniqueMock, replicaFindUniqueMock, primaryUpdateManyMock, primaryMock } =
+  vi.hoisted(() => ({
+    primaryFindUniqueMock: vi.fn(),
+    replicaFindUniqueMock: vi.fn(),
+    primaryUpdateManyMock: vi.fn(),
+    primaryMock: vi.fn(),
+  }));
 
 vi.mock('@/lib/prisma', () => ({
   default: {
@@ -22,7 +24,10 @@ describe('getUserByUsername', () => {
   beforeEach(() => {
     primaryFindUniqueMock.mockReset().mockResolvedValue(null);
     replicaFindUniqueMock.mockReset().mockResolvedValue(null);
-    primaryMock.mockReset().mockReturnValue({ user: { findUnique: primaryFindUniqueMock } });
+    primaryUpdateManyMock.mockReset().mockResolvedValue({ count: 1 });
+    primaryMock.mockReset().mockReturnValue({
+      user: { findUnique: primaryFindUniqueMock, updateMany: primaryUpdateManyMock },
+    });
   });
 
   test('trims and normalizes usernames to lowercase before lookup', async () => {
@@ -96,5 +101,18 @@ describe('getUserByUsername', () => {
       }),
     );
     expect(replicaFindUniqueMock).not.toHaveBeenCalled();
+  });
+
+  test('atomically invalidates stateless sessions against the current primary generation', async () => {
+    await revokeStatelessSessions('11111111-1111-4111-8111-111111111111', 3);
+
+    expect(primaryUpdateManyMock).toHaveBeenCalledExactlyOnceWith({
+      where: {
+        id: '11111111-1111-4111-8111-111111111111',
+        deletedAt: null,
+        sessionGeneration: 3,
+      },
+      data: { sessionGeneration: { increment: 1 } },
+    });
   });
 });

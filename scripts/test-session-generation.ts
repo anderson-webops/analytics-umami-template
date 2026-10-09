@@ -95,9 +95,9 @@ try {
     keyHash: 'a'.repeat(128),
     keyPrefix: 'umami_synthetic',
   };
-  assert.equal(await createApiKey(apiKey, 0), null);
+  assert.equal(await createApiKey(apiKey, 0, password), null);
   assert.equal(await prisma.client.apiKey.findUnique({ where: { id: keyId } }), null);
-  assert.equal((await createApiKey(apiKey, 1))?.id, keyId);
+  assert.equal((await createApiKey(apiKey, 1, password))?.id, keyId);
   assert.equal(
     (await prisma.client.user.findUniqueOrThrow({ where: { id: userId } })).password,
     password,
@@ -109,7 +109,7 @@ try {
   assert.equal(await prisma.client.apiKey.findUnique({ where: { id: keyId } }), null);
   assert.equal(await sessionRequest(replacementToken), null);
   assert.equal(
-    await createApiKey({ ...apiKey, id: randomUUID(), keyHash: 'b'.repeat(128) }, 1),
+    await createApiKey({ ...apiKey, id: randomUUID(), keyHash: 'b'.repeat(128) }, 1, password),
     null,
   );
   assert.equal(
@@ -119,7 +119,8 @@ try {
 
   const rehashKeyId = randomUUID();
   assert.equal(
-    (await createApiKey({ ...apiKey, id: rehashKeyId, keyHash: 'c'.repeat(128) }, 2))?.id,
+    (await createApiKey({ ...apiKey, id: rehashKeyId, keyHash: 'c'.repeat(128) }, 2, nextPassword))
+      ?.id,
     rehashKeyId,
   );
   const rehashed = await rehashPasswordIfCurrent(userId, nextPassword, 'z'.repeat(60), 2);
@@ -138,7 +139,13 @@ try {
 
   const operatorKeyId = randomUUID();
   assert.equal(
-    (await createApiKey({ ...apiKey, id: operatorKeyId, keyHash: 'd'.repeat(128) }, 3))?.id,
+    (
+      await createApiKey(
+        { ...apiKey, id: operatorKeyId, keyHash: 'd'.repeat(128) },
+        3,
+        'w'.repeat(60),
+      )
+    )?.id,
     operatorKeyId,
   );
   const operatorRotation = spawnSync(process.execPath, ['scripts/change-password.js'], {
@@ -211,13 +218,23 @@ try {
   assert.equal((await racingRotation)?.sessionGeneration, 5);
   assert.equal(await prisma.client.apiKey.findUnique({ where: { id: racingKey.id } }), null);
   assert.equal(
-    await createApiKey({ ...apiKey, id: randomUUID(), keyHash: 'f'.repeat(128) }, 4),
+    await createApiKey(
+      { ...apiKey, id: randomUUID(), keyHash: 'f'.repeat(128) },
+      4,
+      operatorPassword,
+    ),
     null,
   );
 
   const protectedKeyId = randomUUID();
   assert.equal(
-    (await createApiKey({ ...apiKey, id: protectedKeyId, keyHash: 'g'.repeat(128) }, 5))?.id,
+    (
+      await createApiKey(
+        { ...apiKey, id: protectedKeyId, keyHash: 'g'.repeat(128) },
+        5,
+        'r'.repeat(60),
+      )
+    )?.id,
     protectedKeyId,
   );
 

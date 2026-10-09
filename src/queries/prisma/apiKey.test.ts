@@ -77,16 +77,25 @@ describe('createApiKey', () => {
   });
 
   test('creates a key only while holding the current user generation lock', async () => {
-    await expect(createApiKey(data, 0)).resolves.toEqual({ id: data.id });
+    await expect(createApiKey(data, 0, 'password-hash')).resolves.toEqual({ id: data.id });
 
     expect(String(queryRawMock.mock.calls[0][0])).toContain('FOR UPDATE');
+    expect(String(queryRawMock.mock.calls[0][0])).toContain('"password" =');
+    expect(queryRawMock.mock.calls[0]).toContain('password-hash');
     expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ data }));
   });
 
   test('does not create a key after a factor reset changed the generation', async () => {
     queryRawMock.mockResolvedValue([{ sessionGeneration: 1 }]);
 
-    await expect(createApiKey(data, 0)).resolves.toBeNull();
+    await expect(createApiKey(data, 0, 'password-hash')).resolves.toBeNull();
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  test('does not create a key after the verified password changes', async () => {
+    queryRawMock.mockResolvedValue([]);
+
+    await expect(createApiKey(data, 0, 'old-password-hash')).resolves.toBeNull();
     expect(createMock).not.toHaveBeenCalled();
   });
 });

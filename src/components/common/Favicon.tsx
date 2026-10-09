@@ -1,5 +1,6 @@
 import { useConfig } from '@/components/hooks';
-import { FAVICON_URL, GROUPED_DOMAINS } from '@/lib/constants';
+import { Globe } from '@/components/icons';
+import { GROUPED_DOMAINS } from '@/lib/constants';
 
 function getHostName(url: string) {
   const match = url.match(/^(?:https?:\/\/)?(?:[^@\n]+@)?([^:/\n?=]+)/im);
@@ -13,10 +14,18 @@ export function Favicon({ domain, ...props }) {
     return null;
   }
 
-  const url = config?.faviconUrl || FAVICON_URL;
   const hostName = domain ? getHostName(domain) : null;
-  const domainName = GROUPED_DOMAINS[hostName]?.domain || hostName;
-  const src = hostName ? url.replace(/\{\{\s*domain\s*}}/, domainName) : null;
 
-  return hostName ? <img src={src} width={16} height={16} alt="" {...props} /> : null;
+  if (!hostName) {
+    return null;
+  }
+
+  if (!config?.faviconUrl) {
+    return <Globe width={16} height={16} aria-hidden="true" {...props} />;
+  }
+
+  const domainName = GROUPED_DOMAINS[hostName]?.domain || hostName;
+  const src = config.faviconUrl.replace(/\{\{\s*domain\s*}}/, domainName);
+
+  return <img src={src} width={16} height={16} alt="" {...props} />;
 }

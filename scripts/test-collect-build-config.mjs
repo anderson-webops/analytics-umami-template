@@ -59,6 +59,7 @@ test('endpoint text matching the old replacement key remains inert', () => {
     const literal = '$' + '{' + JSON.stringify(process.env.COLLECT_API_ENDPOINT) + '}';
     console.log(output[0].code.includes(literal));
     await bundle.close();
+    process.exit(0);
   `;
   const result = runModule(probe, { COLLECT_API_ENDPOINT: endpoint });
 

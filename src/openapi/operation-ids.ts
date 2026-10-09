@@ -32,6 +32,8 @@ export const OPERATION_ID_OVERRIDES: Record<string, string> = {
 
   // Realtime
   'GET /api/realtime/{websiteId}': 'getRealtime',
+  'GET /api/realtime/{websiteId}/totals': 'getRealtimeTotals',
+  'GET /api/realtime/{websiteId}/series': 'getRealtimeSeries',
 
   // Reports
 
@@ -96,6 +98,7 @@ export const OPERATION_ID_OVERRIDES: Record<string, string> = {
   'GET /api/websites/{websiteId}/active': 'getWebsiteActive',
   'GET /api/websites/{websiteId}/daterange': 'getWebsiteDateRange',
   'GET /api/websites/{websiteId}/stats': 'getWebsiteStats',
+  'GET /api/websites/{websiteId}/stats/traffic': 'getWebsiteTrafficStats',
   'GET /api/websites/{websiteId}/pageviews': 'getWebsitePageviews',
   'GET /api/websites/{websiteId}/metrics': 'getWebsiteMetrics',
   'GET /api/websites/{websiteId}/metrics/expanded': 'getWebsiteExpandedMetrics',
@@ -170,6 +173,7 @@ export const OPERATION_ID_OVERRIDES: Record<string, string> = {
   'GET /api/websites/{websiteId}/revenue/metrics': 'getWebsiteRevenueMetrics',
   'GET /api/websites/{websiteId}/revenue/sessions': 'getWebsiteRevenueSessions',
   'GET /api/websites/{websiteId}/revenue/stats': 'getWebsiteRevenueStats',
+  'GET /api/websites/{websiteId}/revenue/total': 'getWebsiteRevenueTotal',
 
   // Collection
   'POST /api/send': 'send',

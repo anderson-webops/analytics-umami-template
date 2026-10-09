@@ -2,9 +2,13 @@ import { expect, test, vi } from 'vitest';
 import { render, screen } from '@/test/render';
 import { UserButton } from './UserButton';
 
+const mocks = vi.hoisted(() => ({ logout: vi.fn() }));
+
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
 }));
+
+vi.mock('@/components/hooks/useLogout', () => ({ useLogout: () => mocks.logout }));
 
 vi.mock('@/components/hooks', () => ({
   useConfig: () => ({ cloudMode: false }),
@@ -57,4 +61,16 @@ test('closes the menu after selecting settings', async () => {
   await user.click(screen.getByRole('menuitem', { name: 'Settings' }));
 
   expect(screen.queryByRole('menuitem', { name: 'Settings' })).not.toBeInTheDocument();
+});
+
+test('logs out directly from the menu without navigating to the logout page', async () => {
+  mocks.logout.mockClear();
+  const { user } = render(<UserButton />);
+  const button = screen.getByRole('button', { name: 'Profile' });
+
+  button.focus();
+  await user.keyboard('{Enter}');
+  await user.click(screen.getByRole('menuitem', { name: 'Logout' }));
+
+  expect(mocks.logout).toHaveBeenCalledOnce();
 });

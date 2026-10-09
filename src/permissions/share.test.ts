@@ -78,7 +78,7 @@ test('a section-restricted share cannot open full sessions through adjacent sect
 
   await expect(
     canViewWebsiteSection(
-      { shareToken: { websiteId: 'website-1', parameters: {} } },
+      { shareToken: { shareType: ENTITY_TYPE.website, websiteId: 'website-1', parameters: {} } },
       'website-1',
       'sessions',
     ),
@@ -132,20 +132,27 @@ test('signed-in share holders cannot bypass filter restrictions or authenticated
   ).resolves.toBe(true);
 });
 
-test('canViewWebsiteSection allows board shares for included websites', async () => {
+test('board website sections require a request-scoped operation grant', async () => {
+  const shareToken = {
+    shareType: ENTITY_TYPE.board,
+    websiteIds: ['website-1'],
+    parameters: {},
+  };
+  await expect(canViewWebsiteSection({ shareToken }, 'website-1', 'goals')).resolves.toBe(false);
   await expect(
     canViewWebsiteSection(
-      {
-        shareToken: {
-          shareType: ENTITY_TYPE.board,
-          websiteIds: ['website-1'],
-          parameters: {},
-        },
-      },
+      { shareToken: { ...shareToken, scopedApiAccess: true } },
       'website-1',
       'goals',
     ),
   ).resolves.toBe(true);
+  await expect(
+    canViewWebsiteSection(
+      { shareToken: { ...shareToken, scopedApiAccess: true } },
+      'website-2',
+      'goals',
+    ),
+  ).resolves.toBe(false);
 });
 
 test('canViewWebsiteSection respects section flags on website shares', async () => {
@@ -186,15 +193,17 @@ test('canViewWebsiteSection allows any requested enabled section', async () => {
   ).resolves.toBe(true);
 });
 
-test('canViewSharedWebsite allows board shares for included websites', async () => {
+test('canViewSharedWebsite requires a scoped grant for board shares', async () => {
+  const shareToken = {
+    shareType: ENTITY_TYPE.board,
+    websiteIds: ['website-1'],
+    parameters: {},
+  };
+  await expect(canViewSharedWebsite({ shareToken }, 'website-1')).resolves.toBe(false);
   await expect(
     canViewSharedWebsite(
       {
-        shareToken: {
-          shareType: ENTITY_TYPE.board,
-          websiteIds: ['website-1'],
-          parameters: {},
-        },
+        shareToken: { ...shareToken, scopedApiAccess: true },
       },
       'website-1',
     ),
@@ -233,13 +242,14 @@ test('canViewSharedWebsiteFilters requires allowFilter for share tokens', async 
   ).resolves.toBe(true);
 });
 
-test('canViewWebsiteSection allows pixel shares for the shared entity id', async () => {
+test('canViewWebsiteSection allows validated pixel shares for the shared entity id', async () => {
   await expect(
     canViewWebsiteSection(
       {
         shareToken: {
           shareType: ENTITY_TYPE.pixel,
           pixelId: 'pixel-1',
+          scopedApiAccess: true,
           parameters: {
             overview: true,
           },
@@ -251,13 +261,14 @@ test('canViewWebsiteSection allows pixel shares for the shared entity id', async
   ).resolves.toBe(true);
 });
 
-test('canViewWebsiteSection allows link shares for the shared entity id', async () => {
+test('canViewWebsiteSection allows validated link shares for the shared entity id', async () => {
   await expect(
     canViewWebsiteSection(
       {
         shareToken: {
           shareType: ENTITY_TYPE.link,
           linkId: 'link-1',
+          scopedApiAccess: true,
           parameters: {
             overview: true,
           },

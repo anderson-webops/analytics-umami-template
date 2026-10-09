@@ -4,7 +4,7 @@
 import type { RequestOptions } from '../types';
 import type { components, operations as OperationTypes } from './types';
 
-export const API_VERSION = '4.2.78';
+export const API_VERSION = '4.2.79';
 
 export type HttpMethod = 'get' | 'post' | 'put' | 'patch' | 'delete';
 
@@ -1037,6 +1037,22 @@ export const operations = {
       'eventType',
       'match',
     ],
+    hasBody: false,
+  },
+  getRealtimeSeries: {
+    operationId: 'getRealtimeSeries',
+    method: 'get',
+    path: '/api/realtime/{websiteId}/series',
+    pathParams: ['websiteId'],
+    queryParams: [],
+    hasBody: false,
+  },
+  getRealtimeTotals: {
+    operationId: 'getRealtimeTotals',
+    method: 'get',
+    path: '/api/realtime/{websiteId}/totals',
+    pathParams: ['websiteId'],
+    queryParams: [],
     hasBody: false,
   },
   getSessionDataArraySeries: {
@@ -2409,6 +2425,7 @@ export const operations = {
       'compare',
       'type',
       'currency',
+      'limit',
       'path',
       'referrer',
       'title',
@@ -2424,15 +2441,18 @@ export const operations = {
       'distinctId',
       'language',
       'event',
+      'botName',
+      'botCategory',
+      'trafficType',
       'utmSource',
       'utmMedium',
       'utmCampaign',
       'utmContent',
       'utmTerm',
-      'excludeBounce',
       'segment',
       'cohort',
       'eventType',
+      'excludeBounce',
       'match',
     ],
     hasBody: false,
@@ -2487,6 +2507,48 @@ export const operations = {
     operationId: 'getWebsiteRevenueStats',
     method: 'get',
     path: '/api/websites/{websiteId}/revenue/stats',
+    pathParams: ['websiteId'],
+    queryParams: [
+      'startAt',
+      'endAt',
+      'startDate',
+      'endDate',
+      'timezone',
+      'unit',
+      'compare',
+      'currency',
+      'path',
+      'referrer',
+      'title',
+      'query',
+      'os',
+      'browser',
+      'device',
+      'country',
+      'region',
+      'city',
+      'tag',
+      'hostname',
+      'distinctId',
+      'language',
+      'event',
+      'utmSource',
+      'utmMedium',
+      'utmCampaign',
+      'utmContent',
+      'utmTerm',
+      'excludeBounce',
+      'segment',
+      'cohort',
+      'eventType',
+      'match',
+    ],
+    hasBody: false,
+  },
+  getWebsiteRevenueTotal: {
+    operationId: 'getWebsiteRevenueTotal',
+    method: 'get',
+    path: '/api/websites/{websiteId}/revenue/total',
     pathParams: ['websiteId'],
     queryParams: [
       'startAt',
@@ -2885,6 +2947,47 @@ export const operations = {
     ],
     hasBody: false,
   },
+  getWebsiteTrafficStats: {
+    operationId: 'getWebsiteTrafficStats',
+    method: 'get',
+    path: '/api/websites/{websiteId}/stats/traffic',
+    pathParams: ['websiteId'],
+    queryParams: [
+      'startAt',
+      'endAt',
+      'startDate',
+      'endDate',
+      'timezone',
+      'unit',
+      'compare',
+      'path',
+      'referrer',
+      'title',
+      'query',
+      'os',
+      'browser',
+      'device',
+      'country',
+      'region',
+      'city',
+      'tag',
+      'hostname',
+      'distinctId',
+      'language',
+      'event',
+      'utmSource',
+      'utmMedium',
+      'utmCampaign',
+      'utmContent',
+      'utmTerm',
+      'excludeBounce',
+      'segment',
+      'cohort',
+      'eventType',
+      'match',
+    ],
+    hasBody: false,
+  },
   getWebsiteUtmMetrics: {
     operationId: 'getWebsiteUtmMetrics',
     method: 'get',
@@ -2924,6 +3027,7 @@ export const operations = {
       'timezone',
       'unit',
       'type',
+      'limit',
     ],
     hasBody: false,
   },
@@ -2951,7 +3055,7 @@ export const operations = {
     path: '/api/2fa/setup/initiate',
     pathParams: [],
     queryParams: [],
-    hasBody: false,
+    hasBody: true,
   },
   joinTeam: {
     operationId: 'joinTeam',
@@ -3249,7 +3353,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Confirm two-factor authentication setup
-   * Verifies the current pending authenticator, enables two-factor authentication, returns new backup codes, and replaces the session cookie with a verified session.
+   * Requires the current password and a code from the pending authenticator, enables two-factor authentication, returns new backup codes, and replaces the session cookie with a verified session. Password verification shares a five-attempt, 15-minute account limit with password changes.
    * `POST /api/2fa/setup/confirm`
    */
   confirmTwoFactorSetup(
@@ -3309,7 +3413,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Create an API key
-   * Creates a named API key for the current user and returns its secret value. Available on self-hosted installations.
+   * Verifies the current password, then creates a named API key for the current user and returns its secret value once. Password verification shares a five-attempt, 15-minute account limit with other sensitive account changes. Available on self-hosted installations.
    * `POST /api/me/api-keys`
    */
   createMyApiKey(
@@ -4000,6 +4104,30 @@ export abstract class GeneratedUmamiClient {
   }
 
   /**
+   * Get real-time chart series
+   * Returns only the pageview and visitor time series for the real-time view.
+   * `GET /api/realtime/{websiteId}/series`
+   */
+  getRealtimeSeries(
+    input: OperationInput<'getRealtimeSeries'>,
+    options?: RequestOptions,
+  ): Promise<OperationOutput<'getRealtimeSeries'>> {
+    return this.execute('getRealtimeSeries', input, options);
+  }
+
+  /**
+   * Get real-time totals
+   * Returns only the aggregate totals for the real-time view.
+   * `GET /api/realtime/{websiteId}/totals`
+   */
+  getRealtimeTotals(
+    input: OperationInput<'getRealtimeTotals'>,
+    options?: RequestOptions,
+  ): Promise<OperationOutput<'getRealtimeTotals'>> {
+    return this.execute('getRealtimeTotals', input, options);
+  }
+
+  /**
    * Get session array values over time
    * Counts distinct sessions for individual values in an array property, grouped by value and time interval.
    * `GET /api/websites/{websiteId}/session-data/array-series`
@@ -4670,6 +4798,18 @@ export abstract class GeneratedUmamiClient {
   }
 
   /**
+   * Get website revenue total
+   * Returns only the total revenue for the selected currency and date range.
+   * `GET /api/websites/{websiteId}/revenue/total`
+   */
+  getWebsiteRevenueTotal(
+    input: OperationInput<'getWebsiteRevenueTotal'>,
+    options?: RequestOptions,
+  ): Promise<OperationOutput<'getWebsiteRevenueTotal'>> {
+    return this.execute('getWebsiteRevenueTotal', input, options);
+  }
+
+  /**
    * Get website saved funnel stats
    * `GET /api/websites/{websiteId}/funnels/{funnelId}/stats`
    */
@@ -4848,6 +4988,18 @@ export abstract class GeneratedUmamiClient {
   }
 
   /**
+   * Get website traffic totals
+   * Returns only pageview, visitor, and visit totals with their comparison period.
+   * `GET /api/websites/{websiteId}/stats/traffic`
+   */
+  getWebsiteTrafficStats(
+    input: OperationInput<'getWebsiteTrafficStats'>,
+    options?: RequestOptions,
+  ): Promise<OperationOutput<'getWebsiteTrafficStats'>> {
+    return this.execute('getWebsiteTrafficStats', input, options);
+  }
+
+  /**
    * Get website utm metrics
    * `GET /api/websites/{websiteId}/utm/metrics`
    */
@@ -4872,11 +5024,11 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Set up two-factor authentication
-   * Starts or replaces only the current user's still-pending setup and returns a QR code and manual setup key for an authenticator app.
+   * Verifies the current password, then starts or replaces only the current user's still-pending setup and returns a QR code and manual setup key for an authenticator app. Password verification shares a five-attempt, 15-minute account limit with password changes and 2FA disablement.
    * `POST /api/2fa/setup/initiate`
    */
   initiateTwoFactorSetup(
-    input?: OperationInput<'initiateTwoFactorSetup'>,
+    input: OperationInput<'initiateTwoFactorSetup'>,
     options?: RequestOptions,
   ): Promise<OperationOutput<'initiateTwoFactorSetup'>> {
     return this.execute('initiateTwoFactorSetup', input, options);
@@ -4908,7 +5060,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Log in
-   * Authenticates a self-hosted user with a username and password. Enabled two-factor authentication requires a short-lived partial token; users required to enroll receive a setup-only session until they confirm a factor.
+   * Authenticates a self-hosted user with a username and password. When Turnstile is configured, a fresh captchaToken is required before password verification. Enabled two-factor authentication requires a short-lived partial token; users required to enroll receive a setup-only session until they confirm a factor.
    * `POST /api/auth/login`
    */
   login(
@@ -4920,7 +5072,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Log out
-   * Ends the current authentication session by removing its stored token when Redis-backed sessions are enabled.
+   * Ends the current Redis-backed session or revokes all stateless sessions for the account when no stored session key is available.
    * `POST /api/auth/logout`
    */
   logout(
@@ -4979,7 +5131,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Send tracking data
-   * Collects a pageview, custom event, visitor identification, or performance payload and returns session information and a tracking cache token when accepted.
+   * Collects a pageview, custom event, visitor identification, or performance payload and returns an opaque tracking cache token for website events when accepted.
    * `POST /api/send`
    */
   send(input: OperationInput<'send'>, options?: RequestOptions): Promise<OperationOutput<'send'>> {

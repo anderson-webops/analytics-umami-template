@@ -123,7 +123,11 @@ try {
   );
 
   const sourceWindows = await client.replayIngestBudget.findMany({
-    where: { websiteId, scope: { in: ['minute', 'day'] } },
+    where: {
+      websiteId,
+      scope: { in: ['minute', 'day'] },
+      scopeKey: { startsWith: 'heatmap:' },
+    },
   });
   assert.ok(sourceWindows.length >= 2);
   const minute = sourceWindows

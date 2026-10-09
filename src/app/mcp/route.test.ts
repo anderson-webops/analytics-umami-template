@@ -50,6 +50,85 @@ test('MCP_ENABLED=1 enables API-key authentication', async () => {
   expect(authenticateMcpRequest).toHaveBeenCalledWith(request);
 });
 
+test.each([
+  {
+    messages: Array.from({ length: 9 }, (_, index) => ({
+      jsonrpc: '2.0',
+      method: 'notifications/progress',
+      params: { index },
+    })),
+    prefix: ' \n',
+  },
+  {
+    messages: Array.from({ length: 3 }, (_, index) => ({
+      jsonrpc: '2.0',
+      id: index,
+      method: 'tools/call',
+      params: { name: 'get_revenue' },
+    })),
+    prefix: ' \n',
+  },
+  {
+    messages: Array.from({ length: 3 }, (_, index) => ({
+      jsonrpc: '2.0',
+      id: index,
+      method: 'tools/call',
+      params: { name: 'get_revenue' },
+    })),
+    prefix: '\uFEFF',
+  },
+])('rejects oversized MCP batches before dispatch', async ({ messages, prefix }) => {
+  vi.stubEnv('MCP_ENABLED', '1');
+  vi.mocked(authenticateMcpRequest).mockResolvedValue({
+    ok: true,
+    userId: 'user-1',
+    authInfo: { token: 'synthetic-token', clientId: 'api-key:key-1', scopes: [] },
+  });
+  const response = await POST(
+    new Request('http://localhost/mcp', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: `${prefix}${JSON.stringify(messages)}`,
+    }),
+  );
+
+  expect(response.status).toBe(400);
+  await expect(response.json()).resolves.toMatchObject({
+    jsonrpc: '2.0',
+    error: { code: -32600 },
+  });
+  expect(mcpFetch).not.toHaveBeenCalled();
+});
+
+test.each([
+  [{ jsonrpc: '2.0', id: 1, method: 'tools/list' }],
+  [[{ jsonrpc: '2.0', id: 1, method: 'tools/list' }]],
+  [
+    [
+      { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'get_revenue' } },
+      { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'get_revenue' } },
+    ],
+  ],
+])('preserves single messages and bounded legacy batches', async message => {
+  vi.stubEnv('MCP_ENABLED', '1');
+  vi.mocked(authenticateMcpRequest).mockResolvedValue({
+    ok: true,
+    userId: 'user-1',
+    authInfo: { token: 'synthetic-token', clientId: 'api-key:key-1', scopes: [] },
+  });
+  mcpFetch.mockResolvedValue(new Response(null, { status: 202 }));
+  const response = await POST(
+    new Request('http://localhost/mcp', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(message),
+    }),
+  );
+
+  expect(response.status).toBe(202);
+  expect(mcpFetch).toHaveBeenCalledOnce();
+});
+
 test('hosted MCP uses in-process API dispatch behind an HTTP LAN development proxy', async () => {
   vi.stubEnv('PUBLIC_URL', '');
   vi.stubEnv('BASE_PATH', '/analytics');

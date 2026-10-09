@@ -20,6 +20,8 @@ const mocks = vi.hoisted(() => ({
   passwordNeedsRehash: vi.fn(),
   rehashPasswordIfCurrent: vi.fn(),
   getTwoFactorRequirement: vi.fn(),
+  isLoginCaptchaEnabled: vi.fn(),
+  verifyLoginCaptcha: vi.fn(),
 }));
 
 vi.mock('@/lib/request', () => ({
@@ -43,6 +45,11 @@ vi.mock('@/lib/login-rate-limit', () => ({
   clearFailedLogins: mocks.clearFailedLogins,
   getLoginLimit: mocks.getLoginLimit,
   recordFailedLogin: mocks.recordFailedLogin,
+}));
+
+vi.mock('@/lib/login-captcha', () => ({
+  isLoginCaptchaEnabled: mocks.isLoginCaptchaEnabled,
+  verifyLoginCaptcha: mocks.verifyLoginCaptcha,
 }));
 
 vi.mock('@/queries/prisma/user', () => ({
@@ -114,6 +121,8 @@ beforeEach(() => {
   mocks.passwordNeedsRehash.mockReset();
   mocks.rehashPasswordIfCurrent.mockReset();
   mocks.getTwoFactorRequirement.mockReset();
+  mocks.isLoginCaptchaEnabled.mockReset().mockReturnValue(false);
+  mocks.verifyLoginCaptcha.mockReset().mockResolvedValue('valid');
 
   mocks.parseRequest.mockResolvedValue({
     body: { username: 'alice', password: 'secret' },
@@ -194,6 +203,46 @@ test('known seeded password cannot authenticate any local account', async () => 
   expect(mocks.getUserByUsername).not.toHaveBeenCalled();
   expect(mocks.createSecureToken).not.toHaveBeenCalled();
   expect(mocks.saveAuth).not.toHaveBeenCalled();
+});
+
+test.each(['invalid', 'unavailable'] as const)(
+  '%s CAPTCHA result stops password verification',
+  async result => {
+    mocks.isLoginCaptchaEnabled.mockReturnValue(true);
+    mocks.verifyLoginCaptcha.mockResolvedValue(result);
+    mocks.parseRequest.mockResolvedValue({
+      auth: null,
+      body: { username: 'alice', password: 'secret', captchaToken: 'test-token' },
+      error: undefined,
+    });
+
+    const response = await POST(loginRequest());
+
+    expect(response.status).toBe(result === 'invalid' ? 401 : 503);
+    expect(mocks.verifyLoginCaptcha).toHaveBeenCalledWith('test-token', loginRequest().url);
+    expect(mocks.getUserByUsername).not.toHaveBeenCalled();
+    expect(mocks.checkPassword).not.toHaveBeenCalled();
+  },
+);
+
+test('valid CAPTCHA preserves the existing two-factor login step', async () => {
+  mocks.isLoginCaptchaEnabled.mockReturnValue(true);
+  mocks.createSecureToken.mockReturnValue('partial-fixture');
+  mocks.parseRequest.mockResolvedValue({
+    auth: null,
+    body: { username: 'alice', password: 'secret', captchaToken: 'test-token' },
+    error: undefined,
+  });
+
+  const response = await POST(loginRequest());
+
+  expect(response.status).toBe(200);
+  await expect(response.json()).resolves.toMatchObject({
+    requiresTwoFactor: true,
+    partialToken: 'partial-fixture',
+  });
+  expect(mocks.verifyLoginCaptcha).toHaveBeenCalledWith('test-token', loginRequest().url);
+  expect(mocks.checkPassword).toHaveBeenCalled();
 });
 
 test('account failure responses do not prevent a later correct password from reaching 2FA', async () => {

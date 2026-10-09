@@ -73,6 +73,6 @@ CREATE DATABASE analytics_example OWNER analytics_example;
 Then point `DATABASE_URL` at that database:
 
 ```env
-DATABASE_URL=postgresql://analytics_example:replace-me@db-host:5432/analytics_example
+DATABASE_URL=postgresql://analytics_example:replace-me@db-host:5432/analytics_example?sslmode=require
 APP_SECRET=replace-with-a-random-secret
 ```

@@ -11,6 +11,19 @@ import { PageBody } from '@/components/common/PageBody';
 import { Panel } from '@/components/common/Panel';
 
 const excludedIds = ['path', 'fullPath', 'entry', 'exit', 'title', 'language', 'screen', 'event'];
+const sharedExcludedIds = [
+  ...excludedIds,
+  'query',
+  'domain',
+  'utmSource',
+  'utmMedium',
+  'utmCampaign',
+  'utmContent',
+  'utmTerm',
+  'hostname',
+  'distinctId',
+  'tag',
+];
 
 export function LinkPage({
   linkId,
@@ -32,7 +45,10 @@ export function LinkPage({
             </Panel>
             <LinkPanels linkId={linkId} />
           </PageBody>
-          <ExpandedViewModal websiteId={linkId} excludedIds={excludedIds} />
+          <ExpandedViewModal
+            websiteId={linkId}
+            excludedIds={showHeaderActions ? excludedIds : sharedExcludedIds}
+          />
         </Column>
       </Grid>
     </LinkProvider>

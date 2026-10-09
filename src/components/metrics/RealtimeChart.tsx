@@ -6,7 +6,7 @@ import type { RealtimeData } from '@/lib/types';
 import { PageviewsChart } from './PageviewsChart';
 
 export interface RealtimeChartProps {
-  data: RealtimeData;
+  data: Pick<RealtimeData, 'series'>;
   unit: string;
   className?: string;
 }

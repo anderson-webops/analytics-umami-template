@@ -12,7 +12,7 @@ const operation1 = defineOperation({
     operationId: 'send',
     summary: 'Send tracking data',
     description:
-      'Collects a pageview, custom event, visitor identification, or performance payload and returns session information and a tracking cache token when accepted.',
+      'Collects a pageview, custom event, visitor identification, or performance payload and returns an opaque tracking cache token for website events when accepted.',
     tags: ['Collection'],
     requestBody: {
       required: true,
@@ -147,15 +147,11 @@ const operation1 = defineOperation({
             schema: {
               type: 'object',
               properties: {
-                cache: {},
-                sessionId: {
-                  description: 'ID of the visitor session.',
-                },
-                visitId: {
-                  description: 'ID of the visit.',
+                cache: {
+                  type: 'string',
                 },
               },
-              required: ['cache', 'sessionId', 'visitId'],
+              required: ['cache'],
             },
           },
         },

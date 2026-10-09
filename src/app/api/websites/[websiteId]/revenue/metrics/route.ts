@@ -1,24 +1,15 @@
-import { z } from 'zod';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import { badRequest, json, unauthorized } from '@/lib/response';
-import { filterParams, withDateRange } from '@/lib/schema';
 import { canViewWebsiteSection } from '@/permissions';
 import type { RevenuParameters } from '@/queries/sql/revenue/getRevenueChart';
 import { getRevenueMetrics, type RevenueMetricType } from '@/queries/sql/revenue/getRevenueMetrics';
-
-const revenueMetricType = z.enum(['country', 'region', 'referrer', 'channel']);
+import { revenueMetricsQuerySchema } from './schema';
 
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ websiteId: string }> },
 ) {
-  const schema = withDateRange({
-    type: revenueMetricType,
-    currency: z.string(),
-    ...filterParams,
-  });
-
-  const { auth, query, error } = await parseRequest(request, schema);
+  const { auth, query, error } = await parseRequest(request, revenueMetricsQuerySchema);
 
   if (error) {
     return error();
@@ -30,7 +21,7 @@ export async function GET(
     return unauthorized();
   }
 
-  const { type, currency } = query;
+  const { type, currency, limit } = query;
   const filters = await getQueryFilters(query, websiteId);
 
   if (!type) {
@@ -39,5 +30,6 @@ export async function GET(
 
   const parameters = { ...filters, currency } as RevenuParameters;
 
-  return json(await getRevenueMetrics(websiteId, parameters, filters, type as RevenueMetricType));
+  const data = await getRevenueMetrics(websiteId, parameters, filters, type as RevenueMetricType);
+  return json(limit ? data.slice(0, limit) : data);
 }

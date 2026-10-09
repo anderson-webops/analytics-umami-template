@@ -9,12 +9,15 @@ export async function createApiKey(
     keyPrefix: string;
   },
   expectedSessionGeneration: number,
+  expectedPasswordHash: string,
 ) {
   return prisma.transaction(async transaction => {
     const rows = await transaction.$queryRaw<Array<{ sessionGeneration: number }>>`
       SELECT "session_generation" AS "sessionGeneration"
       FROM "user"
-      WHERE "user_id" = ${data.userId}::uuid AND "deleted_at" IS NULL
+      WHERE "user_id" = ${data.userId}::uuid
+        AND "deleted_at" IS NULL
+        AND "password" = ${expectedPasswordHash}
       FOR UPDATE
     `;
 

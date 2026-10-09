@@ -177,7 +177,10 @@ test('API keys retain website access but cannot access account management', asyn
   const api = new ApiClient(request);
   const admin = api.bearer(await login(api, ADMIN_USER));
   const created = assertStatus(
-    await admin.post('/api/me/api-keys', { name: uniqueName('boundary-key') }),
+    await admin.post('/api/me/api-keys', {
+      name: uniqueName('boundary-key'),
+      currentPassword: ADMIN_USER.password,
+    }),
     200,
     'create synthetic key',
   ).body;

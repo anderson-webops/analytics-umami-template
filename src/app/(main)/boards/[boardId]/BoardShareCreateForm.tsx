@@ -1,6 +1,5 @@
 import {
   Button,
-  Checkbox,
   Column,
   Form,
   FormField,
@@ -27,7 +26,7 @@ export function BoardShareCreateForm({
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<any>(null);
 
-  const handleSubmit = async (data: { name: string; allowFilter?: boolean; theme?: string }) => {
+  const handleSubmit = async (data: { name: string; theme?: string }) => {
     setIsPending(true);
     setError(null);
 
@@ -35,7 +34,7 @@ export function BoardShareCreateForm({
       await post(`/boards/${boardId}/shares`, {
         name: data.name,
         parameters: {
-          allowFilter: data.allowFilter ?? true,
+          allowFilter: false,
           theme: data.theme === 'system' ? undefined : data.theme,
         },
       });
@@ -53,15 +52,12 @@ export function BoardShareCreateForm({
     <Form
       onSubmit={handleSubmit}
       error={getErrorMessage(error)}
-      defaultValues={{ name: '', allowFilter: true, theme: 'system' }}
+      defaultValues={{ name: '', theme: 'system' }}
     >
       {({ watch, setValue }) => (
         <Column gap="4">
           <FormField label={t(labels.name)} name="name" rules={{ required: t(labels.required) }}>
             <TextField autoComplete="off" autoFocus />
-          </FormField>
-          <FormField name="allowFilter">
-            <Checkbox>{t(labels.filters)}</Checkbox>
           </FormField>
           <FormField label={t(labels.theme)} name="theme">
             <ThemeModeSelector

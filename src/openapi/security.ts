@@ -1,3 +1,4 @@
+import { isApiKeyBlockedRequest } from '@/lib/api-key';
 import type { ApiAuth } from '@/openapi/operation';
 
 export const securitySchemes = {
@@ -7,6 +8,12 @@ export const securitySchemes = {
     bearerFormat: 'JWT',
     description:
       'Token returned by POST /api/auth/login, or an API key (`umami_…`) created under Settings → API keys (self-hosted only).',
+  },
+  sessionAuth: {
+    type: 'http' as const,
+    scheme: 'bearer',
+    bearerFormat: 'JWT',
+    description: 'A session token returned by sign-in. API keys are not accepted.',
   },
   shareToken: {
     type: 'apiKey' as const,
@@ -22,9 +29,13 @@ export const securitySchemes = {
   },
 };
 
-export function getSecurityRequirements(auth: ApiAuth) {
+export function getSecurityRequirements(auth: ApiAuth, path: string, method: string) {
   if (auth === 'none') {
     return [];
+  }
+
+  if (isApiKeyBlockedRequest(path, method, { basePath: '', apiUrl: '' })) {
+    return [{ sessionAuth: [] }];
   }
 
   const requirements: Record<string, string[]>[] = [{ bearerAuth: [] }];

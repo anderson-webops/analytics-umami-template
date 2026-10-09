@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 // helpers used by the route and by the test produce matching tokens.
 process.env.APP_SECRET = 'route-send-test-secret-0123456789abcdef';
 
+import { parseCacheToken } from '@/lib/cache-token';
 import clickhouse from '@/lib/clickhouse';
 import { CollectionBudgetExceededError } from '@/lib/collection-budget';
 import {
@@ -25,7 +26,7 @@ import {
   saveSessionLink,
   updateSession,
 } from '@/queries/sql';
-import { POST } from './route';
+import { OPTIONS, POST } from './route';
 
 vi.mock('@/lib/clickhouse', () => ({ default: { enabled: false } }));
 
@@ -117,6 +118,20 @@ function callPOST(
       headers,
     }),
   );
+}
+
+async function readCache(response: Response) {
+  const body = await response.json();
+  const cache = parseCacheToken(body.cache, secret());
+
+  expect(Object.keys(body)).toEqual(['cache']);
+  expect(cache).not.toBeNull();
+
+  if (!cache) {
+    throw new Error('Expected a valid collection cache token.');
+  }
+
+  return cache;
 }
 
 function makeComputedSessionId(
@@ -283,7 +298,18 @@ describe('schema validation', () => {
   test('rejects CSV formula injection triggers in name and tag', async () => {
     const schema = await getSchema();
 
-    for (const bad of ['=1+1', '+cmd', '-2', '@SUM', '\tvalue', '\rvalue']) {
+    for (const bad of [
+      '=1+1',
+      '+cmd',
+      '-2',
+      '@SUM',
+      '\tvalue',
+      '\rvalue',
+      '\n=1+1',
+      '\r\n@SUM',
+      ' \t\n+cmd',
+      '\u200b=1+1',
+    ]) {
       expect(
         schema.safeParse({ type: 'event', payload: { website: WEBSITE_ID, name: bad } }).success,
       ).toBe(false);
@@ -699,7 +725,7 @@ describe('cache token handling', () => {
 
     expect(fetchWebsiteMock).toHaveBeenCalledTimes(1);
     expect(createSessionMock).not.toHaveBeenCalled();
-    await expect(response.json()).resolves.toMatchObject({ visitId: 'cached-visit' });
+    expect((await readCache(response)).visitId).toBe('cached-visit');
   });
 
   test('accepts an existing cache token with an alternate UUID spelling', async () => {
@@ -725,13 +751,13 @@ describe('cache token handling', () => {
     expect(createSessionMock).toHaveBeenCalledTimes(1);
     const createdSession = createSessionMock.mock.calls[0][0] as Record<string, any>;
     const savedEvent = saveEventMock.mock.calls[0][0] as Record<string, any>;
-    const body = (await response.json()) as Record<string, any>;
+    const cache = await readCache(response);
 
     expect(createdSession.id).not.toBe('cached-session');
     expect(savedEvent.sessionId).toBe(createdSession.id);
     expect(savedEvent.visitId).not.toBe('cached-visit');
-    expect(body.sessionId).toBe(createdSession.id);
-    expect(body.visitId).toBe(savedEvent.visitId);
+    expect(cache.sessionId).toBe(createdSession.id);
+    expect(cache.visitId).toBe(savedEvent.visitId);
   });
 
   test('a valid cache token creates the computed session before identify writes when the cached session differs', async () => {
@@ -747,14 +773,14 @@ describe('cache token handling', () => {
     const savedLink = saveSessionLinkMock.mock.calls[0][0] as Record<string, any>;
     const updatedSession = updateSessionMock.mock.calls[0][0] as Record<string, any>;
     const savedSessionData = saveSessionDataMock.mock.calls[0][0] as Record<string, any>;
-    const body = (await response.json()) as Record<string, any>;
+    const cache = await readCache(response);
 
     expect(createdSession.id).not.toBe('cached-session');
     expect(savedLink.sessionId).toBe(createdSession.id);
     expect(updatedSession.sessionId).toBe(createdSession.id);
     expect(savedSessionData.sessionId).toBe(createdSession.id);
-    expect(body.sessionId).toBe(createdSession.id);
-    expect(body.visitId).not.toBe('cached-visit');
+    expect(cache.sessionId).toBe(createdSession.id);
+    expect(cache.visitId).not.toBe('cached-visit');
   });
 
   test('a drifted cache token resets the visit in clickhouse mode without creating a session row', async () => {
@@ -767,12 +793,12 @@ describe('cache token handling', () => {
     );
 
     const savedEvent = saveEventMock.mock.calls[0][0] as Record<string, any>;
-    const body = (await response.json()) as Record<string, any>;
+    const cache = await readCache(response);
 
     expect(createSessionMock).not.toHaveBeenCalled();
-    expect(savedEvent.sessionId).toBe(body.sessionId);
+    expect(savedEvent.sessionId).toBe(cache.sessionId);
     expect(savedEvent.visitId).not.toBe('cached-visit');
-    expect(body.visitId).toBe(savedEvent.visitId);
+    expect(cache.visitId).toBe(savedEvent.visitId);
   });
 
   test('an invalid cache token falls back to website lookup', async () => {
@@ -818,22 +844,105 @@ describe('cache token handling', () => {
 
     expect(fetchWebsiteMock).toHaveBeenCalledTimes(1);
     // A fresh visitId is generated rather than reusing the token's value.
-    await expect(response.json()).resolves.not.toMatchObject({ visitId: 'cached-visit' });
+    expect((await readCache(response)).visitId).not.toBe('cached-visit');
   });
 
-  test('returns a signed cache token that round-trips to the response identifiers', async () => {
+  test('returns an opaque cache token that preserves the recorded identifiers', async () => {
     const response = await callPOST({
       type: 'event',
       payload: { website: WEBSITE_ID, url: '/' },
     });
 
     const body = (await response.json()) as Record<string, any>;
-    const decoded = parseToken(body.cache, secret()) as Record<string, any>;
+    const decoded = parseCacheToken(body.cache, secret());
 
+    expect(Object.keys(body)).toEqual(['cache']);
+    expect(parseToken(body.cache, secret())).toBeNull();
+    if (!decoded) {
+      throw new Error('Expected a valid collection cache token.');
+    }
     expect(decoded.type).toBe(CACHE_TOKEN_TYPE);
-    expect(decoded.sessionId).toBe(body.sessionId);
-    expect(decoded.visitId).toBe(body.visitId);
+    expect(decoded.sessionId).toBe(saveEventMock.mock.calls[0][0].sessionId);
+    expect(decoded.visitId).toBe(saveEventMock.mock.calls[0][0].visitId);
     expect(decoded.websiteId).toBe(WEBSITE_ID);
+  });
+});
+
+describe('collector response privacy', () => {
+  test('preflight allows the tracker headers without exposing a collection response', () => {
+    const response = OPTIONS();
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get('Access-Control-Allow-Headers')).toContain('X-Umami-Website-Id');
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
+  });
+
+  test('an approved browser origin receives only an opaque cache token', async () => {
+    const response = await callPOST(
+      { type: 'event', payload: { website: WEBSITE_ID, url: '/' } },
+      { headers: { Origin: 'https://example.com' } },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
+    expect(response.headers.get('Vary')).toContain('Origin');
+    expect(Object.keys(body)).toEqual(['cache']);
+    expect(parseToken(body.cache, secret())).toBeNull();
+  });
+
+  test('the www alias is readable only by that exact approved origin', async () => {
+    const response = await callPOST(
+      { type: 'event', payload: { website: WEBSITE_ID, url: '/' } },
+      { headers: { Origin: 'https://www.example.com' } },
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://www.example.com');
+    expect(await readCache(response)).toMatchObject({ websiteId: WEBSITE_ID });
+  });
+
+  test('server callers without Origin receive no browser-readable CORS grant', async () => {
+    const response = await callPOST({
+      type: 'event',
+      payload: { website: WEBSITE_ID, url: '/' },
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull();
+    expect(await readCache(response)).toMatchObject({ websiteId: WEBSITE_ID });
+  });
+
+  test.each([{ link: LINK_ID }, { pixel: PIXEL_ID }])(
+    'link and pixel events retain public CORS without a website session token: %s',
+    async source => {
+      const response = await callPOST(
+        { type: 'event', payload: { ...source, url: '/' } },
+        { headers: { Origin: 'https://unrelated.example' } },
+      );
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
+      await expect(response.json()).resolves.toEqual({ cache: null });
+    },
+  );
+
+  test.each([
+    'https://unrelated.example',
+    'null',
+    'https://example.com.evil.test',
+    'http://example.com:3000',
+  ])('rejects a claimed website hostname from an unrelated browser origin: %s', async origin => {
+    const response = await callPOST(
+      { type: 'event', payload: { website: WEBSITE_ID, url: '/' } },
+      { headers: { Origin: origin } },
+    );
+
+    expect(response.status).toBe(400);
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull();
+    expect(reserveActiveCollectionBudgetMock).not.toHaveBeenCalled();
+    expect(createSessionMock).not.toHaveBeenCalled();
+    expect(saveEventMock).not.toHaveBeenCalled();
   });
 });
 
@@ -856,8 +965,7 @@ describe('30-minute visit expiry', () => {
       { headers: { 'x-umami-cache': token } },
     );
 
-    const body = (await response.json()) as Record<string, any>;
-    expect(body.visitId).not.toBe('cached-visit');
+    expect((await readCache(response)).visitId).not.toBe('cached-visit');
   });
 
   test('keeps the cached visit when within the 30-minute window', async () => {
@@ -878,7 +986,7 @@ describe('30-minute visit expiry', () => {
       { headers: { 'x-umami-cache': token } },
     );
 
-    await expect(response.json()).resolves.toMatchObject({ visitId: 'cached-visit' });
+    expect((await readCache(response)).visitId).toBe('cached-visit');
   });
 
   test('does not expire the visit when an explicit timestamp is supplied', async () => {
@@ -903,7 +1011,7 @@ describe('30-minute visit expiry', () => {
       { headers: { 'x-umami-cache': token } },
     );
 
-    await expect(response.json()).resolves.toMatchObject({ visitId: 'cached-visit' });
+    expect((await readCache(response)).visitId).toBe('cached-visit');
   });
 });
 
@@ -918,16 +1026,16 @@ describe('identify collection', () => {
       payload: { website: WEBSITE_ID, id: 'user-2' },
     });
 
-    const firstBody = (await first.json()) as Record<string, any>;
-    const secondBody = (await second.json()) as Record<string, any>;
+    const firstCache = await readCache(first);
+    const secondCache = await readCache(second);
 
-    expect(firstBody.sessionId).not.toBe(secondBody.sessionId);
+    expect(firstCache.sessionId).not.toBe(secondCache.sessionId);
     expect(createSessionMock.mock.calls[0][0]).toMatchObject({
-      id: firstBody.sessionId,
+      id: firstCache.sessionId,
       distinctId: 'user-1',
     });
     expect(createSessionMock.mock.calls[1][0]).toMatchObject({
-      id: secondBody.sessionId,
+      id: secondCache.sessionId,
       distinctId: 'user-2',
     });
   });
@@ -943,10 +1051,10 @@ describe('identify collection', () => {
       payload: { website: WEBSITE_ID, id: `${prefix}-second` },
     });
 
-    const firstBody = (await first.json()) as Record<string, any>;
-    const secondBody = (await second.json()) as Record<string, any>;
+    const firstCache = await readCache(first);
+    const secondCache = await readCache(second);
 
-    expect(firstBody.sessionId).toBe(secondBody.sessionId);
+    expect(firstCache.sessionId).toBe(secondCache.sessionId);
     expect(createSessionMock.mock.calls[0][0]).toMatchObject({ distinctId: prefix });
     expect(createSessionMock.mock.calls[1][0]).toMatchObject({ distinctId: prefix });
   });

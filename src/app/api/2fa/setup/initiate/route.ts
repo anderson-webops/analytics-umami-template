@@ -1,7 +1,18 @@
 import { isEnvEnabled } from '@/lib/env';
+import { checkPassword } from '@/lib/password';
+import { reservePasswordVerificationAttempt } from '@/lib/password-verification-rate-limit';
 import prisma from '@/lib/prisma';
 import { parseRequest } from '@/lib/request';
-import { badRequest, conflict, json, notFound, serviceUnavailable } from '@/lib/response';
+import {
+  badRequest,
+  conflict,
+  forbidden,
+  json,
+  notFound,
+  serviceUnavailable,
+  tooManyRequests,
+  unauthorized,
+} from '@/lib/response';
 import {
   encryptSecret,
   getTwoFactorConfigurationError,
@@ -13,16 +24,27 @@ import {
   generateTotpSecret,
 } from '@/lib/two-factor/totp';
 import { getUser } from '@/queries/prisma/user';
+import { initiateTwoFactorSetupSchema } from './schema';
 
 export async function POST(request: Request) {
   if (isEnvEnabled('CLOUD_MODE')) {
     return notFound();
   }
 
-  const { auth, error } = await parseRequest(request);
+  const { auth, body, error } = await parseRequest(request, initiateTwoFactorSetupSchema, {
+    maxBodyBytes: 16 * 1024,
+  });
 
   if (error) {
     return error();
+  }
+
+  if (auth.authType !== 'session' || !auth.user?.id) {
+    return unauthorized();
+  }
+
+  if (auth.enrollmentOnly && isEnvEnabled('DISABLE_LOGIN')) {
+    return forbidden({ code: 'login-disabled' });
   }
 
   // Secrets cannot be stored without an encryption key
@@ -31,10 +53,10 @@ export async function POST(request: Request) {
   }
 
   const userId = auth.user.id;
-  const user = await getUser(userId);
+  const user = await getUser(userId, { includePassword: true });
 
   if (!user) {
-    return badRequest({ message: 'User not found' });
+    return unauthorized();
   }
 
   const existing = await prisma.client.twoFactorAuth.findUnique({ where: { userId } });
@@ -43,6 +65,27 @@ export async function POST(request: Request) {
     return badRequest({
       code: 'two-factor-error-already-enabled',
       message: '2FA is already enabled',
+    });
+  }
+
+  let passwordAttempt;
+
+  try {
+    passwordAttempt = await reservePasswordVerificationAttempt(userId);
+  } catch {
+    return serviceUnavailable({ message: 'Credential verification is temporarily unavailable' });
+  }
+
+  if (!passwordAttempt.allowed) {
+    return tooManyRequests(passwordAttempt.retryAfter, {
+      message: 'Too many password attempts',
+    });
+  }
+
+  if (!(await checkPassword(body.password, user.password))) {
+    return badRequest({
+      code: 'two-factor-error-incorrect-password',
+      message: 'Incorrect password',
     });
   }
 

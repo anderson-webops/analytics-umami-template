@@ -59,3 +59,35 @@ test('local tracker does not receive an unnecessary request-header override', ()
   expect(response.headers.get('x-middleware-override-headers')).toBeNull();
   expect(response.headers.get('Cross-Origin-Resource-Policy')).toBe('cross-origin');
 });
+
+test('custom collection rewrite does not grant wildcard response access', () => {
+  vi.stubEnv('COLLECT_API_ENDPOINT', '/collect');
+
+  const response = middleware(
+    new NextRequest('https://analytics.example.com/collect', {
+      headers: { Origin: 'https://unrelated.example' },
+    }),
+  );
+
+  expect(response.headers.get('x-middleware-rewrite')).toBe(
+    'https://analytics.example.com/api/send',
+  );
+  expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull();
+});
+
+test.each([
+  ['', false],
+  ['public-test-key', true],
+])(
+  'login CSP includes the Turnstile script origin only when configured',
+  async (siteKey, enabled) => {
+    vi.stubEnv('TURNSTILE_SITE_KEY', siteKey);
+    vi.resetModules();
+    const { default: configuredMiddleware } = await import('./proxy');
+
+    const response = configuredMiddleware(new NextRequest('https://analytics.example.com/login'));
+    const csp = response.headers.get('Content-Security-Policy') ?? '';
+
+    expect(csp.includes('https://challenges.cloudflare.com')).toBe(enabled);
+  },
+);

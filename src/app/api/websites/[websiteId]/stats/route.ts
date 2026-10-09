@@ -1,3 +1,4 @@
+import { ENTITY_TYPE } from '@/lib/constants';
 import { getCompareDate } from '@/lib/date';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import { json, unauthorized } from '@/lib/response';
@@ -25,6 +26,13 @@ export async function GET(
   const { websiteId } = await params;
 
   if (!(await canViewWebsiteSection(auth, websiteId, ['overview', 'compare']))) {
+    return unauthorized();
+  }
+
+  if (
+    auth.shareToken?.shareType === ENTITY_TYPE.link ||
+    auth.shareToken?.shareType === ENTITY_TYPE.pixel
+  ) {
     return unauthorized();
   }
 

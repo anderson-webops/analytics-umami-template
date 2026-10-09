@@ -30,6 +30,7 @@ export interface Auth {
   shareToken?: {
     shareId?: string;
     shareType?: number;
+    scopedApiAccess?: boolean;
     websiteId?: string;
     websiteIds?: string[];
     boardId?: string;

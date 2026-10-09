@@ -85,23 +85,21 @@ for (const handler of [listAnnotations, getAnnotation]) {
     }
   });
 
-  test(`${handler === listAnnotations ? 'list' : 'detail'} requires matching website or board membership`, async () => {
+  test(`${handler === listAnnotations ? 'list' : 'detail'} requires an authorized website share`, async () => {
     for (const shareToken of [
       undefined,
       { websiteId: 'other-site', parameters: { overview: true } },
       { shareType: ENTITY_TYPE.board, websiteIds: ['other-site'], parameters: {} },
+      {
+        shareType: ENTITY_TYPE.board,
+        websiteIds: ['website-1'],
+        parameters: { overview: true, allowFilter: true },
+      },
     ]) {
       vi.mocked(parseRequest).mockResolvedValue({ auth: { shareToken }, query: {} });
       expect((await handler(new Request('http://localhost/fixture'), { params })).status).toBe(401);
     }
     expect(getWebsiteAnnotation).not.toHaveBeenCalled();
     expect(getWebsiteAnnotations).not.toHaveBeenCalled();
-    vi.mocked(parseRequest).mockResolvedValue({
-      auth: {
-        shareToken: { shareType: ENTITY_TYPE.board, websiteIds: ['website-1'], parameters: {} },
-      },
-      query: {},
-    });
-    expect((await handler(new Request('http://localhost/fixture'), { params })).status).toBe(200);
   });
 }

@@ -5,6 +5,7 @@ import { FilterBar } from '@/components/input/FilterBar';
 import { MonthFilter } from '@/components/input/MonthFilter';
 import { WebsiteDateFilter } from '@/components/input/WebsiteDateFilter';
 import { WebsiteFilterButton } from '@/components/input/WebsiteFilterButton';
+import { ENTITY_TYPE } from '@/lib/constants';
 import { allowShareFilter } from '@/lib/share';
 
 export function WebsiteControls({
@@ -25,7 +26,10 @@ export function WebsiteControls({
   allowCompare?: boolean;
 }) {
   const share = useShare();
-  const showFilter = allowFilter && allowShareFilter(share?.parameters);
+  const showFilter =
+    allowFilter &&
+    (!share || share.shareType === ENTITY_TYPE.website) &&
+    allowShareFilter(share?.parameters);
 
   return (
     <Column gap>

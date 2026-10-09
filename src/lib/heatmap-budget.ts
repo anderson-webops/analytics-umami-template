@@ -1,5 +1,8 @@
 import type { Prisma } from '@/generated/prisma/client';
-import { RECORDER_VISIT_BUDGET_RETENTION_MS } from '@/lib/recorder-budget';
+import {
+  RECORDER_VISIT_BUDGET_RETENTION_MS,
+  reserveRecorderVisitKeyBudget,
+} from '@/lib/recorder-budget';
 
 export const MAX_HEATMAP_VISIT_BYTES = 4 * 1024 * 1024;
 export const MAX_HEATMAP_VISIT_EVENTS = 5_000;
@@ -42,10 +45,17 @@ export async function reserveHeatmapBudget(
   }
 
   const now = Date.now();
+  const visitKey = `heatmap:${visitId}`;
+  await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${websiteId}), hashtext(${visitKey}))::text`;
+  const existing = await transaction.$queryRaw<Array<{ present: boolean }>>`
+    SELECT true AS present
+    FROM replay_ingest_budget
+    WHERE website_id = ${websiteId}::uuid AND scope = 'visit' AND scope_key = ${visitKey}
+  `;
   const windows = [
     {
       scope: 'visit',
-      key: `heatmap:${visitId}`,
+      key: visitKey,
       byteLimit: MAX_HEATMAP_VISIT_BYTES,
       eventLimit: MAX_HEATMAP_VISIT_EVENTS,
       requestLimit: MAX_HEATMAP_VISIT_REQUESTS,
@@ -91,6 +101,14 @@ export async function reserveHeatmapBudget(
     `;
 
     if (reserved.length === 0) {
+      throw new HeatmapBudgetExceededError(retryAfter);
+    }
+  }
+
+  if (existing.length === 0) {
+    const retryAfter = await reserveRecorderVisitKeyBudget(transaction, websiteId, now);
+
+    if (retryAfter !== null) {
       throw new HeatmapBudgetExceededError(retryAfter);
     }
   }

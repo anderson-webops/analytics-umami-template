@@ -102,7 +102,10 @@ test.describe('MCP API-key authentication', () => {
   });
 
   test('enforces key-owner permissions and rejects a revoked key', async ({ api, user, seed }) => {
-    const created = await user.post('/api/me/api-keys', { name: 'mcp-integration-permissions' });
+    const created = await user.post('/api/me/api-keys', {
+      name: 'mcp-integration-permissions',
+      currentPassword: seed.user.password,
+    });
     expect(created.status).toBe(200);
     const keyClient = api.bearer(created.body.key);
     try {

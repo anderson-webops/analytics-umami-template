@@ -24,6 +24,17 @@ export function withCorsHeaders(response: Response, headers: HeadersInit = {}) {
   });
 }
 
+export function withTrackingOrigin(response: Response, origin: string | null) {
+  response.headers.set('Cache-Control', 'no-store');
+
+  if (origin) {
+    response.headers.set('Access-Control-Allow-Origin', origin);
+    response.headers.append('Vary', 'Origin');
+  }
+
+  return response;
+}
+
 export function corsPreflight(headers: HeadersInit = {}) {
   return new Response(null, {
     status: 204,

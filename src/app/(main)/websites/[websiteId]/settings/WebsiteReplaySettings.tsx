@@ -15,6 +15,7 @@ import { useEffect, useState } from 'react';
 import { EmptyPlaceholder } from '@/components/common/EmptyPlaceholder';
 import { useMessages, useSubscription, useUpdateQuery, useWebsite } from '@/components/hooks';
 import { Video } from '@/components/icons';
+import { openNewTab } from '@/lib/open-new-tab';
 import { getRecorderConfig, type RecorderConfig } from '@/lib/recorder';
 
 const RECORDER_NAME = 'recorder.js';
@@ -127,7 +128,7 @@ export function WebsiteReplaySettings({ websiteId }: { websiteId: string }) {
         >
           <Button
             variant="primary"
-            onPress={() => window.open(`${process.env.cloudUrl}/settings/billing`, '_blank')}
+            onPress={() => openNewTab(`${process.env.cloudUrl}/settings/billing`)}
           >
             {t(labels.upgrade)}
           </Button>

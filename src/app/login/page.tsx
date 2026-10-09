@@ -9,7 +9,7 @@ export default async function () {
     return null;
   }
 
-  return <LoginPage />;
+  return <LoginPage captchaSiteKey={process.env.TURNSTILE_SITE_KEY} />;
 }
 
 export const metadata: Metadata = {

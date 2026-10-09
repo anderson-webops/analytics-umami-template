@@ -63,11 +63,11 @@ test.describe('Two-factor authentication', () => {
     apiKey,
   }) => {
     const session = api.bearer(sessionToken);
-    const tooShort = await session.post('/api/2fa/setup/confirm', { token: '123' });
+    const tooShort = await session.post('/api/2fa/setup/confirm', { token: '123', password });
     const missing = await session.post('/api/2fa/setup/confirm', {});
-    const noSetup = await session.post('/api/2fa/setup/confirm', { token: '000000' });
-    const anonymous = await api.post('/api/2fa/setup/confirm', { token: '000000' });
-    const viaApiKey = await apiKey.post('/api/2fa/setup/confirm', { token: '000000' });
+    const noSetup = await session.post('/api/2fa/setup/confirm', { token: '000000', password });
+    const anonymous = await api.post('/api/2fa/setup/confirm', { token: '000000', password });
+    const viaApiKey = await apiKey.post('/api/2fa/setup/confirm', { token: '000000', password });
 
     expect(tooShort.status).toBe(400);
     expect(missing.status).toBe(400);
@@ -79,9 +79,9 @@ test.describe('Two-factor authentication', () => {
 
   test('POST /api/2fa/setup/initiate returns a secret and QR code', async ({ api, apiKey }) => {
     const session = api.bearer(sessionToken);
-    const response = await session.post('/api/2fa/setup/initiate');
-    const anonymous = await api.post('/api/2fa/setup/initiate');
-    const viaApiKey = await apiKey.post('/api/2fa/setup/initiate');
+    const response = await session.post('/api/2fa/setup/initiate', { password });
+    const anonymous = await api.post('/api/2fa/setup/initiate', { password });
+    const viaApiKey = await apiKey.post('/api/2fa/setup/initiate', { password });
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({
@@ -101,7 +101,7 @@ test.describe('Two-factor authentication', () => {
     const session = api.bearer(sessionToken);
     const response = await session.post('/api/2fa/setup/cancel');
     const again = await session.post('/api/2fa/setup/cancel');
-    const confirm = await session.post('/api/2fa/setup/confirm', { token: '000000' });
+    const confirm = await session.post('/api/2fa/setup/confirm', { token: '000000', password });
     const anonymous = await api.post('/api/2fa/setup/cancel');
     const viaApiKey = await apiKey.post('/api/2fa/setup/cancel');
 
@@ -118,14 +118,17 @@ test.describe('Two-factor authentication', () => {
 
   test('POST /api/2fa/setup/initiate can be repeated and rejects wrong codes', async ({ api }) => {
     const session = api.bearer(sessionToken);
-    const response = await session.post('/api/2fa/setup/initiate');
+    const response = await session.post('/api/2fa/setup/initiate', { password });
 
     expect(response.status).toBe(200);
 
     secret = response.body.manualKey;
 
     // A single wrong attempt (the lockout threshold is five).
-    const invalid = await session.post('/api/2fa/setup/confirm', { token: wrongCode(secret) });
+    const invalid = await session.post('/api/2fa/setup/confirm', {
+      token: wrongCode(secret),
+      password,
+    });
 
     expect(invalid.status).toBe(400);
     expect(invalid.body.error).toMatchObject({
@@ -139,7 +142,7 @@ test.describe('Two-factor authentication', () => {
     const session = api.bearer(sessionToken);
     lastCode = await nextCode(secret);
 
-    const response = await session.post('/api/2fa/setup/confirm', { token: lastCode });
+    const response = await session.post('/api/2fa/setup/confirm', { token: lastCode, password });
 
     expect(response.status).toBe(200);
     expect(response.body.backupCodes).toHaveLength(10);
@@ -163,7 +166,10 @@ test.describe('Two-factor authentication', () => {
     expect(status.body).toMatchObject({ isEnabled: true, isRequired: false });
 
     // Confirming again is rejected: there is no longer a pending setup.
-    const again = await verifiedSession.post('/api/2fa/setup/confirm', { token: lastCode });
+    const again = await verifiedSession.post('/api/2fa/setup/confirm', {
+      token: lastCode,
+      password,
+    });
 
     expect(again.status).toBe(400);
     expect(again.body.error.code).toBe('two-factor-error-no-pending-setup');
@@ -171,7 +177,7 @@ test.describe('Two-factor authentication', () => {
 
   test('POST /api/2fa/setup/initiate rejects users with 2FA enabled', async ({ api }) => {
     const session = api.bearer(sessionToken);
-    const response = await session.post('/api/2fa/setup/initiate');
+    const response = await session.post('/api/2fa/setup/initiate', { password });
 
     expect(response.status).toBe(400);
     expect(response.body.error.code).toBe('two-factor-error-already-enabled');
@@ -377,16 +383,68 @@ test('required enrollment rejects older sessions and upgrades a freshly logged-i
       requiredReason: 'user',
     });
 
-    const initiated = await enrollmentSession.post('/api/2fa/setup/initiate');
+    const initiated = await enrollmentSession.post('/api/2fa/setup/initiate', {
+      password: created.password,
+    });
     expect(initiated.status).toBe(200);
 
     const code = await nextCode(initiated.body.manualKey);
-    const confirmed = await enrollmentSession.post('/api/2fa/setup/confirm', { token: code });
+    const confirmed = await enrollmentSession.post('/api/2fa/setup/confirm', {
+      token: code,
+      password: created.password,
+    });
     expect(confirmed.status).toBe(200);
 
     const verifiedToken = sessionTokenFromCookie(confirmed);
     expect((await api.bearer(verifiedToken).get('/api/me')).status).toBe(200);
     expect((await enrollmentSession.get('/api/me')).status).toBe(401);
+  } finally {
+    await admin.post(`/api/admin/users/${created.id}/2fa`, { required: false });
+    await admin.del(`/api/admin/users/${created.id}/2fa`);
+    await deleteUser(admin, created.id);
+  }
+});
+
+test('a stolen session and pending authenticator key cannot enroll without the current password', async ({
+  admin,
+  api,
+}) => {
+  const created = await createUser(admin);
+
+  try {
+    const token = await login(api, created);
+    const session = api.bearer(token);
+    const incorrectPassword = 'incorrect-current-password';
+
+    const deniedInitiate = await session.post('/api/2fa/setup/initiate', {
+      password: incorrectPassword,
+    });
+    expect(deniedInitiate.status).toBe(400);
+    expect(deniedInitiate.body.error.code).toBe('two-factor-error-incorrect-password');
+    expect(deniedInitiate.body).not.toHaveProperty('manualKey');
+
+    const initiated = await session.post('/api/2fa/setup/initiate', {
+      password: created.password,
+    });
+    expect(initiated.status).toBe(200);
+
+    const code = await nextCode(initiated.body.manualKey);
+    const deniedConfirm = await session.post('/api/2fa/setup/confirm', {
+      token: code,
+      password: incorrectPassword,
+    });
+    expect(deniedConfirm.status).toBe(400);
+    expect(deniedConfirm.body.error.code).toBe('two-factor-error-incorrect-password');
+    expect((await session.get('/api/2fa/status')).body.isEnabled).toBe(false);
+
+    const confirmed = await session.post('/api/2fa/setup/confirm', {
+      token: code,
+      password: created.password,
+    });
+    expect(confirmed.status).toBe(200);
+    expect(
+      (await api.bearer(sessionTokenFromCookie(confirmed)).get('/api/2fa/status')).body.isEnabled,
+    ).toBe(true);
   } finally {
     await admin.post(`/api/admin/users/${created.id}/2fa`, { required: false });
     await admin.del(`/api/admin/users/${created.id}/2fa`);

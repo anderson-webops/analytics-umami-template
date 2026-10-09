@@ -98,11 +98,18 @@ export async function canViewWebsiteSection(
   const shareAuth = { shareToken: auth?.shareToken };
   const { shareToken } = shareAuth;
 
-  if (
-    !shareToken ||
-    !shareTokenIncludesWebsite(shareAuth, websiteId) ||
-    !(await canViewWebsite(shareAuth, websiteId))
-  ) {
+  if (!shareToken || !shareTokenIncludesWebsite(shareAuth, websiteId)) {
+    return false;
+  }
+
+  if (shareToken.shareType === ENTITY_TYPE.website) {
+    return (
+      (await canViewWebsite(shareAuth, websiteId)) &&
+      canViewShareSection(shareToken.parameters, section)
+    );
+  }
+
+  if (shareToken.scopedApiAccess !== true) {
     return false;
   }
 
@@ -110,7 +117,16 @@ export async function canViewWebsiteSection(
 }
 
 export async function canViewSharedWebsite(auth: Auth | null | undefined, websiteId: string) {
-  return canViewWebsite(auth || {}, websiteId);
+  if (await canViewWebsiteAsUser(auth, websiteId)) {
+    return true;
+  }
+
+  const shareAuth = { shareToken: auth?.shareToken };
+
+  return shareAuth.shareToken?.shareType === ENTITY_TYPE.website
+    ? canViewWebsite(shareAuth, websiteId)
+    : shareAuth.shareToken?.scopedApiAccess === true &&
+        shareTokenIncludesWebsite(shareAuth, websiteId);
 }
 
 export async function canViewSharedWebsiteFilters(
@@ -124,6 +140,7 @@ export async function canViewSharedWebsiteFilters(
   const shareAuth = { shareToken: auth?.shareToken };
 
   return (
+    shareAuth.shareToken?.shareType === ENTITY_TYPE.website &&
     shareTokenIncludesWebsite(shareAuth, websiteId) &&
     shareAuth.shareToken?.parameters?.allowFilter !== false &&
     (await canViewWebsite(shareAuth, websiteId))

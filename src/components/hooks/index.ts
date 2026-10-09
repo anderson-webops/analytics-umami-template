@@ -14,6 +14,7 @@ export * from './queries/useActiveUsersQuery';
 export * from './queries/useApiKeysQuery';
 export * from './queries/useAttributionQuery';
 export * from './queries/useBoardQuery';
+export * from './queries/useBoardRealtimeQuery';
 export * from './queries/useBoardSharesQuery';
 export * from './queries/useBoardsQuery';
 export * from './queries/useBreakdownQuery';

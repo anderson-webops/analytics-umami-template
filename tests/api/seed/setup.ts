@@ -12,10 +12,28 @@ import {
   SEED_USERS,
   SEED_WEBSITES,
 } from './ids';
-import { type IngestResult, ingestDataset } from './ingest';
+import { ingestDataset } from './ingest';
 import type { SeedCredentials, SeedState } from './state';
 
 const READINESS_TIMEOUT_MS = 60_000;
+
+export function getRecordedReplayIdentity(rows: unknown) {
+  if (!Array.isArray(rows) || rows.length !== 1) {
+    return undefined;
+  }
+
+  const replay = rows[0];
+
+  if (!replay || typeof replay !== 'object') {
+    return undefined;
+  }
+
+  const { id, sessionId } = replay as Record<string, unknown>;
+
+  return typeof id === 'string' && id && typeof sessionId === 'string' && sessionId
+    ? { visitId: id, sessionId }
+    : undefined;
+}
 
 async function ensureUser(
   admin: ApiClient,
@@ -136,7 +154,7 @@ async function poll<T>(label: string, fn: () => Promise<T | undefined>, timeoutM
  * materialized views are synchronous, but this guards against any lag) and
  * harvests ids that specs need for path parameters.
  */
-async function waitForAnalytics(admin: ApiClient, dataset: Dataset, ingested: IngestResult) {
+async function waitForAnalytics(admin: ApiClient, dataset: Dataset) {
   const websiteId = SEED_IDS.website;
   const range = () => ({ startAt: dataset.range.startAt, endAt: Date.now() });
 
@@ -177,21 +195,18 @@ async function waitForAnalytics(admin: ApiClient, dataset: Dataset, ingested: In
     READINESS_TIMEOUT_MS,
   );
 
-  await poll(
+  const replay = await poll(
     'the recorded replay',
     async () => {
       const response = await admin.get(`/api/websites/${websiteId}/replays`, {
-        params: range(),
+        params: { ...range(), pageSize: 2 },
       });
-
-      return response.body?.data?.some((r: any) => r.id === ingested.replay.visitId)
-        ? true
-        : undefined;
+      return response.status === 200 ? getRecordedReplayIdentity(response.body?.data) : undefined;
     },
     READINESS_TIMEOUT_MS,
   );
 
-  return { sessionId, eventId };
+  return { sessionId, eventId, replay };
 }
 
 export async function seedEnvironment(api: ApiClient): Promise<SeedState> {
@@ -233,8 +248,8 @@ export async function seedEnvironment(api: ApiClient): Promise<SeedState> {
   const team = await ensureTeam(admin, user.id);
 
   const dataset = buildDataset();
-  const ingested = await ingestDataset(api, dataset);
-  const { sessionId, eventId } = await waitForAnalytics(admin, dataset, ingested);
+  await ingestDataset(api, dataset);
+  const { sessionId, eventId, replay } = await waitForAnalytics(admin, dataset);
 
   return {
     db,
@@ -259,8 +274,8 @@ export async function seedEnvironment(api: ApiClient): Promise<SeedState> {
       expectedWebsite2Pageviews: dataset.expected.website2Pageviews,
       sessionId,
       eventId,
-      replayVisitId: ingested.replay.visitId,
-      replaySessionId: ingested.replay.sessionId,
+      replayVisitId: replay.visitId,
+      replaySessionId: replay.sessionId,
     },
   };
 }

@@ -24,7 +24,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ pixe
     return notFound();
   }
 
-  if (!auth.user) {
+  if (!auth.user || !(await canViewPixel({ user: auth.user }, pixelId))) {
     return json({
       id: pixel.id,
       name: pixel.name,

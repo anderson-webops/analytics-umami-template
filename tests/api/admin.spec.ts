@@ -441,7 +441,9 @@ test.describe('Admin', () => {
       const throwaway = api.bearer(userToken);
 
       // Leave a pending setup behind so the reset has something to clear.
-      const initiated = await throwaway.post('/api/2fa/setup/initiate');
+      const initiated = await throwaway.post('/api/2fa/setup/initiate', {
+        password: userCredentials.password,
+      });
 
       expect(initiated.status).toBe(200);
 
@@ -473,12 +475,18 @@ test.describe('Admin', () => {
 
       expect((await throwaway.get('/api/2fa/status')).status).toBe(401);
 
-      const confirm = await throwaway.post('/api/2fa/setup/confirm', { token: '000000' });
+      const confirm = await throwaway.post('/api/2fa/setup/confirm', {
+        token: '000000',
+        password: userCredentials.password,
+      });
 
       expect(confirm.status).toBe(401);
 
       const replacement = api.bearer(await login(api, userCredentials));
-      const freshConfirm = await replacement.post('/api/2fa/setup/confirm', { token: '000000' });
+      const freshConfirm = await replacement.post('/api/2fa/setup/confirm', {
+        token: '000000',
+        password: userCredentials.password,
+      });
 
       expect(freshConfirm.status).toBe(400);
       expect(freshConfirm.body.error.code).toBe('two-factor-error-no-pending-setup');

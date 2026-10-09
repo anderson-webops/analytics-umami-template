@@ -23,14 +23,15 @@ export function BoardUTM({
     dateRange: { startDate, endDate },
   } = useDateRange();
   const { t, labels } = useMessages();
+  const itemLimit = Number(limit) || 10;
   const { data, error, isLoading } = useUTMMetricsQuery({
     type: param,
     websiteId,
     startDate,
     endDate,
+    limit: itemLimit,
   });
 
-  const itemLimit = Number(limit) || 10;
   const items = (data ?? []).slice(0, itemLimit);
   const total = items.reduce((sum, { views }) => {
     return +sum + +views;

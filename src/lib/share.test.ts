@@ -6,6 +6,7 @@ import {
   excludeShareFilterParam,
   getMetricShareSections,
   getShareTheme,
+  getValueShareSections,
   restrictShareAuthToSection,
 } from './share';
 
@@ -17,6 +18,25 @@ describe('getMetricShareSections', () => {
 
     expect(getMetricShareSections('constructor')).toBeNull();
     expect(getMetricShareSections('newDimension')).toBeNull();
+  });
+});
+
+describe('getValueShareSections', () => {
+  test('requires the requested dimension section even when filtering is enabled', () => {
+    expect(getValueShareSections('distinctId', true)).toEqual(['compare', 'sessions']);
+    expect(getValueShareSections('event', true)).toEqual([
+      'compare',
+      'events',
+      'journeys',
+      'attribution',
+    ]);
+  });
+
+  test('limits filter-disabled shares to journey and attribution selectors', () => {
+    expect(getValueShareSections('path', false)).toEqual(['journeys', 'attribution']);
+    expect(getValueShareSections('event', false)).toEqual(['journeys', 'attribution']);
+    expect(getValueShareSections('distinctId', false)).toBeNull();
+    expect(getValueShareSections('constructor', true)).toBeNull();
   });
 });
 

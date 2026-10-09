@@ -1,5 +1,7 @@
 import { expect, test } from './fixtures';
 import { CACHE_HEADER, UNKNOWN_UUID } from './helpers/constants';
+import { dateRange } from './helpers/dates';
+import { uniqueName } from './helpers/entities';
 import { HOSTNAME, PERSONAS } from './seed/dataset';
 
 const persona = PERSONAS[0];
@@ -29,22 +31,30 @@ test.describe('Collection', () => {
     const response = await api.post('/api/send', pageview(seed.website.id));
 
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({
-      cache: expect.any(String),
-      sessionId: expect.any(String),
-      visitId: expect.any(String),
-    });
+    expect(response.body).toEqual({ cache: expect.stringMatching(/^c1\./) });
   });
 
-  test('POST /api/send continues the visit when the cache token is sent', async ({ api, seed }) => {
-    const first = await api.post('/api/send', pageview(seed.website.id));
-    const second = await api.post('/api/send', pageview(seed.website.id, { url: '/second' }), {
-      headers: { [CACHE_HEADER]: first.body.cache },
+  test('POST /api/send continues the visit when the cache token is sent', async ({
+    api,
+    admin,
+    seed,
+  }) => {
+    const distinctId = uniqueName('cache-visit');
+    const first = await api.post('/api/send', pageview(seed.website.id, { id: distinctId }));
+    const second = await api.post(
+      '/api/send',
+      pageview(seed.website.id, { id: distinctId, url: '/second' }),
+      { headers: { [CACHE_HEADER]: first.body.cache } },
+    );
+    const sessions = await admin.get(`/api/websites/${seed.website.id}/sessions`, {
+      params: dateRange(seed, { distinctId }),
     });
 
     expect(second.status).toBe(200);
-    expect(second.body.sessionId).toBe(first.body.sessionId);
-    expect(second.body.visitId).toBe(first.body.visitId);
+    expect(second.body).toEqual({ cache: expect.stringMatching(/^c1\./) });
+    expect(sessions.status).toBe(200);
+    expect(sessions.body.data).toHaveLength(1);
+    expect(sessions.body.data[0]).toMatchObject({ views: 2, visits: 1 });
   });
 
   test('POST /api/send records custom, identify and performance payloads', async ({
@@ -202,7 +212,8 @@ test.describe('Collection', () => {
   });
 
   test('POST /api/record deduplicates a retried replay chunk', async ({ api, admin, seed }) => {
-    const visit = await api.post('/api/send', pageview(seed.website.id));
+    const distinctId = uniqueName('replay-retry');
+    const visit = await api.post('/api/send', pageview(seed.website.id, { id: distinctId }));
     const chunkIndex = Math.floor(Date.now() / 1000);
     const payload = {
       type: 'record',
@@ -217,8 +228,13 @@ test.describe('Collection', () => {
     expect((await api.post('/api/record', payload, { headers })).status).toBe(200);
     expect((await api.post('/api/record', payload, { headers })).status).toBe(200);
 
+    const listed = await admin.get(`/api/websites/${seed.website.id}/replays`, {
+      params: dateRange(seed, { search: distinctId }),
+    });
+    expect(listed.status).toBe(200);
+    expect(listed.body.data).toHaveLength(1);
     const replay = await admin.get(
-      `/api/websites/${seed.website.id}/replays/${visit.body.visitId}`,
+      `/api/websites/${seed.website.id}/replays/${listed.body.data[0].id}`,
     );
 
     expect(replay.status).toBe(200);
@@ -227,7 +243,8 @@ test.describe('Collection', () => {
   });
 
   test('POST /api/record rejects a cumulative oversized visit', async ({ api, admin, seed }) => {
-    const visit = await api.post('/api/send', pageview(seed.website.id));
+    const distinctId = uniqueName('replay-budget');
+    const visit = await api.post('/api/send', pageview(seed.website.id, { id: distinctId }));
     const headers = { [CACHE_HEADER]: visit.body.cache };
     const chunkIndex = Math.floor(Date.now() / 1000);
     const eventData = 'x'.repeat(950_000);
@@ -261,8 +278,13 @@ test.describe('Collection', () => {
       },
       { headers },
     );
+    const listed = await admin.get(`/api/websites/${seed.website.id}/replays`, {
+      params: dateRange(seed, { search: distinctId }),
+    });
+    expect(listed.status).toBe(200);
+    expect(listed.body.data).toHaveLength(1);
     const replay = await admin.get(
-      `/api/websites/${seed.website.id}/replays/${visit.body.visitId}`,
+      `/api/websites/${seed.website.id}/replays/${listed.body.data[0].id}`,
     );
 
     expect(rejected.status).toBe(413);

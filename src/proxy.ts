@@ -13,7 +13,6 @@ const LOGIN_PATH = '/login';
 const BASE_PATH = process.env.BASE_PATH || '';
 
 const apiHeaders = {
-  'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers':
     'Content-Type, X-Umami-Cache, X-Umami-Hostname, X-Umami-Website-Id',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',

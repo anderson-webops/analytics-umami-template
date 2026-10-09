@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { ENTITY_TYPE } from '@/lib/constants';
 import { getEntity } from '@/lib/entity';
 import { getTeamUser, getWebsite } from '@/queries/prisma';
 import {
@@ -86,20 +87,21 @@ describe('canViewWebsite', () => {
 
   test('allows a matching single share token id', async () => {
     await expect(
-      canViewWebsite({ shareToken: { websiteId: 'website-1' } as any }, 'website-1'),
+      canViewWebsite(
+        { shareToken: { shareType: ENTITY_TYPE.website, websiteId: 'website-1' } },
+        'website-1',
+      ),
     ).resolves.toBe(true);
   });
 
-  test('allows a website id present in share token list ids', async () => {
-    await expect(
-      canViewWebsite({ shareToken: { websiteIds: ['website-1'] } as any }, 'website-1'),
-    ).resolves.toBe(true);
-  });
-
-  test('allows a pixel share token to view the matching id', async () => {
-    await expect(
-      canViewWebsite({ shareToken: { pixelId: 'website-1' } as any }, 'website-1'),
-    ).resolves.toBe(true);
+  test('does not promote non-website share identifiers to website permission', async () => {
+    for (const shareToken of [
+      { shareType: ENTITY_TYPE.board, websiteIds: ['website-1'], scopedApiAccess: true },
+      { shareType: ENTITY_TYPE.pixel, pixelId: 'website-1', scopedApiAccess: true },
+      { shareType: ENTITY_TYPE.link, linkId: 'website-1', scopedApiAccess: true },
+    ]) {
+      await expect(canViewWebsite({ shareToken }, 'website-1')).resolves.toBe(false);
+    }
   });
 
   test('denies when entity is missing', async () => {
@@ -154,8 +156,23 @@ describe('canViewBatchWebsites', () => {
 
   test('returns only share-allowed ids when there is no user', async () => {
     await expect(
-      canViewBatchWebsites({ shareToken: { websiteIds: ['a'] } as any }, ['a', 'b']),
+      canViewBatchWebsites({ shareToken: { shareType: ENTITY_TYPE.website, websiteId: 'a' } }, [
+        'a',
+        'b',
+      ]),
     ).resolves.toEqual(['a']);
+    await expect(
+      canViewBatchWebsites(
+        {
+          shareToken: {
+            shareType: ENTITY_TYPE.board,
+            websiteIds: ['a'],
+            scopedApiAccess: true,
+          },
+        },
+        ['a', 'b'],
+      ),
+    ).resolves.toEqual([]);
   });
 
   test('returns owned, team, and share allowed ids for a user', async () => {
@@ -167,12 +184,10 @@ describe('canViewBatchWebsites', () => {
     primaryTeamUserFindManyMock.mockResolvedValue([{ teamId: 'team-1' }] as any);
 
     await expect(
-      canViewBatchWebsites({ user: normalUser, shareToken: { websiteId: 'shared' } as any }, [
-        'owned',
-        'team',
-        'foreign',
-        'shared',
-      ]),
+      canViewBatchWebsites(
+        { user: normalUser, shareToken: { shareType: ENTITY_TYPE.website, websiteId: 'shared' } },
+        ['owned', 'team', 'foreign', 'shared'],
+      ),
     ).resolves.toEqual(['owned', 'team', 'shared']);
   });
 

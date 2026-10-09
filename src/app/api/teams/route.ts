@@ -9,7 +9,7 @@ import { badRequest, json, unauthorized } from '@/lib/response';
 import { pagingParams, sortingParams } from '@/lib/schema';
 import { getCloudTeamLimit } from '@/lib/subscription';
 import { canCreateTeam } from '@/permissions';
-import { createTeam, getUserOwnedTeamCount, getUserTeams } from '@/queries/prisma';
+import { createTeam, getUserTeams } from '@/queries/prisma';
 
 export async function GET(request: Request) {
   const schema = z.object({
@@ -52,19 +52,11 @@ export async function POST(request: Request) {
   const teamOwnerId = ownerId && auth.user.isAdmin ? ownerId : auth.user.id;
 
   let account = null;
+  let teamLimit: number | null = null;
 
   if (isEnvEnabled('CLOUD_MODE')) {
     account = await fetchAccount(teamOwnerId);
-
-    const teamLimit = getCloudTeamLimit(account);
-
-    if (teamLimit !== null) {
-      const count = await getUserOwnedTeamCount(teamOwnerId);
-
-      if (count >= teamLimit) {
-        return unauthorized({ message: 'Team limit reached.' });
-      }
-    }
+    teamLimit = getCloudTeamLimit(account);
   }
 
   let team;
@@ -78,8 +70,13 @@ export async function POST(request: Request) {
       },
       teamOwnerId,
       auth.user.id,
+      teamLimit,
     );
   } catch (error: any) {
+    if (error?.message === 'TEAM_LIMIT_REACHED') {
+      return unauthorized({ message: 'Team limit reached.' });
+    }
+
     if (error?.message === 'TEAM_ACTOR_NOT_AUTHORIZED') {
       return unauthorized({ message: 'Your team-creation permission changed.' });
     }

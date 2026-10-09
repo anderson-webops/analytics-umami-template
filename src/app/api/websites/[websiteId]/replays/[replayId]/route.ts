@@ -5,6 +5,7 @@ import { parseRequest } from '@/lib/request';
 import { badRequest, json, payloadTooLarge, unauthorized } from '@/lib/response';
 import { canViewAuthenticatedWebsite } from '@/permissions';
 import { getReplayChunks } from '@/queries/sql';
+import { redactReplayNavigationEvents } from '@/recorder/url';
 
 function getEventTimestamp(event: any): number | null {
   const timestamp = Number(event?.timestamp);
@@ -112,8 +113,8 @@ export async function GET(
 
     throw error;
   }
-  const allEvents = restoreReplayEventFragments(
-    mergeReplayEvents(chunks, { until, endChunkIndex, endEventIndex }),
+  const allEvents = redactReplayNavigationEvents(
+    restoreReplayEventFragments(mergeReplayEvents(chunks, { until, endChunkIndex, endEventIndex })),
   );
   const sessionId = chunks.length > 0 ? chunks[0].sessionId : null;
   const startedAt = chunks.length > 0 ? chunks[0].startedAt : null;

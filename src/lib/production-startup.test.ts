@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
+import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
@@ -54,10 +55,6 @@ describe('direct production startup', () => {
             path.join(repositoryRoot, 'scripts/repair-standalone.js'),
             path.join(scriptDirectory, 'repair-standalone.js'),
           );
-        }
-
-        if (launcherKind === 'dotenv') {
-          fs.copyFileSync(path.join(repositoryRoot, 'scripts/start-env.js'), launcherPath);
           const modulesDirectory = path.join(fixtureRoot, 'node_modules');
           fs.mkdirSync(modulesDirectory);
           fs.symlinkSync(
@@ -67,8 +64,13 @@ describe('direct production startup', () => {
           );
         }
 
+        if (launcherKind === 'dotenv') {
+          fs.copyFileSync(path.join(repositoryRoot, 'scripts/start-env.js'), launcherPath);
+        }
+
         const checkSource =
           "if (process.env.DOTENV_CONFIG_OVERRIDE) { console.error('Dotenv override reached startup gate.'); process.exit(72); }\n" +
+          `if (Boolean(process.env.DIRECT_DATABASE_URL) !== ${launcherKind === 'artifact'}) { console.error('Unexpected migration credential at startup gate.'); process.exit(74); }\n` +
           "if (process.env.NODE_ENV === 'production' && process.env.UMAMI_BIND_ADDRESS === '0.0.0.0') { console.error('Public listener rejected.'); process.exit(71); }\n";
         const checkExtension = launcherKind === 'artifact' ? 'mjs' : 'js';
         fs.writeFileSync(path.join(scriptDirectory, `check-env.${checkExtension}`), checkSource);
@@ -82,7 +84,7 @@ describe('direct production startup', () => {
         fs.mkdirSync(appRoot, { recursive: true });
         fs.writeFileSync(
           path.join(appRoot, 'server.js'),
-          'console.log("server mode: " + process.env.NODE_ENV + "; loaded: " + process.env.TEST_ENV_LOADED);\n',
+          'console.log("server mode: " + process.env.NODE_ENV + "; loaded: " + process.env.TEST_ENV_LOADED + "; direct: " + Boolean(process.env.DIRECT_DATABASE_URL) + "; dotenv path: " + Boolean(process.env.DOTENV_CONFIG_PATH) + "; pid: " + process.pid + "; cwd: " + process.cwd());\n',
         );
 
         for (const nodeEnvironment of ['development', undefined] as const) {
@@ -96,6 +98,10 @@ describe('direct production startup', () => {
                 NODE_ENV: nodeEnvironment,
                 DOTENV_CONFIG_OVERRIDE: dotenvOverride,
                 DOTENV_CONFIG_PATH: path.join(fixtureRoot, '.env'),
+                DIRECT_DATABASE_URL:
+                  launcherKind === 'artifact'
+                    ? 'postgresql://synthetic:synthetic@127.0.0.1:65534/synthetic'
+                    : undefined,
                 UMAMI_BIND_ADDRESS: bindAddress,
               };
               const result = spawnSync(process.execPath, [launcherPath], {
@@ -109,6 +115,10 @@ describe('direct production startup', () => {
               expect(result.status, result.stderr).toBe(expectedStatus);
               if (expectedStatus === 0) {
                 expect(result.stdout).toContain('server mode: production');
+                expect(result.stdout).toContain('direct: false');
+                expect(result.stdout).toContain('dotenv path: false');
+                expect(result.stdout).toContain(`pid: ${result.pid}`);
+                expect(result.stdout).toContain(`cwd: ${appRoot}`);
                 if (launcherKind === 'dotenv') {
                   expect(result.stdout).toContain('loaded: ok');
                 }
@@ -119,11 +129,124 @@ describe('direct production startup', () => {
             }
           }
         }
+
+        if (launcherKind !== 'artifact') {
+          const baseEnvironment = {
+            ...process.env,
+            DOTENV_CONFIG_PATH: path.join(fixtureRoot, '.env'),
+          };
+          const directDatabaseUrl = 'postgresql://synthetic:synthetic@127.0.0.1:65534/synthetic';
+          const exportedCredential = spawnSync(process.execPath, [launcherPath], {
+            cwd: fixtureRoot,
+            encoding: 'utf8',
+            env: { ...baseEnvironment, DIRECT_DATABASE_URL: directDatabaseUrl },
+            timeout: 5_000,
+          });
+          expect(exportedCredential.status).toBe(1);
+          expect(exportedCredential.stderr).toContain(
+            'DIRECT_DATABASE_URL is reserved for the pre-promotion database gate.',
+          );
+          expect(exportedCredential.stdout).not.toContain('server mode:');
+
+          fs.appendFileSync(
+            path.join(fixtureRoot, '.env'),
+            `DIRECT_DATABASE_URL=${directDatabaseUrl}\n`,
+          );
+          const dotenvCredential = spawnSync(process.execPath, [launcherPath], {
+            cwd: fixtureRoot,
+            encoding: 'utf8',
+            env: { ...baseEnvironment, DIRECT_DATABASE_URL: undefined },
+            timeout: 5_000,
+          });
+          expect(dotenvCredential.status).toBe(1);
+          expect(dotenvCredential.stderr).toContain(
+            'DIRECT_DATABASE_URL is reserved for the pre-promotion database gate.',
+          );
+          expect(dotenvCredential.stdout).not.toContain('server mode:');
+        }
       } finally {
         fs.rmSync(fixtureRoot, { recursive: true, force: true });
       }
     },
   );
+
+  test('artifact acceptance handles signal-based shutdown after launcher replacement', async () => {
+    const runsDirectory = path.join(repositoryRoot, '.ai-work', 'runs');
+    fs.mkdirSync(runsDirectory, { recursive: true });
+    const fixtureRoot = fs.mkdtempSync(path.join(runsDirectory, 'artifact-shutdown-'));
+    const scriptDirectory = path.join(fixtureRoot, 'runtime-scripts');
+    const listener = net.createServer();
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        listener.once('error', reject);
+        listener.listen(0, '127.0.0.1', resolve);
+      });
+      const address = listener.address();
+
+      if (!address || typeof address === 'string') {
+        throw new Error('The synthetic listener did not receive a TCP port.');
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        listener.close(error => (error ? reject(error) : resolve()));
+      });
+
+      fs.mkdirSync(scriptDirectory);
+      fs.writeFileSync(path.join(fixtureRoot, 'package.json'), '{"type":"module"}\n');
+      fs.copyFileSync(
+        path.join(repositoryRoot, 'scripts/start-runtime.mjs'),
+        path.join(scriptDirectory, 'start-production.mjs'),
+      );
+      fs.copyFileSync(
+        path.join(repositoryRoot, 'scripts/artifact-smoke.mjs'),
+        path.join(scriptDirectory, 'artifact-smoke.mjs'),
+      );
+      fs.writeFileSync(
+        path.join(scriptDirectory, 'check-env.mjs'),
+        'if (!process.env.DIRECT_DATABASE_URL) process.exit(74);\n',
+      );
+      fs.writeFileSync(
+        path.join(scriptDirectory, 'check-db.mjs'),
+        "if (!process.argv.includes('--verify-only')) process.exit(73);\n",
+      );
+      fs.writeFileSync(
+        path.join(fixtureRoot, 'server.js'),
+        "import { createServer } from 'node:http';\n" +
+          'if (process.env.DIRECT_DATABASE_URL) process.exit(77);\n' +
+          "const server = createServer((request, response) => { response.writeHead(200, { 'cache-control': 'no-store' }); response.end(request.method === 'HEAD' ? '' : '{\"ok\":true}'); });\n" +
+          'server.listen(Number(process.env.PORT), process.env.HOSTNAME);\n' +
+          "process.on('SIGTERM', () => server.close(() => process.exit(143)));\n",
+      );
+
+      const result = spawnSync(
+        process.execPath,
+        [path.join(scriptDirectory, 'artifact-smoke.mjs')],
+        {
+          cwd: fixtureRoot,
+          encoding: 'utf8',
+          timeout: 15_000,
+          env: {
+            ...process.env,
+            NODE_ENV: 'production',
+            PORT: String(address.port),
+            DIRECT_DATABASE_URL: 'postgresql://synthetic:synthetic@127.0.0.1:65534/synthetic',
+            RUNTIME_ACCEPTANCE_EXPECT_READY: '1',
+            RUNTIME_ACCEPTANCE_USE_STARTUP: '1',
+          },
+        },
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain(
+        'Artifact health, readiness, and graceful-shutdown acceptance passed.',
+      );
+    } finally {
+      listener.close();
+      fs.rmSync(fixtureRoot, { recursive: true, force: true });
+    }
+  }, 20_000);
 
   test('keeps local development origin-free and production configuration separate', () => {
     const developmentEnvironment = read('env.development.sample');

@@ -44,6 +44,31 @@ test('ordinary patterns retain compile, expand, and stringify behavior', () => {
   }
 });
 
+test('aggregate expansion is bounded before Cartesian and array outputs are materialized', () => {
+  for (const plugin of ['rollup-plugin-copy', 'rollup-plugin-delete']) {
+    const { braces } = installedBraces(plugin);
+    assert.equal(braces.expand('{a,b}'.repeat(13)).length, 8192);
+    assert.throws(() => braces.expand('{a,b}'.repeat(30)), {
+      name: 'RangeError',
+      message: 'expanded array length exceeds aggregate limit',
+    });
+    assert.throws(() => braces.expand('{1..1000}{1..1000}'), {
+      name: 'RangeError',
+      message: 'expanded array length exceeds aggregate limit',
+    });
+    assert.equal(braces.expand('{a,{b,c}}'.repeat(8)).length, 6561);
+    assert.throws(() => braces.expand('{a,{b,c}}'.repeat(9)), {
+      name: 'RangeError',
+      message: 'expanded array length exceeds aggregate limit',
+    });
+    assert.throws(() => braces(Array(11).fill('{1..1000}'), { expand: true }), {
+      name: 'RangeError',
+      message: 'expanded array length exceeds aggregate limit',
+    });
+    assert.deepEqual(braces.expand('item-{1..3}'), ['item-1', 'item-2', 'item-3']);
+  }
+});
+
 test('deep strings are rejected before recursive walkers exhaust the stack', () => {
   const { braces } = installedBraces('rollup-plugin-copy');
   for (const input of [

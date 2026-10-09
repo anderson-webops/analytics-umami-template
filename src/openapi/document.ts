@@ -89,7 +89,7 @@ export async function buildOpenApiDocument(
     const operation = {
       ...contract.operation,
       ...operationDescriptions[getOperationKey(contract)],
-      security: getSecurityRequirements(contract.auth),
+      security: getSecurityRequirements(contract.auth, contract.path, contract.method),
       'x-umami-audience': contract.audience,
       'x-umami-contract': contract.origin,
       'x-umami-source': contract.source,

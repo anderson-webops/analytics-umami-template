@@ -30,4 +30,6 @@ test('does not classify date ranges, paging, or report types as filters', () => 
 test('detects filters in parsed query objects', () => {
   expect(hasShareFilterParams({ startAt: 1, endAt: 2 })).toBe(false);
   expect(hasShareFilterParams({ startAt: 1, country: 'US' })).toBe(true);
+  expect(hasShareFilterParams({ search: '' })).toBe(false);
+  expect(hasShareFilterParams({ search: 'private' })).toBe(true);
 });

@@ -2,8 +2,13 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@/generated/prisma/client';
-import { reserveHeatmapBudget } from '@/lib/heatmap-budget';
-import { reserveReplayBudget } from '@/lib/replay-budget';
+import { HeatmapBudgetExceededError, reserveHeatmapBudget } from '@/lib/heatmap-budget';
+import {
+  MAX_RECORDER_NEW_VISIT_KEYS_PER_DAY,
+  MAX_RECORDER_NEW_VISIT_KEYS_PER_MINUTE,
+  reserveRecorderVisitKeyBudget,
+} from '@/lib/recorder-budget';
+import { ReplayBudgetExceededError, reserveReplayBudget } from '@/lib/replay-budget';
 
 assert.equal(process.env.ALLOW_DESTRUCTIVE_MIGRATION_TEST, '1');
 const databaseUrl = process.env.DATABASE_URL;
@@ -63,6 +68,11 @@ try {
   await heatmap(heatmapVisitId);
   assertBoundedExpiry((await budget(replayVisitId)).expiresAt);
   assertBoundedExpiry((await budget(`heatmap:${heatmapVisitId}`)).expiresAt);
+  const initialKeyBudgets = await client.replayIngestBudget.findMany({
+    where: { websiteId, scopeKey: { startsWith: 'recorder-visits:' } },
+  });
+  assert.equal(initialKeyBudgets.length, 2);
+  assert.ok(initialKeyBudgets.every(row => row.chunks === 2 && row.expiresAt));
 
   for (const scopeKey of [replayVisitId, `heatmap:${heatmapVisitId}`]) {
     await client.replayIngestBudget.update({
@@ -126,7 +136,87 @@ try {
     0,
   );
 
-  console.log('Recorder visit budgets passed PostgreSQL expiry, legacy-null and cleanup checks.');
+  const minuteNow = Date.now();
+  const minuteScopeKey = `recorder-visits:${new Date(Math.floor(minuteNow / 60_000) * 60_000).toISOString()}`;
+  const minuteKeyBudget = await client.replayIngestBudget.upsert({
+    where: {
+      websiteId_scope_scopeKey: {
+        websiteId,
+        scope: 'minute',
+        scopeKey: minuteScopeKey,
+      },
+    },
+    update: { chunks: MAX_RECORDER_NEW_VISIT_KEYS_PER_MINUTE },
+    create: {
+      websiteId,
+      scope: 'minute',
+      scopeKey: minuteScopeKey,
+      chunks: MAX_RECORDER_NEW_VISIT_KEYS_PER_MINUTE,
+      expiresAt: new Date(minuteNow + 120_000),
+    },
+  });
+  assert.equal(
+    await client.$transaction(transaction =>
+      reserveRecorderVisitKeyBudget(transaction, websiteId, minuteNow),
+    ),
+    60,
+  );
+  await client.replayIngestBudget.update({
+    where: {
+      websiteId_scope_scopeKey: {
+        websiteId,
+        scope: 'minute',
+        scopeKey: minuteKeyBudget.scopeKey,
+      },
+    },
+    data: { chunks: 0 },
+  });
+
+  const dayKeyBudget = await client.replayIngestBudget.findFirstOrThrow({
+    where: { websiteId, scope: 'day', scopeKey: { startsWith: 'recorder-visits:' } },
+    orderBy: { scopeKey: 'desc' },
+  });
+  await client.replayIngestBudget.update({
+    where: {
+      websiteId_scope_scopeKey: {
+        websiteId,
+        scope: 'day',
+        scopeKey: dayKeyBudget.scopeKey,
+      },
+    },
+    data: { chunks: MAX_RECORDER_NEW_VISIT_KEYS_PER_DAY - 1 },
+  });
+  const priorVisits = await client.replayIngestBudget.count({
+    where: { websiteId, scope: 'visit' },
+  });
+  const concurrent = await Promise.allSettled([replay(randomUUID(), 1), replay(randomUUID(), 1)]);
+  assert.equal(concurrent.filter(result => result.status === 'fulfilled').length, 1);
+  const rejected = concurrent.find(result => result.status === 'rejected');
+  assert.ok(rejected?.status === 'rejected');
+  assert.ok(rejected.reason instanceof ReplayBudgetExceededError);
+  assert.equal(rejected.reason.retryAfter, 86_400);
+  assert.equal(
+    await client.replayIngestBudget.count({ where: { websiteId, scope: 'visit' } }),
+    priorVisits + 1,
+  );
+  await assert.rejects(
+    () => heatmap(randomUUID()),
+    error => error instanceof HeatmapBudgetExceededError && error.retryAfter === 86_400,
+  );
+  assert.equal(
+    await client.replayIngestBudget.count({ where: { websiteId, scope: 'visit' } }),
+    priorVisits + 1,
+  );
+  assert.equal(await replay(replayVisitId, 3), true);
+  await heatmap(heatmapVisitId);
+  assert.equal(
+    await client.replayIngestBudget.count({ where: { websiteId, scope: 'visit' } }),
+    priorVisits + 1,
+  );
+
+  console.log(
+    'Recorder visit budgets passed PostgreSQL expiry, cleanup and atomic new-key cap checks.',
+  );
 } finally {
   if (created) {
     await client.replayIngestBudget.deleteMany({ where: { websiteId } });

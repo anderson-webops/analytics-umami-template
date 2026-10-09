@@ -1,5 +1,6 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { checkAuth } from '@/lib/auth';
+import { ENTITY_TYPE } from '@/lib/constants';
 import { fetchWebsite } from '@/lib/load';
 import { reserveShareQueryCost } from '@/lib/share-query-budget';
 import {
@@ -13,13 +14,17 @@ import {
   getActiveVisitors,
   getBreakdown as getCompatBreakdown,
   getFunnel as getCompatFunnel,
+  getLinkedDistinctIds,
+  getLinkedSessionIds,
   getPageviewStats,
   getRealtimeData,
+  getSessionActivity,
   getSessionStats,
   getUTM,
   getWebsiteDateRange,
   getWebsiteEvents,
   getWebsiteListCharts,
+  getWebsiteSession,
   getWebsiteSessions,
   getWebsiteStats,
 } from '@/queries/sql';
@@ -42,6 +47,8 @@ import { POST as getUtmReport } from '../(compat)/compat/api/reports/utm/route';
 import { GET as getLinkChartsRoute } from './links/charts/route';
 import { GET as getPixelChartsRoute } from './pixels/charts/route';
 import { GET as getRealtimeRoute } from './realtime/[websiteId]/route';
+import { GET as getRealtimeSeriesRoute } from './realtime/[websiteId]/series/route';
+import { GET as getRealtimeTotalsRoute } from './realtime/[websiteId]/totals/route';
 import { GET as getActiveVisitorsRoute } from './websites/[websiteId]/active/route';
 import { GET as getAttributionRoute } from './websites/[websiteId]/attribution/route';
 import { GET as getBreakdownRoute } from './websites/[websiteId]/breakdown/route';
@@ -52,8 +59,11 @@ import { GET as getFunnelRoute } from './websites/[websiteId]/funnels/stats/rout
 import { GET as getJourneyRoute } from './websites/[websiteId]/journeys/route';
 import { GET as getPageviewsRoute } from './websites/[websiteId]/pageviews/route';
 import { GET as getRevenueStatsRoute } from './websites/[websiteId]/revenue/stats/route';
+import { GET as getRevenueTotalRoute } from './websites/[websiteId]/revenue/total/route';
+import { GET as getSessionActivityRoute } from './websites/[websiteId]/sessions/[sessionId]/activity/route';
 import { GET as getSessionsRoute } from './websites/[websiteId]/sessions/route';
 import { GET as getWebsiteStatsRoute } from './websites/[websiteId]/stats/route';
+import { GET as getTrafficStatsRoute } from './websites/[websiteId]/stats/traffic/route';
 import { GET as getWebsiteChartsRoute } from './websites/charts/route';
 
 vi.hoisted(() => {
@@ -76,12 +86,16 @@ vi.mock('@/queries/sql', () => ({
   getFunnel: vi.fn(),
   getPageviewStats: vi.fn(),
   getRealtimeData: vi.fn(),
+  getLinkedDistinctIds: vi.fn(),
+  getLinkedSessionIds: vi.fn(),
+  getSessionActivity: vi.fn(),
   getSessionStats: vi.fn(),
   getUTM: vi.fn(),
   getWebsiteEvents: vi.fn(),
   getWebsiteDateRange: vi.fn(),
   getWebsiteListCharts: vi.fn(),
   getWebsiteSessions: vi.fn(),
+  getWebsiteSession: vi.fn(),
   getWebsiteStats: vi.fn(),
 }));
 vi.mock('@/queries/sql/attribution/getAttribution', () => ({ getAttribution: vi.fn() }));
@@ -109,6 +123,9 @@ const getCompatBreakdownMock = vi.mocked(getCompatBreakdown);
 const getCompatFunnelMock = vi.mocked(getCompatFunnel);
 const getPageviewStatsMock = vi.mocked(getPageviewStats);
 const getRealtimeDataMock = vi.mocked(getRealtimeData);
+const getLinkedDistinctIdsMock = vi.mocked(getLinkedDistinctIds);
+const getLinkedSessionIdsMock = vi.mocked(getLinkedSessionIds);
+const getSessionActivityMock = vi.mocked(getSessionActivity);
 const getSessionStatsMock = vi.mocked(getSessionStats);
 const getAttributionMock = vi.mocked(getAttribution);
 const getBreakdownMock = vi.mocked(getBreakdown);
@@ -126,8 +143,13 @@ const getWebsiteListChartsMock = vi.mocked(getWebsiteListCharts);
 const getWebsiteStatsMock = vi.mocked(getWebsiteStats);
 const getWebsiteEventsMock = vi.mocked(getWebsiteEvents);
 const getWebsiteSessionsMock = vi.mocked(getWebsiteSessions);
+const getWebsiteSessionMock = vi.mocked(getWebsiteSession);
 const WEBSITE_ID = '00000000-0000-4000-8000-000000000001';
+const SESSION_ID = '00000000-0000-4000-8000-000000000002';
 const pathParams = { params: Promise.resolve({ websiteId: WEBSITE_ID }) };
+const sessionPathParams = {
+  params: Promise.resolve({ websiteId: WEBSITE_ID, sessionId: SESSION_ID }),
+};
 
 beforeEach(() => {
   checkAuthMock.mockReset();
@@ -142,6 +164,9 @@ beforeEach(() => {
   getCompatFunnelMock.mockReset();
   getPageviewStatsMock.mockReset();
   getRealtimeDataMock.mockReset();
+  getLinkedDistinctIdsMock.mockReset();
+  getLinkedSessionIdsMock.mockReset();
+  getSessionActivityMock.mockReset();
   getSessionStatsMock.mockReset();
   getAttributionMock.mockReset();
   getBreakdownMock.mockReset();
@@ -159,6 +184,7 @@ beforeEach(() => {
   getWebsiteStatsMock.mockReset();
   getWebsiteEventsMock.mockReset();
   getWebsiteSessionsMock.mockReset();
+  getWebsiteSessionMock.mockReset();
   fetchWebsiteMock.mockResolvedValue({ id: WEBSITE_ID } as any);
   getAttributionMock.mockResolvedValue({} as any);
   getBreakdownMock.mockResolvedValue([] as any);
@@ -172,6 +198,10 @@ beforeEach(() => {
   getJourneyMock.mockResolvedValue([] as any);
   getWebsiteEventsMock.mockResolvedValue({ data: [], count: 0, page: 1, pageSize: 20 } as any);
   getWebsiteSessionsMock.mockResolvedValue({ data: [], count: 0, page: 1, pageSize: 20 } as any);
+  getWebsiteSessionMock.mockResolvedValue({ id: SESSION_ID, distinctId: 'visitor-1' } as any);
+  getLinkedDistinctIdsMock.mockResolvedValue(['visitor-1']);
+  getLinkedSessionIdsMock.mockResolvedValue([]);
+  getSessionActivityMock.mockResolvedValue([]);
   getPerformanceMock.mockResolvedValue({ chart: [], summary: {} } as any);
   getPerformanceMetricsMock.mockResolvedValue([] as any);
   getRevenueChartMock.mockResolvedValue({ chart: [] } as any);
@@ -222,6 +252,40 @@ test('ordinary signed-in stats requests remain unaffected by share budgeting', a
     200, 200,
   ]);
   expect(getWebsiteStatsMock).toHaveBeenCalledTimes(4);
+});
+
+test('link shares receive only the three displayed traffic totals', async () => {
+  checkAuthMock.mockResolvedValue({
+    shareToken: {
+      shareId: `link-traffic-${crypto.randomUUID()}`,
+      shareType: ENTITY_TYPE.link,
+      linkId: WEBSITE_ID,
+    },
+  } as any);
+  canViewWebsiteSectionMock.mockResolvedValue(true);
+  const data = { pageviews: 30, visitors: 20, visits: 25, bounces: 4, totaltime: 1000 };
+  const comparison = { pageviews: 12, visitors: 10, visits: 11, bounces: 2, totaltime: 500 };
+  getWebsiteStatsMock.mockResolvedValueOnce(data as any).mockResolvedValueOnce(comparison as any);
+  const dateRange = `startAt=${Date.UTC(2025, 0, 1)}&endAt=${Date.UTC(2025, 0, 31)}`;
+
+  const broad = await getWebsiteStatsRoute(
+    new Request(`https://analytics.example/api/websites/${WEBSITE_ID}/stats?${dateRange}`),
+    pathParams,
+  );
+  expect(broad.status).toBe(401);
+  expect(getWebsiteStatsMock).not.toHaveBeenCalled();
+
+  const response = await getTrafficStatsRoute(
+    new Request(`https://analytics.example/api/websites/${WEBSITE_ID}/stats/traffic?${dateRange}`),
+    pathParams,
+  );
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({
+    pageviews: 30,
+    visitors: 20,
+    visits: 25,
+    comparison: { pageviews: 12, visitors: 10, visits: 11 },
+  });
 });
 
 test('website list charts do not expose overview data through an events-only share', async () => {
@@ -493,6 +557,51 @@ test('realtime shares reserve all three analytics scans before querying', async 
   expect(getRealtimeDataMock).toHaveBeenCalledOnce();
 });
 
+test('board realtime components receive only their own aggregates', async () => {
+  checkAuthMock.mockResolvedValue({
+    shareToken: {
+      shareId: `realtime-board-${crypto.randomUUID()}`,
+      shareType: ENTITY_TYPE.board,
+      boardId: 'board-1',
+      websiteIds: [WEBSITE_ID],
+    },
+  } as any);
+  canViewWebsiteSectionMock.mockResolvedValue(true);
+  getRealtimeDataMock.mockResolvedValue({
+    totals: { views: 1, visitors: 1, events: 0, countries: 1 },
+    series: { views: [], visitors: [] },
+    events: [{ sessionId: 'private-session' }],
+    urls: { '/private': 1 },
+    referrers: { 'private.example': 1 },
+    countries: { US: 1 },
+    timestamp: 123,
+  } as any);
+
+  const fullResponse = await getRealtimeRoute(
+    new Request(`https://analytics.example/api/realtime/${WEBSITE_ID}`),
+    pathParams,
+  );
+  expect(fullResponse.status).toBe(401);
+  expect(getRealtimeDataMock).not.toHaveBeenCalled();
+
+  const totals = await getRealtimeTotalsRoute(
+    new Request(`https://analytics.example/api/realtime/${WEBSITE_ID}/totals`),
+    pathParams,
+  );
+  const series = await getRealtimeSeriesRoute(
+    new Request(`https://analytics.example/api/realtime/${WEBSITE_ID}/series`),
+    pathParams,
+  );
+  expect(totals.status).toBe(200);
+  expect(await totals.json()).toEqual({
+    totals: { views: 1, visitors: 1, events: 0, countries: 1 },
+  });
+  expect(series.status).toBe(200);
+  expect(await series.json()).toEqual({
+    series: { views: [], visitors: [] },
+  });
+});
+
 test.each([
   {
     name: 'funnel',
@@ -712,4 +821,114 @@ test.each([
 
   expect(responses.map(response => response.status).sort()).toEqual([200, 429]);
   expect(analyticsCalls()).toBe(route.dispatchedCalls);
+});
+
+test('a board revenue table receives only its displayed total', async () => {
+  const shareId = `revenue-total-${crypto.randomUUID()}`;
+  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  canViewWebsiteSectionMock.mockResolvedValue(true);
+  getRevenueStatsMock.mockResolvedValueOnce({
+    sum: 125,
+    count: 4,
+    average: 31.25,
+    unique_count: 3,
+    arpu: 12.5,
+  } as any);
+
+  const response = await getRevenueTotalRoute(
+    new Request(
+      `https://analytics.example/api/websites/${WEBSITE_ID}/revenue/total?startAt=${Date.UTC(2025, 0, 1)}&endAt=${Date.UTC(2025, 0, 31)}&currency=USD`,
+    ),
+    pathParams,
+  );
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ sum: 125 });
+  expect(getRevenueStatsMock).toHaveBeenCalledTimes(1);
+});
+
+test('a revenue bar retains the complete stats response', async () => {
+  const shareId = `revenue-stats-${crypto.randomUUID()}`;
+  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  canViewWebsiteSectionMock.mockResolvedValue(true);
+  const stats = { sum: 125, count: 4, average: 31.25, unique_count: 3, arpu: 12.5 };
+  const comparison = { sum: 90, count: 3, average: 30, unique_count: 2, arpu: 10 };
+  getRevenueStatsMock.mockResolvedValueOnce(stats as any).mockResolvedValueOnce(comparison as any);
+
+  const response = await getRevenueStatsRoute(
+    new Request(
+      `https://analytics.example/api/websites/${WEBSITE_ID}/revenue/stats?startAt=${Date.UTC(2025, 0, 1)}&endAt=${Date.UTC(2025, 0, 31)}&currency=USD`,
+    ),
+    pathParams,
+  );
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ ...stats, comparison });
+  expect(getRevenueStatsMock).toHaveBeenCalledTimes(2);
+});
+
+test('public session activity charges a linked historical range before querying events', async () => {
+  const shareId = `session-activity-${crypto.randomUUID()}`;
+  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  canViewWebsiteSectionMock.mockResolvedValue(true);
+  getLinkedSessionIdsMock.mockResolvedValue([
+    {
+      sessionId: '00000000-0000-4000-8000-000000000003',
+      createdAt: '2006-01-15T00:00:00.000Z',
+    },
+  ]);
+  expect(await reserveShareQueryCost(shareId, 450)).toMatchObject({ blocked: false });
+
+  const response = await getSessionActivityRoute(
+    new Request(
+      `https://analytics.example/api/websites/${WEBSITE_ID}/sessions/${SESSION_ID}/activity?startAt=${Date.UTC(2025, 11, 28)}&endAt=${Date.UTC(2025, 11, 29)}`,
+    ),
+    sessionPathParams,
+  );
+
+  expect(response.status).toBe(429);
+  expect(getLinkedDistinctIdsMock).toHaveBeenCalledWith(WEBSITE_ID, SESSION_ID, 2);
+  expect(getSessionActivityMock).not.toHaveBeenCalled();
+});
+
+test('public session activity refuses an oversized linked-session set', async () => {
+  checkAuthMock.mockResolvedValue({ shareToken: { shareId: crypto.randomUUID() } } as any);
+  canViewWebsiteSectionMock.mockResolvedValue(true);
+  getLinkedSessionIdsMock.mockResolvedValue(
+    Array(501).fill({ sessionId: SESSION_ID, createdAt: '2025-12-29T00:00:00.000Z' }),
+  );
+
+  const response = await getSessionActivityRoute(
+    new Request(
+      `https://analytics.example/api/websites/${WEBSITE_ID}/sessions/${SESSION_ID}/activity?startAt=${Date.UTC(2025, 11, 28)}&endAt=${Date.UTC(2025, 11, 29)}`,
+    ),
+    sessionPathParams,
+  );
+
+  expect(response.status).toBe(400);
+  expect(getSessionActivityMock).not.toHaveBeenCalled();
+});
+
+test('a normal public activity share can read linked history within its budget', async () => {
+  const shareId = `session-activity-control-${crypto.randomUUID()}`;
+  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  canViewWebsiteSectionMock.mockResolvedValue(true);
+  getLinkedSessionIdsMock.mockResolvedValue([
+    {
+      sessionId: '00000000-0000-4000-8000-000000000003',
+      createdAt: '2006-01-15T00:00:00.000Z',
+    },
+  ]);
+  const request = () =>
+    getSessionActivityRoute(
+      new Request(
+        `https://analytics.example/api/websites/${WEBSITE_ID}/sessions/${SESSION_ID}/activity?startAt=${Date.UTC(2025, 11, 28)}&endAt=${Date.UTC(2025, 11, 29)}`,
+      ),
+      sessionPathParams,
+    );
+
+  const responses = [await request(), await request(), await request()];
+
+  expect(responses.map(response => response.status)).toEqual([200, 200, 429]);
+  expect(getSessionActivityMock).toHaveBeenCalledTimes(2);
 });

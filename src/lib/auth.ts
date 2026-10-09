@@ -9,6 +9,7 @@ import {
 } from '@/lib/api-key';
 import {
   ENROLLMENT_AUTH_TOKEN_TYPE,
+  ENTITY_TYPE,
   PARTIAL_AUTH_TOKEN_TYPE,
   ROLE_PERMISSIONS,
   ROLES,
@@ -25,6 +26,7 @@ import { getAuthSessionTtlSeconds, publicSharesDisabled } from '@/lib/security';
 import { getBearerToken, getSessionCookie, isSameOriginMutation } from '@/lib/session';
 import { hasCurrentSessionGeneration } from '@/lib/session-generation';
 import { resolveShareAccess } from '@/lib/share-access';
+import { isSharedEntityApiRequestAllowed } from '@/lib/share-api-access';
 import { getTwoFactorRequirement } from '@/lib/two-factor/requirement';
 import { ensureArray } from '@/lib/utils';
 import { getShare } from '@/queries/prisma';
@@ -306,7 +308,17 @@ export async function parseShareToken(request: Request) {
 
     const access = await resolveShareAccess(share);
 
-    return access ? { ...access.data, type: SHARE_TOKEN_TYPE } : null;
+    const scopedApiAccess = Boolean(
+      access &&
+        share.shareType !== ENTITY_TYPE.website &&
+        isSharedEntityApiRequestAllowed(request, share.shareType, access.entity, access.data),
+    );
+
+    if (access && share.shareType !== ENTITY_TYPE.website && !scopedApiAccess) {
+      return null;
+    }
+
+    return access ? { ...access.data, scopedApiAccess, type: SHARE_TOKEN_TYPE } : null;
   } catch {
     log('Unable to parse share token');
     return null;

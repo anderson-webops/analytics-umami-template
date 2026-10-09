@@ -205,7 +205,12 @@ export async function createTeam(
   },
   ownerUserId: string,
   actorUserId: string,
+  teamLimit: number | null = null,
 ): Promise<Team> {
+  if (teamLimit !== null && (!Number.isSafeInteger(teamLimit) || teamLimit < 0)) {
+    throw new Error('TEAM_LIMIT_INVALID');
+  }
+
   return runSerializable(async transaction => {
     const actor = await getActiveUserRole(transaction, actorUserId);
     const owner = await getActiveUserRole(transaction, ownerUserId);
@@ -219,6 +224,19 @@ export async function createTeam(
 
     if (!owner) {
       throw new Error('TEAM_OWNER_TARGET_NOT_FOUND');
+    }
+
+    if (teamLimit !== null) {
+      const ownedTeamCount = await transaction.team.count({
+        where: {
+          deletedAt: null,
+          members: { some: { userId: ownerUserId, role: ROLES.teamOwner } },
+        },
+      });
+
+      if (ownedTeamCount >= teamLimit) {
+        throw new Error('TEAM_LIMIT_REACHED');
+      }
     }
 
     const team = await transaction.team.create({

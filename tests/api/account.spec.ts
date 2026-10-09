@@ -55,8 +55,11 @@ test.describe('Account', () => {
       }
     });
 
-    test('POST /api/me/api-keys creates a key', async ({ user }) => {
-      const response = await user.post('/api/me/api-keys', { name: `  ${name}  ` });
+    test('POST /api/me/api-keys creates a key', async ({ user, seed }) => {
+      const response = await user.post('/api/me/api-keys', {
+        name: `  ${name}  `,
+        currentPassword: seed.user.password,
+      });
 
       expect(response.status).toBe(200);
       expect(response.body).toMatchObject({
@@ -74,14 +77,27 @@ test.describe('Account', () => {
       key = response.body.key;
     });
 
-    test('POST /api/me/api-keys validates the body', async ({ user }) => {
-      const empty = await user.post('/api/me/api-keys', { name: '   ' });
+    test('POST /api/me/api-keys validates the body', async ({ user, seed }) => {
+      const empty = await user.post('/api/me/api-keys', {
+        name: '   ',
+        currentPassword: seed.user.password,
+      });
       const missing = await user.post('/api/me/api-keys', {});
-      const tooLong = await user.post('/api/me/api-keys', { name: 'x'.repeat(256) });
+      const tooLong = await user.post('/api/me/api-keys', {
+        name: 'x'.repeat(256),
+        currentPassword: seed.user.password,
+      });
+      const missingPassword = await user.post('/api/me/api-keys', { name });
+      const incorrectPassword = await user.post('/api/me/api-keys', {
+        name,
+        currentPassword: 'incorrect-password',
+      });
 
       expect(empty.status).toBe(400);
       expect(missing.status).toBe(400);
       expect(tooLong.status).toBe(400);
+      expect(missingPassword.status).toBe(400);
+      expect(incorrectPassword.status).toBe(400);
     });
 
     test('POST /api/me/api-keys rejects anonymous and API key callers', async ({ api, apiKey }) => {

@@ -1,6 +1,6 @@
 import { redactWebsiteShareId } from '@/lib/api-key';
 import { hasPermission } from '@/lib/auth';
-import { PERMISSIONS } from '@/lib/constants';
+import { ENTITY_TYPE, PERMISSIONS } from '@/lib/constants';
 import { getEntity } from '@/lib/entity';
 import prisma from '@/lib/prisma';
 import type { Auth } from '@/lib/types';
@@ -8,14 +8,7 @@ import { getTeamUser, getWebsite } from '@/queries/prisma';
 import { canMutateResource } from './mutation';
 
 export async function canViewWebsite({ user, shareToken }: Auth, websiteId: string) {
-  if (
-    shareToken?.websiteId === websiteId ||
-    shareToken?.pixelId === websiteId ||
-    shareToken?.linkId === websiteId ||
-    shareToken?.websiteIds?.includes(websiteId) ||
-    shareToken?.pixelIds?.includes(websiteId) ||
-    shareToken?.linkIds?.includes(websiteId)
-  ) {
+  if (shareToken?.shareType === ENTITY_TYPE.website && shareToken.websiteId === websiteId) {
     return true;
   }
 
@@ -58,14 +51,9 @@ export async function canViewBatchWebsites({ user, shareToken }: Auth, websiteId
   }
 
   const shareAllowedIds = new Set(
-    [
-      shareToken?.websiteId,
-      shareToken?.pixelId,
-      shareToken?.linkId,
-      ...(shareToken?.websiteIds ?? []),
-      ...(shareToken?.pixelIds ?? []),
-      ...(shareToken?.linkIds ?? []),
-    ].filter((id): id is string => Boolean(id)),
+    [shareToken?.shareType === ENTITY_TYPE.website ? shareToken.websiteId : undefined].filter(
+      (id): id is string => Boolean(id),
+    ),
   );
 
   if (!user) {

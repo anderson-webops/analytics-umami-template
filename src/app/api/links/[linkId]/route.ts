@@ -24,7 +24,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ link
     return notFound();
   }
 
-  if (!auth.user) {
+  if (!auth.user || !(await canViewLink({ user: auth.user }, linkId))) {
     return json({
       id: link.id,
       name: link.name,

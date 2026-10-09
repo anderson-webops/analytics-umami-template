@@ -7,8 +7,10 @@ import {
 import { getClientInfo, hasBlockedIp } from '@/lib/detect';
 import { HeatmapBudgetExceededError, reserveHeatmapBudget } from '@/lib/heatmap-budget';
 import { parseToken } from '@/lib/jwt';
+import { reserveReplayBudget } from '@/lib/replay-budget';
 import { parseRequest } from '@/lib/request';
 import { getWebsite, withActiveCollectionSource } from '@/queries/prisma';
+import { saveRecording } from '@/queries/sql';
 import { saveHeatmapEvents } from '@/queries/sql/heatmap/saveHeatmapEvents';
 import { OPTIONS, POST } from './route';
 
@@ -40,6 +42,11 @@ vi.mock('@/lib/jwt', () => ({
 vi.mock('@/lib/heatmap-budget', async importOriginal => ({
   ...(await importOriginal<typeof import('@/lib/heatmap-budget')>()),
   reserveHeatmapBudget: vi.fn(),
+}));
+
+vi.mock('@/lib/replay-budget', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/lib/replay-budget')>()),
+  reserveReplayBudget: vi.fn(),
 }));
 
 vi.mock('@/lib/request', () => ({
@@ -109,7 +116,7 @@ function prepareHeatmapRequest() {
     website: {
       findFirst: vi.fn().mockResolvedValue({
         recorderEnabled: true,
-        replayConfig: { heatmapEnabled: true },
+        replayConfig: { heatmapEnabled: true, replayEnabled: true },
       }),
     },
   };
@@ -117,11 +124,12 @@ function prepareHeatmapRequest() {
   vi.stubEnv('APP_SECRET', 'synthetic-test-secret-00000000000000000');
   vi.mocked(getClientInfo).mockResolvedValue({ ip: '127.0.0.1' } as any);
   vi.mocked(hasBlockedIp).mockReturnValue(false);
-  vi.mocked(parseToken).mockResolvedValue({
+  vi.mocked(parseToken).mockReturnValue({
     type: 'cache',
     websiteId,
     sessionId,
     visitId,
+    iat: Math.floor(Date.now() / 1000),
   } as any);
   vi.mocked(getWebsite).mockResolvedValue({ recorderEnabled: true } as any);
   vi.mocked(withActiveCollectionSource).mockImplementation((_, __, operation) =>
@@ -133,6 +141,24 @@ function prepareHeatmapRequest() {
       payload: {
         website: websiteId,
         events: [{ type: 'click', url: '/', x: 1, y: 2 }],
+      },
+    },
+    error: undefined,
+  });
+
+  return { websiteId, visitId };
+}
+
+function prepareReplayRequest() {
+  const { websiteId, visitId } = prepareHeatmapRequest();
+  vi.mocked(reserveReplayBudget).mockResolvedValue(true);
+  parseRequestMock.mockResolvedValue({
+    body: {
+      type: 'record',
+      payload: {
+        website: websiteId,
+        timestamp: Math.floor(Date.now() / 1000),
+        events: [{ type: 4, timestamp: Date.now(), data: { href: 'https://example.com/' } }],
       },
     },
     error: undefined,
@@ -177,7 +203,7 @@ describe('heatmap intake budget', () => {
 
   test('does not count a source without a matching session token', async () => {
     prepareHeatmapRequest();
-    vi.mocked(parseToken).mockResolvedValueOnce(null);
+    vi.mocked(parseToken).mockReturnValueOnce(null);
 
     const response = await POST(
       new Request('http://localhost/api/record', {
@@ -261,11 +287,12 @@ describe('heatmap intake budget', () => {
 
   test('accepts an existing cache token with an alternate UUID spelling', async () => {
     const { websiteId } = prepareHeatmapRequest();
-    vi.mocked(parseToken).mockResolvedValueOnce({
+    vi.mocked(parseToken).mockReturnValueOnce({
       type: 'cache',
       websiteId: websiteId.toUpperCase(),
       sessionId: '22222222-2222-4222-8222-222222222222',
       visitId: '33333333-3333-4333-8333-333333333333',
+      iat: Math.floor(Date.now() / 1000),
     } as any);
 
     const response = await POST(
@@ -378,6 +405,97 @@ describe('heatmap intake budget', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: false, reason: 'heatmap_disabled' });
     expect(saveHeatmapEvents).not.toHaveBeenCalled();
+  });
+});
+
+describe('external replay budget commit', () => {
+  const request = () =>
+    new Request('http://localhost/api/record', {
+      method: 'POST',
+      headers: { 'x-umami-cache': 'signed-token' },
+    });
+
+  test('commits the budget before an external replay write', async () => {
+    prepareReplayRequest();
+    clickhouseState.enabled = true;
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(200);
+    expect(reserveReplayBudget).toHaveBeenCalledOnce();
+    expect(withActiveCollectionSource).toHaveBeenCalledTimes(2);
+    expect(saveRecording).toHaveBeenCalledWith(expect.objectContaining({ eventCount: 1 }));
+    expect(vi.mocked(withActiveCollectionSource).mock.invocationCallOrder[1]).toBeLessThan(
+      vi.mocked(saveRecording).mock.invocationCallOrder[0],
+    );
+  });
+
+  test('keeps relational replay writes inside the budget transaction', async () => {
+    prepareReplayRequest();
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(200);
+    expect(withActiveCollectionSource).toHaveBeenCalledOnce();
+    expect(saveRecording).toHaveBeenCalledWith(expect.any(Object), expect.any(Object));
+  });
+
+  test('never writes to an external sink when the budget transaction rolls back', async () => {
+    prepareReplayRequest();
+    clickhouseState.enabled = true;
+    vi.mocked(withActiveCollectionSource).mockImplementationOnce(async (_, __, operation) => {
+      await operation({
+        website: {
+          findFirst: vi.fn().mockResolvedValue({
+            recorderEnabled: true,
+            replayConfig: { replayEnabled: true },
+          }),
+        },
+      } as any);
+      throw new Error('Synthetic transaction commit failure');
+    });
+
+    const response = await POST(
+      new Request('http://localhost/api/record', {
+        method: 'POST',
+        headers: { 'x-umami-cache': 'signed-token' },
+      }),
+    );
+
+    expect(response.status).toBe(500);
+    expect(reserveReplayBudget).toHaveBeenCalledOnce();
+    expect(saveRecording).not.toHaveBeenCalled();
+  });
+
+  test('does not write to an external sink after replay collection is disabled', async () => {
+    prepareReplayRequest();
+    clickhouseState.enabled = true;
+    vi.mocked(withActiveCollectionSource).mockImplementationOnce((_, __, operation) =>
+      operation({
+        website: {
+          findFirst: vi.fn().mockResolvedValue({
+            recorderEnabled: true,
+            replayConfig: { replayEnabled: true },
+          }),
+        },
+      } as any),
+    );
+    vi.mocked(withActiveCollectionSource).mockImplementationOnce((_, __, operation) =>
+      operation({
+        website: {
+          findFirst: vi.fn().mockResolvedValue({
+            recorderEnabled: true,
+            replayConfig: { replayEnabled: false },
+          }),
+        },
+      } as any),
+    );
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: false, reason: 'replay_disabled' });
+    expect(saveRecording).not.toHaveBeenCalled();
   });
 });
 

@@ -87,7 +87,10 @@ function getAllowedFrameAncestors(value: string) {
 
 const apiUrlOrigin = getUrlOrigin(apiUrl);
 const cloudUrlOrigin = getUrlOrigin(cloudUrl);
-const connectSrc = ["'self'", apiUrlOrigin, cloudUrlOrigin].filter(Boolean).join(' ');
+const captchaOrigin = process.env.TURNSTILE_SITE_KEY ? 'https://challenges.cloudflare.com' : '';
+const connectSrc = ["'self'", apiUrlOrigin, cloudUrlOrigin, captchaOrigin]
+  .filter(Boolean)
+  .join(' ');
 const allowedFrameAncestors = getAllowedFrameAncestors(process.env.ALLOWED_FRAME_URLS || '');
 const frameAncestors = allowedFrameAncestors.length
   ? ["'self'", ...allowedFrameAncestors].join(' ')
@@ -100,7 +103,7 @@ const contentSecurityPolicy = `
   form-action 'self';
   img-src 'self' https: data: blob:;
   font-src 'self' data:;
-  script-src 'self' 'unsafe-inline' ${isProd ? '' : "'unsafe-eval'"};
+  script-src 'self' 'unsafe-inline' ${isProd ? '' : "'unsafe-eval'"} ${captchaOrigin};
   style-src 'self' 'unsafe-inline';
   connect-src ${connectSrc};
   frame-src 'self' https: ${isProd ? '' : 'http:'};
@@ -169,10 +172,6 @@ const trackerHeaders = [
 ];
 
 const apiHeaders = [
-  {
-    key: 'Access-Control-Allow-Origin',
-    value: '*',
-  },
   {
     key: 'Access-Control-Allow-Headers',
     value: 'Content-Type, X-Umami-Cache, X-Umami-Hostname, X-Umami-Website-Id',
