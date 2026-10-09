@@ -4,7 +4,12 @@ import { hash, secret } from '@/lib/crypto';
 import { isEnvEnabled } from '@/lib/env';
 import { createSecureToken } from '@/lib/jwt';
 import { isLoginCaptchaEnabled, verifyLoginCaptcha } from '@/lib/login-captcha';
-import { clearFailedLogins, getLoginLimit, recordFailedLogin } from '@/lib/login-rate-limit';
+import {
+  clearFailedLogins,
+  getLoginLimit,
+  recordFailedLogin,
+  reserveLoginAccountAttempt,
+} from '@/lib/login-rate-limit';
 import { checkPassword, hashPassword, passwordNeedsRehash } from '@/lib/password';
 import prisma from '@/lib/prisma';
 import redis from '@/lib/redis';
@@ -76,7 +81,9 @@ export async function POST(request: Request) {
     });
   }
 
-  if (isLoginCaptchaEnabled()) {
+  const captchaEnabled = isLoginCaptchaEnabled();
+
+  if (captchaEnabled) {
     const captchaResult = await verifyLoginCaptcha(captchaToken, request.url);
 
     if (captchaResult === 'unavailable') {
@@ -96,6 +103,19 @@ export async function POST(request: Request) {
     includePassword: true,
     includeSessionGeneration: true,
   });
+
+  let accountLimit;
+
+  try {
+    accountLimit = await reserveLoginAccountAttempt(user?.id);
+  } catch {
+    return serviceUnavailable({ message: 'Login verification is temporarily unavailable' });
+  }
+
+  if (accountLimit.blocked) {
+    return unauthorized({ code: 'incorrect-username-password' });
+  }
+
   const passwordMatches = await checkPassword(password, user?.password || DUMMY_PASSWORD_HASH);
 
   if (!user || !passwordMatches) {

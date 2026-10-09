@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   saveAuth: vi.fn(),
   isTwoFactorConfigured: vi.fn(),
   getLoginLimit: vi.fn(),
+  reserveLoginAccountAttempt: vi.fn(),
   recordFailedLogin: vi.fn(),
   clearFailedLogins: vi.fn(),
   hashPassword: vi.fn(),
@@ -44,6 +45,7 @@ vi.mock('@/lib/password', () => ({
 vi.mock('@/lib/login-rate-limit', () => ({
   clearFailedLogins: mocks.clearFailedLogins,
   getLoginLimit: mocks.getLoginLimit,
+  reserveLoginAccountAttempt: mocks.reserveLoginAccountAttempt,
   recordFailedLogin: mocks.recordFailedLogin,
 }));
 
@@ -115,6 +117,7 @@ beforeEach(() => {
   mocks.saveAuth.mockReset();
   mocks.isTwoFactorConfigured.mockReset();
   mocks.getLoginLimit.mockReset();
+  mocks.reserveLoginAccountAttempt.mockReset();
   mocks.recordFailedLogin.mockReset();
   mocks.clearFailedLogins.mockReset();
   mocks.hashPassword.mockReset();
@@ -139,6 +142,7 @@ beforeEach(() => {
   mocks.checkPassword.mockReturnValue(true);
   mocks.hash.mockReturnValue('password-fingerprint');
   mocks.getLoginLimit.mockResolvedValue({ blocked: false, retryAfter: 900 });
+  mocks.reserveLoginAccountAttempt.mockResolvedValue({ blocked: false, retryAfter: 0 });
   mocks.recordFailedLogin.mockResolvedValue({ blocked: false, retryAfter: 900 });
   mocks.clearFailedLogins.mockResolvedValue(undefined);
   mocks.passwordNeedsRehash.mockReturnValue(false);
@@ -242,26 +246,68 @@ test('valid CAPTCHA preserves the existing two-factor login step', async () => {
     partialToken: 'partial-fixture',
   });
   expect(mocks.verifyLoginCaptcha).toHaveBeenCalledWith('test-token', loginRequest().url);
+  expect(mocks.reserveLoginAccountAttempt).toHaveBeenCalledWith('user-1');
   expect(mocks.checkPassword).toHaveBeenCalled();
 });
 
-test('account failure responses do not prevent a later correct password from reaching 2FA', async () => {
+test('a failed login does not block a later correct password while admission remains', async () => {
   mocks.checkPassword.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
-  mocks.recordFailedLogin.mockResolvedValue({ blocked: true, retryAfter: 900 });
   mocks.createSecureToken.mockReturnValue('partial-fixture');
 
   const rejected = await POST(loginRequest());
   const authenticated = await POST(loginRequest());
 
-  expect(rejected.status).toBe(429);
-  expect(rejected.headers.get('retry-after')).toBe('900');
+  expect(rejected.status).toBe(401);
   expect(authenticated.status).toBe(200);
   expect(await authenticated.json()).toEqual({
     requiresTwoFactor: true,
     partialToken: 'partial-fixture',
   });
   expect(mocks.recordFailedLogin).toHaveBeenCalledTimes(1);
+  expect(mocks.reserveLoginAccountAttempt).toHaveBeenCalledTimes(2);
   expect(mocks.clearFailedLogins).toHaveBeenCalledWith(expect.any(Request), 'alice');
+});
+
+test.each([false, true])(
+  'an exhausted account budget denies even a correct password before hashing (CAPTCHA %s)',
+  async captchaEnabled => {
+    mocks.isLoginCaptchaEnabled.mockReturnValue(captchaEnabled);
+    mocks.parseRequest.mockResolvedValue({
+      body: { username: 'alice', password: 'secret', captchaToken: 'test-token' },
+      error: undefined,
+    });
+    mocks.reserveLoginAccountAttempt.mockResolvedValue({ blocked: true, retryAfter: 120 });
+
+    const response = await POST(loginRequest());
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: 'incorrect-username-password' },
+    });
+    expect(mocks.reserveLoginAccountAttempt).toHaveBeenCalledWith('user-1');
+    expect(mocks.checkPassword).not.toHaveBeenCalled();
+    expect(mocks.createSecureToken).not.toHaveBeenCalled();
+  },
+);
+
+test('unknown usernames share a bounded admission budget without exposing existence in status', async () => {
+  mocks.getUserByUsername.mockResolvedValue(null);
+  mocks.reserveLoginAccountAttempt.mockResolvedValue({ blocked: true, retryAfter: 120 });
+
+  const response = await POST(loginRequest());
+
+  expect(response.status).toBe(401);
+  expect(mocks.reserveLoginAccountAttempt).toHaveBeenCalledWith(undefined);
+  expect(mocks.checkPassword).not.toHaveBeenCalled();
+});
+
+test('without CAPTCHA, database admission failure stops password verification', async () => {
+  mocks.reserveLoginAccountAttempt.mockRejectedValue(new Error('database unavailable'));
+
+  const response = await POST(loginRequest());
+
+  expect(response.status).toBe(503);
+  expect(mocks.checkPassword).not.toHaveBeenCalled();
 });
 
 test('per-IP limit stops password checks before they consume bcrypt work', async () => {

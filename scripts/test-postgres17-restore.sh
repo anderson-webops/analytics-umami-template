@@ -20,6 +20,15 @@ port="$(node --input-type=module -e 'import net from "node:net"; const s=net.cre
   -o "-h 127.0.0.1 -p $port -c unix_socket_directories='' -c shared_buffers=32MB -c max_connections=30" start >/dev/null
 export PATH="$pg_bin:$PATH"
 export DATABASE_URL="postgresql://restore_test:synthetic-restore-password-000000@127.0.0.1:$port/postgres"
+export DATABASE_REPLICA_URL= DIRECT_DATABASE_URL= REDIS_URL= CLICKHOUSE_URL= KAFKA_URL=
+export LOGIN_RATE_LIMIT_ACCOUNT_FAILURES=10 LOGIN_RATE_LIMIT_WINDOW_SECONDS=900
+if [[ "${1:-}" == --login-admission ]]; then
+  "$pg_bin/psql" -h 127.0.0.1 -p "$port" -U restore_test -d postgres \
+    -v ON_ERROR_STOP=1 -c 'CREATE TABLE "app_setting" ("key" TEXT PRIMARY KEY, "value" TEXT NOT NULL)' \
+    >/dev/null
+  ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm exec tsx scripts/test-login-account-admission.ts
+  exit 0
+fi
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node scripts/test-postgres-restore.mjs "$@"
 pnpm run db:migrate
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-heatmap-budget.ts
@@ -27,6 +36,7 @@ ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-recorder-budge
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-collection-budget.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm exec tsx scripts/test-two-factor-admission.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm exec tsx scripts/test-password-verification-admission.ts
+ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm exec tsx scripts/test-login-account-admission.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 \
   APP_SECRET=synthetic-session-generation-secret-0000000000000000 \
   REDIS_URL= CLOUD_MODE= node --conditions=react-server --import tsx scripts/test-session-generation.ts

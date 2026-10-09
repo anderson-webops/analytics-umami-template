@@ -1,5 +1,6 @@
 import { hash } from '@/lib/crypto';
 import { getIpAddress } from '@/lib/ip';
+import prisma from '@/lib/prisma';
 import redis from '@/lib/redis';
 
 interface Counter {
@@ -80,6 +81,63 @@ function getAccountKey(username: string): string {
   const normalizedUsername = username.trim().toLowerCase();
 
   return `login-rate:account:${hash(normalizedUsername).slice(0, 32)}`;
+}
+
+export function getLoginAccountAttemptKey(userId?: string): string {
+  return `login-admission:${userId ? hash(userId).slice(0, 32) : 'unknown'}`;
+}
+
+export async function reserveLoginAccountAttempt(userId?: string): Promise<LoginLimit> {
+  const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
+  const key = getLoginAccountAttemptKey(userId);
+  const limit = getAccountLimit();
+  const windowSeconds = Math.min(getWindowSeconds(), 15 * 60);
+  const rows = await client.$queryRaw<Array<{ retryAfter: number }>>`
+    INSERT INTO "app_setting" ("key", "value")
+    VALUES (
+      ${key},
+      jsonb_build_object(
+        'attempts', 1,
+        'expiresAt', clock_timestamp() + (${windowSeconds} * interval '1 second')
+      )::text
+    )
+    ON CONFLICT ("key") DO UPDATE SET
+      "value" = CASE
+        WHEN ("app_setting"."value"::jsonb->>'expiresAt')::timestamptz <= clock_timestamp()
+          THEN jsonb_build_object(
+            'attempts', 1,
+            'expiresAt', clock_timestamp() + (${windowSeconds} * interval '1 second')
+          )::text
+        ELSE jsonb_build_object(
+          'attempts', ("app_setting"."value"::jsonb->>'attempts')::integer + 1,
+          'expiresAt', "app_setting"."value"::jsonb->>'expiresAt'
+        )::text
+      END
+    WHERE ("app_setting"."value"::jsonb->>'expiresAt')::timestamptz IS NOT NULL
+      AND (
+        ("app_setting"."value"::jsonb->>'expiresAt')::timestamptz <= clock_timestamp()
+        OR ("app_setting"."value"::jsonb->>'attempts')::integer BETWEEN 1 AND ${limit - 1}
+      )
+    RETURNING 0::integer AS "retryAfter"
+  `;
+
+  if (rows.length === 1) {
+    return { blocked: false, retryAfter: 0 };
+  }
+
+  const lock = await client.$queryRaw<Array<{ retryAfter: number }>>`
+    SELECT GREATEST(
+      1,
+      CEIL(EXTRACT(EPOCH FROM (("value"::jsonb->>'expiresAt')::timestamptz - clock_timestamp())))::integer
+    ) AS "retryAfter"
+    FROM "app_setting"
+    WHERE "key" = ${key}
+  `;
+
+  return {
+    blocked: true,
+    retryAfter: Math.min(windowSeconds, Math.max(1, lock[0]?.retryAfter ?? windowSeconds)),
+  };
 }
 
 function getSourceKeys(request: Request, username: string): { ip: string; accountIp: string } {

@@ -1,11 +1,18 @@
 import { afterEach, expect, test, vi } from 'vitest';
-import { clearFailedLogins, getLoginLimit, recordFailedLogin } from './login-rate-limit';
+import {
+  clearFailedLogins,
+  getLoginAccountAttemptKey,
+  getLoginLimit,
+  recordFailedLogin,
+  reserveLoginAccountAttempt,
+} from './login-rate-limit';
 
 const mocks = vi.hoisted(() => {
   const counts = new Map<string, number>();
 
   return {
     counts,
+    queryRaw: vi.fn(),
     redis: {
       enabled: false,
       client: {
@@ -32,6 +39,7 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock('@/lib/redis', () => ({ default: mocks.redis }));
+vi.mock('@/lib/prisma', () => ({ default: { client: { $queryRaw: mocks.queryRaw } } }));
 
 afterEach(() => {
   const state = globalThis as typeof globalThis & Record<string, any>;
@@ -41,6 +49,7 @@ afterEach(() => {
   mocks.redis.client.incrementWithExpiry.mockClear();
   mocks.redis.client.del.mockClear();
   mocks.redis.client.decrementFloorZero.mockClear();
+  mocks.queryRaw.mockReset();
   vi.useRealTimers();
   vi.unstubAllEnvs();
 });
@@ -115,4 +124,28 @@ test('account failure window expires without extending an existing lockout', asy
 
   vi.advanceTimersByTime(900_000);
   expect((await recordFailedLogin('alice')).blocked).toBe(false);
+});
+
+test('account admission uses stable user keys and admits only a successful database reservation', async () => {
+  mocks.queryRaw.mockResolvedValueOnce([{ retryAfter: 0 }]);
+
+  expect(getLoginAccountAttemptKey('user-1')).toBe(getLoginAccountAttemptKey('user-1'));
+  expect(getLoginAccountAttemptKey('user-1')).not.toBe(getLoginAccountAttemptKey('user-2'));
+  expect(getLoginAccountAttemptKey()).toBe('login-admission:unknown');
+  expect(await reserveLoginAccountAttempt('user-1')).toEqual({ blocked: false, retryAfter: 0 });
+  expect(mocks.queryRaw).toHaveBeenCalledTimes(1);
+  expect(mocks.queryRaw.mock.calls[0]).toContain(getLoginAccountAttemptKey('user-1'));
+});
+
+test('account admission denies at capacity with a bounded remaining wait', async () => {
+  mocks.queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([{ retryAfter: 83 }]);
+
+  expect(await reserveLoginAccountAttempt('user-1')).toEqual({ blocked: true, retryAfter: 83 });
+  expect(mocks.queryRaw).toHaveBeenCalledTimes(2);
+});
+
+test('account admission fails closed when the shared database is unavailable', async () => {
+  mocks.queryRaw.mockRejectedValueOnce(new Error('database unavailable'));
+
+  await expect(reserveLoginAccountAttempt('user-1')).rejects.toThrow('database unavailable');
 });
