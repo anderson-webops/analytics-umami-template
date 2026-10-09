@@ -12,6 +12,16 @@ const FUNCTION_NAME = 'getHeatmap';
 const POINT_LIMIT = 5000;
 const PAGE_LIMIT = 100;
 const SCROLL_BUCKET_SIZE = 10;
+const SCROLL_WIDTH_BUCKET_SQL = `
+  case
+    when viewport_w <= 347 then 320
+    when viewport_w <= 400 then 375
+    when viewport_w <= 596 then 425
+    when viewport_w <= 896 then 768
+    when viewport_w <= 1232 then 1024
+    when viewport_w <= 1680 then 1440
+    else 1920
+  end`;
 
 export type HeatmapMode = 'click' | 'scroll';
 
@@ -155,36 +165,45 @@ async function relationalQuery(
     }[] = await rawQuery(
       `
       select
-        (floor(max_pct / ${SCROLL_BUCKET_SIZE}) * ${SCROLL_BUCKET_SIZE})::int as depth,
+        depth,
         count(*)::int as sessions,
-        page_w::int as "pageW",
-        page_h::int as "pageH",
-        viewport_w::int as "viewportW",
-        viewport_h::int as "viewportH"
+        (mode() within group (order by page_w))::int as "pageW",
+        (mode() within group (order by page_h))::int as "pageH",
+        (mode() within group (order by viewport_w))::int as "viewportW",
+        (mode() within group (order by viewport_h))::int as "viewportH"
       from (
         select
-          h.visit_id,
-          max(h.scroll_pct) as max_pct,
-          (mode() within group (order by h.page_w))::int as page_w,
-          (mode() within group (order by h.page_h))::int as page_h,
-          (mode() within group (order by h.viewport_w))::int as viewport_w,
-          (mode() within group (order by h.viewport_h))::int as viewport_h
-        from heatmap_event h
-        ${filterContext.joinQuery}
-        where h.website_id = {{websiteId::uuid}}
-          and h.event_type = {{eventType}}
-          and h.url_path = {{urlPath}}
-          and h.created_at between {{startDate}} and {{endDate}}
-          ${filterContext.filterQuery}
-          and h.scroll_pct is not null
-          and h.page_w is not null
-          and h.page_h is not null
-          and h.viewport_w is not null
-          and h.viewport_h is not null
-        group by h.visit_id
-      ) per_session
-      group by depth, page_w, page_h, viewport_w, viewport_h
-      order by depth
+          least(100, greatest(0, floor(max_pct / ${SCROLL_BUCKET_SIZE}) * ${SCROLL_BUCKET_SIZE}))::int as depth,
+          page_w,
+          page_h,
+          viewport_w,
+          viewport_h,
+          ${SCROLL_WIDTH_BUCKET_SQL} as width_bucket
+        from (
+          select
+            h.visit_id,
+            max(h.scroll_pct) as max_pct,
+            (mode() within group (order by h.page_w))::int as page_w,
+            (mode() within group (order by h.page_h))::int as page_h,
+            (mode() within group (order by h.viewport_w))::int as viewport_w,
+            (mode() within group (order by h.viewport_h))::int as viewport_h
+          from heatmap_event h
+          ${filterContext.joinQuery}
+          where h.website_id = {{websiteId::uuid}}
+            and h.event_type = {{eventType}}
+            and h.url_path = {{urlPath}}
+            and h.created_at between {{startDate}} and {{endDate}}
+            ${filterContext.filterQuery}
+            and h.scroll_pct is not null
+            and h.page_w is not null
+            and h.page_h is not null
+            and h.viewport_w is not null
+            and h.viewport_h is not null
+          group by h.visit_id
+        ) per_session
+      ) bucketed_visits
+      group by depth, width_bucket
+      order by depth, width_bucket
       `,
       { ...filterContext.queryParams, websiteId, eventType, urlPath, startDate, endDate },
       FUNCTION_NAME,
@@ -355,40 +374,49 @@ async function clickhouseQuery(
     >(
       `
       select
-        intDiv(max_pct, ${SCROLL_BUCKET_SIZE}) * ${SCROLL_BUCKET_SIZE} as depth,
+        depth,
         count() as sessions,
-        pageW,
-        pageH,
-        viewportW,
-        viewportH
+        toInt32OrNull(toString(arrayElement(topK(1)(page_w), 1))) as pageW,
+        toInt32OrNull(toString(arrayElement(topK(1)(page_h), 1))) as pageH,
+        toInt32OrNull(toString(arrayElement(topK(1)(viewport_w), 1))) as viewportW,
+        toInt32OrNull(toString(arrayElement(topK(1)(viewport_h), 1))) as viewportH
       from (
         select
-          h.visit_id,
-          max(h.scroll_pct) as max_pct,
-          toInt32OrNull(toString(arrayElement(topK(1)(h.page_w), 1))) as pageW,
-          toInt32OrNull(toString(arrayElement(topK(1)(h.page_h), 1))) as pageH,
-          toInt32OrNull(toString(arrayElement(topK(1)(h.viewport_w), 1))) as viewportW,
-          toInt32OrNull(toString(arrayElement(topK(1)(h.viewport_h), 1))) as viewportH
-        from heatmap_event h
-        ${filterContext.joinQuery}
-        where h.website_id = {websiteId:UUID}
-          and h.event_type = {eventType:UInt8}
-          and h.url_path = {urlPath:String}
-          and h.created_at between {startDate:DateTime64} and {endDate:DateTime64}
-          ${filterContext.filterQuery}
-          and h.scroll_pct is not null
-          and h.page_w is not null
-          and h.page_h is not null
-          and h.viewport_w is not null
-          and h.viewport_h is not null
-        group by h.visit_id
-      )
-      where pageW is not null
-        and pageH is not null
-        and viewportW is not null
-        and viewportH is not null
-      group by depth, pageW, pageH, viewportW, viewportH
-      order by depth
+          least(100, greatest(0, intDiv(max_pct, ${SCROLL_BUCKET_SIZE}) * ${SCROLL_BUCKET_SIZE})) as depth,
+          page_w,
+          page_h,
+          viewport_w,
+          viewport_h,
+          ${SCROLL_WIDTH_BUCKET_SQL} as width_bucket
+        from (
+          select
+            h.visit_id,
+            max(h.scroll_pct) as max_pct,
+            toInt32OrNull(toString(arrayElement(topK(1)(h.page_w), 1))) as page_w,
+            toInt32OrNull(toString(arrayElement(topK(1)(h.page_h), 1))) as page_h,
+            toInt32OrNull(toString(arrayElement(topK(1)(h.viewport_w), 1))) as viewport_w,
+            toInt32OrNull(toString(arrayElement(topK(1)(h.viewport_h), 1))) as viewport_h
+          from heatmap_event h
+          ${filterContext.joinQuery}
+          where h.website_id = {websiteId:UUID}
+            and h.event_type = {eventType:UInt8}
+            and h.url_path = {urlPath:String}
+            and h.created_at between {startDate:DateTime64} and {endDate:DateTime64}
+            ${filterContext.filterQuery}
+            and h.scroll_pct is not null
+            and h.page_w is not null
+            and h.page_h is not null
+            and h.viewport_w is not null
+            and h.viewport_h is not null
+          group by h.visit_id
+        ) per_session
+        where page_w is not null
+          and page_h is not null
+          and viewport_w is not null
+          and viewport_h is not null
+      ) bucketed_visits
+      group by depth, width_bucket
+      order by depth, width_bucket
       `,
       { ...filterContext.queryParams, websiteId, eventType, urlPath, startDate, endDate },
       FUNCTION_NAME,
