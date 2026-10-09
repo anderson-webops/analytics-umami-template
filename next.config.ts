@@ -345,6 +345,7 @@ export default withNextIntl({
   },
   basePath,
   output: 'standalone',
+  serverExternalPackages: ['lightningcss'],
   outputFileTracingRoot: path.resolve(projectRoot),
   devIndicators: false,
   turbopack: {
