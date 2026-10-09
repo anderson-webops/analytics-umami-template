@@ -4,6 +4,7 @@ import path from 'node:path';
 import { build } from 'esbuild';
 import { rollup } from 'rollup';
 import trackerConfig from '../rollup.tracker.config.js';
+import { getGeoSource, verifyGeoDatabase } from './geo-build.mjs';
 import { repairStandaloneRuntime } from './repair-standalone.js';
 import { createRuntimeManifest } from './runtime-artifact.mjs';
 
@@ -93,9 +94,16 @@ async function run() {
 
   await copyReplayCssBindings(appDir);
 
-  for (const relativePath of ['public', 'geo', 'prisma', 'generated', '.next/static']) {
+  for (const relativePath of ['public', 'prisma', 'generated', '.next/static']) {
     await copyRuntimePath(path.resolve(relativePath), path.join(appDir, relativePath));
   }
+
+  await fs.rm(path.join(appDir, 'geo'), { force: true, recursive: true });
+  await copyRuntimePath(
+    path.resolve('geo/GeoLite2-City.mmdb'),
+    path.join(appDir, 'geo/GeoLite2-City.mmdb'),
+  );
+  await verifyGeoDatabase(path.join(appDir, 'geo/GeoLite2-City.mmdb'), getGeoSource());
 
   for (const fileName of [
     '.node-version',
