@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import { getLocation, hasBlockedIp } from './detect';
+import { getClientInfo, getLocation, hasBlockedIp } from './detect';
 import { getIpAddress, stripPort } from './ip';
 
 const IP = '127.0.0.1';
@@ -21,6 +21,59 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
+
+test('ignores caller-supplied provider geography without an authenticated collector', async () => {
+  isLocalhost.default.mockResolvedValue(false);
+  vi.stubEnv('TRUST_LOCATION_HEADERS', '1');
+  vi.stubEnv('TRUST_CLIENT_INFO_PAYLOAD', '1');
+  vi.stubEnv('CLIENT_INFO_TRUST_KEY', 'synthetic-trusted-collector-key-000000000000');
+  vi.stubEnv('CLIENT_IP_HEADER', 'x-trusted-client-ip');
+  vi.stubGlobal('maxmind', {
+    get: () => ({
+      country: { iso_code: 'CA' },
+      subdivisions: [{ iso_code: 'ON' }],
+      city: { names: { en: 'Toronto' } },
+    }),
+  });
+
+  const request = new Request('https://analytics.example/api/send', {
+    headers: {
+      'x-trusted-client-ip': '8.8.8.8',
+      'x-umami-client-info-key': 'untrusted-client-key',
+      'cf-ipcountry': 'US',
+      'cf-region-code': 'CA',
+      'cf-ipcity': 'Los Angeles',
+    },
+  });
+
+  const clientInfo = await getClientInfo(request, {});
+
+  expect(clientInfo).toMatchObject({ country: 'CA', region: 'CA-ON', city: 'Toronto' });
+});
+
+test('uses provider geography only with the authenticated cloud collector key', async () => {
+  isLocalhost.default.mockResolvedValue(false);
+  vi.stubEnv('TRUST_LOCATION_HEADERS', '1');
+  vi.stubEnv('TRUST_CLIENT_INFO_PAYLOAD', '1');
+  vi.stubEnv('CLIENT_IP_HEADER', 'x-trusted-client-ip');
+  vi.stubEnv('CLIENT_INFO_TRUST_KEY', 'synthetic-trusted-collector-key-000000000000');
+  vi.stubGlobal('maxmind', { get: () => null });
+
+  const request = new Request('https://analytics.example/api/send', {
+    headers: {
+      'x-trusted-client-ip': '8.8.8.8',
+      'x-umami-client-info-key': 'synthetic-trusted-collector-key-000000000000',
+      'cf-ipcountry': 'US',
+      'cf-region-code': 'CA',
+      'cf-ipcity': 'Los Angeles',
+    },
+  });
+
+  const clientInfo = await getClientInfo(request, {});
+
+  expect(clientInfo).toMatchObject({ country: 'US', region: 'US-CA', city: 'Los Angeles' });
 });
 
 test('getIpAddress: Custom header', () => {

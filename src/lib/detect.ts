@@ -205,7 +205,7 @@ export async function getClientInfo(request: Request, payload: Record<string, an
     request.headers.get('user-agent') ||
     '';
   const ip = payloadIp || getIpAddress(request.headers);
-  const location = await getLocation(ip, request.headers, !!payloadIp);
+  const location = await getLocation(ip, request.headers, !trustClientPayload || !!payloadIp);
   const country = safeDecodeURIComponent(location?.country);
   const region = safeDecodeURIComponent(location?.region);
   const city = safeDecodeURIComponent(location?.city);
