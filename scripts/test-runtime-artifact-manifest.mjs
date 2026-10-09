@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
+  ARTIFACT_LIMITS,
   copyRuntimeArtifact,
   createRuntimeManifest,
   getSourceIdentity,
@@ -174,6 +176,53 @@ test('creates and verifies an exact hashed runtime inventory', async () => {
     success: 200,
     failure: 503,
   });
+});
+
+test('streams multi-chunk files without changing their recorded hashes', async () => {
+  const { root, contractPath } = await createFixture();
+  const contents = Buffer.alloc(256 * 1024 + 7, 0x5a);
+  await fs.writeFile(path.join(root, 'server.js'), contents);
+
+  const manifest = await createRuntimeManifest(root, { contractPath, source });
+
+  assert.equal(
+    manifest.entries['server.js'].sha256,
+    createHash('sha256').update(contents).digest('hex'),
+  );
+  await verifyRuntimeArtifact(root, { contractPath });
+});
+
+test('rejects oversized sparse files before hashing them', async () => {
+  const { root, contractPath } = await createFixture();
+  const oversized = path.join(root, 'node_modules', 'next', 'oversized.bin');
+  await fs.writeFile(oversized, '');
+  await fs.truncate(oversized, ARTIFACT_LIMITS.fileBytes + 1);
+
+  await assert.rejects(createRuntimeManifest(root, { contractPath, source }), /reviewed limit/);
+});
+
+test('rejects oversized and linked manifests before parsing them', async () => {
+  const { root, contractPath } = await createFixture();
+  await createRuntimeManifest(root, { contractPath, source });
+  const manifestPath = path.join(root, 'runtime-manifest.json');
+  await fs.truncate(manifestPath, ARTIFACT_LIMITS.manifestBytes + 1);
+  await assert.rejects(verifyRuntimeArtifact(root, { contractPath }), /reviewed limit/);
+
+  await fs.rm(manifestPath);
+  await fs.symlink(path.join(root, 'package.json'), manifestPath);
+  await assert.rejects(verifyRuntimeArtifact(root, { contractPath }), { code: 'ELOOP' });
+});
+
+test('rejects deeply nested artifact paths', async () => {
+  const { root, contractPath } = await createFixture();
+  let directory = path.join(root, 'node_modules', 'next');
+
+  for (let depth = 0; depth <= ARTIFACT_LIMITS.depth; depth += 1) {
+    directory = path.join(directory, 'nested');
+    await fs.mkdir(directory);
+  }
+
+  await assert.rejects(createRuntimeManifest(root, { contractPath, source }), /directory depth/);
 });
 
 test('rejects weakened deployment requirements in either the contract or manifest', async () => {

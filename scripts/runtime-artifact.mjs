@@ -2,6 +2,7 @@
 
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
+import { constants as fsConstants } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -12,13 +13,110 @@ const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 const defaultContractPath = path.join(repositoryRoot, 'deploy', 'runtime-artifact.json');
 const forbiddenNames = new Set(['.env', '.htpasswd', 'credentials.json', 'id_ed25519', 'id_rsa']);
 const forbiddenSuffixes = new Set(['.db', '.key', '.p12', '.pem', '.pfx', '.sqlite', '.sqlite3']);
+export const ARTIFACT_LIMITS = Object.freeze({
+  depth: 32,
+  entries: 200_000,
+  fileBytes: 512 * 1024 * 1024,
+  manifestBytes: 64 * 1024 * 1024,
+  totalBytes: 8 * 1024 * 1024 * 1024,
+});
 
 function sha256(contents) {
   return crypto.createHash('sha256').update(contents).digest('hex');
 }
 
-async function digestFile(filePath) {
-  return sha256(await fs.readFile(filePath));
+async function readBoundedFile(filePath, maxBytes) {
+  const file = await fs.open(filePath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+
+  try {
+    const metadata = await file.stat();
+
+    if (!metadata.isFile() || metadata.nlink !== 1 || metadata.size > maxBytes) {
+      throw new Error(`Artifact metadata file exceeds its reviewed limit: ${filePath}`);
+    }
+
+    const chunks = [];
+    const buffer = Buffer.allocUnsafe(64 * 1024);
+    let bytesReadTotal = 0;
+
+    while (true) {
+      const { bytesRead } = await file.read(buffer, 0, buffer.length, null);
+
+      if (bytesRead === 0) {
+        break;
+      }
+
+      bytesReadTotal += bytesRead;
+
+      if (bytesReadTotal > maxBytes) {
+        throw new Error(`Artifact metadata file exceeds its reviewed limit: ${filePath}`);
+      }
+
+      chunks.push(Buffer.from(buffer.subarray(0, bytesRead)));
+    }
+
+    if ((await file.stat()).size !== bytesReadTotal) {
+      throw new Error(`Artifact metadata file changed while reading: ${filePath}`);
+    }
+
+    return Buffer.concat(chunks, bytesReadTotal);
+  } finally {
+    await file.close();
+  }
+}
+
+async function digestFile(filePath, expectedMetadata, root) {
+  const file = await fs.open(filePath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+
+  try {
+    const metadata = await file.stat();
+
+    if (
+      !metadata.isFile() ||
+      metadata.nlink !== 1 ||
+      metadata.size !== expectedMetadata.size ||
+      metadata.dev !== expectedMetadata.dev ||
+      metadata.ino !== expectedMetadata.ino ||
+      !isWithin(root, await fs.realpath(filePath))
+    ) {
+      throw new Error(`Artifact file changed before hashing: ${filePath}`);
+    }
+
+    const hash = crypto.createHash('sha256');
+    const buffer = Buffer.allocUnsafe(64 * 1024);
+    let bytesHashed = 0;
+
+    while (bytesHashed < expectedMetadata.size) {
+      const { bytesRead } = await file.read(
+        buffer,
+        0,
+        Math.min(buffer.length, expectedMetadata.size - bytesHashed),
+        null,
+      );
+
+      if (bytesRead === 0) {
+        throw new Error(`Artifact file changed while hashing: ${filePath}`);
+      }
+
+      hash.update(buffer.subarray(0, bytesRead));
+      bytesHashed += bytesRead;
+    }
+
+    const finalMetadata = await fs.lstat(filePath);
+
+    if (
+      (await file.stat()).size !== expectedMetadata.size ||
+      finalMetadata.dev !== metadata.dev ||
+      finalMetadata.ino !== metadata.ino ||
+      !isWithin(root, await fs.realpath(filePath))
+    ) {
+      throw new Error(`Artifact file changed while hashing: ${filePath}`);
+    }
+
+    return hash.digest('hex');
+  } finally {
+    await file.close();
+  }
 }
 
 function normalizeRelative(relativePath) {
@@ -174,7 +272,7 @@ function validateDeploymentContract(deployment) {
 }
 
 async function readContract(contractPath = defaultContractPath) {
-  const contents = await fs.readFile(contractPath);
+  const contents = await readBoundedFile(contractPath, 1024 * 1024);
   const contract = JSON.parse(contents.toString());
 
   if (
@@ -212,9 +310,33 @@ async function readContract(contractPath = defaultContractPath) {
 
 async function collectEntries(root, contract, manifestName) {
   const entries = {};
+  let entryCount = 0;
+  let totalBytes = 0;
 
-  async function walk(directory) {
-    const children = await fs.readdir(directory, { withFileTypes: true });
+  async function walk(directory, depth) {
+    if (depth > ARTIFACT_LIMITS.depth) {
+      throw new Error('Artifact directory depth exceeds the reviewed limit.');
+    }
+
+    const directoryMetadata = await fs.lstat(directory);
+
+    if (!directoryMetadata.isDirectory() || !isWithin(root, await fs.realpath(directory))) {
+      throw new Error(`Artifact directory changed while traversing: ${directory}`);
+    }
+
+    const children = [];
+
+    for await (const child of await fs.opendir(directory)) {
+      if (directory === root && child.name === manifestName) {
+        continue;
+      }
+
+      children.push(child);
+
+      if (children.length > ARTIFACT_LIMITS.entries - entryCount) {
+        throw new Error('Artifact entry count exceeds the reviewed limit.');
+      }
+    }
 
     for (const child of children.sort((left, right) => left.name.localeCompare(right.name))) {
       const fullPath = path.join(directory, child.name);
@@ -225,6 +347,8 @@ async function collectEntries(root, contract, manifestName) {
       if (relativePath === manifestName) {
         continue;
       }
+
+      entryCount += 1;
 
       if (!matchesAllowedPath(relativePath, contract)) {
         throw new Error(`Artifact contains a path outside the reviewed contract: ${relativePath}`);
@@ -243,7 +367,7 @@ async function collectEntries(root, contract, manifestName) {
 
       if (metadata.isDirectory()) {
         entries[relativePath] = { type: 'directory', mode: mode.toString(8).padStart(4, '0') };
-        await walk(fullPath);
+        await walk(fullPath, depth + 1);
         continue;
       }
 
@@ -275,16 +399,36 @@ async function collectEntries(root, contract, manifestName) {
         throw new Error(`Artifact contains an unsupported filesystem object: ${relativePath}`);
       }
 
+      if (
+        !Number.isSafeInteger(metadata.size) ||
+        metadata.size > ARTIFACT_LIMITS.fileBytes ||
+        totalBytes + metadata.size > ARTIFACT_LIMITS.totalBytes
+      ) {
+        throw new Error(`Artifact file or total size exceeds the reviewed limit: ${relativePath}`);
+      }
+
+      totalBytes += metadata.size;
+
       entries[relativePath] = {
         type: 'file',
         mode: mode.toString(8).padStart(4, '0'),
         size: metadata.size,
-        sha256: await digestFile(fullPath),
+        sha256: await digestFile(fullPath, metadata, root),
       };
+    }
+
+    const finalDirectoryMetadata = await fs.lstat(directory);
+
+    if (
+      finalDirectoryMetadata.dev !== directoryMetadata.dev ||
+      finalDirectoryMetadata.ino !== directoryMetadata.ino ||
+      !isWithin(root, await fs.realpath(directory))
+    ) {
+      throw new Error(`Artifact directory changed while traversing: ${directory}`);
     }
   }
 
-  await walk(root);
+  await walk(root, 0);
 
   return entries;
 }
@@ -365,7 +509,9 @@ export async function createRuntimeManifest(
   const entries = await collectEntries(root, contract, contract.manifest);
   verifyContractCoverage(entries, contract);
 
-  const packageJson = JSON.parse(await fs.readFile(path.join(root, 'package.json'), 'utf8'));
+  const packageJson = JSON.parse(
+    (await readBoundedFile(path.join(root, 'package.json'), 1024 * 1024)).toString(),
+  );
   const manifest = {
     format: 1,
     artifact: 'umami-direct-runtime',
@@ -399,7 +545,9 @@ export async function verifyRuntimeArtifact(
   root = await fs.realpath(path.resolve(root));
   const { contract, contractDigest } = await readContract(contractPath);
   const manifestPath = path.join(root, contract.manifest);
-  const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+  const manifest = JSON.parse(
+    (await readBoundedFile(manifestPath, ARTIFACT_LIMITS.manifestBytes)).toString(),
+  );
 
   if (manifest.format !== 1 || manifest.artifact !== 'umami-direct-runtime') {
     throw new Error('Unsupported runtime artifact manifest.');
