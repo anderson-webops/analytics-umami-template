@@ -21,6 +21,11 @@ import { LoadingPanel } from '@/components/common/LoadingPanel';
 import { useHeatmapQuery, useMobile } from '@/components/hooks';
 import { ListCheck } from '@/components/icons';
 import { formatLongNumber } from '@/lib/format';
+import {
+  boundHeatmapRenderHeight,
+  boundHeatmapRenderWidth,
+  isPointWithinHeatmapRender,
+} from '@/lib/heatmap-render-dimensions';
 import type { HeatmapMode, HeatmapPoint, HeatmapResult, HeatmapSnapshot } from '@/queries/sql';
 import styles from './Heatmap.module.css';
 
@@ -657,11 +662,6 @@ function ClickHeatmapView({
     return getNormalizedBucketPoints(points, viewport);
   }, [points, viewport]);
 
-  const maxCount = useMemo(
-    () => visible.reduce((max, point) => (point.count > max ? point.count : max), 1),
-    [visible],
-  );
-
   const handleSnapshotReady = useCallback(() => setSnapshotReady(true), []);
   const hasSnapshot = Boolean(snapshot);
 
@@ -673,14 +673,18 @@ function ClickHeatmapView({
   const snapshotHeight = snapshot ? getSnapshotFrameHeight(snapshot) : 0;
   // Keep the canvas sized to real content and clip outlier clicks instead of stretching it.
   const baseWidth = Math.max(viewport?.pageW ?? 0, maxPointX + overlayGutter, 1);
-  const renderWidth = viewport?.width ?? snapshot?.viewportW ?? baseWidth;
+  const renderWidth = boundHeatmapRenderWidth(viewport?.width ?? snapshot?.viewportW ?? baseWidth);
   // Match the canvas height to the snapshot height we actually render.
   const contentHeight = snapshotHeight || viewport?.pageH || 0;
-  const renderHeight = Math.max(contentHeight, 640);
+  const renderHeight = boundHeatmapRenderHeight(Math.max(contentHeight, 640));
+  const drawable = visible.filter(point =>
+    isPointWithinHeatmapRender(point, renderWidth, renderHeight),
+  );
+  const maxCount = drawable.reduce((max, point) => Math.max(max, point.count), 1);
   const hasMeasuredWidth = Boolean(viewport?.width || snapshot?.viewportW || maxPointX);
   const fit = useCanvasFit(renderWidth, renderHeight);
   const canvasWidth = hasMeasuredWidth ? `${fit.width}px` : '100%';
-  const canvasHeight = hasMeasuredWidth ? `${fit.height}px` : undefined;
+  const canvasHeight = hasMeasuredWidth ? `${fit.height}px` : '360px';
   const overlayPageW = renderWidth;
   const shouldRenderSnapshot = renderWidth > 0 && hasSnapshot;
   const showOverlay = !shouldRenderSnapshot || snapshotReady;
@@ -743,7 +747,7 @@ function ClickHeatmapView({
           style={{
             width: canvasWidth,
             height: canvasHeight,
-            aspectRatio: `${Math.max(1, renderWidth)} / ${Math.max(1, renderHeight)}`,
+            aspectRatio: hasMeasuredWidth ? `${renderWidth} / ${renderHeight}` : undefined,
           }}
         >
           {showLoading ? (
@@ -767,7 +771,7 @@ function ClickHeatmapView({
               </div>
               {showOverlay && (
                 <div className={styles.overlay}>
-                  {visible.map((point, index) => {
+                  {drawable.map((point, index) => {
                     const intensity = Math.min(1, point.count / maxCount);
                     const desiredSize = 24 + intensity * 36;
                     const size = desiredSize;
@@ -840,12 +844,14 @@ function ScrollHeatmapView({
   const snapshotHeight = snapshot ? getSnapshotFrameHeight(snapshot) : 0;
   const baseWidth = Math.max(pageW, 1);
   const baseHeight = Math.max(snapshotHeight || pageH, 640);
-  const renderWidth = viewport?.width ?? snapshot?.viewportW ?? viewportW ?? baseWidth;
-  const renderHeight = baseHeight;
+  const renderWidth = boundHeatmapRenderWidth(
+    viewport?.width ?? snapshot?.viewportW ?? viewportW ?? baseWidth,
+  );
+  const renderHeight = boundHeatmapRenderHeight(baseHeight);
   const hasMeasuredWidth = Boolean(viewport?.width || snapshot?.viewportW || viewportW || pageW);
   const fit = useCanvasFit(renderWidth, renderHeight);
   const canvasWidth = hasMeasuredWidth ? `${fit.width}px` : '100%';
-  const canvasHeight = hasMeasuredWidth ? `${fit.height}px` : undefined;
+  const canvasHeight = hasMeasuredWidth ? `${fit.height}px` : '360px';
   const shouldRenderSnapshot = renderWidth > 0 && hasSnapshot;
   const showOverlay = !shouldRenderSnapshot || snapshotReady;
   const hasScrollData = Boolean(
@@ -926,7 +932,7 @@ function ScrollHeatmapView({
           style={{
             width: canvasWidth,
             height: canvasHeight,
-            aspectRatio: `${Math.max(1, renderWidth)} / ${Math.max(1, renderHeight)}`,
+            aspectRatio: hasMeasuredWidth ? `${renderWidth} / ${renderHeight}` : undefined,
           }}
         >
           {showLoading ? (
@@ -993,10 +999,10 @@ function getSnapshotFrameHeight(snapshot: HeatmapSnapshot) {
 
   // Use the recorded viewport height for near-single-screen pages so `100vh` matches the visitor's screen.
   if (pageH <= viewportH * 1.25) {
-    return viewportH;
+    return boundHeatmapRenderHeight(viewportH);
   }
 
-  return pageH;
+  return boundHeatmapRenderHeight(pageH);
 }
 
 function SnapshotPreview({
