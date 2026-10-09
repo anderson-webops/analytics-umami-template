@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { expect, test, vi } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 import { RevenueChart } from '@/app/(main)/websites/[websiteId]/(reports)/revenue/RevenueChart';
 import { PropertyChart } from '@/components/property-data/PropertyChart';
 import { EventsChart } from './EventsChart';
@@ -13,6 +13,11 @@ const rows = vi.hoisted(() =>
     count: 1,
   })),
 );
+const propertyRows = vi.hoisted(() => ({ data: null as typeof rows | null }));
+
+afterEach(() => {
+  propertyRows.data = null;
+});
 
 vi.mock('@/components/hooks', () => ({
   useDateRange: () => ({
@@ -28,7 +33,7 @@ vi.mock('@/components/hooks', () => ({
     labels: { revenue: 'Revenue', count: 'Count' },
   }),
   usePropertyArraySeriesQuery: () => ({ data: [], isLoading: false }),
-  usePropertySeriesQuery: () => ({ data: rows, isLoading: false }),
+  usePropertySeriesQuery: () => ({ data: propertyRows.data ?? rows, isLoading: false }),
   useTimezone: () => ({ timezone: 'UTC' }),
   useWebsiteEventsSeriesQuery: () => ({ data: rows, isLoading: false }),
 }));
@@ -68,8 +73,16 @@ vi.mock('@/components/common/LoadingPanel', () => ({
 }));
 
 vi.mock('@/components/metrics/ListTable', () => ({
-  ListTable: ({ data }: { data: { label: string; count: number }[] }) => (
-    <output data-test="chart-table">{JSON.stringify(data)}</output>
+  ListTable: ({
+    data,
+    showPercentage,
+  }: {
+    data: { label: string; count: number }[];
+    showPercentage: boolean;
+  }) => (
+    <output data-test="chart-table" data-show-percentage={String(showPercentage)}>
+      {JSON.stringify(data)}
+    </output>
   ),
 }));
 
@@ -117,4 +130,21 @@ test('property chart keeps reserved property values and their colors', () => {
     '#44b556',
     '#e68619',
   ]);
+  expect(screen.getByTestId('chart-table')).toHaveAttribute('data-show-percentage', 'true');
+});
+
+test('property chart does not imply full-population percentages when the value cap is reached', () => {
+  propertyRows.data = Array.from({ length: 50 }, (_, index) => ({
+    x: `value-${index}`,
+    t: '2026-10-07T00:00:00.000Z',
+    y: 1,
+    count: 1,
+  }));
+
+  render(
+    <PropertyChart source="event" websiteId="website-1" eventName="signup" propertyName="plan" />,
+  );
+
+  expect(screen.getByTestId('chart-table')).toHaveAttribute('data-show-percentage', 'false');
+  expect(screen.queryByTestId('chart-colors')).not.toBeInTheDocument();
 });

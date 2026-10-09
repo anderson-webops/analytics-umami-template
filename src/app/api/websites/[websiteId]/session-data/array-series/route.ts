@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { parsePropertyFilters } from '@/lib/params';
+import { getPropertySeriesValueLimit } from '@/lib/property-series-budget';
 import { getQueryFilters, parseRequest } from '@/lib/request';
-import { json, unauthorized } from '@/lib/response';
+import { badRequest, json, unauthorized } from '@/lib/response';
 import { filterParams, timezoneParam, unitParam } from '@/lib/schema';
 import { canViewWebsiteSection } from '@/permissions';
 import { getSessionDataArraySeries } from '@/queries/sql';
@@ -33,6 +34,15 @@ export async function GET(
 
   const { propertyName, ...rest } = query;
   const filters = await getQueryFilters(rest, websiteId);
+
+  if (filters.startDate && filters.endDate && filters.startDate > filters.endDate) {
+    return json([]);
+  }
+
+  if (!getPropertySeriesValueLimit(filters)) {
+    return badRequest({ message: 'The requested property series exceeds the allowed size.' });
+  }
+
   const propertyFilters = parsePropertyFilters(query);
   const data = await getSessionDataArraySeries(websiteId, propertyName, filters, propertyFilters);
 

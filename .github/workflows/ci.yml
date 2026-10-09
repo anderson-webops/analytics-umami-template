@@ -191,6 +191,7 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm run generate:db:client
           pnpm exec vitest run src/queries/sql/events/getEventStats.clickhouse.test.ts
+          pnpm exec vitest run src/queries/sql/property-series.clickhouse.test.ts
 
   postgres-event-series:
     name: PostgreSQL event series
@@ -238,3 +239,4 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm run generate:db:client
           pnpm exec vitest run src/queries/sql/events/getEventStats.postgres.test.ts
+          pnpm exec vitest run src/queries/sql/property-series.postgres.test.ts

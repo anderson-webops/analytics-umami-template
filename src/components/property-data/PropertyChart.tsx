@@ -18,6 +18,7 @@ import { ListTable } from '@/components/metrics/ListTable';
 import { renderDateLabels } from '@/lib/charts';
 import { CHART_COLORS } from '@/lib/constants';
 import { generateTimeSeries } from '@/lib/date';
+import { getPropertySeriesValueLimit } from '@/lib/property-series-budget';
 import type { EventDataSeriesPoint, PropertyFilter } from '@/lib/types';
 
 export function PropertyChart({
@@ -72,6 +73,8 @@ export function PropertyChart({
   }, [data]);
 
   const valueLabels = useMemo(() => aggregated.map(({ value }) => value), [aggregated]);
+  const valueLimit = getPropertySeriesValueLimit({ startDate, endDate, unit });
+  const isPotentiallyTruncated = valueLabels.length >= valueLimit;
   const colorMap = useMemo(
     () =>
       valueLabels.reduce(
@@ -145,7 +148,7 @@ export function PropertyChart({
     }));
   }, [aggregated, propertySum]);
   const pieChartData = useMemo(() => {
-    if (!aggregated.length) return null;
+    if (!aggregated.length || isPotentiallyTruncated) return null;
     return {
       labels: valueLabels,
       datasets: [
@@ -156,7 +159,7 @@ export function PropertyChart({
         },
       ],
     };
-  }, [aggregated, valueLabels, colorMap]);
+  }, [aggregated, valueLabels, colorMap, isPotentiallyTruncated]);
 
   return (
     <Column gap="6">
@@ -181,7 +184,12 @@ export function PropertyChart({
         minHeight="300px"
       >
         <Grid columns={{ base: '1fr', md: '1fr 1fr' }} gap padding="2" alignItems="start">
-          <ListTable title={propertyName} metric={t(labels.count)} data={tableData} />
+          <ListTable
+            title={propertyName}
+            metric={t(labels.count)}
+            data={tableData}
+            showPercentage={!isPotentiallyTruncated}
+          />
           {pieChartData && <PieChart type="doughnut" chartData={pieChartData} />}
         </Grid>
       </LoadingPanel>

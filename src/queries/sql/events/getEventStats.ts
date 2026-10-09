@@ -1,6 +1,7 @@
 import clickhouse from '@/lib/clickhouse';
 import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
 import prisma from '@/lib/prisma';
+import { getConservativeSeriesBucketCount } from '@/lib/series-budget';
 import type { QueryFilters } from '@/lib/types';
 
 const FUNCTION_NAME = 'getEventStats';
@@ -8,13 +9,6 @@ const DEFAULT_EVENT_SERIES_LIMIT = 50;
 const MAX_EVENT_SERIES_LIMIT = 500;
 const MAX_EVENT_SERIES_GROUPS = 50_000;
 const EVENT_SERIES_QUERY_TIMEOUT_MS = 10_000;
-const MIN_BUCKET_DURATION_MS = {
-  minute: 60_000,
-  hour: 3_600_000,
-  day: 23 * 3_600_000,
-  month: 27 * 24 * 3_600_000,
-  year: 364 * 24 * 3_600_000,
-};
 
 export interface EventStatsParameters {
   limit?: number | string;
@@ -31,18 +25,14 @@ export function getEventSeriesLimit(limit?: number | string): number {
 }
 
 export function isEventSeriesWithinBudget(limit: number, filters: QueryFilters): boolean {
-  const { startDate, endDate, unit } = filters;
-  const bucketDuration = MIN_BUCKET_DURATION_MS[unit as keyof typeof MIN_BUCKET_DURATION_MS];
-  const duration = startDate && endDate ? endDate.getTime() - startDate.getTime() : NaN;
+  const buckets = getConservativeSeriesBucketCount(filters);
 
   return (
     Number.isSafeInteger(limit) &&
     limit >= 1 &&
     limit <= MAX_EVENT_SERIES_LIMIT &&
-    Number.isFinite(duration) &&
-    duration >= 0 &&
-    !!bucketDuration &&
-    limit * (Math.ceil(duration / bucketDuration) + 2) <= MAX_EVENT_SERIES_GROUPS
+    buckets > 0 &&
+    limit * buckets <= MAX_EVENT_SERIES_GROUPS
   );
 }
 
