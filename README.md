@@ -52,6 +52,16 @@ pnpm test:runtime-artifact
 pnpm start:production
 ```
 
+`pnpm build:languages` fills missing country and language name assets from the
+immutable revisions and per-file checksums in `scripts/name-data-sources.json`.
+Existing pinned assets are verified; other existing assets must match their
+committed Git blobs. An unreviewed missing locale stops the command rather
+than downloading mutable upstream content. To add a locale,
+review the exact upstream JSON, record its commit, byte size, SHA-256, and
+upstream locale mapping, then run `pnpm test:name-data` before downloading.
+The existing `ga-ES` application locale contains Galician text and maps to
+upstream `gl_ES` without renaming its public file.
+
 ## Production Deployment
 
 Use PostgreSQL 15 or newer, Node 24.18.1, pnpm 11.18.0, the supplied systemd

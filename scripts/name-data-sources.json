@@ -1,0 +1,37 @@
+{
+  "country": {
+    "revision": "bd490a163ae4709bbe4b54c4f638f24e032828d2",
+    "files": {
+      "az-AZ": {
+        "sourceLocale": "az_AZ",
+        "size": 5374,
+        "sha256": "57691ddba16ad89c896bd9ae1769d7795840f4ede861cf9f4e6220cf9ce26ec6"
+      },
+      "ga-ES": {
+        "sourceLocale": "gl_ES",
+        "size": 4865,
+        "sha256": "031f9ebb5be99dc8f7b711f8540e7c1dd442b546e75d58c3bae32182d5dae250"
+      },
+      "ka-GE": {
+        "sourceLocale": "ka_GE",
+        "size": 17685,
+        "sha256": "10619db6656b955f9fc6a331c1aa64e4fc036bad727ffd7694d71bf76c9796a2"
+      }
+    }
+  },
+  "language": {
+    "revision": "7813f6696559496d014acd5dce0e3b09c0766844",
+    "files": {
+      "ga-ES": {
+        "sourceLocale": "gl_ES",
+        "size": 10733,
+        "sha256": "6b1e5ed9e051a43bd345d0a7397c316fbbcd27b2d1f203a81ce36d9c81634c38"
+      },
+      "ka-GE": {
+        "sourceLocale": "ka_GE",
+        "size": 26952,
+        "sha256": "e9f46342e435c4ece41177b4a518477b503b46113829547d211ca4fce543bed4"
+      }
+    }
+  }
+}
