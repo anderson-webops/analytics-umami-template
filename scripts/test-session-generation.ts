@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { checkAuth } from '@/lib/auth';
 import { hash, secret } from '@/lib/crypto';
 import { createSecureToken } from '@/lib/jwt';
+import { hashPassword } from '@/lib/password';
 import prisma from '@/lib/prisma';
 import { createApiKey } from '@/queries/prisma/apiKey';
 import {
@@ -23,6 +24,8 @@ assert.equal(address.pathname, '/postgres');
 const userId = randomUUID();
 const adminId = randomUUID();
 const username = `session-generation-${userId}`;
+const provisionedUsername = `session-admin-${adminId}`;
+const provisioningDomain = `session-${adminId}.example.test`;
 const password = 'x'.repeat(60);
 let created = false;
 
@@ -128,7 +131,12 @@ try {
   assert.notEqual(await prisma.client.apiKey.findUnique({ where: { id: rehashKeyId } }), null);
 
   await prisma.client.user.create({
-    data: { id: adminId, username: `session-admin-${adminId}`, password, role: 'admin' },
+    data: {
+      id: adminId,
+      username: provisionedUsername,
+      password: await hashPassword('synthetic-role-admin-password-000000'),
+      role: 'admin',
+    },
   });
   await updateUser(userId, { password: 'w'.repeat(60) }, adminId);
   assert.equal(
@@ -300,10 +308,77 @@ try {
   );
   assert.notEqual(await prisma.client.apiKey.findUnique({ where: { id: protectedKeyId } }), null);
 
+  const prePromotionToken = await createSecureToken(
+    {
+      userId: adminId,
+      role: 'user',
+      pwd: hash((await prisma.client.user.findUniqueOrThrow({ where: { id: adminId } })).password),
+    },
+    secret(),
+    { expiresIn: '5m' },
+  );
+  assert.equal((await sessionRequest(prePromotionToken))?.user?.id, adminId);
+
+  function provisionAdmin(extraEnv: Record<string, string> = {}) {
+    return spawnSync(process.execPath, ['--import', 'tsx', 'scripts/provision-site.ts'], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        DOTENV_CONFIG_PATH: '/dev/null',
+        UMAMI_ADMIN_USERNAME: provisionedUsername,
+        UMAMI_PROMOTE_EXISTING_ADMIN: 'true',
+        UMAMI_WEBSITE_NAME: 'Synthetic session provisioning',
+        UMAMI_WEBSITE_DOMAIN: provisioningDomain,
+        UMAMI_ADMIN_PASSWORD: '',
+        UMAMI_UPDATE_ADMIN_PASSWORD: '',
+        ...extraEnv,
+      },
+      encoding: 'utf8',
+    });
+  }
+
+  const promoted = provisionAdmin();
+  assert.equal(promoted.status, 0, promoted.stderr);
+  const promotedUser = await prisma.client.user.findUniqueOrThrow({ where: { id: adminId } });
+  assert.equal(promotedUser.role, 'admin');
+  assert.equal(promotedUser.sessionGeneration, 1);
+  assert.equal(await sessionRequest(prePromotionToken), null);
+
+  const repeatedProvision = provisionAdmin();
+  assert.equal(repeatedProvision.status, 0, repeatedProvision.stderr);
+  assert.equal(
+    (await prisma.client.user.findUniqueOrThrow({ where: { id: adminId } })).sessionGeneration,
+    1,
+  );
+
+  await prisma.client.user.update({ where: { id: adminId }, data: { role: 'user' } });
+  const preCombinedToken = await createSecureToken(
+    {
+      userId: adminId,
+      role: 'user',
+      pwd: hash((await prisma.client.user.findUniqueOrThrow({ where: { id: adminId } })).password),
+      sessionGeneration: 1,
+    },
+    secret(),
+    { expiresIn: '5m' },
+  );
+  assert.equal((await sessionRequest(preCombinedToken))?.user?.id, adminId);
+
+  const combinedProvision = provisionAdmin({
+    UMAMI_ADMIN_PASSWORD: 'synthetic-provision-password-000000000000',
+    UMAMI_UPDATE_ADMIN_PASSWORD: 'true',
+  });
+  assert.equal(combinedProvision.status, 0, combinedProvision.stderr);
+  const combinedUser = await prisma.client.user.findUniqueOrThrow({ where: { id: adminId } });
+  assert.equal(combinedUser.role, 'admin');
+  assert.equal(combinedUser.sessionGeneration, 2);
+  assert.equal(await sessionRequest(preCombinedToken), null);
+
   console.log('PostgreSQL session revocation and stale credential issuance denial passed.');
 } finally {
   await prisma.client.apiKey.deleteMany({ where: { userId } });
   await prisma.client.twoFactorAuth.deleteMany({ where: { userId } });
+  await prisma.client.website.deleteMany({ where: { domain: provisioningDomain } });
   if (created) {
     await prisma.client.user.delete({ where: { id: userId } });
   }

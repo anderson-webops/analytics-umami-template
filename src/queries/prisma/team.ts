@@ -100,6 +100,7 @@ export async function getTeams(
       omit: { ...criteria.omit, accessCode: true },
     },
     sortFilters,
+    { usePrimary: true },
   );
 }
 
@@ -142,7 +143,8 @@ export async function getUserTeams(userId: string, filters: QueryFilters = {}) {
 }
 
 export async function getAllUserTeams(userId: string) {
-  return prisma.client.team.findMany({
+  const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
+  return client.team.findMany({
     where: {
       deletedAt: null,
       members: {

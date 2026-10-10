@@ -1,22 +1,34 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { ROLES } from '@/lib/constants';
-import { addTeamUserByActor, transferTeamOwnership } from './teamUser';
+import { addTeamUserByActor, getTeamUsers, transferTeamOwnership } from './teamUser';
 
-const { transactionMock, actorFindUnique, teamUserCreate, teamUserFindMany, teamUserUpdate } =
-  vi.hoisted(() => ({
-    transactionMock: vi.fn(),
-    actorFindUnique: vi.fn(),
-    teamUserCreate: vi.fn(),
-    teamUserFindMany: vi.fn(),
-    teamUserUpdate: vi.fn(),
-  }));
+const {
+  transactionMock,
+  pagedQueryMock,
+  actorFindUnique,
+  teamUserCreate,
+  teamUserFindMany,
+  teamUserUpdate,
+} = vi.hoisted(() => ({
+  transactionMock: vi.fn(),
+  pagedQueryMock: vi.fn(),
+  actorFindUnique: vi.fn(),
+  teamUserCreate: vi.fn(),
+  teamUserFindMany: vi.fn(),
+  teamUserUpdate: vi.fn(),
+}));
 
 vi.mock('@/lib/prisma', () => ({
-  default: { transaction: transactionMock },
+  default: {
+    transaction: transactionMock,
+    pagedQuery: pagedQueryMock,
+    getSearchParameters: vi.fn(() => ({})),
+  },
 }));
 
 beforeEach(() => {
   vi.clearAllMocks();
+  pagedQueryMock.mockResolvedValue({ data: [], count: 0, page: 1, pageSize: 20 });
   actorFindUnique.mockResolvedValue({ role: ROLES.user, deletedAt: null });
   teamUserCreate.mockResolvedValue({ id: 'membership-1' });
   teamUserFindMany.mockResolvedValue([{ id: 'owner-membership', userId: 'actor-1' }]);
@@ -39,6 +51,17 @@ beforeEach(() => {
         update: teamUserUpdate,
       },
     }),
+  );
+});
+
+test('team member lists request primary-backed pagination', async () => {
+  await getTeamUsers({ where: { teamId: 'team-1' } });
+
+  expect(pagedQueryMock).toHaveBeenCalledWith(
+    'teamUser',
+    expect.objectContaining({ where: { teamId: 'team-1' } }),
+    undefined,
+    { usePrimary: true },
   );
 });
 

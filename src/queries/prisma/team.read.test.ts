@@ -1,5 +1,12 @@
 import { beforeEach, expect, test, vi } from 'vitest';
-import { deleteTeam, getTeamAccessCodeForActor, getTeams, getUserTeams, updateTeam } from './team';
+import {
+  deleteTeam,
+  getAllUserTeams,
+  getTeamAccessCodeForActor,
+  getTeams,
+  getUserTeams,
+  updateTeam,
+} from './team';
 
 const {
   pagedQueryMock,
@@ -9,6 +16,8 @@ const {
   membershipFindFirstMock,
   teamUpdateMock,
   websiteFindManyMock,
+  primaryTeamFindManyMock,
+  replicaTeamFindManyMock,
 } = vi.hoisted(() => ({
   pagedQueryMock: vi.fn(),
   transactionMock: vi.fn(),
@@ -17,6 +26,8 @@ const {
   membershipFindFirstMock: vi.fn(),
   teamUpdateMock: vi.fn(),
   websiteFindManyMock: vi.fn(),
+  primaryTeamFindManyMock: vi.fn(),
+  replicaTeamFindManyMock: vi.fn(),
 }));
 
 const TEAM_ID = '3979e857-a987-4795-9380-12024a4440a9';
@@ -28,6 +39,10 @@ vi.mock('@/lib/prisma', () => ({
     getSearchParameters: vi.fn(() => ({})),
     pagedQuery: pagedQueryMock,
     transaction: transactionMock,
+    client: {
+      $primary: () => ({ team: { findMany: primaryTeamFindManyMock } }),
+      team: { findMany: replicaTeamFindManyMock },
+    },
   },
 }));
 
@@ -55,6 +70,8 @@ beforeEach(() => {
   teamUpdateMock.mockReset();
   teamUpdateMock.mockResolvedValue({ id: TEAM_ID, accessCode: ACCESS_CODE });
   websiteFindManyMock.mockReset();
+  primaryTeamFindManyMock.mockReset();
+  replicaTeamFindManyMock.mockReset();
 });
 
 test('team lists omit invitation codes before reading from Prisma', async () => {
@@ -67,6 +84,7 @@ test('team lists omit invitation codes before reading from Prisma', async () => 
       where: expect.objectContaining({ members: { some: { userId: 'user-1' } } }),
     }),
     expect.anything(),
+    { usePrimary: true },
   );
 });
 
@@ -80,7 +98,20 @@ test('admin team lists also omit invitation codes', async () => {
       omit: { logoUrl: true, accessCode: true },
     }),
     expect.anything(),
+    { usePrimary: true },
   );
+});
+
+test('login and verification team names use current primary membership', async () => {
+  replicaTeamFindManyMock.mockResolvedValue([{ id: TEAM_ID, name: 'revoked-team' }]);
+  primaryTeamFindManyMock.mockResolvedValue([]);
+
+  await expect(getAllUserTeams(ACTOR_ID)).resolves.toEqual([]);
+  expect(primaryTeamFindManyMock).toHaveBeenCalledWith({
+    where: { deletedAt: null, members: { some: { userId: ACTOR_ID } } },
+    select: { id: true, name: true, logoUrl: true },
+  });
+  expect(replicaTeamFindManyMock).not.toHaveBeenCalled();
 });
 
 test('current manager permissions and code are read from the primary database', async () => {

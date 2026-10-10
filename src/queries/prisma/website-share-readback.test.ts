@@ -1,15 +1,19 @@
 import { beforeEach, expect, test, vi } from 'vitest';
-import { attachShareIdToWebsite, attachShareIdToWebsites } from './website';
+import { attachShareIdToWebsite, attachShareIdToWebsites, getWebsites } from './website';
 
-const { primaryFindMany, primaryGroupBy, replicaFindMany, replicaGroupBy } = vi.hoisted(() => ({
-  primaryFindMany: vi.fn(),
-  primaryGroupBy: vi.fn(),
-  replicaFindMany: vi.fn(),
-  replicaGroupBy: vi.fn(),
-}));
+const { primaryFindMany, primaryGroupBy, replicaFindMany, replicaGroupBy, pagedQueryMock } =
+  vi.hoisted(() => ({
+    primaryFindMany: vi.fn(),
+    primaryGroupBy: vi.fn(),
+    replicaFindMany: vi.fn(),
+    replicaGroupBy: vi.fn(),
+    pagedQueryMock: vi.fn(),
+  }));
 
 vi.mock('@/lib/prisma', () => ({
   default: {
+    pagedQuery: pagedQueryMock,
+    getSearchParameters: vi.fn(() => ({})),
     client: {
       $primary: () => ({
         share: { findMany: primaryFindMany, groupBy: primaryGroupBy },
@@ -24,6 +28,20 @@ beforeEach(() => {
   primaryGroupBy.mockReset();
   replicaFindMany.mockReset();
   replicaGroupBy.mockReset();
+  pagedQueryMock.mockReset();
+});
+
+test('website ownership lists request primary-backed rows and count', async () => {
+  pagedQueryMock.mockResolvedValue({ data: [], count: 0, page: 1, pageSize: 20 });
+
+  await getWebsites({ where: { userId: 'former-owner' } }, {});
+
+  expect(pagedQueryMock).toHaveBeenCalledWith(
+    'website',
+    expect.objectContaining({ where: { userId: 'former-owner', deletedAt: null } }),
+    expect.anything(),
+    { usePrimary: true },
+  );
 });
 
 test('single website share readback uses the primary after rotation', async () => {

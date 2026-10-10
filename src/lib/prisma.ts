@@ -836,11 +836,17 @@ async function writeRawQuery(sql: string, data: Record<string, any>, name?: stri
   return executeRawQuery(sql, data, name, true);
 }
 
-async function pagedQuery<T>(model: string, criteria: T, filters?: QueryFilters) {
+async function pagedQuery<T>(
+  model: string,
+  criteria: T,
+  filters?: QueryFilters,
+  options: { usePrimary?: boolean } = {},
+) {
   const { page = 1, pageSize, orderBy, sortDescending = false, search } = filters || {};
   const size = +pageSize || DEFAULT_PAGE_SIZE;
+  const queryClient = options.usePrimary && '$primary' in client ? client.$primary() : client;
 
-  const data = await client[model].findMany({
+  const data = await queryClient[model].findMany({
     ...criteria,
     ...{
       ...(size > 0 && { take: +size, skip: +size * (+page - 1) }),
@@ -854,7 +860,7 @@ async function pagedQuery<T>(model: string, criteria: T, filters?: QueryFilters)
     },
   });
 
-  const count = await client[model].count({ where: (criteria as any).where });
+  const count = await queryClient[model].count({ where: (criteria as any).where });
 
   return { data, count, page: +page, pageSize: size, orderBy, search };
 }

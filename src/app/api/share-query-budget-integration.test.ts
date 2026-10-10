@@ -14,6 +14,7 @@ import {
   getActiveVisitors,
   getBreakdown as getCompatBreakdown,
   getFunnel as getCompatFunnel,
+  getJourney as getCompatJourney,
   getLinkedDistinctIds,
   getLinkedSessionIds,
   getPageviewStats,
@@ -41,6 +42,7 @@ import { getRevenueStats } from '@/queries/sql/revenue/getRevenueStats';
 import { POST as getAttributionReport } from '../(compat)/compat/api/reports/attribution/route';
 import { POST as getBreakdownReport } from '../(compat)/compat/api/reports/breakdown/route';
 import { POST as getFunnelReport } from '../(compat)/compat/api/reports/funnel/route';
+import { POST as getJourneyReport } from '../(compat)/compat/api/reports/journey/route';
 import { POST as getPerformanceReport } from '../(compat)/compat/api/reports/performance/route';
 import { POST as getRevenueReport } from '../(compat)/compat/api/reports/revenue/route';
 import { POST as getUtmReport } from '../(compat)/compat/api/reports/utm/route';
@@ -84,6 +86,7 @@ vi.mock('@/queries/sql', () => ({
   getActiveVisitors: vi.fn(),
   getBreakdown: vi.fn(),
   getFunnel: vi.fn(),
+  getJourney: vi.fn(),
   getPageviewStats: vi.fn(),
   getRealtimeData: vi.fn(),
   getLinkedDistinctIds: vi.fn(),
@@ -121,6 +124,7 @@ const canViewBatchWebsitesMock = vi.mocked(canViewBatchWebsites);
 const getActiveVisitorsMock = vi.mocked(getActiveVisitors);
 const getCompatBreakdownMock = vi.mocked(getCompatBreakdown);
 const getCompatFunnelMock = vi.mocked(getCompatFunnel);
+const getCompatJourneyMock = vi.mocked(getCompatJourney);
 const getPageviewStatsMock = vi.mocked(getPageviewStats);
 const getRealtimeDataMock = vi.mocked(getRealtimeData);
 const getLinkedDistinctIdsMock = vi.mocked(getLinkedDistinctIds);
@@ -162,6 +166,7 @@ beforeEach(() => {
   getActiveVisitorsMock.mockReset();
   getCompatBreakdownMock.mockReset();
   getCompatFunnelMock.mockReset();
+  getCompatJourneyMock.mockReset();
   getPageviewStatsMock.mockReset();
   getRealtimeDataMock.mockReset();
   getLinkedDistinctIdsMock.mockReset();
@@ -191,6 +196,7 @@ beforeEach(() => {
   getFunnelMock.mockResolvedValue([] as any);
   getCompatBreakdownMock.mockResolvedValue([] as any);
   getCompatFunnelMock.mockResolvedValue([] as any);
+  getCompatJourneyMock.mockResolvedValue([] as any);
   getPageviewStatsMock.mockResolvedValue({} as any);
   getRealtimeDataMock.mockResolvedValue({} as any);
   getSessionStatsMock.mockResolvedValue({} as any);
@@ -623,6 +629,13 @@ test.each([
     parameters: { fields: Array.from({ length: 20 }, () => 'path') },
     run: getBreakdownReport,
   },
+  {
+    name: 'journey',
+    charge: 14,
+    query: getCompatJourneyMock,
+    parameters: { steps: '7' },
+    run: getJourneyReport,
+  },
 ])('compatibility $name charges public-share work before querying', async report => {
   const shareId = `compat-work-${crypto.randomUUID()}`;
   checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
@@ -652,6 +665,75 @@ test.each([
   checkAuthMock.mockResolvedValue({ user: { id: 'website-owner' } } as any);
   expect((await report.run(request())).status).toBe(200);
   expect(report.query).toHaveBeenCalled();
+});
+
+test('compatibility journey shares reject fractional steps before querying', async () => {
+  checkAuthMock.mockResolvedValue({
+    shareToken: { shareId: crypto.randomUUID(), websiteId: WEBSITE_ID },
+  } as any);
+  canViewWebsiteSectionMock.mockResolvedValue(true);
+
+  const response = await getJourneyReport(
+    new Request('https://analytics.example/compat/api/reports/journey', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        websiteId: WEBSITE_ID,
+        type: 'journey',
+        filters: {},
+        parameters: {
+          startDate: '2025-01-01T00:00:00.000Z',
+          endDate: '2025-01-02T00:00:00.000Z',
+          steps: 2.5,
+        },
+      }),
+    }),
+  );
+
+  expect(response.status).toBe(400);
+  expect(getCompatJourneyMock).not.toHaveBeenCalled();
+});
+
+test('compatibility journey event type is authorized and priced before querying', async () => {
+  const shareId = `journey-filter-${crypto.randomUUID()}`;
+  const request = () =>
+    new Request('https://analytics.example/compat/api/reports/journey', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        websiteId: WEBSITE_ID,
+        type: 'journey',
+        filters: {},
+        parameters: {
+          startDate: '2025-01-01T00:00:00.000Z',
+          endDate: '2025-01-02T00:00:00.000Z',
+          steps: 7,
+          eventType: 2,
+        },
+      }),
+    });
+
+  checkAuthMock.mockResolvedValue({
+    shareToken: { shareId, websiteId: WEBSITE_ID, parameters: { allowFilter: false } },
+  } as any);
+  expect((await getJourneyReport(request())).status).toBe(403);
+  expect(getCompatJourneyMock).not.toHaveBeenCalled();
+
+  checkAuthMock.mockResolvedValue({
+    shareToken: { shareId, websiteId: WEBSITE_ID, parameters: { allowFilter: true } },
+  } as any);
+  expect((await reserveShareQueryCost(shareId, 580)).blocked).toBe(false);
+  expect((await getJourneyReport(request())).status).toBe(429);
+  expect(getCompatJourneyMock).not.toHaveBeenCalled();
+
+  checkAuthMock.mockResolvedValue({ user: { id: 'website-owner' } } as any);
+  canViewWebsiteSectionMock.mockResolvedValue(true);
+  expect((await getJourneyReport(request())).status).toBe(200);
+  expect(getCompatJourneyMock).toHaveBeenCalledWith(
+    WEBSITE_ID,
+    expect.objectContaining({ eventType: 2 }),
+    expect.objectContaining({ eventType: 2 }),
+  );
 });
 
 function analyticsCalls() {

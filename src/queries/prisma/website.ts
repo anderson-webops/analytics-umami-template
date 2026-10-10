@@ -117,7 +117,9 @@ export async function getWebsites(criteria: Prisma.WebsiteFindManyArgs, filters:
     deletedAt: null,
   };
 
-  const websites = await pagedQuery('website', { ...criteria, where }, sortFilters);
+  const websites = await pagedQuery('website', { ...criteria, where }, sortFilters, {
+    usePrimary: true,
+  });
 
   return attachShareIdToWebsites(websites);
 }

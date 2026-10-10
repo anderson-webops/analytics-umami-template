@@ -44,6 +44,7 @@ export async function getTeamUsers(criteria: TeamUserFindManyArgs, filters?: Que
       where,
     },
     filters,
+    { usePrimary: true },
   );
 }
 

@@ -360,7 +360,9 @@ async function main() {
 
           adminUserId = existingUser.id;
 
-          if (existingUser.role !== ROLES.admin) {
+          const promotingExistingAdmin = existingUser.role !== ROLES.admin;
+
+          if (promotingExistingAdmin) {
             if (!promoteExistingAdmin) {
               throw new Error(
                 `The account "${existingUser.username}" is not an administrator. Set UMAMI_PROMOTE_EXISTING_ADMIN=true or pass --promote-existing-admin to authorize promotion.`,
@@ -369,7 +371,7 @@ async function main() {
 
             await transaction.user.update({
               where: { id: existingUser.id },
-              data: { role: ROLES.admin },
+              data: { role: ROLES.admin, sessionGeneration: { increment: 1 } },
             });
 
             messages.push(`Promoted existing user to admin: ${existingUser.username}`);
@@ -380,7 +382,10 @@ async function main() {
           if ((updateAdminPassword || usesDefaultPassword) && passwordHash) {
             await transaction.user.update({
               where: { id: existingUser.id },
-              data: { password: passwordHash, sessionGeneration: { increment: 1 } },
+              data: {
+                password: passwordHash,
+                ...(promotingExistingAdmin ? {} : { sessionGeneration: { increment: 1 } }),
+              },
             });
             await transaction.apiKey.deleteMany({ where: { userId: existingUser.id } });
 

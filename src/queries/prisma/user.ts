@@ -141,7 +141,12 @@ export async function updateUser(
   data: Prisma.UserUpdateInput,
   actorUserId: string,
 ) {
-  const nextRole = typeof data.role === 'string' ? data.role : null;
+  const nextRole =
+    typeof data.role === 'string'
+      ? data.role
+      : data.role && typeof data.role === 'object' && 'set' in data.role
+        ? data.role.set
+        : null;
   const changingPassword = data.password !== undefined;
   const runMutation = changingPassword
     ? runCredentialRevocationMutation
@@ -186,7 +191,9 @@ export async function updateUser(
       },
       data: {
         ...data,
-        ...(changingPassword ? { sessionGeneration: { increment: 1 } } : {}),
+        ...(changingPassword || (nextRole !== null && nextRole !== current.role)
+          ? { sessionGeneration: { increment: 1 } }
+          : {}),
       },
       select: {
         id: true,

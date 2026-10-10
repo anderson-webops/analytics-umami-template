@@ -27,7 +27,8 @@ function getBoardEntityReferences(type: string, parameters: BoardParameters) {
 }
 
 export async function findBoard(criteria: Prisma.BoardFindUniqueArgs) {
-  return prisma.client.board.findUnique(criteria);
+  const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
+  return client.board.findUnique(criteria);
 }
 
 export async function getBoard(boardId: string) {
@@ -52,7 +53,7 @@ export async function getBoards(criteria: Prisma.BoardFindManyArgs, filters: Que
     ...getSearchParameters(search, [{ name: 'contains' }, { description: 'contains' }]),
   };
 
-  return pagedQuery('board', { ...criteria, where }, sortFilters);
+  return pagedQuery('board', { ...criteria, where }, sortFilters, { usePrimary: true });
 }
 
 export async function getUserBoards(userId: string, filters?: QueryFilters) {

@@ -83,6 +83,59 @@ describe('getRawQueryClient', () => {
   });
 });
 
+describe('pagedQuery authority', () => {
+  const client = () => prisma.client as any;
+
+  afterEach(() => {
+    delete client().team;
+    delete client().$primary;
+  });
+
+  test('uses primary for both protected list rows and count', async () => {
+    const replica = {
+      findMany: vi.fn().mockResolvedValue([{ id: 'revoked' }]),
+      count: vi.fn().mockResolvedValue(1),
+    };
+    const primary = {
+      findMany: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockResolvedValue(0),
+    };
+    client().team = replica;
+    client().$primary = vi.fn(() => ({ team: primary }));
+    const criteria = { where: { members: { some: { userId: 'former-member' } } } };
+
+    await expect(
+      prisma.pagedQuery('team', criteria, { page: 1, pageSize: 20 }, { usePrimary: true }),
+    ).resolves.toMatchObject({ data: [], count: 0 });
+    expect(primary.findMany).toHaveBeenCalledWith(expect.objectContaining(criteria));
+    expect(primary.count).toHaveBeenCalledWith({ where: criteria.where });
+    expect(replica.findMany).not.toHaveBeenCalled();
+    expect(replica.count).not.toHaveBeenCalled();
+  });
+
+  test('retains replica reads by default and single-client fallback', async () => {
+    const replica = {
+      findMany: vi.fn().mockResolvedValue([{ id: 'listed' }]),
+      count: vi.fn().mockResolvedValue(1),
+    };
+    const primary = {
+      findMany: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockResolvedValue(0),
+    };
+    client().team = replica;
+    client().$primary = vi.fn(() => ({ team: primary }));
+
+    await expect(prisma.pagedQuery('team', { where: {} })).resolves.toMatchObject({ count: 1 });
+    expect(primary.findMany).not.toHaveBeenCalled();
+
+    delete client().$primary;
+    await expect(
+      prisma.pagedQuery('team', { where: {} }, {}, { usePrimary: true }),
+    ).resolves.toMatchObject({ count: 1 });
+    expect(replica.findMany).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('report filter SQL', () => {
   test('does not interpolate untrusted structured filter metadata', () => {
     const filters = prisma.parseFilters({
