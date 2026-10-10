@@ -71,7 +71,11 @@ test.each([
     expect(response.status).toBe(429);
     expect(parseRequestMock).toHaveBeenCalledOnce();
     expect(parseRequestMock.mock.calls[0][0]).toBe(request);
-    expect(parseRequestMock.mock.calls[0][2]).toEqual({ budgetShareQuery: true });
+    expect(parseRequestMock.mock.calls[0][2]).toEqual(
+      name === 'website charts'
+        ? { budgetShareQuery: true, shareQueryWorkMultiplier: expect.any(Function) }
+        : { budgetShareQuery: true },
+    );
     const schema = parseRequestMock.mock.calls[0][1];
     expect(schema).toBeDefined();
     if (name === 'active visitors' || name === 'website date range') {

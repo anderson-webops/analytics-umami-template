@@ -1,5 +1,6 @@
 import { startOfMonth, subMonths } from 'date-fns';
 import { z } from 'zod';
+import { getCanonicalApiPath } from '@/lib/api-key';
 import { checkAuth } from '@/lib/auth';
 import { DEFAULT_PAGE_SIZE, FILTER_COLUMNS, OPERATORS } from '@/lib/constants';
 import {
@@ -29,8 +30,10 @@ import { savedSegmentSchema } from '@/lib/schema';
 import type { ShareSection } from '@/lib/share';
 import { hasShareFilterParams } from '@/lib/share-filter';
 import {
+  getAuthenticatedQueryCost,
   getShareQueryCost,
   getStepFilterCount,
+  reserveAuthenticatedQueryCost,
   reserveShareQueryCost,
   type ShareQueryWorkMultiplier,
 } from '@/lib/share-query-budget';
@@ -270,6 +273,40 @@ export async function parseRequest(
         } else if (limit.blocked) {
           error = () => tooManyRequests(limit.retryAfter);
         }
+      }
+    }
+  }
+
+  const method = request.method.toUpperCase();
+  const isAuthenticatedAnalyticsRead =
+    ['GET', 'HEAD'].includes(method) && (hasQueryRange || options?.budgetShareQuery);
+  const isAuthenticatedReport =
+    method === 'POST' &&
+    /^\/compat\/api\/reports\/[^/]+\/?$/.test(getCanonicalApiPath(url.pathname)) &&
+    hasBodyRange;
+
+  if (
+    !error &&
+    auth?.user?.id &&
+    !auth.shareToken &&
+    schema &&
+    (isAuthenticatedAnalyticsRead || isAuthenticatedReport)
+  ) {
+    const workMultiplier =
+      typeof options?.shareQueryWorkMultiplier === 'function'
+        ? options.shareQueryWorkMultiplier(query, body)
+        : (options?.shareQueryWorkMultiplier ?? 1);
+    const budget = getAuthenticatedQueryCost(query, body, workMultiplier);
+
+    if (budget === null) {
+      error = () => badRequest({ message: 'The analytics query is too complex.' });
+    } else {
+      const limit = await reserveAuthenticatedQueryCost(auth.user.id, budget.charge);
+
+      if (limit.unavailable) {
+        error = () => serviceUnavailable();
+      } else if (limit.blocked) {
+        error = () => tooManyRequests(limit.retryAfter);
       }
     }
   }

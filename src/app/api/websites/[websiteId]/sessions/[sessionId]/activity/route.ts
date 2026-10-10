@@ -12,8 +12,11 @@ import {
   unauthorized,
 } from '@/lib/response';
 import {
+  getAuthenticatedQueryCost,
   getShareQueryCost,
+  MAX_AUTH_SESSION_ROWS,
   MAX_SHARE_SESSION_ROWS,
+  reserveAuthenticatedQueryCost,
   reserveShareQueryCost,
 } from '@/lib/share-query-budget';
 import type { SessionActivity } from '@/lib/types';
@@ -72,13 +75,13 @@ export async function GET(
   }
 
   if (distinctIds.length === 1) {
-    const shareRowLimit = auth.shareToken ? MAX_SHARE_SESSION_ROWS + 1 : undefined;
-    const links = shareRowLimit
-      ? await getLinkedSessionIds(websiteId, distinctIds[0], shareRowLimit)
-      : await getLinkedSessionIds(websiteId, distinctIds[0]);
+    const rowLimit = auth.shareToken ? MAX_SHARE_SESSION_ROWS : MAX_AUTH_SESSION_ROWS;
+    const links = await getLinkedSessionIds(websiteId, distinctIds[0], rowLimit + 1);
 
-    if (shareRowLimit && links.length >= shareRowLimit) {
-      return badRequest({ message: 'Public-share session is too large.' });
+    if (links.length > rowLimit) {
+      return badRequest({
+        message: auth.shareToken ? 'Public-share session is too large.' : 'Session is too large.',
+      });
     }
 
     const linkedIds = links.map(link => link.sessionId);
@@ -88,8 +91,10 @@ export async function GET(
 
     sessionIds = Array.from(new Set([sessionId, ...linkedIds]));
 
-    if (shareRowLimit && sessionIds.length > MAX_SHARE_SESSION_ROWS) {
-      return badRequest({ message: 'Public-share session is too large.' });
+    if (sessionIds.length > rowLimit) {
+      return badRequest({
+        message: auth.shareToken ? 'Public-share session is too large.' : 'Session is too large.',
+      });
     }
 
     if (sessionIds.length > 1 && linkedDates.length) {
@@ -98,20 +103,29 @@ export async function GET(
     }
   }
 
-  if (auth.shareToken) {
-    const requestedCost = getShareQueryCost(query);
-    const actualCost = getShareQueryCost({ ...query, startAt, endAt });
+  const getCost = auth.shareToken ? getShareQueryCost : getAuthenticatedQueryCost;
+  const requestedCost = getCost(query);
+  const actualCost = getCost({ ...query, startAt, endAt });
 
-    if (!requestedCost || !actualCost) {
-      return badRequest({ message: 'The public-share query is too complex.' });
-    }
+  if (!requestedCost || !actualCost) {
+    return badRequest({
+      message: auth.shareToken
+        ? 'The public-share query is too complex.'
+        : 'The analytics query is too complex.',
+    });
+  }
 
-    const additionalCost =
-      actualCost.charge -
-      requestedCost.charge +
-      Math.ceil((sessionIds.length - 1) / DEFAULT_PAGE_SIZE);
+  const additionalCost =
+    actualCost.charge -
+    requestedCost.charge +
+    (auth.shareToken
+      ? Math.ceil((sessionIds.length - 1) / DEFAULT_PAGE_SIZE)
+      : sessionIds.length - 1);
 
-    if (additionalCost > 0) {
+  if (additionalCost > 0) {
+    let limit;
+
+    if (auth.shareToken) {
       const shareId =
         auth.shareToken.shareId ??
         auth.shareToken.websiteId ??
@@ -123,15 +137,21 @@ export async function GET(
         return unauthorized();
       }
 
-      const limit = await reserveShareQueryCost(shareId, additionalCost);
-
-      if (limit.unavailable) {
-        return serviceUnavailable();
+      limit = await reserveShareQueryCost(shareId, additionalCost);
+    } else {
+      if (!auth.user?.id) {
+        return unauthorized();
       }
 
-      if (limit.blocked) {
-        return tooManyRequests(limit.retryAfter);
-      }
+      limit = await reserveAuthenticatedQueryCost(auth.user.id, additionalCost, 0);
+    }
+
+    if (limit.unavailable) {
+      return serviceUnavailable();
+    }
+
+    if (limit.blocked) {
+      return tooManyRequests(limit.retryAfter);
     }
   }
 

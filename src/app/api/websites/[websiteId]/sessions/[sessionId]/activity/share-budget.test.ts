@@ -1,6 +1,10 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { getQueryFilters, parseRequest } from '@/lib/request';
-import { reserveShareQueryCost } from '@/lib/share-query-budget';
+import {
+  MAX_AUTH_SESSION_ROWS,
+  reserveAuthenticatedQueryCost,
+  reserveShareQueryCost,
+} from '@/lib/share-query-budget';
 import { canViewWebsiteSection } from '@/permissions';
 import {
   getLinkedDistinctIds,
@@ -93,6 +97,36 @@ test('rejects oversized linked histories before reading activity', async () => {
 
   expect(response.status).toBe(400);
   expect(getLinkedSessionIdsMock).toHaveBeenCalledWith(WEBSITE_ID, 'visitor-1', 501);
+  expect(getSessionActivityMock).not.toHaveBeenCalled();
+});
+
+test('authenticated linked activity reserves the expanded range before reading', async () => {
+  const userId = `linked-user-${crypto.randomUUID()}`;
+  parseRequestMock.mockResolvedValue({ auth: { user: { id: userId } }, query: { startAt, endAt } });
+  expect((await reserveAuthenticatedQueryCost(userId, 19_900)).blocked).toBe(false);
+
+  const response = await GET(new Request('http://localhost'), params);
+
+  expect(response.status).toBe(429);
+  expect(getLinkedSessionIdsMock).toHaveBeenCalledWith(WEBSITE_ID, 'visitor-1', 2_001);
+  expect(getSessionActivityMock).not.toHaveBeenCalled();
+});
+
+test('authenticated linked activity rejects unbounded session histories', async () => {
+  parseRequestMock.mockResolvedValue({
+    auth: { user: { id: `linked-user-${crypto.randomUUID()}` } },
+    query: { startAt, endAt },
+  });
+  getLinkedSessionIdsMock.mockResolvedValue(
+    Array(MAX_AUTH_SESSION_ROWS + 1).fill({
+      sessionId: LINKED_SESSION_ID,
+      createdAt: '2025-12-29T00:00:00.000Z',
+    }),
+  );
+
+  const response = await GET(new Request('http://localhost'), params);
+
+  expect(response.status).toBe(400);
   expect(getSessionActivityMock).not.toHaveBeenCalled();
 });
 

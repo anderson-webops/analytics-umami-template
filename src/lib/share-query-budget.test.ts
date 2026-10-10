@@ -2,12 +2,14 @@ import { expect, test, vi } from 'vitest';
 import { getCompareDate } from '@/lib/date';
 import redis from '@/lib/redis';
 import {
+  getAuthenticatedQueryCost,
   getBreakdownShareWorkMultiplier,
   getFunnelShareWorkMultiplier,
   getJourneyShareWorkMultiplier,
   getPagedShareWorkMultiplier,
   getPageviewShareWorkMultiplier,
   getShareQueryCost,
+  reserveAuthenticatedQueryCost,
   reserveShareQueryCost,
 } from './share-query-budget';
 
@@ -197,6 +199,40 @@ test('bounds repeated queries per share in a fixed window', async () => {
   expect((await reserveShareQueryCost(shareId, 1)).blocked).toBe(true);
 });
 
+test('preserves a single historical authenticated breakdown but bounds repeated work', async () => {
+  const userId = `historical-user-${crypto.randomUUID()}`;
+  const range = { startAt: Date.UTC(2006, 0, 1), endAt: Date.UTC(2025, 11, 31) };
+  const budget = getAuthenticatedQueryCost(range, undefined, 40);
+
+  expect(budget?.charge).toBeGreaterThan(9000);
+  expect(budget?.charge).toBeLessThan(12_000);
+  expect(getAuthenticatedQueryCost({ ...range, path: 'eq./public' }, undefined, 40)).not.toBeNull();
+  expect(getAuthenticatedQueryCost({ ...range, path: 're.^/private' }, undefined, 40)).toBeNull();
+  if (!budget) throw new Error('Expected a bounded historical query cost.');
+
+  const reservations = await Promise.all([
+    reserveAuthenticatedQueryCost(userId, budget.charge),
+    reserveAuthenticatedQueryCost(userId, budget.charge),
+    reserveAuthenticatedQueryCost(userId, budget.charge),
+  ]);
+
+  expect(reservations.map(result => result.blocked).sort()).toEqual([false, false, true]);
+  expect((await reserveAuthenticatedQueryCost(userId, 1)).blocked).toBe(false);
+  expect((await reserveAuthenticatedQueryCost(`${userId}-other`, budget.charge)).blocked).toBe(
+    false,
+  );
+});
+
+test('bounds parallel low-cost authenticated requests independently of cost', async () => {
+  const userId = `request-count-${crypto.randomUUID()}`;
+  const results = await Promise.all(
+    Array.from({ length: 61 }, () => reserveAuthenticatedQueryCost(userId, 1)),
+  );
+
+  expect(results.filter(result => !result.blocked)).toHaveLength(60);
+  expect(results.filter(result => result.blocked)).toHaveLength(1);
+});
+
 test('rejects a multi-query request larger than the complete window allowance', async () => {
   const shareId = `historical-report-${crypto.randomUUID()}`;
   const budget = getShareQueryCost(
@@ -236,6 +272,47 @@ test('Redis reservations reject oversized charges before connecting', async () =
     expect((await reserveShareQueryCost(shareId, 2)).blocked).toBe(true);
     expect((await reserveShareQueryCost(shareId, 1)).blocked).toBe(false);
     expect((await reserveShareQueryCost(shareId, 1888)).blocked).toBe(true);
+  } finally {
+    redis.enabled = enabled;
+    connect.mockRestore();
+    withAbortSignal.mockRestore();
+  }
+});
+
+test('Redis atomically bounds authenticated cost and request count', async () => {
+  const enabled = redis.enabled;
+  const connect = vi.spyOn(redis.client, 'connect').mockResolvedValue();
+  const counters = new Map<string, number>();
+  const withAbortSignal = vi.spyOn(redis.client.client, 'withAbortSignal').mockImplementation(
+    () =>
+      ({
+        eval: (_script: string, options: { keys: string[]; arguments: string[] }) => {
+          const [costKey, requestKey] = options.keys;
+          const [cost, , requestCount, maxCost, maxRequests] = options.arguments.map(Number);
+          const currentCost = counters.get(costKey) ?? 0;
+          const currentRequests = counters.get(requestKey) ?? 0;
+
+          if (currentCost + cost > maxCost || currentRequests + requestCount > maxRequests) {
+            return Promise.resolve(-1);
+          }
+
+          counters.set(costKey, currentCost + cost);
+          counters.set(requestKey, currentRequests + requestCount);
+          return Promise.resolve(currentCost + cost);
+        },
+      }) as any,
+  );
+  redis.enabled = true;
+
+  try {
+    const userId = `redis-auth-${crypto.randomUUID()}`;
+    const results = await Promise.all(
+      Array.from({ length: 61 }, () => reserveAuthenticatedQueryCost(userId, 1)),
+    );
+    expect(results.filter(result => !result.blocked)).toHaveLength(60);
+    expect(results.filter(result => result.blocked)).toHaveLength(1);
+    expect((await reserveAuthenticatedQueryCost(userId, 19_940, 0)).blocked).toBe(false);
+    expect((await reserveAuthenticatedQueryCost(userId, 1, 0)).blocked).toBe(true);
   } finally {
     redis.enabled = enabled;
     connect.mockRestore();

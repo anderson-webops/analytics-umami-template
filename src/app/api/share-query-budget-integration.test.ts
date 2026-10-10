@@ -260,6 +260,111 @@ test('ordinary signed-in stats requests remain unaffected by share budgeting', a
   expect(getWebsiteStatsMock).toHaveBeenCalledTimes(4);
 });
 
+test('sessions and API keys share a historical breakdown budget before either SQL path', async () => {
+  const userId = `breakdown-user-${crypto.randomUUID()}`;
+  const startAt = Date.UTC(2006, 0, 1);
+  const endAt = Date.UTC(2025, 11, 31);
+  const fields = Array.from({ length: 20 }, () => 'path');
+  const url = `https://analytics.example/api/websites/${WEBSITE_ID}/breakdown?startAt=${startAt}&endAt=${endAt}&fields=${encodeURIComponent(JSON.stringify(fields))}`;
+  canViewWebsiteSectionMock.mockResolvedValue(true);
+  checkAuthMock.mockResolvedValue({ user: { id: userId }, source: 'cookie' } as any);
+
+  expect((await getBreakdownRoute(new Request(url), pathParams)).status).toBe(200);
+  expect(getBreakdownMock).toHaveBeenCalledTimes(1);
+
+  checkAuthMock.mockResolvedValue({
+    user: { id: userId },
+    source: 'bearer',
+    authType: 'api-key',
+  } as any);
+  const compatRequest = () =>
+    new Request('https://analytics.example/compat/api/reports/breakdown', {
+      method: 'POST',
+      body: JSON.stringify({
+        websiteId: WEBSITE_ID,
+        type: 'breakdown',
+        filters: {},
+        parameters: {
+          startDate: new Date(startAt).toISOString(),
+          endDate: new Date(endAt).toISOString(),
+          fields,
+        },
+      }),
+    });
+
+  expect((await getBreakdownReport(compatRequest())).status).toBe(200);
+  const rejected = await getBreakdownReport(compatRequest());
+
+  expect(rejected.status).toBe(429);
+  expect(rejected.headers.get('Retry-After')).toBe('60');
+  expect(getCompatBreakdownMock).toHaveBeenCalledTimes(1);
+  expect((await getBreakdownRoute(new Request(url), pathParams)).status).toBe(429);
+  expect(getBreakdownMock).toHaveBeenCalledTimes(1);
+
+  const ordinary = new Request(
+    `https://analytics.example/api/websites/${WEBSITE_ID}/breakdown?startAt=${Date.UTC(2025, 0, 1)}&endAt=${Date.UTC(2025, 0, 31)}&fields=${encodeURIComponent(JSON.stringify(['path']))}`,
+  );
+  expect((await getBreakdownRoute(ordinary, pathParams)).status).toBe(200);
+  expect(getBreakdownMock).toHaveBeenCalledTimes(2);
+});
+
+test('prefixed compatibility reports consume the same authenticated budget', async () => {
+  const previousBasePath = process.env.BASE_PATH;
+  process.env.BASE_PATH = '/analytics';
+  const userId = `prefixed-report-${crypto.randomUUID()}`;
+  const fields = Array.from({ length: 20 }, () => 'path');
+  checkAuthMock.mockResolvedValue({ user: { id: userId } } as any);
+  canViewWebsiteSectionMock.mockResolvedValue(true);
+  const request = () =>
+    getBreakdownReport(
+      new Request('https://analytics.example/analytics/compat/api/reports/breakdown', {
+        method: 'POST',
+        body: JSON.stringify({
+          websiteId: WEBSITE_ID,
+          type: 'breakdown',
+          filters: {},
+          parameters: {
+            startDate: '2006-01-01T00:00:00.000Z',
+            endDate: '2025-12-31T00:00:00.000Z',
+            fields,
+          },
+        }),
+      }),
+    );
+
+  try {
+    expect((await request()).status).toBe(200);
+    expect((await request()).status).toBe(200);
+    expect((await request()).status).toBe(429);
+    expect(getCompatBreakdownMock).toHaveBeenCalledTimes(2);
+  } finally {
+    if (previousBasePath === undefined) {
+      delete process.env.BASE_PATH;
+    } else {
+      process.env.BASE_PATH = previousBasePath;
+    }
+  }
+});
+
+test('multi-website chart fan-out consumes authenticated work per selected website', async () => {
+  const userId = `charts-user-${crypto.randomUUID()}`;
+  const ids = Array.from(
+    { length: 20 },
+    (_, index) => `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+  );
+  checkAuthMock.mockResolvedValue({ user: { id: userId } } as any);
+  canViewBatchWebsitesMock.mockResolvedValue(ids);
+  const url = `https://analytics.example/api/websites/charts?ids=${ids.join(',')}&startAt=${Date.UTC(2006, 0, 1)}&endAt=${Date.UTC(2025, 11, 31)}`;
+  const request = () => getWebsiteChartsRoute(new Request(url));
+
+  expect(
+    (await Promise.all([request(), request(), request(), request(), request()]))
+      .map(response => response.status)
+      .sort(),
+  ).toEqual([200, 200, 200, 200, 429]);
+  expect(getWebsiteListChartsMock).toHaveBeenCalledTimes(4);
+});
+
 test('link shares receive only the three displayed traffic totals', async () => {
   checkAuthMock.mockResolvedValue({
     shareToken: {

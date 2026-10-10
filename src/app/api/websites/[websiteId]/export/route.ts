@@ -15,7 +15,9 @@ export async function GET(
     ...pagingParams,
   });
 
-  const { auth, query, error } = await parseRequest(request, schema);
+  const { auth, query, error } = await parseRequest(request, schema, {
+    shareQueryWorkMultiplier: 7,
+  });
 
   if (error) {
     return error();

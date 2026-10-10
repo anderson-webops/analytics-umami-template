@@ -12,22 +12,31 @@ import { excludeShareFilterParam } from '@/lib/share-filter';
 const MONTH_MS = 31 * 24 * 60 * 60 * 1000;
 const MAX_QUERY_COST = 600;
 const MAX_WORK_MULTIPLIER = 1024;
+const MAX_AUTH_QUERY_COST = 20_000;
+const MAX_AUTH_WINDOW_COST = 20_000;
+const MAX_AUTH_WINDOW_REQUESTS = 60;
 const MAX_FILTERS = 24;
 const MAX_PROPERTY_FILTERS = 16;
 const WINDOW_SECONDS = 60;
 const MAX_WINDOW_COST = 600;
 const MAX_MEMORY_COUNTERS = 20_000;
 const MEMORY_COUNTERS = 'analytics-share-query-budget-counters';
+const AUTH_MEMORY_COUNTERS = 'analytics-auth-query-budget-counters';
 const PROPERTY_FILTER = /^(?:pf_[A-Za-z0-9_-]+|epf\d+|spf\d+)$/;
 const REGEX_FILTER_WEIGHT = 200;
 
 export const MAX_SHARE_SESSION_ROWS = 500;
+export const MAX_AUTH_SESSION_ROWS = 2_000;
 
 export type ShareQueryWorkMultiplier = number;
 
 interface Counter {
   cost: number;
   expiresAt: number;
+}
+
+interface AuthCounter extends Counter {
+  requests: number;
 }
 
 function isRegexFilter(key: string, value: unknown) {
@@ -188,10 +197,12 @@ export function getPagedShareWorkMultiplier(page: unknown, pageSize: unknown): n
   return 1 + Math.ceil((pageNumber * size) / DEFAULT_PAGE_SIZE);
 }
 
-export function getShareQueryCost(
+function getQueryCost(
   query: Record<string, unknown>,
-  body?: unknown,
-  workMultiplier: ShareQueryWorkMultiplier | null = 1,
+  body: unknown,
+  workMultiplier: ShareQueryWorkMultiplier | null,
+  maxQueryCost: number,
+  maxWindowCost: number,
 ) {
   if (
     typeof workMultiplier !== 'number' ||
@@ -236,15 +247,37 @@ export function getShareQueryCost(
 
   const charge = cost * workMultiplier;
 
-  return Number.isSafeInteger(cost) && cost <= MAX_QUERY_COST && charge <= MAX_WINDOW_COST
+  return Number.isSafeInteger(cost) && cost <= maxQueryCost && charge <= maxWindowCost
     ? { cost, charge }
     : null;
+}
+
+export function getShareQueryCost(
+  query: Record<string, unknown>,
+  body?: unknown,
+  workMultiplier: ShareQueryWorkMultiplier | null = 1,
+) {
+  return getQueryCost(query, body, workMultiplier, MAX_QUERY_COST, MAX_WINDOW_COST);
+}
+
+export function getAuthenticatedQueryCost(
+  query: Record<string, unknown>,
+  body?: unknown,
+  workMultiplier: ShareQueryWorkMultiplier | null = 1,
+) {
+  return getQueryCost(query, body, workMultiplier, MAX_AUTH_QUERY_COST, MAX_AUTH_WINDOW_COST);
 }
 
 function memoryCounters(): Map<string, Counter> {
   const state = globalThis as typeof globalThis & Record<string, any>;
   state[MEMORY_COUNTERS] ??= new Map<string, Counter>();
   return state[MEMORY_COUNTERS];
+}
+
+function authMemoryCounters(): Map<string, AuthCounter> {
+  const state = globalThis as typeof globalThis & Record<string, any>;
+  state[AUTH_MEMORY_COUNTERS] ??= new Map<string, AuthCounter>();
+  return state[AUTH_MEMORY_COUNTERS];
 }
 
 function reserveLocal(key: string, cost: number) {
@@ -269,6 +302,34 @@ function reserveLocal(key: string, cost: number) {
 
   current.cost += cost;
   return current.cost;
+}
+
+function reserveLocalAuth(key: string, cost: number, requestCount: 0 | 1) {
+  const counters = authMemoryCounters();
+  const now = Date.now();
+  const current = counters.get(key);
+
+  if (!current || current.expiresAt <= now) {
+    for (const [storedKey, counter] of counters) {
+      if (counter.expiresAt <= now) counters.delete(storedKey);
+    }
+    if (counters.size >= MAX_MEMORY_COUNTERS) {
+      return false;
+    }
+    counters.set(key, { cost, requests: requestCount, expiresAt: now + WINDOW_SECONDS * 1000 });
+    return true;
+  }
+
+  if (
+    current.cost + cost > MAX_AUTH_WINDOW_COST ||
+    current.requests + requestCount > MAX_AUTH_WINDOW_REQUESTS
+  ) {
+    return false;
+  }
+
+  current.cost += cost;
+  current.requests += requestCount;
+  return true;
 }
 
 export async function reserveShareQueryCost(shareId: string, cost: number) {
@@ -306,6 +367,65 @@ export async function reserveShareQueryCost(shareId: string, cost: number) {
   const reservation = reserveLocal(key, cost);
   return {
     blocked: reservation > MAX_WINDOW_COST,
+    retryAfter: WINDOW_SECONDS,
+  };
+}
+
+export async function reserveAuthenticatedQueryCost(
+  userId: string,
+  cost: number,
+  requestCount: 0 | 1 = 1,
+) {
+  if (!userId || !Number.isSafeInteger(cost) || cost < 1 || cost > MAX_AUTH_WINDOW_COST) {
+    return { blocked: true, retryAfter: WINDOW_SECONDS };
+  }
+
+  const key = `auth-query-budget:${hash(userId).slice(0, 32)}`;
+
+  if (redis.enabled) {
+    try {
+      await redis.client.connect(1000);
+      const result = await redis.client.client.withAbortSignal(AbortSignal.timeout(1000)).eval(
+        `local currentCost = tonumber(redis.call('GET', KEYS[1]) or '0')
+         local currentRequests = tonumber(redis.call('GET', KEYS[2]) or '0')
+         local charge = tonumber(ARGV[1])
+         local requestCount = tonumber(ARGV[3])
+         local maxCost = tonumber(ARGV[4])
+         local maxRequests = tonumber(ARGV[5])
+         if not currentCost or not currentRequests or currentCost < 0 or currentRequests < 0 or
+            currentCost > maxCost or currentRequests > maxRequests or
+            currentCost + charge > maxCost or currentRequests + requestCount > maxRequests then
+           return -1
+         end
+         local total = redis.call('INCRBY', KEYS[1], charge)
+         redis.call('INCRBY', KEYS[2], requestCount)
+         if currentCost == 0 then redis.call('EXPIRE', KEYS[1], ARGV[2]) end
+         if currentRequests == 0 then redis.call('EXPIRE', KEYS[2], ARGV[2]) end
+         return total`,
+        {
+          keys: [`${key}:cost`, `${key}:requests`],
+          arguments: [
+            String(cost),
+            String(WINDOW_SECONDS),
+            String(requestCount),
+            String(MAX_AUTH_WINDOW_COST),
+            String(MAX_AUTH_WINDOW_REQUESTS),
+          ],
+        },
+      );
+      const reserved = Number(result);
+      return {
+        blocked:
+          !Number.isSafeInteger(reserved) || reserved < cost || reserved > MAX_AUTH_WINDOW_COST,
+        retryAfter: WINDOW_SECONDS,
+      };
+    } catch {
+      return { blocked: true, unavailable: true, retryAfter: WINDOW_SECONDS };
+    }
+  }
+
+  return {
+    blocked: !reserveLocalAuth(key, cost, requestCount),
     retryAfter: WINDOW_SECONDS,
   };
 }

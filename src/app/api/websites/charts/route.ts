@@ -24,7 +24,10 @@ const schema = z.object({
 });
 
 export async function GET(request: Request) {
-  const { auth, query, error } = await parseRequest(request, schema, { budgetShareQuery: true });
+  const { auth, query, error } = await parseRequest(request, schema, {
+    budgetShareQuery: true,
+    shareQueryWorkMultiplier: query => (Array.isArray(query.ids) ? query.ids.length : null),
+  });
 
   if (error) {
     return error();

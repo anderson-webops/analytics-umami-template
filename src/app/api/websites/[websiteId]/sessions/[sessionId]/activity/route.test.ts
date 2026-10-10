@@ -65,7 +65,11 @@ test('uses linked session months to widen stitched activity without scanning eve
     endDate: endOfMonth(linkedEnd),
   };
 
-  parseRequestMock.mockResolvedValue({ auth: {}, query, error: undefined });
+  parseRequestMock.mockResolvedValue({
+    auth: { user: { id: `activity-user-${crypto.randomUUID()}` } },
+    query,
+    error: undefined,
+  });
   canViewWebsiteSectionMock.mockResolvedValue(true);
   getLinkedDistinctIdsMock.mockResolvedValue(['bob@aol.com']);
   getLinkedSessionIdsMock.mockResolvedValue([
@@ -85,7 +89,7 @@ test('uses linked session months to widen stitched activity without scanning eve
   );
 
   expect(response.status).toBe(200);
-  expect(getLinkedSessionIdsMock).toHaveBeenCalledWith(WEBSITE_ID, 'bob@aol.com');
+  expect(getLinkedSessionIdsMock).toHaveBeenCalledWith(WEBSITE_ID, 'bob@aol.com', 2001);
   expect(getWebsiteSessionMock).toHaveBeenCalledWith(WEBSITE_ID, SESSION_ID);
   expect(getQueryFiltersMock).toHaveBeenCalledWith(
     {
@@ -167,7 +171,7 @@ test('rejects a supplied identity when the anchor has collided identities', asyn
 
 test('uses the existing session identity when there are no link rows', async () => {
   parseRequestMock.mockResolvedValue({
-    auth: {},
+    auth: { user: { id: `activity-user-${crypto.randomUUID()}` } },
     query: { startAt: 1, endAt: 2, distinctId: 'bob@aol.com' },
     error: undefined,
   });
@@ -182,7 +186,7 @@ test('uses the existing session identity when there are no link rows', async () 
   });
 
   expect(response.status).toBe(200);
-  expect(getLinkedSessionIdsMock).toHaveBeenCalledWith(WEBSITE_ID, 'bob@aol.com');
+  expect(getLinkedSessionIdsMock).toHaveBeenCalledWith(WEBSITE_ID, 'bob@aol.com', 2001);
   expect(getSessionActivityMock).toHaveBeenCalledWith(WEBSITE_ID, [SESSION_ID], {});
 });
 
