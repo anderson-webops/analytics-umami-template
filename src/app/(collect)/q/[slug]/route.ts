@@ -2,7 +2,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { POST } from '@/app/api/send/route';
-import { notFound } from '@/lib/response';
+import { getCollectionIpLimit, transferCollectionIpLimit } from '@/lib/collection-rate-limit';
+import { notFound, tooManyRequests } from '@/lib/response';
 import { httpUrlParam, routeSlugParam } from '@/lib/schema';
 import { findLink } from '@/queries/prisma';
 
@@ -11,6 +12,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
 
   if (!routeSlugParam.safeParse(slug).success) {
     return notFound();
+  }
+
+  const collectionLimit = await getCollectionIpLimit(request);
+
+  if (collectionLimit.blocked) {
+    return tooManyRequests(collectionLimit.retryAfter);
   }
 
   const link = await findLink({ where: { slug, deletedAt: null } });
@@ -41,6 +48,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
     body: JSON.stringify(payload),
   });
 
+  transferCollectionIpLimit(request, req);
   await POST(req);
 
   const currentLink = await findLink({ where: { slug, deletedAt: null } });

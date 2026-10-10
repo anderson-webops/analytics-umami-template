@@ -106,6 +106,38 @@ test('recording charges malformed bodies before parsing', async () => {
   expect(getCollectionSourceStatus).not.toHaveBeenCalled();
 });
 
+test.each(['record', 'heatmap'])('%s preflight rejects oversized event arrays', async type => {
+  parseRequestMock.mockResolvedValue({
+    error: () => Response.json({ error: 'bad request' }, { status: 400 }),
+  });
+
+  expect((await POST(new Request('http://localhost/api/record', { method: 'POST' }))).status).toBe(
+    400,
+  );
+
+  const preflight = parseRequestMock.mock.calls[0][2]?.bodyPreflight;
+  const body = (events: unknown[]) => ({ type, payload: { website: 'website-1', events } });
+
+  expect(preflight?.(body(Array(200).fill({ type: 'click', url: '/' })))).toBe(true);
+  expect(preflight?.(body(Array(201).fill(null)))).toBe(false);
+  expect(preflight?.(body(Array(10_000).fill(null)))).toBe(false);
+  expect(preflight?.(Array(10_000).fill(null))).toBe(false);
+  if (type === 'heatmap') {
+    expect(preflight?.(body([{ type: 'click', url: '/' }]))).toBe(true);
+    expect(
+      preflight?.(
+        body([
+          Object.fromEntries(
+            Array.from({ length: 1000 }, (_, index) => [`unexpected_${index}`, true]),
+          ),
+        ]),
+      ),
+    ).toBe(false);
+    expect(preflight?.(body([{ type: 'click', url: '/', ['x'.repeat(1000)]: 1 }]))).toBe(false);
+  }
+  expect(getCollectionSourceStatus).not.toHaveBeenCalled();
+});
+
 afterEach(() => {
   vi.unstubAllEnvs();
 });

@@ -64,6 +64,7 @@ export async function parseRequest(
   options?: {
     skipAuth?: boolean;
     maxBodyBytes?: number;
+    bodyPreflight?: (body: unknown) => boolean;
     budgetShareQuery?: boolean;
     shareQueryContext?: { section: ShareSection; websiteId?: string };
     shareQueryWorkMultiplier?:
@@ -108,13 +109,38 @@ export async function parseRequest(
     }
   }
 
+  if (!error && options?.bodyPreflight && !options.bodyPreflight(body)) {
+    error = () => badRequest({ message: 'Invalid request body.' });
+  }
+
   if (schema && !error) {
     const isGet = ['GET', 'HEAD'].includes(request.method.toUpperCase());
     const rawQuery = query;
     const result = schema.safeParse(isGet ? query : body);
 
     if (!result.success) {
-      error = () => badRequest(z.treeifyError(result.error));
+      let issueTextLength = 0;
+      const hasBoundedIssues =
+        result.error.issues.length <= 64 &&
+        result.error.issues.every(issue => {
+          issueTextLength += issue.message.length;
+
+          for (const part of issue.path) {
+            const length = String(part).length;
+
+            if (length > 128) {
+              return false;
+            }
+
+            issueTextLength += length;
+          }
+
+          return issue.message.length <= 512 && issueTextLength <= 4096;
+        });
+      error = () =>
+        badRequest(
+          hasBoundedIssues ? z.treeifyError(result.error) : { message: 'Invalid request body.' },
+        );
     } else if (isGet) {
       query = result.data;
 

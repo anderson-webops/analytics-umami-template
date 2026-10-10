@@ -35,6 +35,7 @@ import { saveRecording } from '@/queries/sql';
 import { saveHeatmapEvents } from '@/queries/sql/heatmap/saveHeatmapEvents';
 
 const MAX_RECORD_REQUEST_BYTES = 1024 * 1024;
+const MAX_RECORD_EVENTS = 200;
 const MAX_REPLAY_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
 
@@ -71,7 +72,7 @@ const schema = z.discriminatedUnion('type', [
     type: z.literal('record'),
     payload: z.object({
       website: z.uuid().transform(value => value.toLowerCase()),
-      events: z.array(replayEventParam).max(200),
+      events: z.array(replayEventParam).max(MAX_RECORD_EVENTS),
       timestamp: requestTimestampParam.optional(),
     }),
   }),
@@ -111,7 +112,7 @@ const schema = z.discriminatedUnion('type', [
               .strict(),
           ]),
         )
-        .max(200),
+        .max(MAX_RECORD_EVENTS),
       timestamp: requestTimestampParam.optional(),
     }),
   }),
@@ -132,6 +133,36 @@ export async function POST(request: Request) {
     const { body, error } = await parseRequest(request, schema, {
       skipAuth: true,
       maxBodyBytes: MAX_RECORD_REQUEST_BYTES,
+      bodyPreflight: body => {
+        if (!body || typeof body !== 'object' || Array.isArray(body)) {
+          return false;
+        }
+
+        const payload = (body as { payload?: unknown }).payload;
+
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+          return false;
+        }
+
+        const events = (payload as { events?: unknown }).events;
+
+        if (!Array.isArray(events) || events.length > MAX_RECORD_EVENTS) {
+          return false;
+        }
+
+        return (
+          (body as { type?: unknown }).type !== 'heatmap' ||
+          events.every(event => {
+            if (!event || typeof event !== 'object' || Array.isArray(event)) {
+              return false;
+            }
+
+            const keys = Object.keys(event);
+
+            return keys.length <= 16 && keys.every(key => key.length <= 32);
+          })
+        );
+      },
     });
 
     if (error) {

@@ -6,7 +6,8 @@ import { parseRequest } from '@/lib/request';
 import { json, serverError, tooManyRequests } from '@/lib/response';
 import { anyObjectParam } from '@/lib/schema';
 
-const schema = z.array(anyObjectParam).min(1).max(20);
+const MAX_BATCH_SIZE = 20;
+const schema = z.array(anyObjectParam).min(1).max(MAX_BATCH_SIZE);
 
 export function OPTIONS() {
   return corsPreflight({
@@ -27,6 +28,8 @@ export async function POST(request: Request) {
     const { body, error } = await parseRequest(request, schema, {
       skipAuth: true,
       maxBodyBytes: 1024 * 1024,
+      bodyPreflight: body =>
+        Array.isArray(body) && body.length >= 1 && body.length <= MAX_BATCH_SIZE,
     });
 
     if (error) {

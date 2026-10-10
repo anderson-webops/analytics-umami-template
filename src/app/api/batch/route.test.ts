@@ -121,3 +121,18 @@ test('malformed batch envelopes consume admission and block before parsing at th
   expect(parseRequest).toHaveBeenCalledTimes(10);
   expect(send.POST).not.toHaveBeenCalled();
 });
+
+test('batch preflight rejects oversized arrays before recursive request parsing', async () => {
+  vi.mocked(parseRequest).mockResolvedValue({
+    error: () => Response.json({ error: 'bad request' }, { status: 400 }),
+  } as any);
+
+  expect((await POST(batchRequest())).status).toBe(400);
+
+  const preflight = vi.mocked(parseRequest).mock.calls[0][2]?.bodyPreflight;
+
+  expect(preflight?.(Array(20).fill({ type: 'event' }))).toBe(true);
+  expect(preflight?.(Array(21).fill(null))).toBe(false);
+  expect(preflight?.(Array(10_000).fill(null))).toBe(false);
+  expect(send.POST).not.toHaveBeenCalled();
+});

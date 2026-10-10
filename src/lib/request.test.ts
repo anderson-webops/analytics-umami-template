@@ -39,6 +39,67 @@ beforeEach(() => {
   fetchWebsiteMock.mockResolvedValue({ id: 'website-1' } as any);
 });
 
+test.each([21, 10_000])('rejects %i decoded items before recursive validation', async count => {
+  const schema = z.array(z.number()).max(20);
+  const parse = vi.spyOn(schema, 'safeParse');
+  const request = new Request('https://analytics.example/api/batch', {
+    method: 'POST',
+    body: JSON.stringify(Array(count).fill(null)),
+  });
+
+  const result = await parseRequest(request, schema, {
+    skipAuth: true,
+    bodyPreflight: body => Array.isArray(body) && body.length <= 20,
+  });
+  const response = result.error?.();
+
+  expect(parse).not.toHaveBeenCalled();
+  expect(response?.status).toBe(400);
+  expect((await response?.text())?.length).toBeLessThan(200);
+});
+
+test('preserves valid bodies and bounds detailed validation errors', async () => {
+  const schema = z.array(z.number()).max(200);
+  const request = (body: unknown) =>
+    new Request('https://analytics.example/api/batch', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+
+  expect(
+    (
+      await parseRequest(request(Array(20).fill(1)), schema, {
+        skipAuth: true,
+        bodyPreflight: body => Array.isArray(body) && body.length <= 20,
+      })
+    ).error,
+  ).toBeUndefined();
+
+  const invalid = await parseRequest(request(Array(100).fill(null)), schema, { skipAuth: true });
+  const response = invalid.error?.();
+
+  expect(response?.status).toBe(400);
+  expect((await response?.text())?.length).toBeLessThan(200);
+});
+
+test('bounds a single validation issue that names many unexpected input keys', async () => {
+  const body = Object.fromEntries(
+    Array.from({ length: 1000 }, (_, index) => [`unexpected_${index}`, true]),
+  );
+  const result = await parseRequest(
+    new Request('https://analytics.example/api/record', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+    z.object({ type: z.literal('heatmap') }).strict(),
+    { skipAuth: true },
+  );
+  const response = result.error?.();
+
+  expect(response?.status).toBe(400);
+  expect((await response?.text())?.length).toBeLessThan(200);
+});
+
 test.each(['prev', 'yoy'] as const)(
   'bounds %s comparison to the website reset even when the requested range is newer',
   async compare => {

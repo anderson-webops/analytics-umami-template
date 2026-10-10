@@ -3,8 +3,9 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { POST } from '@/app/api/send/route';
 import type { Pixel } from '@/generated/prisma/client';
+import { getCollectionIpLimit, transferCollectionIpLimit } from '@/lib/collection-rate-limit';
 import redis from '@/lib/redis';
-import { notFound } from '@/lib/response';
+import { notFound, tooManyRequests } from '@/lib/response';
 import { routeSlugParam } from '@/lib/schema';
 import { findPixel } from '@/queries/prisma';
 
@@ -15,6 +16,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
 
   if (!routeSlugParam.safeParse(slug).success) {
     return notFound();
+  }
+
+  const collectionLimit = await getCollectionIpLimit(request);
+
+  if (collectionLimit.blocked) {
+    return tooManyRequests(collectionLimit.retryAfter);
   }
 
   let pixel: Pixel;
@@ -71,6 +78,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
     body: JSON.stringify(payload),
   });
 
+  transferCollectionIpLimit(request, req);
   await POST(req);
 
   return new NextResponse(image, {
