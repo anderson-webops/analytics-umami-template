@@ -4,6 +4,7 @@ import { handleReportMutationError } from '@/lib/report-mutation';
 import { parseRequest } from '@/lib/request';
 import { json, unauthorized } from '@/lib/response';
 import { pagingParams, reportSchema, reportTypeParam } from '@/lib/schema';
+import { getPagedShareWorkMultiplier } from '@/lib/share-query-budget';
 import {
   canUpdateWebsite,
   canViewAuthenticatedWebsite,
@@ -19,7 +20,10 @@ export async function GET(request: Request) {
     ...pagingParams,
   });
 
-  const { auth, query, error } = await parseRequest(request, schema);
+  const { auth, query, error } = await parseRequest(request, schema, {
+    budgetShareQuery: true,
+    shareQueryWorkMultiplier: query => getPagedShareWorkMultiplier(query.page, query.pageSize),
+  });
 
   if (error) {
     return error();

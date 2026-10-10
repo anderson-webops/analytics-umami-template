@@ -5,7 +5,9 @@ import { canViewWebsiteSection } from '@/permissions';
 import { getRetention, type RetentionParameters } from '@/queries/sql';
 
 export async function POST(request: Request) {
-  const { auth, body, error } = await parseRequest(request, reportResultSchema);
+  const { auth, body, error } = await parseRequest(request, reportResultSchema, {
+    shareQueryWorkMultiplier: 2,
+  });
 
   if (error) {
     return error();

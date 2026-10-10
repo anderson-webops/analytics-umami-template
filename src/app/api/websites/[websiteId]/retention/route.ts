@@ -8,7 +8,9 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ websiteId: string }> },
 ) {
-  const { auth, query, error } = await parseRequest(request, retentionQuerySchema);
+  const { auth, query, error } = await parseRequest(request, retentionQuerySchema, {
+    shareQueryWorkMultiplier: 2,
+  });
   if (error) return error();
   const { websiteId } = await params;
   if (!(await canViewWebsiteSection(auth, websiteId, 'retention'))) return unauthorized();

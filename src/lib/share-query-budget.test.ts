@@ -4,11 +4,15 @@ import redis from '@/lib/redis';
 import {
   getAuthenticatedQueryCost,
   getBreakdownShareWorkMultiplier,
+  getEventSeriesShareWorkMultiplier,
   getFunnelShareWorkMultiplier,
+  getGoalShareWorkMultiplier,
   getJourneyShareWorkMultiplier,
+  getMetricShareWorkMultiplier,
   getPagedShareWorkMultiplier,
   getPageviewShareWorkMultiplier,
   getShareQueryCost,
+  getValuesShareWorkMultiplier,
   reserveAuthenticatedQueryCost,
   reserveShareQueryCost,
 } from './share-query-budget';
@@ -175,6 +179,35 @@ test('prices journey depth and paged count, result, and skipped rows', () => {
   expect(getShareQueryCost({ startAt: 0, endAt: 1 }, undefined, 250_001)).toBeNull();
   expect(getPagedShareWorkMultiplier(0, 20)).toBeNull();
   expect(getPagedShareWorkMultiplier(1, 501)).toBeNull();
+});
+
+test('charges validated metric offsets without charging ignored channel paging', () => {
+  expect(getMetricShareWorkMultiplier('path', undefined, undefined)).toBe(2);
+  expect(getMetricShareWorkMultiplier('path', 20, 10_000)).toBe(22);
+  expect(getMetricShareWorkMultiplier('channel', 500, 10_000)).toBe(1);
+  expect(getMetricShareWorkMultiplier('path', 500, 10_001)).toBeNull();
+});
+
+test('charges event series cardinality and bucket work before querying', () => {
+  const startAt = Date.UTC(2025, 0, 1);
+  const endAt = Date.UTC(2025, 0, 2);
+
+  expect(getEventSeriesShareWorkMultiplier({ startAt, endAt, unit: 'day' })).toBe(2);
+  expect(getEventSeriesShareWorkMultiplier({ startAt, endAt, unit: 'hour', limit: 500 })).toBe(52);
+  expect(getEventSeriesShareWorkMultiplier({ startAt, endAt, unit: 'minute', limit: 500 })).toBe(
+    52,
+  );
+  expect(getEventSeriesShareWorkMultiplier({ startAt, endAt, limit: 0 })).toBeNull();
+});
+
+test('prices goal scans and each executed values search term', () => {
+  expect(getGoalShareWorkMultiplier('/thank-you')).toBe(2);
+  expect(getGoalShareWorkMultiplier('/private*')).toBe(4);
+  expect(getGoalShareWorkMultiplier(null)).toBeNull();
+  expect(getValuesShareWorkMultiplier(undefined)).toBe(1);
+  expect(getValuesShareWorkMultiplier('a,b,c')).toBe(3);
+  expect(getValuesShareWorkMultiplier('a%2Cb%2Cc%2Cd%2Ce%2Cf')).toBe(5);
+  expect(getValuesShareWorkMultiplier('%')).toBeNull();
 });
 
 test('prices saved segments at their maximum stored filter fan-out', () => {

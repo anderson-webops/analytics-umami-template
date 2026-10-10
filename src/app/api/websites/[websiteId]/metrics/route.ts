@@ -10,6 +10,7 @@ import {
   withDateRange,
 } from '@/lib/schema';
 import { getMetricShareSections } from '@/lib/share';
+import { getMetricShareWorkMultiplier } from '@/lib/share-query-budget';
 import { canViewWebsiteSection } from '@/permissions';
 import {
   getChannelMetrics,
@@ -38,7 +39,10 @@ export async function GET(
     ...filterParams,
   });
 
-  const { auth, query, error } = await parseRequest(request, schema);
+  const { auth, query, error } = await parseRequest(request, schema, {
+    shareQueryWorkMultiplier: query =>
+      getMetricShareWorkMultiplier(query.type, query.limit, query.offset),
+  });
 
   if (error) {
     return error();

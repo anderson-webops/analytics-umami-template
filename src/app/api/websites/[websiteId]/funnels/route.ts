@@ -3,6 +3,7 @@ import { uuid } from '@/lib/crypto';
 import { handleReportMutationError } from '@/lib/report-mutation';
 import { parseRequest } from '@/lib/request';
 import { json, unauthorized } from '@/lib/response';
+import { getPagedShareWorkMultiplier } from '@/lib/share-query-budget';
 import { canUpdateWebsite, canViewWebsiteSection } from '@/permissions';
 import { createReport, getReports } from '@/queries/prisma';
 
@@ -10,7 +11,10 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ websiteId: string }> },
 ) {
-  const { auth, query, error } = await parseRequest(request, definitionListSchema);
+  const { auth, query, error } = await parseRequest(request, definitionListSchema, {
+    budgetShareQuery: true,
+    shareQueryWorkMultiplier: query => getPagedShareWorkMultiplier(query.page, query.pageSize),
+  });
   if (error) return error();
   const { websiteId } = await params;
   if (!(await canViewWebsiteSection(auth, websiteId, 'funnels'))) return unauthorized();

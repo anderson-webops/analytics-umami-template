@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import { badRequest, json, unauthorized } from '@/lib/response';
 import { filterParams, queryLimitParam, timezoneParam, unitParam } from '@/lib/schema';
+import { getEventSeriesShareWorkMultiplier } from '@/lib/share-query-budget';
 import { canViewWebsiteSection } from '@/permissions';
 import { getEventSeriesLimit, getEventStats, isEventSeriesWithinBudget } from '@/queries/sql';
 
@@ -18,7 +19,9 @@ export async function GET(
     ...filterParams,
   });
 
-  const { auth, query, error } = await parseRequest(request, schema);
+  const { auth, query, error } = await parseRequest(request, schema, {
+    shareQueryWorkMultiplier: getEventSeriesShareWorkMultiplier,
+  });
 
   if (error) {
     return error();

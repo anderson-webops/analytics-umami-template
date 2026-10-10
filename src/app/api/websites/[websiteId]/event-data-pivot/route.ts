@@ -3,6 +3,7 @@ import { parseEventPropertyFilters } from '@/lib/params';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import { json, unauthorized } from '@/lib/response';
 import { filterParams, pagingParams, timezoneParam, unitParam } from '@/lib/schema';
+import { getPagedShareWorkMultiplier } from '@/lib/share-query-budget';
 import { canViewWebsiteSection } from '@/permissions';
 import { getEventDataPivot } from '@/queries/sql/events/getEventDataPivot';
 
@@ -20,7 +21,9 @@ export async function GET(
     ...pagingParams,
   });
 
-  const { auth, query, error } = await parseRequest(request, schema);
+  const { auth, query, error } = await parseRequest(request, schema, {
+    shareQueryWorkMultiplier: query => getPagedShareWorkMultiplier(query.page, query.pageSize),
+  });
 
   if (error) {
     return error();

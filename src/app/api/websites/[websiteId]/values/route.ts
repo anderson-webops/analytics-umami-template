@@ -3,6 +3,7 @@ import { getQueryFilters, parseRequest } from '@/lib/request';
 import { badRequest, json, unauthorized } from '@/lib/response';
 import { fieldsParam, searchParams, withDateRange } from '@/lib/schema';
 import { getValueShareSections } from '@/lib/share';
+import { getValuesShareWorkMultiplier } from '@/lib/share-query-budget';
 import { canViewSharedWebsiteFilters, canViewWebsiteSection } from '@/permissions';
 import { getValues } from '@/queries/sql';
 
@@ -15,7 +16,10 @@ export async function GET(
     ...searchParams,
   });
 
-  const { auth, query, error } = await parseRequest(request, schema, { allowShareSearch: true });
+  const { auth, query, error } = await parseRequest(request, schema, {
+    allowShareSearch: true,
+    shareQueryWorkMultiplier: query => getValuesShareWorkMultiplier(query.search),
+  });
 
   if (error) {
     return error();

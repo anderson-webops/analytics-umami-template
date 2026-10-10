@@ -1,5 +1,6 @@
 import { DEFAULT_PAGE_SIZE, FILTER_COLUMNS, OPERATORS } from '@/lib/constants';
 import { hash } from '@/lib/crypto';
+import { getAllowedUnits, getMinimumUnit } from '@/lib/date';
 import {
   parseFilterValue,
   parsePropertyFilters,
@@ -7,6 +8,7 @@ import {
   parseUniversalEventPropertyFilters,
 } from '@/lib/params';
 import redis from '@/lib/redis';
+import { getConservativeSeriesBucketCount } from '@/lib/series-budget';
 import { excludeShareFilterParam } from '@/lib/share-filter';
 
 const MONTH_MS = 31 * 24 * 60 * 60 * 1000;
@@ -195,6 +197,74 @@ export function getPagedShareWorkMultiplier(page: unknown, pageSize: unknown): n
   }
 
   return 1 + Math.ceil((pageNumber * size) / DEFAULT_PAGE_SIZE);
+}
+
+export function getMetricShareWorkMultiplier(
+  type: unknown,
+  limit: unknown,
+  offset: unknown,
+): number | null {
+  if (type === 'channel') return 1;
+
+  const size = limit ?? 500;
+  const start = offset ?? 0;
+
+  return typeof size === 'number' &&
+    Number.isSafeInteger(size) &&
+    size >= 1 &&
+    size <= 500 &&
+    typeof start === 'number' &&
+    Number.isSafeInteger(start) &&
+    start >= 0 &&
+    start <= 10_000
+    ? 1 + Math.ceil((start + size) / 500)
+    : null;
+}
+
+export function getEventSeriesShareWorkMultiplier(query: Record<string, unknown>): number | null {
+  const limit = query.limit ?? 50;
+  const startAt = query.startAt;
+  const endAt = query.endAt;
+
+  if (
+    typeof limit !== 'number' ||
+    !Number.isSafeInteger(limit) ||
+    limit < 1 ||
+    limit > 500 ||
+    typeof startAt !== 'number' ||
+    typeof endAt !== 'number' ||
+    !Number.isSafeInteger(startAt) ||
+    !Number.isSafeInteger(endAt) ||
+    endAt < startAt
+  ) {
+    return null;
+  }
+
+  const startDate = new Date(startAt);
+  const endDate = new Date(endAt);
+  const unit = getAllowedUnits(startDate, endDate).includes(query.unit as string)
+    ? (query.unit as string)
+    : getMinimumUnit(startDate, endDate);
+  const buckets = getConservativeSeriesBucketCount({ startDate, endDate, unit });
+
+  return buckets > 0 && limit * buckets <= 50_000 ? 2 * Math.ceil((limit * buckets) / 500) : null;
+}
+
+export function getGoalShareWorkMultiplier(value: unknown): number | null {
+  if (typeof value !== 'string') return null;
+
+  return value.startsWith('*') || value.endsWith('*') ? 4 : 2;
+}
+
+export function getValuesShareWorkMultiplier(search: unknown): number | null {
+  if (search == null || search === '') return 1;
+  if (typeof search !== 'string') return null;
+
+  try {
+    return Math.min(decodeURIComponent(search).split(',').length, 5);
+  } catch {
+    return null;
+  }
 }
 
 function getQueryCost(

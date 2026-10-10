@@ -12,14 +12,20 @@ import {
 import { canViewBatchWebsites } from '@/permissions/website';
 import {
   getActiveVisitors,
+  getChannelMetrics,
   getBreakdown as getCompatBreakdown,
   getFunnel as getCompatFunnel,
   getJourney as getCompatJourney,
+  getEventMetrics,
+  getEventSeriesLimit,
+  getEventStats,
   getLinkedDistinctIds,
   getLinkedSessionIds,
+  getPageviewMetrics,
   getPageviewStats,
   getRealtimeData,
   getSessionActivity,
+  getSessionMetrics,
   getSessionStats,
   getUTM,
   getWebsiteDateRange,
@@ -28,17 +34,21 @@ import {
   getWebsiteSession,
   getWebsiteSessions,
   getWebsiteStats,
+  isEventSeriesWithinBudget,
 } from '@/queries/sql';
 import { getAttribution } from '@/queries/sql/attribution/getAttribution';
 import { getBreakdown } from '@/queries/sql/breakdown/getBreakdown';
 import { getEventData } from '@/queries/sql/events/getEventData';
+import { getEventDataPivot } from '@/queries/sql/events/getEventDataPivot';
 import { getFunnel } from '@/queries/sql/funnels/getFunnel';
 import { getJourney } from '@/queries/sql/journeys/getJourney';
 import { getPerformance } from '@/queries/sql/performance/getPerformance';
 import { getPerformanceMetrics } from '@/queries/sql/performance/getPerformanceMetrics';
 import { getRevenueChart } from '@/queries/sql/revenue/getRevenueChart';
 import { getRevenueMetrics } from '@/queries/sql/revenue/getRevenueMetrics';
+import { getRevenueSessions } from '@/queries/sql/revenue/getRevenueSessions';
 import { getRevenueStats } from '@/queries/sql/revenue/getRevenueStats';
+import { getSessionDataPivot } from '@/queries/sql/sessions/getSessionDataPivot';
 import { POST as getAttributionReport } from '../(compat)/compat/api/reports/attribution/route';
 import { POST as getBreakdownReport } from '../(compat)/compat/api/reports/breakdown/route';
 import { POST as getFunnelReport } from '../(compat)/compat/api/reports/funnel/route';
@@ -56,12 +66,17 @@ import { GET as getAttributionRoute } from './websites/[websiteId]/attribution/r
 import { GET as getBreakdownRoute } from './websites/[websiteId]/breakdown/route';
 import { GET as getDateRangeRoute } from './websites/[websiteId]/daterange/route';
 import { GET as getEventDataRoute } from './websites/[websiteId]/event-data/route';
+import { GET as getEventDataPivotRoute } from './websites/[websiteId]/event-data-pivot/route';
 import { GET as getEventsRoute } from './websites/[websiteId]/events/route';
+import { GET as getEventSeriesRoute } from './websites/[websiteId]/events/series/route';
 import { GET as getFunnelRoute } from './websites/[websiteId]/funnels/stats/route';
 import { GET as getJourneyRoute } from './websites/[websiteId]/journeys/route';
+import { GET as getMetricsRoute } from './websites/[websiteId]/metrics/route';
 import { GET as getPageviewsRoute } from './websites/[websiteId]/pageviews/route';
+import { GET as getRevenueSessionsRoute } from './websites/[websiteId]/revenue/sessions/route';
 import { GET as getRevenueStatsRoute } from './websites/[websiteId]/revenue/stats/route';
 import { GET as getRevenueTotalRoute } from './websites/[websiteId]/revenue/total/route';
+import { GET as getSessionDataPivotRoute } from './websites/[websiteId]/session-data-pivot/route';
 import { GET as getSessionActivityRoute } from './websites/[websiteId]/sessions/[sessionId]/activity/route';
 import { GET as getSessionsRoute } from './websites/[websiteId]/sessions/route';
 import { GET as getWebsiteStatsRoute } from './websites/[websiteId]/stats/route';
@@ -100,6 +115,13 @@ vi.mock('@/queries/sql', () => ({
   getWebsiteSessions: vi.fn(),
   getWebsiteSession: vi.fn(),
   getWebsiteStats: vi.fn(),
+  getEventSeriesLimit: vi.fn(),
+  getEventStats: vi.fn(),
+  isEventSeriesWithinBudget: vi.fn(),
+  getEventMetrics: vi.fn(),
+  getSessionMetrics: vi.fn(),
+  getPageviewMetrics: vi.fn(),
+  getChannelMetrics: vi.fn(),
 }));
 vi.mock('@/queries/sql/attribution/getAttribution', () => ({ getAttribution: vi.fn() }));
 vi.mock('@/queries/sql/breakdown/getBreakdown', () => ({ getBreakdown: vi.fn() }));
@@ -113,6 +135,9 @@ vi.mock('@/queries/sql/performance/getPerformanceMetrics', () => ({
 vi.mock('@/queries/sql/revenue/getRevenueChart', () => ({ getRevenueChart: vi.fn() }));
 vi.mock('@/queries/sql/revenue/getRevenueMetrics', () => ({ getRevenueMetrics: vi.fn() }));
 vi.mock('@/queries/sql/revenue/getRevenueStats', () => ({ getRevenueStats: vi.fn() }));
+vi.mock('@/queries/sql/events/getEventDataPivot', () => ({ getEventDataPivot: vi.fn() }));
+vi.mock('@/queries/sql/sessions/getSessionDataPivot', () => ({ getSessionDataPivot: vi.fn() }));
+vi.mock('@/queries/sql/revenue/getRevenueSessions', () => ({ getRevenueSessions: vi.fn() }));
 
 const checkAuthMock = vi.mocked(checkAuth);
 const fetchWebsiteMock = vi.mocked(fetchWebsite);
@@ -141,10 +166,20 @@ const getPerformanceMetricsMock = vi.mocked(getPerformanceMetrics);
 const getRevenueChartMock = vi.mocked(getRevenueChart);
 const getRevenueMetricsMock = vi.mocked(getRevenueMetrics);
 const getRevenueStatsMock = vi.mocked(getRevenueStats);
+const getEventDataPivotMock = vi.mocked(getEventDataPivot);
+const getEventStatsMock = vi.mocked(getEventStats);
+const getSessionDataPivotMock = vi.mocked(getSessionDataPivot);
+const getRevenueSessionsMock = vi.mocked(getRevenueSessions);
 const getUtmMock = vi.mocked(getUTM);
 const getWebsiteDateRangeMock = vi.mocked(getWebsiteDateRange);
 const getWebsiteListChartsMock = vi.mocked(getWebsiteListCharts);
 const getWebsiteStatsMock = vi.mocked(getWebsiteStats);
+const getEventSeriesLimitMock = vi.mocked(getEventSeriesLimit);
+const isEventSeriesWithinBudgetMock = vi.mocked(isEventSeriesWithinBudget);
+const getEventMetricsMock = vi.mocked(getEventMetrics);
+const getSessionMetricsMock = vi.mocked(getSessionMetrics);
+const getPageviewMetricsMock = vi.mocked(getPageviewMetrics);
+const getChannelMetricsMock = vi.mocked(getChannelMetrics);
 const getWebsiteEventsMock = vi.mocked(getWebsiteEvents);
 const getWebsiteSessionsMock = vi.mocked(getWebsiteSessions);
 const getWebsiteSessionMock = vi.mocked(getWebsiteSession);
@@ -183,10 +218,20 @@ beforeEach(() => {
   getRevenueChartMock.mockReset();
   getRevenueMetricsMock.mockReset();
   getRevenueStatsMock.mockReset();
+  getEventDataPivotMock.mockReset();
+  getEventStatsMock.mockReset();
+  getSessionDataPivotMock.mockReset();
+  getRevenueSessionsMock.mockReset();
   getUtmMock.mockReset();
   getWebsiteDateRangeMock.mockReset();
   getWebsiteListChartsMock.mockReset();
   getWebsiteStatsMock.mockReset();
+  getEventSeriesLimitMock.mockReset();
+  isEventSeriesWithinBudgetMock.mockReset();
+  getEventMetricsMock.mockReset();
+  getSessionMetricsMock.mockReset();
+  getPageviewMetricsMock.mockReset();
+  getChannelMetricsMock.mockReset();
   getWebsiteEventsMock.mockReset();
   getWebsiteSessionsMock.mockReset();
   getWebsiteSessionMock.mockReset();
@@ -213,6 +258,16 @@ beforeEach(() => {
   getRevenueChartMock.mockResolvedValue({ chart: [] } as any);
   getRevenueMetricsMock.mockResolvedValue([] as any);
   getRevenueStatsMock.mockResolvedValue({} as any);
+  getEventDataPivotMock.mockResolvedValue({ data: [], count: 0 } as any);
+  getEventStatsMock.mockResolvedValue([] as any);
+  getEventSeriesLimitMock.mockReturnValue(50);
+  isEventSeriesWithinBudgetMock.mockReturnValue(true);
+  getEventMetricsMock.mockResolvedValue([] as any);
+  getSessionMetricsMock.mockResolvedValue([] as any);
+  getPageviewMetricsMock.mockResolvedValue([] as any);
+  getChannelMetricsMock.mockResolvedValue([] as any);
+  getSessionDataPivotMock.mockResolvedValue({ data: [], count: 0 } as any);
+  getRevenueSessionsMock.mockResolvedValue({ data: [], count: 0 } as any);
   getUtmMock.mockResolvedValue([] as any);
 });
 
@@ -556,6 +611,86 @@ test.each([
   checkAuthMock.mockResolvedValue({ user: { id: 'website-owner' } } as any);
   expect((await request(3, 20)).status).toBe(200);
   expect(route.query).toHaveBeenCalledOnce();
+});
+
+test.each([
+  {
+    name: 'event-data-pivot',
+    parameter: 'eventName=purchase',
+    run: getEventDataPivotRoute,
+    query: getEventDataPivotMock,
+  },
+  {
+    name: 'session-data-pivot',
+    parameter: 'propertyName=plan',
+    run: getSessionDataPivotRoute,
+    query: getSessionDataPivotMock,
+  },
+  {
+    name: 'revenue/sessions',
+    parameter: 'currency=USD',
+    run: getRevenueSessionsRoute,
+    query: getRevenueSessionsMock,
+  },
+])('$name rejects underpriced deep pages before querying', async route => {
+  const shareId = `pivot-page-${crypto.randomUUID()}`;
+  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  canViewWebsiteSectionMock.mockResolvedValue(true);
+  expect((await reserveShareQueryCost(shareId, 597)).blocked).toBe(false);
+
+  const response = await route.run(
+    new Request(
+      `https://analytics.example/api/websites/${WEBSITE_ID}/${route.name}?startAt=1&endAt=2&page=3&pageSize=20&${route.parameter}`,
+    ),
+    pathParams,
+  );
+
+  expect(response.status).toBe(429);
+  expect(route.query).not.toHaveBeenCalled();
+});
+
+test('event-series shares pay for requested cardinality and time buckets', async () => {
+  const shareId = `event-series-${crypto.randomUUID()}`;
+  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  canViewWebsiteSectionMock.mockResolvedValue(true);
+  expect((await reserveShareQueryCost(shareId, 580)).blocked).toBe(false);
+
+  const startAt = Date.UTC(2025, 0, 1);
+  const endAt = Date.UTC(2025, 0, 2);
+  const response = await getEventSeriesRoute(
+    new Request(
+      `https://analytics.example/api/websites/${WEBSITE_ID}/events/series?startAt=${startAt}&endAt=${endAt}&timezone=UTC&unit=hour&limit=500`,
+    ),
+    pathParams,
+  );
+
+  expect(response.status).toBe(429);
+  expect(getEventStatsMock).not.toHaveBeenCalled();
+});
+
+test('metric shares price offsets but do not charge ignored channel paging', async () => {
+  canViewWebsiteSectionMock.mockResolvedValue(true);
+  const shareId = `metric-offset-${crypto.randomUUID()}`;
+  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  expect((await reserveShareQueryCost(shareId, 579)).blocked).toBe(false);
+
+  const metric = await getMetricsRoute(
+    new Request(
+      `https://analytics.example/api/websites/${WEBSITE_ID}/metrics?startAt=1&endAt=2&type=event&limit=20&offset=10000`,
+    ),
+    pathParams,
+  );
+  expect(metric.status).toBe(429);
+  expect(getEventMetricsMock).not.toHaveBeenCalled();
+
+  const channel = await getMetricsRoute(
+    new Request(
+      `https://analytics.example/api/websites/${WEBSITE_ID}/metrics?startAt=1&endAt=2&type=channel&limit=20&offset=10000`,
+    ),
+    pathParams,
+  );
+  expect(channel.status).toBe(200);
+  expect(getChannelMetricsMock).toHaveBeenCalledOnce();
 });
 
 test('journey shares price step depth before database access', async () => {
