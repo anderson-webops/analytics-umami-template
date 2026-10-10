@@ -28,6 +28,50 @@ test('rejects a legacy replay that exceeds the guarded read budget', async () =>
   expect(await response.json()).toMatchObject({ error: { code: 'payload-too-large' } });
 });
 
+test('rejects a legacy replay whose combined snapshots exceed the structure budget', async () => {
+  const childNodes = Array.from({ length: 30_000 }, () => ({}));
+  vi.mocked(getReplayChunks).mockResolvedValue([
+    {
+      sessionId: '33333333-3333-4333-8333-333333333333',
+      visitId: replayId,
+      events: [
+        { type: 2, data: { node: { childNodes } } },
+        { type: 2, data: { node: { childNodes } } },
+      ],
+      chunkIndex: 1,
+      eventCount: 2,
+      startedAt: new Date(),
+      endedAt: new Date(),
+    },
+  ]);
+
+  expect((await GET(request, params)).status).toBe(413);
+});
+
+test('rejects a dense snapshot hidden in legacy fragments before parsing it', async () => {
+  const serialized = JSON.stringify({
+    type: 2,
+    data: { node: { childNodes: Array.from({ length: 90_000 }, () => ({})) } },
+  });
+  const midpoint = Math.floor(serialized.length / 2);
+  vi.mocked(getReplayChunks).mockResolvedValue([
+    {
+      sessionId: '33333333-3333-4333-8333-333333333333',
+      visitId: replayId,
+      events: [serialized.slice(0, midpoint), serialized.slice(midpoint)].map((value, index) => ({
+        type: 'umami:rrweb-event-fragment',
+        data: { id: 'dense-legacy', index, total: 2, value },
+      })),
+      chunkIndex: 1,
+      eventCount: 1,
+      startedAt: new Date(),
+      endedAt: new Date(),
+    },
+  ]);
+
+  expect((await GET(request, params)).status).toBe(413);
+});
+
 test('preserves an ordinary authenticated replay response', async () => {
   vi.mocked(getReplayChunks).mockResolvedValue([
     {

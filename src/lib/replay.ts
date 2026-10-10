@@ -1,4 +1,9 @@
-import { MAX_REPLAY_BYTES, MAX_REPLAY_EVENTS } from '@/lib/replay-budget';
+import {
+  MAX_REPLAY_BYTES,
+  MAX_REPLAY_EVENTS,
+  ReplayBudgetExceededError,
+} from '@/lib/replay-budget';
+import { countReplayStructureUnits, hasBoundedReplayJsonStructure } from '@/lib/replay-structure';
 
 export const RRWEB_EVENT_TYPE = {
   Meta: 4,
@@ -101,15 +106,27 @@ export function restoreReplayEventFragments(events: any[] | null | undefined) {
     if (fragment.received === fragment.total) {
       pending.delete(id);
 
+      const serialized = Array.from({ length: fragment.total }, (_, fragmentIndex) =>
+        fragment.values.get(fragmentIndex),
+      ).join('');
+
+      if (!hasBoundedReplayJsonStructure(serialized)) {
+        throw new ReplayBudgetExceededError();
+      }
+
       try {
-        restored.push(
-          JSON.parse(
-            Array.from({ length: fragment.total }, (_, index) => fragment.values.get(index)).join(
-              '',
-            ),
-          ),
-        );
-      } catch {
+        const parsed = JSON.parse(serialized);
+
+        if (countReplayStructureUnits(parsed) === null) {
+          throw new ReplayBudgetExceededError();
+        }
+
+        restored.push(parsed);
+      } catch (error) {
+        if (error instanceof ReplayBudgetExceededError) {
+          throw error;
+        }
+
         // Ignore malformed fragment groups. A partial replay is better than failing the whole response.
       }
     }

@@ -1,4 +1,4 @@
-import { expect, test, vi } from 'vitest';
+import { beforeEach, expect, test, vi } from 'vitest';
 import type { Prisma } from '@/generated/prisma/client';
 import { reserveCollectionAccountBudget } from '@/lib/collection-budget';
 import {
@@ -13,6 +13,10 @@ vi.mock('@/lib/collection-budget', async importOriginal => ({
   reserveCollectionAccountBudget: vi.fn(),
 }));
 
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
 const args = {
   websiteId: '11111111-1111-4111-8111-111111111111',
   visitId: '22222222-2222-4222-8222-222222222222',
@@ -22,6 +26,7 @@ const args = {
   idempotent: true,
   bytes: 100,
   events: 1,
+  structureUnits: 1,
 };
 
 function transaction(responses: unknown[]) {
@@ -44,7 +49,32 @@ test('rejects oversized replay chunks before reserving database space', async ()
   await expect(
     reserveReplayBudget(client, { ...args, events: MAX_REPLAY_EVENTS + 1 }),
   ).rejects.toBeInstanceOf(ReplayBudgetExceededError);
+  await expect(
+    reserveReplayBudget(client, { ...args, structureUnits: 100_001 }),
+  ).rejects.toBeInstanceOf(ReplayBudgetExceededError);
   expect(query).not.toHaveBeenCalled();
+});
+
+test('charges nested replay work to the durable visit and owner budgets', async () => {
+  const { client, query } = transaction([
+    [],
+    [],
+    [{ bytes: BigInt(MAX_REPLAY_BYTES) }],
+    [{ bytes: BigInt(MAX_REPLAY_BYTES) }],
+    [{ bytes: BigInt(MAX_REPLAY_BYTES) }],
+    [{ chunks: 1 }],
+    [{ chunks: 1 }],
+    [{ requests: 1n }],
+    [{ requests: 1n }],
+  ]);
+
+  expect(await reserveReplayBudget(client, { ...args, structureUnits: 100_000 })).toBe(true);
+  expect(query.mock.calls[2]).toContain(MAX_REPLAY_BYTES);
+  expect(reserveCollectionAccountBudget).toHaveBeenCalledWith(
+    client,
+    expect.anything(),
+    expect.objectContaining({ bytes: MAX_REPLAY_BYTES + 512 }),
+  );
 });
 
 test('returns an idempotent result for a previously accepted chunk', async () => {

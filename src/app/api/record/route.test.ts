@@ -540,6 +540,50 @@ describe('external replay budget commit', () => {
     );
   });
 
+  test('rejects cumulative compact replay nodes before reserving or writing', async () => {
+    const { websiteId } = prepareReplayRequest();
+    const nodes = Array.from({ length: 30_000 }, () => ({}));
+    parseRequestMock.mockResolvedValue({
+      body: {
+        type: 'record',
+        payload: {
+          website: websiteId,
+          events: [
+            { type: 2, data: { node: { childNodes: nodes } } },
+            { type: 2, data: { node: { childNodes: nodes } } },
+          ],
+        },
+      },
+      error: undefined,
+    });
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(413);
+    expect(reserveReplayBudget).not.toHaveBeenCalled();
+    expect(saveRecording).not.toHaveBeenCalled();
+  });
+
+  test('accepts a replay event at the existing maximum nesting depth', async () => {
+    const { websiteId } = prepareReplayRequest();
+    let data: unknown = 0;
+
+    for (let depth = 0; depth < 255; depth++) {
+      data = [data];
+    }
+
+    parseRequestMock.mockResolvedValue({
+      body: {
+        type: 'record',
+        payload: { website: websiteId, events: [{ type: 4, timestamp: Date.now(), data }] },
+      },
+      error: undefined,
+    });
+
+    expect((await POST(request())).status).toBe(200);
+    expect(reserveReplayBudget).toHaveBeenCalledOnce();
+  });
+
   test('keeps relational replay writes inside the budget transaction', async () => {
     prepareReplayRequest();
 

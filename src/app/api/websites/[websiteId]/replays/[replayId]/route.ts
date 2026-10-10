@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { restoreReplayEventFragments } from '@/lib/replay';
 import { ReplayBudgetExceededError } from '@/lib/replay-budget';
 import { sanitizeReplayResourceEvents } from '@/lib/replay-resources.server';
+import { countReplayStructureUnits } from '@/lib/replay-structure';
 import { parseRequest } from '@/lib/request';
 import { badRequest, json, payloadTooLarge, unauthorized } from '@/lib/response';
 import { canViewAuthenticatedWebsite } from '@/permissions';
@@ -103,10 +104,29 @@ export async function GET(
     return unauthorized();
   }
 
-  let chunks: Awaited<ReturnType<typeof getReplayChunks>>;
-
   try {
-    chunks = await getReplayChunks(websiteId, replayId, { endAt, endChunkIndex });
+    const chunks = await getReplayChunks(websiteId, replayId, { endAt, endChunkIndex });
+    const restoredEvents = restoreReplayEventFragments(
+      mergeReplayEvents(chunks, { until, endChunkIndex, endEventIndex }),
+    );
+
+    if (countReplayStructureUnits(restoredEvents, undefined, 257) === null) {
+      throw new ReplayBudgetExceededError();
+    }
+
+    const allEvents = sanitizeReplayResourceEvents(redactReplayNavigationEvents(restoredEvents));
+    const sessionId = chunks.length > 0 ? chunks[0].sessionId : null;
+    const startedAt = chunks.length > 0 ? chunks[0].startedAt : null;
+    const endedAt = chunks.length > 0 ? chunks[chunks.length - 1].endedAt : null;
+
+    return json({
+      sessionId,
+      events: allEvents,
+      startedAt,
+      endedAt,
+      eventCount: allEvents.length,
+      chunkCount: chunks.length,
+    });
   } catch (error) {
     if (error instanceof ReplayBudgetExceededError) {
       return payloadTooLarge({ message: 'Replay budget exceeded.' });
@@ -114,23 +134,4 @@ export async function GET(
 
     throw error;
   }
-  const allEvents = sanitizeReplayResourceEvents(
-    redactReplayNavigationEvents(
-      restoreReplayEventFragments(
-        mergeReplayEvents(chunks, { until, endChunkIndex, endEventIndex }),
-      ),
-    ),
-  );
-  const sessionId = chunks.length > 0 ? chunks[0].sessionId : null;
-  const startedAt = chunks.length > 0 ? chunks[0].startedAt : null;
-  const endedAt = chunks.length > 0 ? chunks[chunks.length - 1].endedAt : null;
-
-  return json({
-    sessionId,
-    events: allEvents,
-    startedAt,
-    endedAt,
-    eventCount: allEvents.length,
-    chunkCount: chunks.length,
-  });
 }

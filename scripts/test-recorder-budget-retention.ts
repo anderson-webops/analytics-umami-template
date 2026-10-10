@@ -35,6 +35,7 @@ async function replay(visitId: string, chunkIndex: number, sourceId = websiteId)
       idempotent: true,
       bytes: 100,
       events: 1,
+      structureUnits: 1,
     }),
   );
 }

@@ -10,6 +10,11 @@ import {
   MAX_REPLAY_STORED_BYTES,
   ReplayBudgetExceededError,
 } from '@/lib/replay-budget';
+import {
+  countReplayStructureUnits,
+  hasBoundedReplayJsonStructure,
+  MAX_REPLAY_STRUCTURE_UNITS,
+} from '@/lib/replay-structure';
 
 const FUNCTION_NAME = 'getReplayChunks';
 const gunzipAsync = promisify(gunzip);
@@ -119,6 +124,7 @@ async function relationalQuery(
 
   let decodedBytes = 0;
   let eventCount = 0;
+  let remainingStructureUnits = MAX_REPLAY_STRUCTURE_UNITS;
   const decoded: ReplayChunk[] = [];
 
   for (const { totalChunks, storedBytes, ...chunk } of chunks) {
@@ -141,12 +147,24 @@ async function relationalQuery(
     }
 
     decodedBytes += rawEvents.byteLength;
-    const events = JSON.parse(rawEvents.toString('utf-8'));
+    const serialized = rawEvents.toString('utf-8');
 
-    if (!Array.isArray(events) || eventCount + events.length > MAX_REPLAY_EVENTS) {
+    if (!hasBoundedReplayJsonStructure(serialized, 257)) {
       throw new ReplayBudgetExceededError();
     }
 
+    const events = JSON.parse(serialized);
+    const structureUnits = countReplayStructureUnits(events, remainingStructureUnits, 257);
+
+    if (
+      !Array.isArray(events) ||
+      structureUnits === null ||
+      eventCount + events.length > MAX_REPLAY_EVENTS
+    ) {
+      throw new ReplayBudgetExceededError();
+    }
+
+    remainingStructureUnits -= structureUnits;
     eventCount += events.length;
     decoded.push({ ...chunk, events });
   }
@@ -224,6 +242,7 @@ async function clickhouseQuery(
 
   let decodedBytes = 0;
   let eventCount = 0;
+  let remainingStructureUnits = MAX_REPLAY_STRUCTURE_UNITS;
 
   return results.map(row => {
     decodedBytes += Buffer.byteLength(row.events, 'utf-8');
@@ -232,12 +251,22 @@ async function clickhouseQuery(
       throw new ReplayBudgetExceededError();
     }
 
-    const events = JSON.parse(row.events);
-
-    if (!Array.isArray(events) || eventCount + events.length > MAX_REPLAY_EVENTS) {
+    if (!hasBoundedReplayJsonStructure(row.events, 257)) {
       throw new ReplayBudgetExceededError();
     }
 
+    const events = JSON.parse(row.events);
+    const structureUnits = countReplayStructureUnits(events, remainingStructureUnits, 257);
+
+    if (
+      !Array.isArray(events) ||
+      structureUnits === null ||
+      eventCount + events.length > MAX_REPLAY_EVENTS
+    ) {
+      throw new ReplayBudgetExceededError();
+    }
+
+    remainingStructureUnits -= structureUnits;
     eventCount += events.length;
 
     return {

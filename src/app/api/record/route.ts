@@ -18,6 +18,7 @@ import { fetchAccount, fetchTeam } from '@/lib/load';
 import { getRecorderConfig } from '@/lib/recorder';
 import { getReplayEventCount } from '@/lib/replay';
 import { ReplayBudgetExceededError, reserveReplayBudget } from '@/lib/replay-budget';
+import { countReplayStructureUnits } from '@/lib/replay-structure';
 import { parseRequest } from '@/lib/request';
 import {
   badRequest,
@@ -243,6 +244,12 @@ export async function POST(request: Request) {
               throw new Error('REPLAY_DISABLED');
             }
 
+            const structureUnits = countReplayStructureUnits(events, undefined, 257);
+
+            if (structureUnits === null) {
+              throw new ReplayBudgetExceededError();
+            }
+
             const eventTimestamps = events
               .map((event: any) => Number(event?.timestamp))
               .filter((value: number) => Number.isFinite(value) && value > 0);
@@ -260,6 +267,7 @@ export async function POST(request: Request) {
               idempotent: timestamp !== undefined,
               bytes: Buffer.byteLength(JSON.stringify(events), 'utf8'),
               events: events.length,
+              structureUnits,
             });
 
             if (!isNewChunk) {

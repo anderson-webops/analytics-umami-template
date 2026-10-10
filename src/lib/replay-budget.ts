@@ -5,6 +5,7 @@ import {
   type RecorderAccount,
   reserveRecorderVisitKeyBudget,
 } from '@/lib/recorder-budget';
+import { MAX_REPLAY_STRUCTURE_UNITS } from '@/lib/replay-structure';
 
 export const MAX_REPLAY_CHUNKS = 2048;
 export const MAX_REPLAY_BYTES = 8 * 1024 * 1024;
@@ -32,6 +33,7 @@ interface ReserveReplayBudgetArgs extends RecorderAccount {
   idempotent: boolean;
   bytes: number;
   events: number;
+  structureUnits: number;
 }
 
 export async function reserveReplayBudget(
@@ -43,13 +45,25 @@ export async function reserveReplayBudget(
     idempotent,
     bytes,
     events,
+    structureUnits,
     accountType,
     accountId,
   }: ReserveReplayBudgetArgs,
 ): Promise<boolean> {
-  if (bytes > MAX_REPLAY_BYTES || events > MAX_REPLAY_EVENTS) {
+  if (
+    bytes > MAX_REPLAY_BYTES ||
+    events > MAX_REPLAY_EVENTS ||
+    !Number.isSafeInteger(structureUnits) ||
+    structureUnits < 0 ||
+    structureUnits > MAX_REPLAY_STRUCTURE_UNITS
+  ) {
     throw new ReplayBudgetExceededError();
   }
+
+  const chargedBytes = Math.max(
+    bytes,
+    Math.ceil((structureUnits * MAX_REPLAY_BYTES) / MAX_REPLAY_STRUCTURE_UNITS),
+  );
 
   await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${websiteId}), hashtext(${visitId}))::text`;
 
@@ -69,7 +83,7 @@ export async function reserveReplayBudget(
     INSERT INTO replay_ingest_budget
       (website_id, scope, scope_key, bytes, events, chunks, chunk_indices, expires_at)
     VALUES
-      (${websiteId}::uuid, 'visit', ${visitId}, ${bytes}::bigint, ${events}, 1,
+      (${websiteId}::uuid, 'visit', ${visitId}, ${chargedBytes}::bigint, ${events}, 1,
        CASE WHEN ${idempotent} THEN ARRAY[${chunkIndex}]::integer[]
          ELSE ARRAY[]::integer[] END, ${visitExpiry})
     ON CONFLICT (website_id, scope, scope_key) DO UPDATE SET
@@ -117,7 +131,7 @@ export async function reserveReplayBudget(
       INSERT INTO replay_ingest_budget
         (website_id, scope, scope_key, bytes, events, chunks, chunk_indices, expires_at)
       VALUES
-        (${websiteId}::uuid, ${scope}, ${key}, ${bytes}::bigint, ${events}, 1,
+        (${websiteId}::uuid, ${scope}, ${key}, ${chargedBytes}::bigint, ${events}, 1,
          ARRAY[]::integer[], ${expiry})
       ON CONFLICT (website_id, scope, scope_key) DO UPDATE SET
         bytes = replay_ingest_budget.bytes + EXCLUDED.bytes,
@@ -138,7 +152,7 @@ export async function reserveReplayBudget(
   await reserveCollectionAccountBudget(
     transaction,
     { accountType, accountId },
-    { bytes: bytes + events * 512, rows: events, requests: 1 },
+    { bytes: chargedBytes + events * 512, rows: events, requests: 1 },
   );
 
   if (existing.length === 0) {

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { isValidTimezone, normalizeTimezone } from '@/lib/date';
 import { isAcceptableLoginPassword, isStrongPassword } from '@/lib/password';
+import { countReplayStructureUnits, MAX_REPLAY_STRUCTURE_UNITS } from '@/lib/replay-structure';
 import { isSafeHttpsUrl, isSafeHttpUrl } from '@/lib/security';
 import {
   DATA_TYPE,
@@ -302,7 +303,7 @@ function validateGenericData(
 function validateReplayData(
   root: Record<string, unknown>,
 ): { valid: true } | { valid: false; message: string } {
-  return validateObjectData(root, {
+  const result = validateObjectData(root, {
     label: 'Replay data',
     maxDepth: MAX_REPLAY_DATA_DEPTH,
     maxProperties: MAX_REPLAY_DATA_PROPERTIES,
@@ -311,6 +312,13 @@ function validateReplayData(
     maxKeyLength: MAX_REPLAY_KEY_LENGTH,
     maxStringLength: MAX_REPLAY_STRING_LENGTH,
   });
+
+  return result.valid && countReplayStructureUnits(root) === null
+    ? {
+        valid: false,
+        message: `Replay data exceeds ${MAX_REPLAY_STRUCTURE_UNITS} structural units.`,
+      }
+    : result;
 }
 
 export const anyObjectParam = z.record(z.string(), z.any()).superRefine((value, ctx) => {

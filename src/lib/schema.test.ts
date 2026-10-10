@@ -6,6 +6,7 @@ import {
   funnelReportSchema,
   goalReportSchema,
   pagingParams,
+  replayObjectParam,
   reportBaseSchema,
   reportResultSchema,
   reportTypeSchema,
@@ -21,6 +22,28 @@ import {
 } from './schema';
 
 const UUID = '11111111-1111-4111-8111-111111111111';
+
+test('replay validation rejects compact snapshots with too many empty child nodes', () => {
+  const nodes = Array.from({ length: 50_000 }, () => ({}));
+
+  expect(
+    replayObjectParam.safeParse({ type: 2, data: { node: { childNodes: nodes } } }).success,
+  ).toBe(false);
+  expect(
+    replayObjectParam.safeParse({ type: 2, data: { node: { childNodes: nodes.slice(0, 10) } } })
+      .success,
+  ).toBe(true);
+});
+
+test('replay validation preserves its documented maximum event depth', () => {
+  let data: unknown = 0;
+
+  for (let depth = 0; depth < 255; depth++) {
+    data = [data];
+  }
+
+  expect(replayObjectParam.safeParse({ data }).success).toBe(true);
+});
 
 describe('savedSegmentSchema', () => {
   test.each(['metric', 'window', 'metric0', '__proto__'])(

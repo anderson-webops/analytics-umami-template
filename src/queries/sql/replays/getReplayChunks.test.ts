@@ -113,6 +113,92 @@ test('ordinary relational replay remains readable', async () => {
   expect((await getReplayChunks(websiteId, visitId))[0].events).toEqual(events);
 });
 
+test.each(['prisma', 'clickhouse'])('rejects dense stored replay nodes on %s', async backend => {
+  state.backend = backend;
+  const events = [
+    { type: 2, data: { node: { childNodes: Array.from({ length: 50_000 }, () => ({})) } } },
+  ];
+  const serialized = JSON.stringify(events);
+
+  if (backend === 'prisma') {
+    prismaQuery.mockResolvedValue([
+      {
+        sessionId: 'session',
+        visitId,
+        events: gzipSync(Buffer.from(serialized)),
+        chunkIndex: 1,
+        eventCount: 1,
+        startedAt: new Date(),
+        endedAt: new Date(),
+        totalChunks: 1n,
+        storedBytes: BigInt(serialized.length),
+      },
+    ]);
+  } else {
+    clickhouseQuery.mockResolvedValue([
+      {
+        sessionId: 'session',
+        visitId,
+        events: serialized,
+        chunk_index: 1,
+        event_count: 1,
+        started_at: new Date().toISOString(),
+        ended_at: new Date().toISOString(),
+        totalChunks: 1,
+        storedBytes: serialized.length,
+      },
+    ]);
+  }
+
+  await expect(getReplayChunks(websiteId, visitId)).rejects.toBeInstanceOf(
+    ReplayBudgetExceededError,
+  );
+});
+
+test.each(['prisma', 'clickhouse'])('reads depth-256 replay events on %s', async backend => {
+  state.backend = backend;
+  let data: unknown = 0;
+
+  for (let depth = 0; depth < 255; depth++) {
+    data = [data];
+  }
+
+  const events = [{ type: 4, data }];
+  const serialized = JSON.stringify(events);
+
+  if (backend === 'prisma') {
+    prismaQuery.mockResolvedValue([
+      {
+        sessionId: 'session',
+        visitId,
+        events: gzipSync(Buffer.from(serialized)),
+        chunkIndex: 1,
+        eventCount: 1,
+        startedAt: new Date(),
+        endedAt: new Date(),
+        totalChunks: 1n,
+        storedBytes: BigInt(serialized.length),
+      },
+    ]);
+  } else {
+    clickhouseQuery.mockResolvedValue([
+      {
+        sessionId: 'session',
+        visitId,
+        events: serialized,
+        chunk_index: 1,
+        event_count: 1,
+        started_at: new Date().toISOString(),
+        ended_at: new Date().toISOString(),
+        totalChunks: 1,
+        storedBytes: serialized.length,
+      },
+    ]);
+  }
+
+  expect((await getReplayChunks(websiteId, visitId))[0].events).toEqual(events);
+});
+
 test('ClickHouse replay reads guard oversized data and preserve ordinary reads', async () => {
   state.backend = 'clickhouse';
   const row = {
