@@ -25,15 +25,9 @@ integrationTest('retains legacy heatmaps while expiring only marked new rows', a
   const now = new Date();
   const oldAcceptedAt = new Date(now.getTime() - 40 * 24 * 60 * 60 * 1000);
   const clickhouseDate = (date: Date) => date.toISOString().slice(0, 19).replace('T', ' ');
-  const legacyMigration = await readFile(
-    new URL('../../../../db/clickhouse/migrations/12_add_heatmap.sql', import.meta.url),
-    'utf8',
-  );
+  const legacyMigration = await readFile('db/clickhouse/migrations/12_add_heatmap.sql', 'utf8');
   const retentionMigration = await readFile(
-    new URL(
-      '../../../../db/clickhouse/migrations/15_expire_new_heatmap_events.sql',
-      import.meta.url,
-    ),
+    'db/clickhouse/migrations/15_expire_new_heatmap_events.sql',
     'utf8',
   );
 
