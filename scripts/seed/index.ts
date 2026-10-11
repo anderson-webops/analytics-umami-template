@@ -286,8 +286,7 @@ function createPrismaClient(): PrismaClient {
   } catch {
     throw new Error(
       'DATABASE_URL is not a valid URL.\n' +
-        'Expected format: postgresql://user:password@host:port/database\n' +
-        `Received: ${url.substring(0, 30)}...`,
+        'Expected format: postgresql://user:password@host:port/database',
     );
   }
 
