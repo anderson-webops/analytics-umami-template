@@ -401,24 +401,64 @@ test('prefixed compatibility reports consume the same authenticated budget', asy
   }
 });
 
-test('multi-website chart fan-out consumes authenticated work per selected website', async () => {
-  const userId = `charts-user-${crypto.randomUUID()}`;
-  const ids = Array.from(
-    { length: 20 },
-    (_, index) => `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
-  );
-  checkAuthMock.mockResolvedValue({ user: { id: userId } } as any);
-  canViewBatchWebsitesMock.mockResolvedValue(ids);
-  const url = `https://analytics.example/api/websites/charts?ids=${ids.join(',')}&startAt=${Date.UTC(2006, 0, 1)}&endAt=${Date.UTC(2025, 11, 31)}`;
-  const request = () => getWebsiteChartsRoute(new Request(url));
+test.each([
+  { name: 'website', route: getWebsiteChartsRoute, path: '/api/websites/charts' },
+  { name: 'link', route: getLinkChartsRoute, path: '/api/links/charts' },
+  { name: 'pixel', route: getPixelChartsRoute, path: '/api/pixels/charts' },
+])(
+  'multi-$name chart fan-out consumes authenticated work per selected entity',
+  async ({ route, path }) => {
+    const userId = `charts-user-${crypto.randomUUID()}`;
+    const ids = Array.from(
+      { length: 20 },
+      (_, index) => `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+    );
+    checkAuthMock.mockResolvedValue({ user: { id: userId } } as any);
+    canViewBatchWebsitesMock.mockResolvedValue(ids);
+    canViewLinkMock.mockResolvedValue(true);
+    canViewPixelMock.mockResolvedValue(true);
+    const url = `https://analytics.example${path}?ids=${ids.join(',')}&startAt=${Date.UTC(2006, 0, 1)}&endAt=${Date.UTC(2025, 11, 31)}`;
+    const request = () => route(new Request(url));
 
-  expect(
-    (await Promise.all([request(), request(), request(), request(), request()]))
-      .map(response => response.status)
-      .sort(),
-  ).toEqual([200, 200, 200, 200, 429]);
-  expect(getWebsiteListChartsMock).toHaveBeenCalledTimes(4);
-});
+    expect(
+      (await Promise.all([request(), request(), request(), request(), request()]))
+        .map(response => response.status)
+        .sort(),
+    ).toEqual([200, 200, 200, 200, 429]);
+    expect(getWebsiteListChartsMock).toHaveBeenCalledTimes(4);
+  },
+);
+
+test.each([
+  { name: 'link', route: getLinkChartsRoute, permission: canViewLinkMock },
+  { name: 'pixel', route: getPixelChartsRoute, permission: canViewPixelMock },
+])(
+  '$name charts preserve a single authorized entity and reject oversized batches',
+  async ({ name, route, permission }) => {
+    checkAuthMock.mockResolvedValue({ user: { id: `charts-user-${crypto.randomUUID()}` } } as any);
+    permission.mockResolvedValue(true);
+    getWebsiteListChartsMock.mockResolvedValue({ [WEBSITE_ID]: { values: [1], total: 1 } } as any);
+
+    const allowed = await route(
+      new Request(`https://analytics.example/api/${name}s/charts?ids=${WEBSITE_ID}`),
+    );
+    expect(allowed.status).toBe(200);
+    expect(getWebsiteListChartsMock).toHaveBeenCalledWith([WEBSITE_ID], expect.any(Object));
+
+    permission.mockClear();
+    getWebsiteListChartsMock.mockClear();
+    const ids = Array.from(
+      { length: 21 },
+      (_, index) => `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+    );
+    const oversized = await route(
+      new Request(`https://analytics.example/api/${name}s/charts?ids=${ids.join(',')}`),
+    );
+    expect(oversized.status).toBe(400);
+    expect(permission).not.toHaveBeenCalled();
+    expect(getWebsiteListChartsMock).not.toHaveBeenCalled();
+  },
+);
 
 test('link shares receive only the three displayed traffic totals', async () => {
   checkAuthMock.mockResolvedValue({

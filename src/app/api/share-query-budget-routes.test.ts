@@ -72,7 +72,7 @@ test.each([
     expect(parseRequestMock).toHaveBeenCalledOnce();
     expect(parseRequestMock.mock.calls[0][0]).toBe(request);
     expect(parseRequestMock.mock.calls[0][2]).toEqual(
-      name === 'website charts'
+      name.endsWith('charts')
         ? { budgetShareQuery: true, shareQueryWorkMultiplier: expect.any(Function) }
         : { budgetShareQuery: true },
     );
