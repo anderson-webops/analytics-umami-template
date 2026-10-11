@@ -1,12 +1,17 @@
 import clickhouse from '@/lib/clickhouse';
 import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
 import prisma from '@/lib/prisma';
+import { MAX_AUTH_SESSION_ROWS } from '@/lib/share-query-budget';
 
 const FUNCTION_NAME = 'getLinkedDistinctIds';
 
 export async function getLinkedDistinctIds(
-  ...args: [websiteId: string, sessionId: string, rowLimit?: number]
+  ...args: [websiteId: string, sessionId: string, rowLimit: number]
 ): Promise<string[]> {
+  if (!Number.isSafeInteger(args[2]) || args[2] < 1 || args[2] > MAX_AUTH_SESSION_ROWS + 1) {
+    throw new Error('LINKED_SESSION_ROW_LIMIT_INVALID');
+  }
+
   return runQuery({
     [PRISMA]: () => relationalQuery(...args),
     [CLICKHOUSE]: () => clickhouseQuery(...args),
@@ -16,7 +21,7 @@ export async function getLinkedDistinctIds(
 async function relationalQuery(
   websiteId: string,
   sessionId: string,
-  rowLimit?: number,
+  rowLimit: number,
 ): Promise<string[]> {
   const { rawQuery } = prisma;
 
@@ -26,7 +31,7 @@ async function relationalQuery(
     from session_link
     where website_id = {{websiteId::uuid}}
       and session_id = {{sessionId::uuid}}
-    ${rowLimit === undefined ? '' : 'limit {{rowLimit}}'}
+    limit {{rowLimit}}
     `,
     { websiteId, sessionId, rowLimit },
     FUNCTION_NAME,
@@ -36,7 +41,7 @@ async function relationalQuery(
 async function clickhouseQuery(
   websiteId: string,
   sessionId: string,
-  rowLimit?: number,
+  rowLimit: number,
 ): Promise<string[]> {
   const { rawQuery } = clickhouse;
 
@@ -46,7 +51,7 @@ async function clickhouseQuery(
     from session_link
     where website_id = {websiteId:UUID}
       and session_id = {sessionId:UUID}
-    ${rowLimit === undefined ? '' : 'limit {rowLimit:UInt32}'}
+    limit {rowLimit:UInt32}
     `,
     { websiteId, sessionId, rowLimit },
     FUNCTION_NAME,

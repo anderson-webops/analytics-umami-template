@@ -1,7 +1,11 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { checkAuth } from '@/lib/auth';
 import { parseRequest } from '@/lib/request';
-import { MAX_SHARE_SESSION_ROWS, reserveShareQueryCost } from '@/lib/share-query-budget';
+import {
+  MAX_AUTH_SESSION_ROWS,
+  MAX_SHARE_SESSION_ROWS,
+  reserveShareQueryCost,
+} from '@/lib/share-query-budget';
 import { canDeleteWebsite, canViewWebsiteSection } from '@/permissions';
 import {
   getLinkedDistinctIds,
@@ -191,7 +195,7 @@ test('public session properties refuses oversized result sets', async () => {
   );
 });
 
-test('signed-in session detail keeps unbounded source compatibility', async () => {
+test('signed-in session detail bounds linked reads while preserving ordinary access', async () => {
   checkAuthMock.mockResolvedValue({ user: { id: 'owner-1' } } as any);
 
   const response = await getSessionDetail(
@@ -200,8 +204,50 @@ test('signed-in session detail keeps unbounded source compatibility', async () =
   );
 
   expect(response.status).toBe(200);
-  expect(getLinkedDistinctIdsMock).toHaveBeenCalledWith(WEBSITE_ID, SESSION_ID, undefined);
-  expect(getLinkedSessionIdsMock).toHaveBeenCalledWith(WEBSITE_ID, 'visitor-1', undefined);
+  expect(getLinkedDistinctIdsMock).toHaveBeenCalledWith(
+    WEBSITE_ID,
+    SESSION_ID,
+    MAX_AUTH_SESSION_ROWS + 1,
+  );
+  expect(getLinkedSessionIdsMock).toHaveBeenCalledWith(
+    WEBSITE_ID,
+    'visitor-1',
+    MAX_AUTH_SESSION_ROWS + 1,
+  );
+});
+
+test('signed-in session detail refuses oversized linked identity results', async () => {
+  checkAuthMock.mockResolvedValue({ user: { id: 'owner-1' } } as any);
+  getLinkedDistinctIdsMock.mockResolvedValue(Array(MAX_AUTH_SESSION_ROWS + 1).fill('visitor'));
+
+  const response = await getSessionDetail(
+    new Request(`https://analytics.example/api/websites/${WEBSITE_ID}/sessions/${SESSION_ID}`),
+    params,
+  );
+
+  expect(response.status).toBe(400);
+  expect((await response.json()).error.message).toBe('Session is too large.');
+  expect(getLinkedSessionIdsMock).not.toHaveBeenCalled();
+});
+
+test('signed-in session detail refuses oversized linked session results', async () => {
+  checkAuthMock.mockResolvedValue({ user: { id: 'owner-1' } } as any);
+  getLinkedSessionIdsMock.mockResolvedValue(
+    Array(MAX_AUTH_SESSION_ROWS + 1).fill({ sessionId: SESSION_ID, createdAt: new Date() }),
+  );
+
+  const response = await getSessionDetail(
+    new Request(`https://analytics.example/api/websites/${WEBSITE_ID}/sessions/${SESSION_ID}`),
+    params,
+  );
+
+  expect(response.status).toBe(400);
+  expect((await response.json()).error.message).toBe('Session is too large.');
+  expect(getLinkedSessionIdsMock).toHaveBeenCalledWith(
+    WEBSITE_ID,
+    'visitor-1',
+    MAX_AUTH_SESSION_ROWS + 1,
+  );
 });
 
 test.each([

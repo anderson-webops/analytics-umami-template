@@ -3,7 +3,7 @@ import { isUuid } from '@/lib/crypto';
 import { isRelationalOnly } from '@/lib/db';
 import { parseRequest } from '@/lib/request';
 import { badRequest, json, notFound, ok, unauthorized } from '@/lib/response';
-import { MAX_SHARE_SESSION_ROWS } from '@/lib/share-query-budget';
+import { MAX_AUTH_SESSION_ROWS, MAX_SHARE_SESSION_ROWS } from '@/lib/share-query-budget';
 import { canDeleteWebsite, canViewWebsiteSection } from '@/permissions';
 import { deleteSession } from '@/queries/prisma';
 import { getLinkedDistinctIds, getLinkedSessionIds, getWebsiteSession } from '@/queries/sql';
@@ -40,11 +40,16 @@ export async function GET(
   }
 
   let sessionIds = [sessionId];
-  const shareRowLimit = auth.shareToken ? MAX_SHARE_SESSION_ROWS + 1 : undefined;
-  const linkedDistinctIds = await getLinkedDistinctIds(websiteId, sessionId, shareRowLimit);
+  const rowLimit = auth.shareToken ? MAX_SHARE_SESSION_ROWS : MAX_AUTH_SESSION_ROWS;
+  const queryLimit = rowLimit + 1;
+  const tooLarge = () =>
+    badRequest({
+      message: auth.shareToken ? 'Public-share session is too large.' : 'Session is too large.',
+    });
+  const linkedDistinctIds = await getLinkedDistinctIds(websiteId, sessionId, queryLimit);
 
-  if (shareRowLimit && linkedDistinctIds.length >= shareRowLimit) {
-    return badRequest({ message: 'Public-share session is too large.' });
+  if (linkedDistinctIds.length >= queryLimit) {
+    return tooLarge();
   }
 
   const distinctIds = linkedDistinctIds.length
@@ -58,10 +63,10 @@ export async function GET(
   data.distinctId = distinctId;
 
   if (distinctId) {
-    const links = await getLinkedSessionIds(websiteId, distinctId, shareRowLimit);
+    const links = await getLinkedSessionIds(websiteId, distinctId, queryLimit);
 
-    if (shareRowLimit && links.length >= shareRowLimit) {
-      return badRequest({ message: 'Public-share session is too large.' });
+    if (links.length >= queryLimit) {
+      return tooLarge();
     }
 
     const linkedIds = links.map(link => link.sessionId);
@@ -71,8 +76,8 @@ export async function GET(
 
   const stitchedSessionCount = sessionIds.length;
 
-  if (shareRowLimit && stitchedSessionCount > MAX_SHARE_SESSION_ROWS) {
-    return badRequest({ message: 'Public-share session is too large.' });
+  if (stitchedSessionCount > rowLimit) {
+    return tooLarge();
   }
 
   return json({

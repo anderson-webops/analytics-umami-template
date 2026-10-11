@@ -25,7 +25,7 @@ afterEach(() => {
 });
 
 test.each(['prisma', 'clickhouse'] as const)(
-  '%s bounds shared session rows in all three queries without changing ordinary reads',
+  '%s requires bounded linked-session reads and retains ordinary property reads',
   async mode => {
     const { getLinkedDistinctIds, getLinkedSessionIds, getSessionData, rawQuery } =
       await loadQueries(mode);
@@ -44,13 +44,21 @@ test.each(['prisma', 'clickhouse'] as const)(
 
     rawQuery.mockClear();
 
-    await getLinkedDistinctIds('website', 'session');
-    await getLinkedSessionIds('website', 'visitor');
-    await getSessionData('website', 'session');
+    for (const invalidLimit of [0, -1, 2_002, 1.5, Number.NaN, undefined]) {
+      const rowLimit = invalidLimit as number;
 
-    for (const [sql] of rawQuery.mock.calls) {
-      expect(sql).not.toContain('limit {{rowLimit}}');
-      expect(sql).not.toContain('limit {rowLimit:UInt32}');
+      await expect(getLinkedDistinctIds('website', 'session', rowLimit)).rejects.toThrow(
+        'LINKED_SESSION_ROW_LIMIT_INVALID',
+      );
+      await expect(getLinkedSessionIds('website', 'visitor', rowLimit)).rejects.toThrow(
+        'LINKED_SESSION_ROW_LIMIT_INVALID',
+      );
     }
+
+    expect(rawQuery).not.toHaveBeenCalled();
+
+    await getSessionData('website', 'session');
+    expect(rawQuery.mock.lastCall?.[0]).not.toContain('limit {{rowLimit}}');
+    expect(rawQuery.mock.lastCall?.[0]).not.toContain('limit {rowLimit:UInt32}');
   },
 );
