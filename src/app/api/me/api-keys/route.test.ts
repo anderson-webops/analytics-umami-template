@@ -1,5 +1,6 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { parseRequest } from '@/lib/request';
+import { ApiKeyCodeUsedError } from '@/queries/prisma/apiKey';
 import { GET, POST } from './route';
 
 const mocks = vi.hoisted(() => ({
@@ -8,6 +9,9 @@ const mocks = vi.hoisted(() => ({
   getUser: vi.fn(),
   checkPassword: vi.fn(),
   reservePasswordVerificationAttempt: vi.fn(),
+  findTwoFactor: vi.fn(),
+  reserveTwoFactorAttempt: vi.fn(),
+  verifyTotp: vi.fn(),
 }));
 
 vi.mock('@/lib/request', () => ({
@@ -17,7 +21,24 @@ vi.mock('@/lib/request', () => ({
 vi.mock('@/queries/prisma/apiKey', () => ({
   createApiKey: mocks.createApiKey,
   getUserApiKeys: mocks.getUserApiKeys,
+  ApiKeyCodeUsedError: class extends Error {},
 }));
+
+vi.mock('@/lib/prisma', () => ({
+  default: { client: { twoFactorAuth: { findUnique: mocks.findTwoFactor } } },
+}));
+
+vi.mock('@/lib/two-factor/crypto', () => ({
+  isTwoFactorConfigured: () => true,
+  getTwoFactorConfigurationError: () => 'Synthetic configuration error',
+  decryptSecret: () => 'decrypted-secret',
+}));
+
+vi.mock('@/lib/two-factor/rate-limit', () => ({
+  reserveTwoFactorAttempt: mocks.reserveTwoFactorAttempt,
+}));
+
+vi.mock('@/lib/two-factor/totp', () => ({ verifyTotp: mocks.verifyTotp }));
 
 vi.mock('@/queries/prisma/user', () => ({
   getUser: mocks.getUser,
@@ -34,6 +55,14 @@ vi.mock('@/lib/password-verification-rate-limit', () => ({
 
 const parseRequestMock = vi.mocked(parseRequest);
 
+function prepareMfaRequest() {
+  parseRequestMock.mockResolvedValue({
+    auth: { authType: 'session', user: { id: 'user-1' }, sessionGeneration: 0, mfaVerified: true },
+    body: { name: 'CI pipeline', currentPassword: 'current-password', token: '123456' },
+    error: undefined,
+  });
+}
+
 beforeEach(() => {
   vi.unstubAllEnvs();
   vi.stubEnv('CLOUD_MODE', '');
@@ -45,6 +74,9 @@ beforeEach(() => {
   mocks.reservePasswordVerificationAttempt
     .mockReset()
     .mockResolvedValue({ allowed: true, retryAfter: 0 });
+  mocks.findTwoFactor.mockReset().mockResolvedValue(null);
+  mocks.reserveTwoFactorAttempt.mockReset().mockResolvedValue({ allowed: true });
+  mocks.verifyTotp.mockReset().mockResolvedValue(true);
 
   parseRequestMock.mockResolvedValue({
     auth: { authType: 'session', user: { id: 'user-1' }, sessionGeneration: 0 },
@@ -90,6 +122,7 @@ test('POST creates a key, stores only the hash, and returns the plaintext once',
     name: data.name,
     keyPrefix: data.keyPrefix,
     createdAt: new Date('2026-01-01T00:00:00Z'),
+    expiresAt: new Date('2026-04-01T00:00:00Z'),
   }));
 
   const response = await POST(new Request('http://localhost/api/me/api-keys', { method: 'POST' }));
@@ -102,6 +135,7 @@ test('POST creates a key, stores only the hash, and returns the plaintext once',
   expect(body.name).toBe('CI pipeline');
   expect(body.keyPrefix).toBe(body.key.slice(0, 14));
   expect(body).not.toHaveProperty('keyHash');
+  expect(body.expiresAt).toBe('2026-04-01T00:00:00.000Z');
 
   const stored = mocks.createApiKey.mock.calls[0][0];
 
@@ -127,6 +161,20 @@ test('POST requires the current password in a strict, bounded request', async ()
     schema.safeParse({
       name: 'CI pipeline',
       currentPassword: 'current-password',
+      token: '123456',
+    }).success,
+  ).toBe(true);
+  expect(
+    schema.safeParse({
+      name: 'CI pipeline',
+      currentPassword: 'current-password',
+      token: '12345x',
+    }).success,
+  ).toBe(false);
+  expect(
+    schema.safeParse({
+      name: 'CI pipeline',
+      currentPassword: 'current-password',
       unexpected: true,
     }).success,
   ).toBe(false);
@@ -142,6 +190,100 @@ test('POST rejects an incorrect password without creating a key', async () => {
   await expect(response.json()).resolves.toMatchObject({
     error: { code: 'incorrect-password' },
   });
+  expect(mocks.createApiKey).not.toHaveBeenCalled();
+});
+
+test('POST requires a fresh authenticator code for a full session with 2FA enabled', async () => {
+  mocks.findTwoFactor.mockResolvedValue({
+    id: 'factor-1',
+    secret: 'encrypted-secret',
+    isEnabled: true,
+  });
+  parseRequestMock.mockResolvedValue({
+    auth: { authType: 'session', user: { id: 'user-1' }, sessionGeneration: 0, mfaVerified: true },
+    body: { name: 'CI pipeline', currentPassword: 'current-password' },
+    error: undefined,
+  });
+
+  const response = await POST(new Request('http://localhost/api/me/api-keys', { method: 'POST' }));
+
+  expect(response.status).toBe(400);
+  expect(mocks.verifyTotp).not.toHaveBeenCalled();
+  expect(mocks.createApiKey).not.toHaveBeenCalled();
+});
+
+test('POST verifies and rate-limits a fresh authenticator code before issuing a key', async () => {
+  mocks.findTwoFactor.mockResolvedValue({
+    id: 'factor-1',
+    secret: 'encrypted-secret',
+    isEnabled: true,
+  });
+  mocks.createApiKey.mockResolvedValue({ id: 'key-1', name: 'CI pipeline' });
+  prepareMfaRequest();
+
+  const response = await POST(new Request('http://localhost/api/me/api-keys', { method: 'POST' }));
+
+  expect(response.status).toBe(200);
+  expect(mocks.reserveTwoFactorAttempt).toHaveBeenCalledWith('user-1');
+  expect(mocks.verifyTotp).toHaveBeenCalledWith('123456', 'decrypted-secret');
+  expect(mocks.createApiKey.mock.calls[0][3]).toEqual({
+    id: 'factor-1',
+    secret: 'encrypted-secret',
+    token: '123456',
+  });
+});
+
+test('POST rejects an invalid or reused authenticator code', async () => {
+  mocks.findTwoFactor.mockResolvedValue({
+    id: 'factor-1',
+    secret: 'encrypted-secret',
+    isEnabled: true,
+  });
+  prepareMfaRequest();
+  mocks.verifyTotp.mockResolvedValueOnce(false);
+
+  const invalid = await POST(new Request('http://localhost/api/me/api-keys', { method: 'POST' }));
+  expect(invalid.status).toBe(400);
+  expect(mocks.createApiKey).not.toHaveBeenCalled();
+
+  mocks.createApiKey.mockRejectedValueOnce(new ApiKeyCodeUsedError());
+  const reused = await POST(new Request('http://localhost/api/me/api-keys', { method: 'POST' }));
+  expect(reused.status).toBe(400);
+  expect(await reused.json()).toMatchObject({ error: { code: 'two-factor-error-code-used' } });
+});
+
+test('POST fails closed when 2FA verification is rate-limited', async () => {
+  mocks.findTwoFactor.mockResolvedValue({
+    id: 'factor-1',
+    secret: 'encrypted-secret',
+    isEnabled: true,
+  });
+  prepareMfaRequest();
+  mocks.reserveTwoFactorAttempt.mockResolvedValue({ allowed: false });
+
+  const response = await POST(new Request('http://localhost/api/me/api-keys', { method: 'POST' }));
+
+  expect(response.status).toBe(429);
+  expect(mocks.verifyTotp).not.toHaveBeenCalled();
+  expect(mocks.createApiKey).not.toHaveBeenCalled();
+});
+
+test('POST rejects an enrolled factor without a verified MFA session', async () => {
+  mocks.findTwoFactor.mockResolvedValue({
+    id: 'factor-1',
+    secret: 'encrypted-secret',
+    isEnabled: true,
+  });
+  parseRequestMock.mockResolvedValue({
+    auth: { authType: 'session', user: { id: 'user-1' }, sessionGeneration: 0, mfaVerified: false },
+    body: { name: 'CI pipeline', currentPassword: 'current-password', token: '123456' },
+    error: undefined,
+  });
+
+  const response = await POST(new Request('http://localhost/api/me/api-keys', { method: 'POST' }));
+
+  expect(response.status).toBe(401);
+  expect(mocks.verifyTotp).not.toHaveBeenCalled();
   expect(mocks.createApiKey).not.toHaveBeenCalled();
 });
 

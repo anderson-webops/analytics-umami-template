@@ -14,6 +14,7 @@ import { hashPassword } from '@/lib/password';
 import { getPasswordVerificationBudgetKey } from '@/lib/password-verification-rate-limit';
 import prisma from '@/lib/prisma';
 import { encryptSecret } from '@/lib/two-factor/crypto';
+import { ApiKeyCodeUsedError, createApiKey, getApiKeyByHash } from '@/queries/prisma/apiKey';
 import { replacePasswordIfCurrent } from '@/queries/prisma/user';
 
 assert.equal(process.env.ALLOW_DESTRUCTIVE_MIGRATION_TEST, '1');
@@ -183,6 +184,44 @@ try {
     [ordinaryDisable.userId],
   );
   assert.equal(ordinaryDisabledUser.rows[0].session_generation, 1);
+
+  stage = 'api key factor proof and expiry';
+  const apiKeyFixture = await createFixture('api-key', true);
+  const enrolledFactor = await prisma.client.twoFactorAuth.findUniqueOrThrow({
+    where: { id: apiKeyFixture.factorId },
+  });
+  const apiKeyHash = randomUUID().replaceAll('-', '');
+  const apiKeyData = {
+    id: randomUUID(),
+    userId: apiKeyFixture.userId,
+    name: 'Synthetic API key',
+    keyHash: apiKeyHash,
+    keyPrefix: 'umami_synthetic',
+  };
+  const factorProof = {
+    id: enrolledFactor.id,
+    secret: enrolledFactor.secret,
+    token: apiKeyFixture.totpCode,
+  };
+  const issuedApiKey = await createApiKey(apiKeyData, 0, apiKeyFixture.passwordHash, factorProof);
+  assert.ok(issuedApiKey);
+  assert.equal(issuedApiKey.id, apiKeyData.id);
+  assert.ok(issuedApiKey.expiresAt.getTime() >= Date.now() + 89 * 24 * 60 * 60 * 1000);
+  assert.equal((await getApiKeyByHash(apiKeyHash))?.id, apiKeyData.id);
+  await assert.rejects(
+    createApiKey(
+      { ...apiKeyData, id: randomUUID(), keyHash: randomUUID().replaceAll('-', '') },
+      0,
+      apiKeyFixture.passwordHash,
+      factorProof,
+    ),
+    ApiKeyCodeUsedError,
+  );
+  await prisma.client.apiKey.update({
+    where: { id: apiKeyData.id },
+    data: { expiresAt: new Date(Date.now() - 1000) },
+  });
+  assert.equal(await getApiKeyByHash(apiKeyHash), null);
 
   stage = 'racing fixture';
   const racing = await createFixture('racing');

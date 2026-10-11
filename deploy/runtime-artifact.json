@@ -26,6 +26,7 @@
     "prisma/migrations/31_bound_event_ingestion/migration.sql",
     "prisma/migrations/32_expire_replay_visit_budgets/migration.sql",
     "prisma/migrations/33_expire_new_heatmap_events/migration.sql",
+    "prisma/migrations/34_expire_api_keys/migration.sql",
     "prisma/migrations/migration_lock.toml",
     "prisma/schema.prisma",
     "public/openapi.json",

@@ -7236,6 +7236,11 @@ export interface operations {
              */
             createdAt: string;
             /**
+             * Format: date-time
+             * @description Date and time the credential expires.
+             */
+            expiresAt: string;
+            /**
              * Format: uuid
              * @description Unique identifier of the resource.
              */
@@ -7301,6 +7306,8 @@ export interface operations {
           currentPassword: string;
           /** @description Display name of the resource. */
           name: string;
+          /** @description Fresh authenticator code when two-factor authentication is enabled. */
+          token?: string;
         };
       };
     };
@@ -7317,6 +7324,11 @@ export interface operations {
              * @description Date and time the record was created.
              */
             createdAt: string;
+            /**
+             * Format: date-time
+             * @description Date and time the credential expires.
+             */
+            expiresAt: string;
             /**
              * Format: uuid
              * @description Unique identifier of the resource.

@@ -1,4 +1,13 @@
 import prisma from '@/lib/prisma';
+import { consumeOtp } from '@/lib/two-factor/replay-prevention';
+
+export class ApiKeyCodeUsedError extends Error {}
+
+interface ApiKeyFactorProof {
+  id: string;
+  secret: string;
+  token: string;
+}
 
 export async function createApiKey(
   data: {
@@ -10,6 +19,7 @@ export async function createApiKey(
   },
   expectedSessionGeneration: number,
   expectedPasswordHash: string,
+  factor: ApiKeyFactorProof | null = null,
 ) {
   return prisma.transaction(async transaction => {
     const rows = await transaction.$queryRaw<Array<{ sessionGeneration: number }>>`
@@ -25,6 +35,25 @@ export async function createApiKey(
       return null;
     }
 
+    const currentFactor = await transaction.twoFactorAuth.findUnique({
+      where: { userId: data.userId },
+      select: { id: true, secret: true, isEnabled: true },
+    });
+
+    if (currentFactor?.isEnabled) {
+      if (!factor || currentFactor.id !== factor.id || currentFactor.secret !== factor.secret) {
+        return null;
+      }
+
+      if (!(await consumeOtp(data.userId, factor.token, transaction))) {
+        throw new ApiKeyCodeUsedError();
+      }
+
+      await transaction.twoFactorRateLimit.deleteMany({ where: { userId: data.userId } });
+    } else if (factor) {
+      return null;
+    }
+
     return transaction.apiKey.create({
       data,
       select: {
@@ -32,6 +61,7 @@ export async function createApiKey(
         name: true,
         keyPrefix: true,
         createdAt: true,
+        expiresAt: true,
       },
     });
   });
@@ -40,8 +70,8 @@ export async function createApiKey(
 export async function getApiKeyByHash(keyHash: string) {
   const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
 
-  return client.apiKey.findUnique({
-    where: { keyHash },
+  return client.apiKey.findFirst({
+    where: { keyHash, expiresAt: { gt: new Date() } },
   });
 }
 
@@ -54,6 +84,7 @@ export async function getUserApiKeys(userId: string) {
       keyPrefix: true,
       lastUsedAt: true,
       createdAt: true,
+      expiresAt: true,
     },
     orderBy: { createdAt: 'desc' },
   });

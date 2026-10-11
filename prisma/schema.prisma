@@ -46,6 +46,7 @@ model ApiKey {
   keyPrefix  String    @map("key_prefix") @db.VarChar(20)
   lastUsedAt DateTime? @map("last_used_at") @db.Timestamptz(6)
   createdAt  DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  expiresAt  DateTime  @default(dbgenerated("CURRENT_TIMESTAMP + INTERVAL '90 days'")) @map("expires_at") @db.Timestamptz(6)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

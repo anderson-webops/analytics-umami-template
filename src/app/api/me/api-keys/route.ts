@@ -2,6 +2,7 @@ import { generateApiKey, getApiKeyPrefix, hashApiKey, isApiKeyEnabled } from '@/
 import { uuid } from '@/lib/crypto';
 import { checkPassword } from '@/lib/password';
 import { reservePasswordVerificationAttempt } from '@/lib/password-verification-rate-limit';
+import prisma from '@/lib/prisma';
 import { parseRequest } from '@/lib/request';
 import {
   badRequest,
@@ -11,7 +12,14 @@ import {
   tooManyRequests,
   unauthorized,
 } from '@/lib/response';
-import { createApiKey, getUserApiKeys } from '@/queries/prisma/apiKey';
+import {
+  decryptSecret,
+  getTwoFactorConfigurationError,
+  isTwoFactorConfigured,
+} from '@/lib/two-factor/crypto';
+import { reserveTwoFactorAttempt } from '@/lib/two-factor/rate-limit';
+import { verifyTotp } from '@/lib/two-factor/totp';
+import { ApiKeyCodeUsedError, createApiKey, getUserApiKeys } from '@/queries/prisma/apiKey';
 import { getUser } from '@/queries/prisma/user';
 import { createApiKeySchema } from './schema';
 
@@ -66,19 +74,79 @@ export async function POST(request: Request) {
     return badRequest({ code: 'incorrect-password', message: 'Current password is incorrect' });
   }
 
+  const authClient = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
+  const twoFactor = await authClient.twoFactorAuth.findUnique({
+    where: { userId: user.id },
+    select: { id: true, secret: true, isEnabled: true },
+  });
+  let factor = null;
+
+  if (twoFactor?.isEnabled) {
+    if (!auth.mfaVerified) {
+      return unauthorized();
+    }
+
+    if (!isTwoFactorConfigured()) {
+      return serviceUnavailable(getTwoFactorConfigurationError());
+    }
+
+    if (!body.token) {
+      return badRequest({
+        code: 'two-factor-error-invalid-code',
+        message: 'Verification code required',
+      });
+    }
+
+    let twoFactorAttempt;
+    try {
+      twoFactorAttempt = await reserveTwoFactorAttempt(user.id);
+    } catch {
+      return serviceUnavailable({ message: 'Credential verification is temporarily unavailable' });
+    }
+
+    if (!twoFactorAttempt.allowed) {
+      const retryAfter = twoFactorAttempt.lockedUntil
+        ? Math.max(1, Math.ceil((twoFactorAttempt.lockedUntil.getTime() - Date.now()) / 1000))
+        : 60;
+      return tooManyRequests(retryAfter, { message: 'Too many verification attempts' });
+    }
+
+    if (!(await verifyTotp(body.token, decryptSecret(twoFactor.secret)))) {
+      return badRequest({
+        code: 'two-factor-error-invalid-code',
+        message: 'Invalid verification code',
+      });
+    }
+
+    factor = { id: twoFactor.id, secret: twoFactor.secret, token: body.token };
+  } else if (body.token) {
+    return badRequest({ code: 'two-factor-error-not-enabled', message: '2FA is not enabled' });
+  }
+
   const key = generateApiKey();
 
-  const apiKey = await createApiKey(
-    {
-      id: uuid(),
-      userId: auth.user.id,
-      name: body.name,
-      keyHash: hashApiKey(key),
-      keyPrefix: getApiKeyPrefix(key),
-    },
-    auth.sessionGeneration,
-    user.password,
-  );
+  let apiKey;
+
+  try {
+    apiKey = await createApiKey(
+      {
+        id: uuid(),
+        userId: auth.user.id,
+        name: body.name,
+        keyHash: hashApiKey(key),
+        keyPrefix: getApiKeyPrefix(key),
+      },
+      auth.sessionGeneration,
+      user.password,
+      factor,
+    );
+  } catch (error) {
+    if (error instanceof ApiKeyCodeUsedError) {
+      return badRequest({ code: 'two-factor-error-code-used', message: 'Code already used' });
+    }
+
+    throw error;
+  }
 
   if (!apiKey) {
     return unauthorized({ code: 'credentials-changed' });

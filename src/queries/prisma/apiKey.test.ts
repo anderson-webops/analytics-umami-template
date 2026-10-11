@@ -1,59 +1,87 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import { createApiKey, getApiKeyByHash } from './apiKey';
+import { ApiKeyCodeUsedError, createApiKey, getApiKeyByHash } from './apiKey';
 
 const {
-  primaryFindUniqueMock,
-  replicaFindUniqueMock,
+  primaryFindFirstMock,
+  replicaFindFirstMock,
   primaryMock,
   transactionMock,
   queryRawMock,
   createMock,
+  findTwoFactorMock,
+  deleteTwoFactorLimitMock,
+  consumeOtpMock,
 } = vi.hoisted(() => ({
-  primaryFindUniqueMock: vi.fn(),
-  replicaFindUniqueMock: vi.fn(),
+  primaryFindFirstMock: vi.fn(),
+  replicaFindFirstMock: vi.fn(),
   primaryMock: vi.fn(),
   transactionMock: vi.fn(),
   queryRawMock: vi.fn(),
   createMock: vi.fn(),
+  findTwoFactorMock: vi.fn(),
+  deleteTwoFactorLimitMock: vi.fn(),
+  consumeOtpMock: vi.fn(),
 }));
+
+vi.mock('@/lib/two-factor/replay-prevention', () => ({ consumeOtp: consumeOtpMock }));
 
 vi.mock('@/lib/prisma', () => ({
   default: {
     transaction: transactionMock,
     client: {
       $primary: primaryMock,
-      apiKey: { findUnique: replicaFindUniqueMock },
+      apiKey: { findFirst: replicaFindFirstMock },
     },
   },
 }));
 
 describe('getApiKeyByHash', () => {
   beforeEach(() => {
-    primaryFindUniqueMock.mockReset().mockResolvedValue(null);
-    replicaFindUniqueMock.mockReset().mockResolvedValue(null);
-    primaryMock.mockReset().mockReturnValue({ apiKey: { findUnique: primaryFindUniqueMock } });
-    transactionMock
-      .mockReset()
-      .mockImplementation(async operation =>
-        operation({ $queryRaw: queryRawMock, apiKey: { create: createMock } }),
-      );
+    primaryFindFirstMock.mockReset().mockResolvedValue(null);
+    replicaFindFirstMock.mockReset().mockResolvedValue(null);
+    primaryMock.mockReset().mockReturnValue({ apiKey: { findFirst: primaryFindFirstMock } });
+    transactionMock.mockReset().mockImplementation(async operation =>
+      operation({
+        $queryRaw: queryRawMock,
+        apiKey: { create: createMock },
+        twoFactorAuth: { findUnique: findTwoFactorMock },
+        twoFactorRateLimit: { deleteMany: deleteTwoFactorLimitMock },
+      }),
+    );
     queryRawMock.mockReset().mockResolvedValue([{ sessionGeneration: 0 }]);
     createMock.mockReset().mockResolvedValue({ id: 'key-1' });
+    findTwoFactorMock.mockReset().mockResolvedValue(null);
+    deleteTwoFactorLimitMock.mockReset();
+    consumeOtpMock.mockReset().mockResolvedValue(true);
   });
 
   test('rejects a revoked key while the replica still has it', async () => {
-    replicaFindUniqueMock.mockResolvedValue({ id: 'revoked-key' });
+    replicaFindFirstMock.mockResolvedValue({ id: 'revoked-key' });
 
     expect(await getApiKeyByHash('hash')).toBeNull();
-    expect(primaryFindUniqueMock).toHaveBeenCalledWith({ where: { keyHash: 'hash' } });
-    expect(replicaFindUniqueMock).not.toHaveBeenCalled();
+    expect(primaryFindFirstMock).toHaveBeenCalledWith({
+      where: { keyHash: 'hash', expiresAt: { gt: expect.any(Date) } },
+    });
+    expect(replicaFindFirstMock).not.toHaveBeenCalled();
   });
 
   test('accepts a key that exists on the primary', async () => {
     const key = { id: 'active-key', keyHash: 'hash' };
-    primaryFindUniqueMock.mockResolvedValue(key);
+    primaryFindFirstMock.mockResolvedValue(key);
 
     expect(await getApiKeyByHash('hash')).toEqual(key);
+  });
+
+  test('rejects expired and legacy keys without an expiration', async () => {
+    const oldKey = { id: 'expired-key', expiresAt: new Date(Date.now() - 1) };
+    primaryFindFirstMock.mockImplementation(async ({ where }) =>
+      oldKey.expiresAt > where.expiresAt.gt ? oldKey : null,
+    );
+
+    expect(await getApiKeyByHash('hash')).toBeNull();
+    expect(primaryFindFirstMock).toHaveBeenCalledWith({
+      where: { keyHash: 'hash', expiresAt: { gt: expect.any(Date) } },
+    });
   });
 });
 
@@ -67,13 +95,19 @@ describe('createApiKey', () => {
   };
 
   beforeEach(() => {
-    transactionMock
-      .mockReset()
-      .mockImplementation(async operation =>
-        operation({ $queryRaw: queryRawMock, apiKey: { create: createMock } }),
-      );
+    transactionMock.mockReset().mockImplementation(async operation =>
+      operation({
+        $queryRaw: queryRawMock,
+        apiKey: { create: createMock },
+        twoFactorAuth: { findUnique: findTwoFactorMock },
+        twoFactorRateLimit: { deleteMany: deleteTwoFactorLimitMock },
+      }),
+    );
     queryRawMock.mockReset().mockResolvedValue([{ sessionGeneration: 0 }]);
     createMock.mockReset().mockResolvedValue({ id: data.id });
+    findTwoFactorMock.mockReset().mockResolvedValue(null);
+    deleteTwoFactorLimitMock.mockReset();
+    consumeOtpMock.mockReset().mockResolvedValue(true);
   });
 
   test('creates a key only while holding the current user generation lock', async () => {
@@ -83,12 +117,68 @@ describe('createApiKey', () => {
     expect(String(queryRawMock.mock.calls[0][0])).toContain('"password" =');
     expect(queryRawMock.mock.calls[0]).toContain('password-hash');
     expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ data }));
+    expect(findTwoFactorMock).toHaveBeenCalledWith({
+      where: { userId: data.userId },
+      select: { id: true, secret: true, isEnabled: true },
+    });
   });
 
   test('does not create a key after a factor reset changed the generation', async () => {
     queryRawMock.mockResolvedValue([{ sessionGeneration: 1 }]);
 
     await expect(createApiKey(data, 0, 'password-hash')).resolves.toBeNull();
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  test('requires a fresh one-use code when an authenticator is enrolled', async () => {
+    findTwoFactorMock.mockResolvedValue({
+      id: 'factor-1',
+      secret: 'encrypted-secret',
+      isEnabled: true,
+    });
+    const proof = { id: 'factor-1', secret: 'encrypted-secret', token: '123456' };
+
+    await expect(createApiKey(data, 0, 'password-hash')).resolves.toBeNull();
+    expect(createMock).not.toHaveBeenCalled();
+
+    await expect(createApiKey(data, 0, 'password-hash', proof)).resolves.toEqual({ id: data.id });
+    expect(consumeOtpMock).toHaveBeenCalledWith(data.userId, proof.token, expect.anything());
+    expect(deleteTwoFactorLimitMock).toHaveBeenCalledWith({ where: { userId: data.userId } });
+    expect(consumeOtpMock.mock.invocationCallOrder[0]).toBeLessThan(
+      createMock.mock.invocationCallOrder[0],
+    );
+  });
+
+  test('does not persist a key when the code was already consumed', async () => {
+    findTwoFactorMock.mockResolvedValue({
+      id: 'factor-1',
+      secret: 'encrypted-secret',
+      isEnabled: true,
+    });
+    consumeOtpMock.mockResolvedValue(false);
+
+    await expect(
+      createApiKey(data, 0, 'password-hash', {
+        id: 'factor-1',
+        secret: 'encrypted-secret',
+        token: '123456',
+      }),
+    ).rejects.toBeInstanceOf(ApiKeyCodeUsedError);
+    expect(createMock).not.toHaveBeenCalled();
+    expect(deleteTwoFactorLimitMock).not.toHaveBeenCalled();
+  });
+
+  test('rejects an authenticator proof after factor state changes', async () => {
+    findTwoFactorMock.mockResolvedValue({ id: 'factor-2', secret: 'new-secret', isEnabled: true });
+
+    await expect(
+      createApiKey(data, 0, 'password-hash', {
+        id: 'factor-1',
+        secret: 'old-secret',
+        token: '123456',
+      }),
+    ).resolves.toBeNull();
+    expect(consumeOtpMock).not.toHaveBeenCalled();
     expect(createMock).not.toHaveBeenCalled();
   });
 

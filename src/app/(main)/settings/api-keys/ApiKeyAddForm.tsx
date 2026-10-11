@@ -10,25 +10,36 @@ import {
   Icon,
   PasswordField,
   Row,
+  Text,
   TextField,
 } from '@umami/react-zen';
 import { useState } from 'react';
 import { CopyButton } from '@/components/common/CopyButton';
-import { useMessages, useUpdateQuery } from '@/components/hooks';
+import { OtpInput } from '@/components/common/OtpInput';
+import { useMessages, useTwoFactorStatusQuery, useUpdateQuery } from '@/components/hooks';
 import { AlertTriangle } from '@/components/icons';
 
 export function ApiKeyAddForm({ onSave, onClose }: { onSave: () => void; onClose: () => void }) {
   const { t, labels, messages, getErrorMessage } = useMessages();
   const { mutateAsync, error, isPending } = useUpdateQuery('/me/api-keys');
+  const {
+    data: twoFactorStatus,
+    isLoading: isTwoFactorLoading,
+    isError: isTwoFactorError,
+  } = useTwoFactorStatusQuery(true);
   const [createdKey, setCreatedKey] = useState<string | null>(null);
+  const [token, setToken] = useState('');
 
   const handleSubmit = async (data: any) => {
-    await mutateAsync(data, {
-      onSuccess: async result => {
-        setCreatedKey(result.key);
-        onSave?.();
+    await mutateAsync(
+      { ...data, ...(twoFactorStatus?.isEnabled ? { token } : {}) },
+      {
+        onSuccess: async result => {
+          setCreatedKey(result.key);
+          onSave?.();
+        },
       },
-    });
+    );
   };
 
   if (createdKey) {
@@ -65,11 +76,26 @@ export function ApiKeyAddForm({ onSave, onClose }: { onSave: () => void; onClose
       >
         <PasswordField autoComplete="current-password" />
       </FormField>
+      {twoFactorStatus?.isEnabled && (
+        <Column gap="1">
+          <Text size="sm">{t(labels.twoFactorEnterCode)}</Text>
+          <OtpInput value={token} onChange={setToken} disabled={isPending} />
+        </Column>
+      )}
       <FormButtons>
         <Button isDisabled={isPending} onPress={onClose}>
           {t(labels.cancel)}
         </Button>
-        <FormSubmitButton variant="primary" isDisabled={isPending}>
+        <FormSubmitButton
+          variant="primary"
+          isDisabled={
+            isPending ||
+            isTwoFactorLoading ||
+            isTwoFactorError ||
+            !twoFactorStatus ||
+            (twoFactorStatus.isEnabled && token.length !== 6)
+          }
+        >
           {t(labels.save)}
         </FormSubmitButton>
       </FormButtons>

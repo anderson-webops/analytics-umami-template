@@ -7,6 +7,7 @@ export interface ApiKeyData {
   keyPrefix: string;
   lastUsedAt: string | null;
   createdAt: string;
+  expiresAt: string;
 }
 
 export function useApiKeysQuery() {

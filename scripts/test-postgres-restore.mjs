@@ -112,6 +112,35 @@ try {
   const original = await roles();
   assert.ok(original.every(row => row.definition.endsWith(']::text[]))')));
   const seededAdminId = '41e2b680-648e-4b09-bcd7-3e2b10c06264';
+  const legacyApiKeyId = crypto.randomUUID();
+  await active.query(
+    'INSERT INTO api_key (api_key_id, user_id, name, key_hash, key_prefix) VALUES ($1, $2, $3, $4, $5)',
+    [legacyApiKeyId, seededAdminId, 'Synthetic legacy key', 'a'.repeat(64), 'umami_legacy'],
+  );
+  await active.query('ALTER TABLE api_key DROP COLUMN expires_at');
+  await active.query("DELETE FROM _prisma_migrations WHERE migration_name = '34_expire_api_keys'");
+  ok(migrate());
+  const legacyExpiry = (
+    await active.query('SELECT expires_at FROM api_key WHERE api_key_id = $1', [legacyApiKeyId])
+  ).rows[0].expires_at;
+  assert.ok(legacyExpiry instanceof Date);
+  assert.ok(legacyExpiry.getTime() >= Date.now() + 29 * 24 * 60 * 60 * 1000);
+  assert.ok(legacyExpiry.getTime() <= Date.now() + 31 * 24 * 60 * 60 * 1000);
+  const newApiKeyId = crypto.randomUUID();
+  await active.query(
+    'INSERT INTO api_key (api_key_id, user_id, name, key_hash, key_prefix) VALUES ($1, $2, $3, $4, $5)',
+    [newApiKeyId, seededAdminId, 'Synthetic new key', 'b'.repeat(64), 'umami_new'],
+  );
+  const newExpiry = (
+    await active.query('SELECT expires_at FROM api_key WHERE api_key_id = $1', [newApiKeyId])
+  ).rows[0].expires_at;
+  assert.ok(newExpiry instanceof Date);
+  assert.ok(newExpiry.getTime() >= Date.now() + 89 * 24 * 60 * 60 * 1000);
+  assert.ok(newExpiry.getTime() <= Date.now() + 91 * 24 * 60 * 60 * 1000);
+  await active.query('DELETE FROM api_key WHERE api_key_id IN ($1, $2)', [
+    legacyApiKeyId,
+    newApiKeyId,
+  ]);
   const legacyBudgetWebsiteId = crypto.randomUUID();
   await active.query(
     'INSERT INTO website (website_id, name, domain, user_id) VALUES ($1, $2, $3, $4)',
@@ -135,7 +164,7 @@ try {
 
   // Reconstruct only a synthetic legacy state, never modify a real ledger.
   const pending = (await ledger()).filter(row =>
-    /add_annotation|add_api_key|remove_redundant_board|prepare_session_data_index_rebuild|finalize_session_data_index_rebuild/.test(
+    /add_annotation|add_api_key|remove_redundant_board|prepare_session_data_index_rebuild|finalize_session_data_index_rebuild|expire_api_keys/.test(
       row.migration_name,
     ),
   );

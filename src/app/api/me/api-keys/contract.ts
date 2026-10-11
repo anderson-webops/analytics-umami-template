@@ -16,6 +16,7 @@ const apiKeyMetadataSchema = z.object({
   name: z.string(),
   keyPrefix: z.string(),
   createdAt: z.iso.datetime(),
+  expiresAt: z.iso.datetime(),
   lastUsedAt: z.iso.datetime().nullable(),
 });
 
@@ -47,7 +48,7 @@ const createApiKeyOperation = defineOperation({
     operationId: 'createMyApiKey',
     summary: 'Create an API key',
     description:
-      'Verifies the current password, then creates a named API key for the current user and returns its secret value once. Password verification shares a five-attempt, 15-minute account limit with other sensitive account changes. Available on self-hosted installations.',
+      'Verifies the current password and a fresh authenticator code when two-factor authentication is enabled, then creates a named API key for the current user and returns its secret value once. New keys expire after 90 days; pre-existing keys receive a 30-day transition period after migration. Password verification shares a five-attempt, 15-minute account limit with other sensitive account changes. Available on self-hosted installations.',
     tags: ['Account'],
     requestBody: {
       required: true,
