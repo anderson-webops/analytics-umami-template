@@ -29,6 +29,12 @@ verifier rejects a weakened or altered declaration. The object contains no
 listener port, service user, proxy route, environment value, or database address;
 those remain host policy.
 
+Schema version 2 binds the 30-day heatmap-retention release to all three required
+runtime files and the `bounded-heatmap-retention-v1` capability. Removing every
+retention file or downgrading only the capability fails source validation. Legacy
+schema version 1 contracts remain valid only without the retention files or
+capability; host adapters must reject an unsupported version before migration.
+
 Before building or migrating a candidate, the privileged host adapter should
 independently fetch its canonical source identity and parse this contract as
 data. It should compare the declared capabilities with its own supported set,
@@ -60,6 +66,15 @@ The capability names have narrow meanings:
   transition with restoration of the prior configuration on failure.
 - `classroom-2fa-privacy-acceptance-v1`: prove mandatory classroom 2FA and
   privacy constraints against the candidate before activation.
+- `bounded-heatmap-retention-v1`: before activation, verify a monitored periodic
+  PostgreSQL cleanup job runs the immutable, bounded pruner through a direct,
+  non-transaction-pooled connection to the checked database and schema. If
+  ClickHouse or Kafka is configured, verify the exact conditional TTL, producer
+  and consumer marker and acceptance-time mapping, topic retention, delayed
+  message behavior, and absence of incompatible writers. Monitor incomplete
+  cleanup runs and remaining backlog. Rehearse old-data preservation and
+  failed-activation recovery.
+  Column presence or report filtering alone does not satisfy this capability.
 
 These are requirements, not claims of current host support. A host adapter
 should advertise its implemented capabilities under root-controlled policy and

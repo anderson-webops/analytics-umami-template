@@ -84,10 +84,12 @@ async function checkClickhouse() {
       return false;
     }
 
-    await client.ping({
-      select: false,
+    const result = await client.query({
+      query: 'SELECT retention_policy, ingested_at FROM heatmap_event LIMIT 0',
+      format: 'JSONEachRow',
       abort_signal: AbortSignal.timeout(READINESS_DEPENDENCY_TIMEOUT_MS),
     });
+    await result.json();
     return true;
   } catch {
     return false;

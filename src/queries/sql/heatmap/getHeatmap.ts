@@ -139,6 +139,7 @@ async function relationalQuery(
     where h.website_id = {{websiteId::uuid}}
       and h.event_type = {{eventType}}
       and h.created_at between {{startDate}} and {{endDate}}
+      and (h.retention_expires_at is null or h.retention_expires_at > CURRENT_TIMESTAMP)
       ${filterContext.filterQuery}
       ${pageFilter}
     group by h.url_path
@@ -193,6 +194,7 @@ async function relationalQuery(
             and h.event_type = {{eventType}}
             and h.url_path = {{urlPath}}
             and h.created_at between {{startDate}} and {{endDate}}
+            and (h.retention_expires_at is null or h.retention_expires_at > CURRENT_TIMESTAMP)
             ${filterContext.filterQuery}
             and h.scroll_pct is not null
             and h.page_w is not null
@@ -262,6 +264,7 @@ async function relationalQuery(
       and h.event_type = {{eventType}}
       and h.url_path = {{urlPath}}
       and h.created_at between {{startDate}} and {{endDate}}
+      and (h.retention_expires_at is null or h.retention_expires_at > CURRENT_TIMESTAMP)
       ${filterContext.filterQuery}
       and h.x is not null
       and h.y is not null
@@ -341,6 +344,7 @@ async function clickhouseQuery(
     where h.website_id = {websiteId:UUID}
       and h.event_type = {eventType:UInt8}
       and h.created_at between {startDate:DateTime64} and {endDate:DateTime64}
+      and (h.retention_policy = 0 or h.ingested_at + INTERVAL 30 DAY > now('UTC'))
       ${filterContext.filterQuery}
       ${pageFilter}
     group by h.url_path
@@ -402,6 +406,7 @@ async function clickhouseQuery(
             and h.event_type = {eventType:UInt8}
             and h.url_path = {urlPath:String}
             and h.created_at between {startDate:DateTime64} and {endDate:DateTime64}
+            and (h.retention_policy = 0 or h.ingested_at + INTERVAL 30 DAY > now('UTC'))
             ${filterContext.filterQuery}
             and h.scroll_pct is not null
             and h.page_w is not null
@@ -487,6 +492,7 @@ async function clickhouseQuery(
       and h.event_type = {eventType:UInt8}
       and h.url_path = {urlPath:String}
       and h.created_at between {startDate:DateTime64} and {endDate:DateTime64}
+      and (h.retention_policy = 0 or h.ingested_at + INTERVAL 30 DAY > now('UTC'))
       ${filterContext.filterQuery}
       and h.x is not null
       and h.y is not null

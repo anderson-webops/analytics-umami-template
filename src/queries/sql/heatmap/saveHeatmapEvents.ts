@@ -47,7 +47,7 @@ export async function saveHeatmapEvents(
   }
 
   return runQuery({
-    [PRISMA]: () => relationalQuery(normalizedRows),
+    [PRISMA]: () => prisma.transaction(transaction => relationalQuery(normalizedRows, transaction)),
     [CLICKHOUSE]: () => clickhouseQuery(normalizedRows),
   });
 }
@@ -93,6 +93,7 @@ async function relationalQuery(
 async function clickhouseQuery(rows: HeatmapEventRow[]) {
   const { insert, getUTCString } = clickhouse;
   const { sendMessage } = kafka;
+  const acceptedAt = getUTCString(new Date());
 
   const messages = rows.map(r => ({
     heatmap_event_id: uuid(),
@@ -111,6 +112,8 @@ async function clickhouseQuery(rows: HeatmapEventRow[]) {
     page_h: r.pageH,
     scroll_pct: r.scrollPct,
     created_at: getUTCString(r.createdAt),
+    retention_policy: 1,
+    ingested_at: acceptedAt,
   }));
 
   if (kafka.enabled) {

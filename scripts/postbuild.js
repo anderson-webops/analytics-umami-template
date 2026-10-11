@@ -97,6 +97,10 @@ async function run() {
   for (const relativePath of ['public', 'prisma', 'generated', '.next/static']) {
     await copyRuntimePath(path.resolve(relativePath), path.join(appDir, relativePath));
   }
+  await copyRuntimePath(
+    path.resolve('db/clickhouse/migrations/15_expire_new_heatmap_events.sql'),
+    path.join(appDir, 'db/clickhouse/migrations/15_expire_new_heatmap_events.sql'),
+  );
 
   await fs.rm(path.join(appDir, 'geo'), { force: true, recursive: true });
   await copyRuntimePath(
@@ -133,6 +137,10 @@ async function run() {
   await copyRuntimePath(
     path.resolve('scripts/start-runtime.mjs'),
     path.join(runtimeScriptsDirectory, 'start-production.mjs'),
+  );
+  await copyRuntimePath(
+    path.resolve('scripts/prune-expired-heatmap-events.mjs'),
+    path.join(runtimeScriptsDirectory, 'prune-expired-heatmap-events.mjs'),
   );
 
   await fs.rm(path.join(appDir, '.next', 'cache'), { recursive: true, force: true });

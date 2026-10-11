@@ -398,6 +398,33 @@ async function checkSchemaCompatibility() {
       ) AS heatmap_event,
       EXISTS (
         SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'heatmap_event'
+          AND column_name = 'retention_expires_at'
+          AND data_type = 'timestamp with time zone'
+          AND is_nullable = 'YES'
+          AND column_default = '(CURRENT_TIMESTAMP + ''30 days''::interval)'
+      ) AS heatmap_retention,
+      EXISTS (
+        SELECT 1
+        FROM pg_index index_definition
+        WHERE index_definition.indexrelid = to_regclass(
+            format('%I.%I', current_schema(), 'heatmap_event_retention_expires_at_idx')
+          )
+          AND index_definition.indrelid = to_regclass(
+            format('%I.%I', current_schema(), 'heatmap_event')
+          )
+          AND index_definition.indisvalid
+          AND index_definition.indisready
+          AND index_definition.indnkeyatts = 1
+          AND index_definition.indexprs IS NULL
+          AND pg_get_indexdef(index_definition.indexrelid, 1, true) = 'retention_expires_at'
+          AND pg_get_expr(index_definition.indpred, index_definition.indrelid)
+            = '(retention_expires_at IS NOT NULL)'
+      ) AS heatmap_retention_index,
+      EXISTS (
+        SELECT 1
         FROM pg_index index_definition
         WHERE index_definition.indexrelid = to_regclass(
             format('%I.%I', current_schema(), 'session_data_session_id_data_key_key')
@@ -527,6 +554,8 @@ async function checkSchemaCompatibility() {
     !schema?.replay_ingest_budget ||
     !schema?.collection_ingest_budget ||
     !schema?.heatmap_event ||
+    !schema?.heatmap_retention ||
+    !schema?.heatmap_retention_index ||
     !schema?.session_data_unique_index ||
     !schema?.authorization_membership_unique_index ||
     !schema?.authorization_owner_unique_index ||

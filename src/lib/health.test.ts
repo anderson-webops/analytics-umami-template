@@ -4,7 +4,8 @@ import { getReadiness, healthResponse, readyResponse, resetReadinessStateForTest
 const dependencyState = vi.hoisted(() => ({
   clickhouseConnect: vi.fn(),
   clickhouseEnabled: false,
-  clickhousePing: vi.fn(),
+  clickhouseQuery: vi.fn(),
+  clickhouseReadResult: vi.fn(),
   databasePing: vi.fn(),
   databaseSetTimeout: vi.fn(),
   databaseTransaction: vi.fn(),
@@ -49,7 +50,8 @@ beforeEach(() => {
   dependencyState.clickhouseEnabled = false;
   dependencyState.redisEnabled = false;
   dependencyState.clickhouseConnect.mockReset();
-  dependencyState.clickhousePing.mockReset();
+  dependencyState.clickhouseQuery.mockReset();
+  dependencyState.clickhouseReadResult.mockReset();
   dependencyState.databasePing.mockReset();
   dependencyState.databaseSetTimeout.mockReset();
   dependencyState.databaseTransaction.mockReset();
@@ -64,7 +66,11 @@ beforeEach(() => {
         $queryRaw: dependencyState.databasePing,
       }),
   );
-  dependencyState.clickhouseConnect.mockResolvedValue({ ping: dependencyState.clickhousePing });
+  dependencyState.clickhouseReadResult.mockResolvedValue([]);
+  dependencyState.clickhouseQuery.mockResolvedValue({ json: dependencyState.clickhouseReadResult });
+  dependencyState.clickhouseConnect.mockResolvedValue({
+    query: dependencyState.clickhouseQuery,
+  });
 });
 
 afterEach(() => {
@@ -110,10 +116,12 @@ describe('monitor probes', () => {
       "SET LOCAL statement_timeout = '1000ms'",
     );
     expect(dependencyState.redisConnect).toHaveBeenCalledWith(1_000);
-    expect(dependencyState.clickhousePing).toHaveBeenCalledWith({
-      select: false,
+    expect(dependencyState.clickhouseQuery).toHaveBeenCalledWith({
+      query: 'SELECT retention_policy, ingested_at FROM heatmap_event LIMIT 0',
+      format: 'JSONEachRow',
       abort_signal: expect.any(AbortSignal),
     });
+    expect(dependencyState.clickhouseReadResult).toHaveBeenCalledOnce();
 
     resetReadinessStateForTests();
     dependencyState.redisPing.mockRejectedValueOnce(new Error('private redis host'));
@@ -124,7 +132,13 @@ describe('monitor probes', () => {
     expect(await getReadiness()).toBe(false);
 
     resetReadinessStateForTests();
-    dependencyState.clickhousePing.mockRejectedValueOnce(new Error('private clickhouse host'));
+    dependencyState.clickhouseQuery.mockRejectedValueOnce(new Error('missing retention columns'));
+    expect(await getReadiness()).toBe(false);
+
+    resetReadinessStateForTests();
+    dependencyState.clickhouseReadResult.mockRejectedValueOnce(
+      new Error('missing retention columns'),
+    );
     expect(await getReadiness()).toBe(false);
   });
 

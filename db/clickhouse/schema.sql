@@ -433,11 +433,14 @@ CREATE TABLE umami.heatmap_event
     viewport_h Nullable(Int32),
     page_h Nullable(Int32),
     scroll_pct Nullable(UInt8),
-    created_at DateTime('UTC')
+    created_at DateTime('UTC'),
+    retention_policy UInt8 DEFAULT 0,
+    ingested_at DateTime('UTC') DEFAULT now('UTC')
 )
 ENGINE = MergeTree
     PARTITION BY toYYYYMM(created_at)
     ORDER BY (website_id, url_path, event_type, created_at)
+    TTL ingested_at + INTERVAL 30 DAY DELETE WHERE retention_policy = 1
     SETTINGS index_granularity = 8192;
 
 -- Create session_link

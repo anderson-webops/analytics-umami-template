@@ -216,6 +216,7 @@ function validateDeploymentContract(deployment) {
     'coordinated-listener-transition-v1',
     'classroom-2fa-privacy-acceptance-v1',
     'database-aware-recovery-v1',
+    'bounded-heatmap-retention-v1',
   ]);
   const knownHostControls = new Set([
     'service-user',
@@ -238,13 +239,14 @@ function validateDeploymentContract(deployment) {
 
   if (
     !exactFields(deployment, {
-      schemaVersion: 1,
+      schemaVersion: deployment?.schemaVersion,
       applicationId: deployment?.applicationId,
       requiredAdapterCapabilities: capabilities,
       probes,
       database,
       hostControlled,
     }) ||
+    ![1, 2].includes(deployment.schemaVersion) ||
     typeof deployment.applicationId !== 'string' ||
     !/^[a-z0-9][a-z0-9.-]{2,100}$/.test(deployment.applicationId) ||
     !Array.isArray(capabilities) ||
@@ -295,6 +297,27 @@ async function readContract(contractPath = defaultContractPath) {
     'requiredFiles',
   ]) {
     contract[key] = (contract[key] ?? []).map(normalizeRelative);
+  }
+
+  const heatmapRetentionFiles = [
+    'db/clickhouse/migrations/15_expire_new_heatmap_events.sql',
+    'prisma/migrations/33_expire_new_heatmap_events/migration.sql',
+    'runtime-scripts/prune-expired-heatmap-events.mjs',
+  ];
+  const retentionFilesDeclared = heatmapRetentionFiles.some(file =>
+    contract.requiredFiles.includes(file),
+  );
+  const retentionCapability =
+    contract.deployment?.requiredAdapterCapabilities.includes('bounded-heatmap-retention-v1') ??
+    false;
+  const retentionContract = contract.deployment?.schemaVersion === 2;
+  if (
+    retentionFilesDeclared !== retentionContract ||
+    retentionCapability !== retentionContract ||
+    (retentionContract &&
+      !heatmapRetentionFiles.every(file => contract.requiredFiles.includes(file)))
+  ) {
+    throw new Error('Unsupported or incomplete deployment compatibility contract.');
   }
 
   for (const requirement of contract.requiredPatterns ?? []) {

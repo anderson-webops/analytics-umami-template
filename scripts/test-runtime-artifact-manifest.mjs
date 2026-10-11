@@ -18,6 +18,11 @@ import {
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const temporaryDirectories = [];
 const source = { commit: 'a'.repeat(40), dirty: false };
+const heatmapRetentionPaths = [
+  'db/clickhouse/migrations/15_expire_new_heatmap_events.sql',
+  'prisma/migrations/33_expire_new_heatmap_events/migration.sql',
+  'runtime-scripts/prune-expired-heatmap-events.mjs',
+];
 
 test('generated API client version matches the application release', async () => {
   const packageJson = JSON.parse(
@@ -50,7 +55,13 @@ async function createFixture() {
     allowedFiles: ['package.json', 'pnpm-lock.yaml', 'server.js'],
     forbiddenStateTrees: ['.next/cache', 'uploads'],
     runtime: { os: 'linux', arch: 'arm64', libc: 'glibc', node: '24.18.1' },
-    deployment: templateContract.deployment,
+    deployment: {
+      ...templateContract.deployment,
+      schemaVersion: 1,
+      requiredAdapterCapabilities: templateContract.deployment.requiredAdapterCapabilities.filter(
+        capability => capability !== 'bounded-heatmap-retention-v1',
+      ),
+    },
   };
 
   temporaryDirectories.push(fixture);
@@ -63,6 +74,23 @@ async function createFixture() {
   await fs.writeFile(contractPath, JSON.stringify(contract));
 
   return { root, contractPath };
+}
+
+async function addHeatmapRetentionFixture(root, contractPath) {
+  const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
+  contract.deployment.schemaVersion = 2;
+  contract.deployment.requiredAdapterCapabilities.push('bounded-heatmap-retention-v1');
+  for (const file of heatmapRetentionPaths) {
+    const allowedRoot = file.split('/')[0];
+    if (!contract.allowedRoots.includes(allowedRoot)) {
+      contract.allowedRoots.push(allowedRoot);
+    }
+    contract.requiredFiles.push(file);
+    const fullPath = path.join(root, file);
+    await fs.mkdir(path.dirname(fullPath), { recursive: true });
+    await fs.writeFile(fullPath, 'synthetic retention file\n');
+  }
+  await fs.writeFile(contractPath, JSON.stringify(contract));
 }
 
 afterEach(async () => {
@@ -262,6 +290,52 @@ test('accepts reviewed site-specific adapter gates but rejects unknown capabilit
   );
 });
 
+test('heatmap retention files require complete packaging and host capability', async () => {
+  const trustedContract = JSON.parse(
+    await fs.readFile(new URL('../deploy/runtime-artifact.json', import.meta.url), 'utf8'),
+  );
+  assert.ok(heatmapRetentionPaths.every(file => trustedContract.requiredFiles.includes(file)));
+  assert.equal(trustedContract.deployment.schemaVersion, 2);
+  assert.ok(
+    trustedContract.deployment.requiredAdapterCapabilities.includes('bounded-heatmap-retention-v1'),
+  );
+
+  const { root, contractPath } = await createFixture();
+  await addHeatmapRetentionFixture(root, contractPath);
+  const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
+  contract.deployment.requiredAdapterCapabilities =
+    contract.deployment.requiredAdapterCapabilities.filter(
+      capability => capability !== 'bounded-heatmap-retention-v1',
+    );
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await assert.rejects(
+    createRuntimeManifest(root, { contractPath, source }),
+    /deployment compatibility contract/,
+  );
+
+  contract.requiredFiles = contract.requiredFiles.filter(
+    file => !heatmapRetentionPaths.includes(file),
+  );
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await assert.rejects(
+    createRuntimeManifest(root, { contractPath, source }),
+    /deployment compatibility contract/,
+  );
+
+  contract.deployment.requiredAdapterCapabilities.push('bounded-heatmap-retention-v1');
+  contract.requiredFiles.push(...heatmapRetentionPaths.slice(0, -1));
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await assert.rejects(
+    createRuntimeManifest(root, { contractPath, source }),
+    /deployment compatibility contract/,
+  );
+
+  contract.requiredFiles.push(heatmapRetentionPaths.at(-1));
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await createRuntimeManifest(root, { contractPath, source });
+  await verifyRuntimeArtifact(root, { contractPath });
+});
+
 test('database-aware recovery requires its exact host capability and policy', async () => {
   const { root, contractPath } = await createFixture();
   const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
@@ -349,10 +423,31 @@ test('requires the recorder bundle in the production artifact', async () => {
   );
 });
 
+test('requires the bounded heatmap cleanup command in every runtime artifact', async () => {
+  const requiredPath = 'runtime-scripts/prune-expired-heatmap-events.mjs';
+  const trustedContract = JSON.parse(
+    await fs.readFile(new URL('../deploy/runtime-artifact.json', import.meta.url), 'utf8'),
+  );
+  assert.ok(trustedContract.requiredFiles.includes(requiredPath));
+
+  const { root, contractPath } = await createFixture();
+  await addHeatmapRetentionFixture(root, contractPath);
+  const fullPath = path.join(root, requiredPath);
+  await createRuntimeManifest(root, { contractPath, source });
+
+  await fs.rm(fullPath);
+  const missingCommand = error =>
+    error instanceof Error && error.message.includes(`missing required file: ${requiredPath}`);
+  await assert.rejects(verifyRuntimeArtifact(root, { contractPath }), missingCommand);
+  await assert.rejects(createRuntimeManifest(root, { contractPath, source }), missingCommand);
+});
+
 for (const migrationPath of [
+  'db/clickhouse/migrations/15_expire_new_heatmap_events.sql',
   'prisma/migrations/30_revoke_sessions_on_factor_reset/migration.sql',
   'prisma/migrations/31_bound_event_ingestion/migration.sql',
   'prisma/migrations/32_expire_replay_visit_budgets/migration.sql',
+  'prisma/migrations/33_expire_new_heatmap_events/migration.sql',
 ]) {
   test(`requires ${migrationPath} in every runtime artifact`, async () => {
     const trustedContract = JSON.parse(
@@ -361,13 +456,19 @@ for (const migrationPath of [
     assert.ok(trustedContract.requiredFiles.includes(migrationPath));
 
     const { root, contractPath } = await createFixture();
-    const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
-    contract.allowedRoots.push('prisma');
-    contract.requiredFiles.push(migrationPath);
-    await fs.writeFile(contractPath, JSON.stringify(contract));
+    if (heatmapRetentionPaths.includes(migrationPath)) {
+      await addHeatmapRetentionFixture(root, contractPath);
+    } else {
+      const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
+      contract.allowedRoots.push(migrationPath.split('/')[0]);
+      contract.requiredFiles.push(migrationPath);
+      await fs.writeFile(contractPath, JSON.stringify(contract));
+    }
     const fullPath = path.join(root, migrationPath);
-    await fs.mkdir(path.dirname(fullPath), { recursive: true });
-    await fs.writeFile(fullPath, 'synthetic migration\n');
+    if (!heatmapRetentionPaths.includes(migrationPath)) {
+      await fs.mkdir(path.dirname(fullPath), { recursive: true });
+      await fs.writeFile(fullPath, 'synthetic migration\n');
+    }
     await createRuntimeManifest(root, { contractPath, source });
 
     await fs.rm(fullPath);

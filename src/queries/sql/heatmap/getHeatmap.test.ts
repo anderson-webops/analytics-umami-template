@@ -68,3 +68,41 @@ test.each(['prisma', 'clickhouse'] as const)(
     expect(result.scroll.viewportW).toBe(1024);
   },
 );
+
+test.each([
+  [
+    'prisma',
+    'click',
+    'h.retention_expires_at is null or h.retention_expires_at > CURRENT_TIMESTAMP',
+  ],
+  [
+    'prisma',
+    'scroll',
+    'h.retention_expires_at is null or h.retention_expires_at > CURRENT_TIMESTAMP',
+  ],
+  ['clickhouse', 'click', "h.retention_policy = 0 or h.ingested_at + INTERVAL 30 DAY > now('UTC')"],
+  [
+    'clickhouse',
+    'scroll',
+    "h.retention_policy = 0 or h.ingested_at + INTERVAL 30 DAY > now('UTC')",
+  ],
+] as const)(
+  '%s %s reports hide expired new rows in every query',
+  async (database, mode, retentionPredicate) => {
+    state.mode = database;
+    const rawQuery = database === 'prisma' ? prismaRawQuery : clickhouseRawQuery;
+    rawQuery.mockResolvedValue([]);
+
+    await getHeatmap('website-1', {
+      mode,
+      urlPath: '/',
+      startDate: new Date('2026-10-01T00:00:00Z'),
+      endDate: new Date('2026-10-02T00:00:00Z'),
+    });
+
+    expect(rawQuery).toHaveBeenCalledTimes(2);
+    for (const [query] of rawQuery.mock.calls) {
+      expect(query).toContain(retentionPredicate);
+    }
+  },
+);
