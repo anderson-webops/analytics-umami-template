@@ -44,6 +44,28 @@ import { getWebsiteSegment } from '@/queries/prisma';
 const MAX_QUERY_DATE_RANGE_MS = 20 * 366 * 24 * 60 * 60 * 1000;
 const MAX_API_URL_BYTES = 16 * 1024;
 const MAX_API_QUERY_PARAMETERS = 200;
+const MAX_REPORT_FILTER_PARAMETERS = 100;
+const MAX_REPORT_FILTER_KEY_LENGTH = 128;
+const MAX_REPORT_FILTER_VALUE_LENGTH = 500;
+
+function hasBoundedReportFilters(body: unknown): boolean {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return true;
+
+  const filters = (body as { filters?: unknown }).filters;
+
+  if (!filters || typeof filters !== 'object' || Array.isArray(filters)) return true;
+
+  const entries = Object.entries(filters);
+
+  return (
+    entries.length <= MAX_REPORT_FILTER_PARAMETERS &&
+    entries.every(
+      ([key, value]) =>
+        key.length <= MAX_REPORT_FILTER_KEY_LENGTH &&
+        (typeof value !== 'string' || value.length <= MAX_REPORT_FILTER_VALUE_LENGTH),
+    )
+  );
+}
 
 function isValidQueryDateRange(query: Record<string, any>): boolean {
   if (query.startAt == null || query.endAt == null) {
@@ -77,6 +99,9 @@ export async function parseRequest(
   },
 ): Promise<any> {
   const url = new URL(request.url);
+  const isCompatibilityReport =
+    request.method.toUpperCase() === 'POST' &&
+    /^\/(?:compat\/)?api\/reports\/[^/]+\/?$/.test(getCanonicalApiPath(url.pathname));
   let query: Record<string, any> = {};
   let body: unknown;
   let error: () => undefined | undefined | Response;
@@ -110,6 +135,10 @@ export async function parseRequest(
         error = () => payloadTooLarge();
       }
     }
+  }
+
+  if (!error && isCompatibilityReport && !hasBoundedReportFilters(body)) {
+    error = () => badRequest({ message: 'Too many or oversized filter parameters.' });
   }
 
   if (!error && options?.bodyPreflight && !options.bodyPreflight(body)) {
@@ -280,10 +309,7 @@ export async function parseRequest(
   const method = request.method.toUpperCase();
   const isAuthenticatedAnalyticsRead =
     ['GET', 'HEAD'].includes(method) && (hasQueryRange || options?.budgetShareQuery);
-  const isAuthenticatedReport =
-    method === 'POST' &&
-    /^\/compat\/api\/reports\/[^/]+\/?$/.test(getCanonicalApiPath(url.pathname)) &&
-    hasBodyRange;
+  const isAuthenticatedReport = isCompatibilityReport && hasBodyRange;
 
   if (
     !error &&

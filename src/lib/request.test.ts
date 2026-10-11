@@ -492,6 +492,78 @@ test('rejects untrusted SQL filter metadata in compatibility report requests', a
   expect(result.error?.().status).toBe(400);
 });
 
+test.each([
+  ['user', '/compat/api/reports/goal'],
+  ['user', '/api/reports/goal'],
+  ['share', '/compat/api/reports/goal'],
+  ['share', '/api/reports/goal'],
+] as const)(
+  'bounds compatibility POST filter fan-out for a %s on %s',
+  async (principal, pathname) => {
+    const websiteId = '11111111-1111-4111-8111-111111111111';
+    checkAuthMock.mockResolvedValue(
+      principal === 'share'
+        ? ({ shareToken: { shareId: crypto.randomUUID(), websiteId } } as any)
+        : ({ user: { id: crypto.randomUUID(), role: 'user' } } as any),
+    );
+
+    const request = (filters: Record<string, string>) =>
+      new Request(`https://analytics.example${pathname}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          websiteId,
+          type: 'goal',
+          parameters: {
+            startDate: '2024-01-01',
+            endDate: '2024-01-31',
+            type: 'event',
+            value: 'signup',
+          },
+          filters,
+        }),
+      });
+
+    const filtersWithCount = (filterCount: number) =>
+      Object.fromEntries(
+        Array.from({ length: filterCount }, (_, filterIndex) => [`country${filterIndex}`, 'eq.US']),
+      );
+    const schemaParse = vi.spyOn(reportResultSchema, 'safeParse');
+
+    try {
+      const oversized = await parseRequest(request(filtersWithCount(1000)), reportResultSchema);
+
+      expect(oversized.error?.().status).toBe(400);
+      expect(schemaParse).not.toHaveBeenCalled();
+
+      const oversizedKey = await parseRequest(
+        request({ [`country${'0'.repeat(122)}`]: 'eq.US' }),
+        reportResultSchema,
+      );
+      const oversizedValue = await parseRequest(
+        request({ country: 'a'.repeat(501) }),
+        reportResultSchema,
+      );
+
+      expect(oversizedKey.error?.().status).toBe(400);
+      expect(oversizedValue.error?.().status).toBe(400);
+      expect(schemaParse).not.toHaveBeenCalled();
+
+      const amplified = await parseRequest(request(filtersWithCount(25)), reportResultSchema);
+
+      expect(amplified.error?.().status).toBe(400);
+      expect(schemaParse).toHaveBeenCalledTimes(1);
+
+      const accepted = await parseRequest(request({ country: 'eq.US' }), reportResultSchema);
+
+      expect(accepted.error).toBeUndefined();
+      expect((await getQueryFilters(accepted.body.filters)).country).toBe('eq.US');
+    } finally {
+      schemaParse.mockRestore();
+    }
+  },
+);
+
 test('rejects an oversized request URL before authentication', async () => {
   const result = await parseRequest(
     new Request(`https://analytics.example/api/test?search=${'a'.repeat(17 * 1024)}`),
