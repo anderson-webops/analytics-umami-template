@@ -83,6 +83,66 @@ test('a valid batch charges once per child, including the outer admission', asyn
   expect(ipCounts).toEqual([3n]);
 });
 
+test('batch stops before dispatching more children when the caller IP limit is reached', async () => {
+  vi.mocked(parseRequest).mockResolvedValue({
+    body: Array.from({ length: 12 }, () => ({ type: 'event' })),
+    error: undefined,
+  } as any);
+
+  const response = await POST(batchRequest());
+  const ipCounts = [...sharedCounters.entries()]
+    .filter(([key]) => key.startsWith('rate:ip:'))
+    .map(([, count]) => count);
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({
+    size: 12,
+    processed: 10,
+    errors: 1,
+    details: [{ index: 10, response: { error: { code: 'too-many-requests', status: 429 } } }],
+  });
+  expect(send.POST).toHaveBeenCalledTimes(10);
+  expect(ipCounts).toEqual([10n]);
+});
+
+test('a source limit on one item does not suppress later independent batch items', async () => {
+  vi.mocked(parseRequest).mockResolvedValue({
+    body: [{ type: 'event' }, { type: 'event' }],
+    error: undefined,
+  } as any);
+  sendPost.mockImplementationOnce(async request => {
+    expect((await getCollectionIpLimit(request)).blocked).toBe(false);
+    return tooManyRequests(60);
+  });
+
+  const response = await POST(batchRequest());
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ size: 2, processed: 1, errors: 1 });
+  expect(send.POST).toHaveBeenCalledTimes(2);
+});
+
+test('a skipped website item does not make a mixed batch wildcard-readable', async () => {
+  vi.mocked(parseRequest).mockResolvedValue({
+    body: [
+      ...Array.from({ length: 10 }, () => ({ payload: { link: 'link-id' } })),
+      { payload: { website: 'website-id' } },
+    ],
+    error: undefined,
+  } as any);
+  sendPost.mockImplementation(async request => {
+    expect((await getCollectionIpLimit(request)).blocked).toBe(false);
+    return Response.json({ cache: null });
+  });
+
+  const response = await POST(batchRequest('https://unrelated.example'));
+
+  expect(response.status).toBe(200);
+  expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull();
+  expect(await response.json()).toMatchObject({ size: 11, processed: 10, errors: 1 });
+  expect(send.POST).toHaveBeenCalledTimes(10);
+});
+
 test('batch preflight permits tracker headers and accepted replies echo only their source origin', async () => {
   const origin = 'https://example.com';
   vi.mocked(parseRequest).mockResolvedValue({ body: [{ type: 'event' }], error: undefined } as any);

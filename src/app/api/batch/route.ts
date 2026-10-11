@@ -41,17 +41,26 @@ export async function POST(request: Request) {
     let index = 0;
     let cache = null;
     let cacheOrigin: string | null = null;
-    let linkOrPixelOnly = true;
-    for (const data of body) {
+    const linkOrPixelOnly = body.every(data => {
       const payload = data.payload;
 
-      if (
-        !payload ||
-        typeof payload !== 'object' ||
-        'website' in payload ||
-        (!('link' in payload) && !('pixel' in payload))
-      ) {
-        linkOrPixelOnly = false;
+      return (
+        payload &&
+        typeof payload === 'object' &&
+        !('website' in payload) &&
+        ('link' in payload || 'pixel' in payload)
+      );
+    });
+
+    for (const data of body) {
+      if (index > 0) {
+        const childLimit = await getCollectionIpLimit(request);
+
+        if (childLimit.blocked) {
+          errors.push({ index, response: await tooManyRequests(childLimit.retryAfter).json() });
+          index++;
+          break;
+        }
       }
 
       // Recreate a fresh Request since `new Request(request)` will have the following error:
@@ -68,9 +77,7 @@ export async function POST(request: Request) {
         body: JSON.stringify(data),
       });
 
-      if (index === 0) {
-        transferCollectionIpLimit(request, newRequest);
-      }
+      transferCollectionIpLimit(request, newRequest);
 
       const response = await send.POST(newRequest);
       const responseJson = await response.json();
@@ -90,7 +97,7 @@ export async function POST(request: Request) {
     return withTrackingOrigin(
       json({
         size: body.length,
-        processed: body.length - errors.length,
+        processed: index - errors.length,
         errors: errors.length,
         details: errors,
         cache,
