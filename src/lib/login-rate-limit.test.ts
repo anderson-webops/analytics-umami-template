@@ -47,7 +47,7 @@ vi.mock('@/lib/prisma', () => ({
 
 afterEach(() => {
   const state = globalThis as typeof globalThis & Record<string, any>;
-  delete state['analytics-login-rate-limit-counters'];
+  delete state['analytics-login-rate-limit-counters-v2'];
   mocks.redis.enabled = false;
   mocks.counts.clear();
   mocks.redis.client.incrementWithExpiry.mockClear();
@@ -118,6 +118,68 @@ test.each([false, true])(
     expect((await getLoginLimit(loginRequest('198.51.100.20'), 'alice')).blocked).toBe(false);
   },
 );
+
+test('username churn cannot reset an already blocked IP', async () => {
+  vi.stubEnv('CLIENT_IP_HEADER', 'x-real-ip');
+  const attacker = loginRequest('192.0.2.10');
+
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    expect((await getLoginLimit(attacker, `existing-user-${attempt}`)).blocked).toBe(false);
+  }
+
+  const state = globalThis as typeof globalThis & Record<string, any>;
+  const accountIpCount = state['analytics-login-rate-limit-counters-v2'].accountIp.counters.size;
+  expect((await getLoginLimit(attacker, 'different-user')).blocked).toBe(true);
+  expect(state['analytics-login-rate-limit-counters-v2'].accountIp.counters.size).toBe(
+    accountIpCount,
+  );
+
+  for (let attempt = 0; attempt < 5001; attempt += 1) {
+    const ip = `198.51.${Math.floor(attempt / 256)}.${attempt % 256}`;
+    expect((await getLoginLimit(loginRequest(ip), `new-user-${attempt}`)).blocked).toBe(false);
+  }
+
+  expect((await getLoginLimit(attacker, 'another-user')).blocked).toBe(true);
+}, 30_000);
+
+test('Redis failure denies login instead of weakening to a local counter', async () => {
+  vi.stubEnv('CLIENT_IP_HEADER', 'x-real-ip');
+  mocks.redis.enabled = true;
+  mocks.redis.client.incrementWithExpiry.mockRejectedValueOnce(new Error('Redis unavailable'));
+
+  expect((await getLoginLimit(loginRequest('192.0.2.10'), 'alice')).blocked).toBe(true);
+});
+
+test('a full account fallback rejects new keys without erasing existing failures', async () => {
+  for (let attempt = 0; attempt < 10_000; attempt += 1) {
+    expect((await recordFailedLogin(`new-user-${attempt}`)).blocked).toBe(false);
+  }
+
+  expect((await recordFailedLogin('overflow-user')).blocked).toBe(true);
+  expect((await recordFailedLogin('new-user-0')).blocked).toBe(false);
+}, 30_000);
+
+test('a full IP fallback denies new clients but preserves and expires existing counters', async () => {
+  vi.stubEnv('CLIENT_IP_HEADER', 'x-real-ip');
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-10-11T00:00:00.000Z'));
+  const attacker = loginRequest('192.0.2.10');
+
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    await getLoginLimit(attacker, `existing-user-${attempt}`);
+  }
+
+  for (let attempt = 0; attempt < 9999; attempt += 1) {
+    const ip = `198.51.${Math.floor(attempt / 256)}.${attempt % 256}`;
+    await getLoginLimit(loginRequest(ip), `new-user-${attempt}`);
+  }
+
+  expect((await getLoginLimit(loginRequest('203.0.113.1'), 'new-user')).blocked).toBe(true);
+  expect((await getLoginLimit(attacker, 'another-user')).blocked).toBe(true);
+
+  vi.advanceTimersByTime(900_000);
+  expect((await getLoginLimit(loginRequest('203.0.113.1'), 'new-user')).blocked).toBe(false);
+}, 30_000);
 
 test('account failure window expires without extending an existing lockout', async () => {
   vi.useFakeTimers();

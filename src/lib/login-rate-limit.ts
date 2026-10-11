@@ -8,6 +8,13 @@ interface Counter {
   expiresAt: number;
 }
 
+interface CounterStore {
+  counters: Map<string, Counter>;
+  nextSweepAt: number;
+}
+
+type CounterKind = 'ip' | 'accountIp' | 'account';
+
 interface LoginLimit {
   blocked: boolean;
   retryAfter: number;
@@ -17,7 +24,7 @@ type LoginAccountAttempt =
   | { blocked: false; retryAfter: 0; windowExpiresAt: string }
   | { blocked: true; retryAfter: number };
 
-const MEMORY_COUNTERS = 'analytics-login-rate-limit-counters';
+const MEMORY_COUNTERS = 'analytics-login-rate-limit-counters-v2';
 const MAX_MEMORY_COUNTERS = 10_000;
 
 function getBoundedInteger(
@@ -47,38 +54,50 @@ function getIpLimit(): number {
   return getBoundedInteger('LOGIN_RATE_LIMIT_IP_FAILURES', 50, 5, 500);
 }
 
-function getMemoryCounters(): Map<string, Counter> {
+function getMemoryCounters(kind: CounterKind): CounterStore {
   const state = globalThis as typeof globalThis & Record<string, any>;
 
-  state[MEMORY_COUNTERS] ??= new Map<string, Counter>();
+  state[MEMORY_COUNTERS] ??= {
+    ip: { counters: new Map<string, Counter>(), nextSweepAt: 0 },
+    accountIp: { counters: new Map<string, Counter>(), nextSweepAt: 0 },
+    account: { counters: new Map<string, Counter>(), nextSweepAt: 0 },
+  };
 
-  return state[MEMORY_COUNTERS];
+  return state[MEMORY_COUNTERS][kind];
 }
 
-function getMemoryCount(key: string): Counter {
-  const counters = getMemoryCounters();
+function getMemoryCount(kind: CounterKind, key: string): Counter | null {
+  const store = getMemoryCounters(kind);
+  const { counters } = store;
   const now = Date.now();
   const current = counters.get(key);
 
-  if (!current || current.expiresAt <= now) {
-    if (counters.size >= MAX_MEMORY_COUNTERS) {
-      for (const [storedKey, counter] of counters) {
-        if (counter.expiresAt <= now || counters.size >= MAX_MEMORY_COUNTERS) {
-          counters.delete(storedKey);
-        }
-
-        if (counters.size < MAX_MEMORY_COUNTERS) {
-          break;
-        }
-      }
-    }
-
-    const counter = { count: 0, expiresAt: now + getWindowSeconds() * 1000 };
-    counters.set(key, counter);
-    return counter;
+  if (current && current.expiresAt > now) {
+    return current;
   }
 
-  return current;
+  if (current) {
+    counters.delete(key);
+  }
+
+  if (counters.size >= MAX_MEMORY_COUNTERS && now >= store.nextSweepAt) {
+    store.nextSweepAt = now + 1000;
+
+    for (const [storedKey, counter] of counters) {
+      if (counter.expiresAt <= now) {
+        counters.delete(storedKey);
+      }
+    }
+  }
+
+  if (counters.size >= MAX_MEMORY_COUNTERS) {
+    return null;
+  }
+
+  const counter = { count: 0, expiresAt: now + getWindowSeconds() * 1000 };
+  counters.set(key, counter);
+
+  return counter;
 }
 
 function getAccountKey(username: string): string {
@@ -173,22 +192,27 @@ function getSourceKeys(request: Request, username: string): { ip: string; accoun
   };
 }
 
-async function increment(key: string): Promise<number> {
+async function increment(kind: CounterKind, key: string): Promise<number | null> {
   if (redis.enabled) {
     try {
       return await redis.client.incrementWithExpiry(key, getWindowSeconds());
     } catch {
-      // Fall back to the local limiter if Redis is temporarily unavailable.
+      return null;
     }
   }
 
-  const counter = getMemoryCount(key);
+  const counter = getMemoryCount(kind, key);
+
+  if (!counter) {
+    return null;
+  }
+
   counter.count += 1;
 
   return counter.count;
 }
 
-async function remove(key: string): Promise<void> {
+async function remove(kind: CounterKind, key: string): Promise<void> {
   if (redis.enabled) {
     try {
       await redis.client.del(key);
@@ -197,10 +221,10 @@ async function remove(key: string): Promise<void> {
     }
   }
 
-  getMemoryCounters().delete(key);
+  getMemoryCounters(kind).counters.delete(key);
 }
 
-async function decrement(key: string): Promise<void> {
+async function decrement(kind: CounterKind, key: string): Promise<void> {
   if (redis.enabled) {
     try {
       await redis.client.decrementFloorZero(key);
@@ -209,7 +233,7 @@ async function decrement(key: string): Promise<void> {
     }
   }
 
-  const counters = getMemoryCounters();
+  const counters = getMemoryCounters(kind).counters;
   const counter = counters.get(key);
 
   if (counter) {
@@ -223,19 +247,25 @@ async function decrement(key: string): Promise<void> {
 
 export async function getLoginLimit(request: Request, username: string): Promise<LoginLimit> {
   const { ip, accountIp } = getSourceKeys(request, username);
-  const [ipCount, accountIpCount] = await Promise.all([increment(ip), increment(accountIp)]);
+  const ipCount = await increment('ip', ip);
+
+  if (ipCount === null || ipCount > getIpLimit()) {
+    return { blocked: true, retryAfter: getWindowSeconds() };
+  }
+
+  const accountIpCount = await increment('accountIp', accountIp);
 
   return {
-    blocked: ipCount > getIpLimit() || accountIpCount > getAccountLimit(),
+    blocked: accountIpCount === null || accountIpCount > getAccountLimit(),
     retryAfter: getWindowSeconds(),
   };
 }
 
 export async function recordFailedLogin(username: string): Promise<LoginLimit> {
-  const accountCount = await increment(getAccountKey(username));
+  const accountCount = await increment('account', getAccountKey(username));
 
   return {
-    blocked: accountCount > getAccountLimit(),
+    blocked: accountCount === null || accountCount > getAccountLimit(),
     retryAfter: getWindowSeconds(),
   };
 }
@@ -243,5 +273,9 @@ export async function recordFailedLogin(username: string): Promise<LoginLimit> {
 export async function clearFailedLogins(request: Request, username: string): Promise<void> {
   const { ip, accountIp } = getSourceKeys(request, username);
 
-  await Promise.all([remove(getAccountKey(username)), remove(accountIp), decrement(ip)]);
+  await Promise.all([
+    remove('account', getAccountKey(username)),
+    remove('accountIp', accountIp),
+    decrement('ip', ip),
+  ]);
 }
