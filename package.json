@@ -1,6 +1,6 @@
 {
   "name": "umami",
-  "version": "4.2.108",
+  "version": "4.2.109",
   "private": true,
   "description": "A modern, privacy-focused alternative to Google Analytics.",
   "author": "Umami Software, Inc. <hello@umami.is>",
@@ -74,6 +74,7 @@
     "pretest": "pnpm generate:db:client",
     "test": "vitest run",
     "test:unit": "vitest run",
+    "test:collection-rate-limit": "tsx scripts/test-collection-rate-limit.ts",
     "test:packages": "pnpm --filter \"./packages/**\" -r test",
     "test:watch": "vitest",
     "test:e2e": "playwright test",

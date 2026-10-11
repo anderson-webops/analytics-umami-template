@@ -7,11 +7,41 @@ import { OPTIONS, POST } from './route';
 
 const redisState = vi.hoisted(() => ({ enabled: false }));
 const sendPost = vi.hoisted(() => vi.fn());
-const countersKey = 'analytics-collection-rate-limit-counters-v2';
+const sharedCounters = vi.hoisted(() => new Map<string, bigint>());
 
 vi.mock('@/app/api/send/route', () => ({ POST: sendPost }));
 vi.mock('@/lib/request', () => ({ parseRequest: vi.fn() }));
 vi.mock('@/lib/redis', () => ({ default: redisState }));
+vi.mock('@/lib/prisma', () => ({
+  default: {
+    transaction: vi.fn(async operation =>
+      operation({
+        $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
+          const query = strings.join('?');
+
+          if (query.includes('transaction_timestamp() AS "currentTime"')) {
+            return [{ currentTime: new Date() }];
+          }
+
+          if (query.includes('INSERT INTO collection_ingest_budget')) {
+            const [key, , , limit] = values as [string, Date, Date, number];
+            const count = sharedCounters.get(key) ?? 0n;
+
+            if (count >= BigInt(limit)) {
+              return [];
+            }
+
+            sharedCounters.set(key, count + 1n);
+            return [{ requests: count + 1n }];
+          }
+
+          throw new Error('Unexpected collection rate-limit query.');
+        },
+        $executeRaw: async () => 0,
+      }),
+    ),
+  },
+}));
 
 function batchRequest(origin?: string) {
   return new Request('https://analytics.example.com/api/batch', {
@@ -24,10 +54,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv('CLIENT_IP_HEADER', 'x-real-ip');
   vi.stubEnv('COLLECTION_RATE_LIMIT_PER_IP', '10');
-  (globalThis as typeof globalThis & Record<string, unknown>)[countersKey] = {
-    ip: { counters: new Map(), nextSweepAt: 0 },
-    source: { counters: new Map(), nextSweepAt: 0 },
-  };
+  sharedCounters.clear();
   sendPost.mockImplementation(async request => {
     const limit = await getCollectionIpLimit(request);
 
@@ -37,7 +64,6 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs();
-  delete (globalThis as typeof globalThis & Record<string, unknown>)[countersKey];
 });
 
 test('a valid batch charges once per child, including the outer admission', async () => {
@@ -47,15 +73,14 @@ test('a valid batch charges once per child, including the outer admission', asyn
   } as any);
 
   const response = await POST(batchRequest());
-  const counters = (
-    globalThis as typeof globalThis &
-      Record<string, { ip: { counters: Map<string, { count: number }> } }>
-  )[countersKey].ip.counters;
+  const ipCounts = [...sharedCounters.entries()]
+    .filter(([key]) => key.startsWith('rate:ip:'))
+    .map(([, count]) => count);
 
   expect(response.status).toBe(200);
   expect(await response.json()).toMatchObject({ size: 3, processed: 3, errors: 0 });
   expect(send.POST).toHaveBeenCalledTimes(3);
-  expect([...counters.values()].map(counter => counter.count)).toEqual([3]);
+  expect(ipCounts).toEqual([3n]);
 });
 
 test('batch preflight permits tracker headers and accepted replies echo only their source origin', async () => {

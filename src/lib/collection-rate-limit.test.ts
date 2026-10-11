@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import prisma from '@/lib/prisma';
 import redis from '@/lib/redis';
 import {
   getCollectionIpLimit,
@@ -7,83 +8,147 @@ import {
   transferCollectionIpLimit,
 } from './collection-rate-limit';
 
-const redisState = vi.hoisted(() => ({ enabled: false, counters: new Map<string, number>() }));
+const state = vi.hoisted(() => ({
+  redisEnabled: false,
+  redisCounters: new Map<string, number>(),
+  sharedCounters: new Map<string, bigint>(),
+  failDatabase: false,
+  queries: [] as string[],
+}));
 
 vi.mock('@/lib/redis', () => ({
   default: {
     get enabled() {
-      return redisState.enabled;
+      return state.redisEnabled;
     },
     client: {
-      get: vi.fn(async (key: string) => redisState.counters.get(key) ?? null),
+      get: vi.fn(async (key: string) => state.redisCounters.get(key) ?? null),
       incrementWithExpiry: vi.fn(async (key: string) => {
-        const count = (redisState.counters.get(key) ?? 0) + 1;
-        redisState.counters.set(key, count);
+        const count = (state.redisCounters.get(key) ?? 0) + 1;
+        state.redisCounters.set(key, count);
         return count;
       }),
     },
   },
 }));
 
-interface TestCounter {
-  count: number;
-  expiresAt: number;
+vi.mock('@/lib/prisma', () => {
+  function runQuery(
+    strings: TemplateStringsArray,
+    values: unknown[],
+    counters: Map<string, bigint>,
+  ) {
+    if (state.failDatabase) {
+      throw new Error('database unavailable');
+    }
+
+    const query = strings.join('?');
+    state.queries.push(query);
+
+    if (query.includes('transaction_timestamp() AS "currentTime"')) {
+      return [{ currentTime: new Date() }];
+    }
+
+    if (query.includes('INSERT INTO collection_ingest_budget')) {
+      const [subjectKey, windowStart, , limit] = values as [string, Date, Date, number];
+      const key = `${subjectKey}|${windowStart.toISOString()}`;
+      const current = counters.get(key) ?? 0n;
+
+      if (current >= BigInt(limit)) {
+        return [];
+      }
+
+      const next = current + 1n;
+      counters.set(key, next);
+      return [{ requests: next }];
+    }
+
+    if (query.includes('SELECT requests')) {
+      const [subjectKey, windowSeconds] = values as [string, number];
+      const windowStart = new Date(
+        Math.floor(Date.now() / (windowSeconds * 1000)) * windowSeconds * 1000,
+      );
+      const count = counters.get(`${subjectKey}|${windowStart.toISOString()}`);
+      return count === undefined ? [] : [{ requests: count }];
+    }
+
+    throw new Error('unexpected rate-limit query');
+  }
+
+  const client = {
+    $queryRaw: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) =>
+      runQuery(strings, values, state.sharedCounters),
+    ),
+  };
+
+  return {
+    default: {
+      client,
+      transaction: vi.fn(async (operation: (transaction: unknown) => Promise<unknown>) => {
+        const pending = new Map(state.sharedCounters);
+        const transaction = {
+          $queryRaw: (strings: TemplateStringsArray, ...values: unknown[]) =>
+            runQuery(strings, values, pending),
+          $executeRaw: vi.fn(async (strings: TemplateStringsArray) => {
+            state.queries.push(strings.join('?'));
+            return 0;
+          }),
+        };
+        const result = await operation(transaction);
+        state.sharedCounters = pending;
+        return result;
+      }),
+    },
+  };
+});
+
+const sourceId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const otherSourceId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+function request(ip = '203.0.113.7') {
+  return new Request('https://analytics.example.com/api/send', {
+    headers: { 'x-real-ip': ip },
+  });
 }
 
-interface TestStore {
-  counters: Map<string, TestCounter>;
-  nextSweepAt: number;
+function sharedKeys(prefix: string) {
+  return [...state.sharedCounters.keys()].filter(key => key.startsWith(prefix));
 }
-
-const countersKey = 'analytics-collection-rate-limit-counters-v2';
-const maxMemoryCounters = 20_000;
-let memoryCounters: Record<'ip' | 'source', TestStore>;
 
 beforeEach(() => {
+  vi.clearAllMocks();
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-10-11T01:02:03Z'));
   vi.stubEnv('CLIENT_IP_HEADER', 'x-real-ip');
   vi.stubEnv('COLLECTION_RATE_LIMIT_PER_IP', '10');
   vi.stubEnv('COLLECTION_RATE_LIMIT_PER_SOURCE', '100');
-  redisState.enabled = false;
-  redisState.counters.clear();
-  memoryCounters = {
-    ip: { counters: new Map(), nextSweepAt: 0 },
-    source: { counters: new Map(), nextSweepAt: 0 },
-  };
-  (globalThis as typeof globalThis & Record<string, unknown>)[countersKey] = memoryCounters;
+  state.redisEnabled = false;
+  state.redisCounters.clear();
+  state.sharedCounters = new Map();
+  state.failDatabase = false;
+  state.queries.length = 0;
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllEnvs();
-  delete (globalThis as typeof globalThis & Record<string, unknown>)[countersKey];
 });
 
-test('the IP gate has one stable counter and blocks before any source is charged', async () => {
-  const request = new Request('https://analytics.example.com/api/send', {
-    headers: { 'x-real-ip': '203.0.113.7' },
-  });
-
+test('the IP limit uses one shared counter and blocks after its bound', async () => {
   for (let attempt = 0; attempt < 10; attempt += 1) {
-    expect((await getCollectionIpLimit(request)).blocked).toBe(false);
+    expect((await getCollectionIpLimit(request())).blocked).toBe(false);
   }
 
-  const limit = await getCollectionIpLimit(request);
-  expect(limit).toEqual({ blocked: true, retryAfter: 60 });
-  expect([...memoryCounters.ip.counters.keys()]).toEqual([
-    expect.stringMatching(/^collection-rate:ip:/),
-  ]);
-  expect(memoryCounters.source.counters.size).toBe(0);
+  expect(await getCollectionIpLimit(request())).toEqual({ blocked: true, retryAfter: 60 });
+  expect(sharedKeys('rate:ip:')).toHaveLength(1);
+  expect(state.sharedCounters.get(sharedKeys('rate:ip:')[0])).toBe(10n);
+  expect(sharedKeys('rate:source:')).toHaveLength(0);
 });
 
-test('a batch admission transfers to exactly one child without a second charge', async () => {
-  const envelope = new Request('https://analytics.example.com/api/batch', {
-    headers: { 'x-real-ip': '203.0.113.7' },
-  });
-  const firstChild = new Request('https://analytics.example.com/api/send', {
-    headers: { 'x-real-ip': '203.0.113.7' },
-  });
-  const secondChild = new Request('https://analytics.example.com/api/send', {
-    headers: { 'x-real-ip': '203.0.113.7' },
-  });
+test('batch admission transfers to one child without a second charge', async () => {
+  const envelope = request();
+  const firstChild = request();
+  const secondChild = request();
 
   expect((await getCollectionIpLimit(envelope)).blocked).toBe(false);
   transferCollectionIpLimit(envelope, firstChild);
@@ -92,144 +157,112 @@ test('a batch admission transfers to exactly one child without a second charge',
   );
   expect((await getCollectionIpLimit(firstChild)).blocked).toBe(false);
   expect((await getCollectionIpLimit(secondChild)).blocked).toBe(false);
-
-  expect([...memoryCounters.ip.counters.values()].map(counter => counter.count)).toEqual([2]);
+  expect(state.sharedCounters.get(sharedKeys('rate:ip:')[0])).toBe(2n);
 });
 
-test('a blocked admission cannot be transferred to a child', async () => {
-  const envelope = new Request('https://analytics.example.com/api/batch', {
-    headers: { 'x-real-ip': '203.0.113.7' },
-  });
-
+test('blocked admission cannot be transferred', async () => {
+  const envelope = request();
   for (let attempt = 0; attempt < 10; attempt += 1) {
     await getCollectionIpLimit(envelope);
   }
 
   expect((await getCollectionIpLimit(envelope)).blocked).toBe(true);
-  expect(() =>
-    transferCollectionIpLimit(
-      envelope,
-      new Request('https://analytics.example.com/api/send', {
-        headers: { 'x-real-ip': '203.0.113.7' },
-      }),
-    ),
-  ).toThrow('COLLECTION_IP_LIMIT_NOT_RESERVED');
+  expect(() => transferCollectionIpLimit(envelope, request())).toThrow(
+    'COLLECTION_IP_LIMIT_NOT_RESERVED',
+  );
 });
 
-test('a verified source uses one shared counter across requests', async () => {
-  const sourceId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+test('two independent module instances share source enforcement', async () => {
+  const first = await import('./collection-rate-limit');
+  vi.resetModules();
+  const second = await import('./collection-rate-limit');
 
-  expect(await getCollectionSourceStatus(sourceId)).toEqual({ blocked: false, retryAfter: 60 });
-
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    expect((await getCollectionSourceLimit(sourceId.toUpperCase())).blocked).toBe(false);
-  }
-
-  expect(await getCollectionSourceStatus(sourceId)).toEqual({ blocked: true, retryAfter: 60 });
-  const limit = await getCollectionSourceLimit(sourceId);
-  expect(limit).toEqual({ blocked: true, retryAfter: 60 });
-  expect([...memoryCounters.source.counters.keys()]).toEqual([
-    expect.stringMatching(/^collection-rate:source:/),
-  ]);
-  expect(memoryCounters.ip.counters.size).toBe(0);
-});
-
-test('source saturation rejects new sources without evicting a live IP counter', async () => {
-  const request = new Request('https://analytics.example.com/api/send', {
-    headers: { 'x-real-ip': '203.0.113.7' },
+  expect(await first.getCollectionSourceStatus(sourceId)).toEqual({
+    blocked: false,
+    retryAfter: 60,
   });
-  expect((await getCollectionIpLimit(request)).blocked).toBe(false);
-  const ipKey = [...memoryCounters.ip.counters.keys()][0];
-  const expiresAt = Date.now() + 60_000;
+  expect(state.sharedCounters.size).toBe(0);
 
-  for (let index = 0; index < maxMemoryCounters; index += 1) {
-    memoryCounters.source.counters.set(`source-${index}`, { count: 1, expiresAt });
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    expect((await first.getCollectionSourceLimit(sourceId)).blocked).toBe(false);
+    expect((await second.getCollectionSourceLimit(sourceId.toUpperCase())).blocked).toBe(false);
   }
 
-  expect(await getCollectionSourceLimit('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')).toEqual({
+  expect(await second.getCollectionSourceStatus(sourceId)).toEqual({
     blocked: true,
     retryAfter: 60,
   });
-  expect(memoryCounters.source.counters.size).toBe(maxMemoryCounters);
-  expect(memoryCounters.ip.counters.get(ipKey)?.count).toBe(1);
-  expect((await getCollectionIpLimit(request)).blocked).toBe(false);
-  expect(memoryCounters.ip.counters.get(ipKey)?.count).toBe(2);
+  expect((await first.getCollectionSourceLimit(sourceId)).blocked).toBe(true);
+  expect(sharedKeys('rate:source:')).toHaveLength(1);
+  expect(state.sharedCounters.get(sharedKeys('rate:source:')[0])).toBe(100n);
 });
 
-test('IP saturation rejects new IPs without evicting live counters or blocking sources', async () => {
-  const existingRequest = new Request('https://analytics.example.com/api/send', {
-    headers: { 'x-real-ip': '203.0.113.7' },
-  });
-  const newRequest = new Request('https://analytics.example.com/api/send', {
-    headers: { 'x-real-ip': '203.0.113.8' },
-  });
-  expect((await getCollectionIpLimit(existingRequest)).blocked).toBe(false);
-  const existingKey = [...memoryCounters.ip.counters.keys()][0];
-  const expiresAt = Date.now() + 60_000;
+test('a full shared key pool rejects new keys without evicting active ones', async () => {
+  expect((await getCollectionSourceLimit(sourceId)).blocked).toBe(false);
+  expect((await getCollectionIpLimit(request())).blocked).toBe(false);
 
-  for (let index = 1; index < maxMemoryCounters; index += 1) {
-    memoryCounters.ip.counters.set(`ip-${index}`, { count: 1, expiresAt });
-  }
+  const sourcePool = sharedKeys('rate:pool:source|')[0];
+  state.sharedCounters.set(sourcePool, 20_000n);
+  const originalSize = state.sharedCounters.size;
 
-  expect(await getCollectionIpLimit(newRequest)).toEqual({ blocked: true, retryAfter: 60 });
-  expect(memoryCounters.ip.counters.size).toBe(maxMemoryCounters);
-  expect(memoryCounters.ip.counters.get(existingKey)?.count).toBe(1);
-  expect((await getCollectionIpLimit(existingRequest)).blocked).toBe(false);
-  expect(memoryCounters.ip.counters.get(existingKey)?.count).toBe(2);
-  expect((await getCollectionSourceLimit('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')).blocked).toBe(
-    false,
+  expect(await getCollectionSourceLimit(otherSourceId)).toEqual({
+    blocked: true,
+    retryAfter: 60,
+  });
+  expect(state.sharedCounters.size).toBe(originalSize);
+  expect((await getCollectionSourceLimit(sourceId)).blocked).toBe(false);
+  expect((await getCollectionIpLimit(request())).blocked).toBe(false);
+  expect(state.sharedCounters.get(sourcePool)).toBe(20_000n);
+});
+
+test('a new fixed window permits fresh counts and bounded cleanup', async () => {
+  expect((await getCollectionSourceLimit(sourceId)).blocked).toBe(false);
+  vi.advanceTimersByTime(61_000);
+  expect(await getCollectionSourceStatus(sourceId)).toEqual({
+    blocked: false,
+    retryAfter: 60,
+  });
+  expect((await getCollectionSourceLimit(sourceId)).blocked).toBe(false);
+  expect(sharedKeys('rate:source:')).toHaveLength(2);
+  expect(state.queries.some(query => query.includes('DELETE FROM collection_ingest_budget'))).toBe(
+    true,
   );
+  expect(vi.mocked(prisma.transaction)).toHaveBeenCalledTimes(2);
 });
 
-test('expired counters free capacity for new sources without evicting live counters', async () => {
-  const expiresAt = Date.now() + 60_000;
-  memoryCounters.source.counters.set('expired-source', {
-    count: 1,
-    expiresAt: Date.now() - 1,
-  });
-
-  for (let index = 1; index < maxMemoryCounters; index += 1) {
-    memoryCounters.source.counters.set(`source-${index}`, { count: 1, expiresAt });
-  }
-
-  expect((await getCollectionSourceLimit('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')).blocked).toBe(
-    false,
-  );
-  expect(memoryCounters.source.counters.size).toBe(maxMemoryCounters);
-  expect(memoryCounters.source.counters.has('expired-source')).toBe(false);
-  expect(memoryCounters.source.counters.get('source-1')?.count).toBe(1);
-});
-
-test('Redis failure still fails closed when local source capacity is full', async () => {
-  redisState.enabled = true;
-  const expiresAt = Date.now() + 60_000;
-
-  for (let index = 0; index < maxMemoryCounters; index += 1) {
-    memoryCounters.source.counters.set(`source-${index}`, { count: 1, expiresAt });
-  }
-
+test('a configured Redis outage fails closed instead of using another store', async () => {
+  state.redisEnabled = true;
   vi.mocked(redis.client.incrementWithExpiry).mockRejectedValueOnce(new Error('unavailable'));
+  vi.mocked(redis.client.get).mockRejectedValueOnce(new Error('unavailable'));
 
-  expect(await getCollectionSourceLimit('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')).toEqual({
+  expect(await getCollectionSourceLimit(sourceId)).toEqual({ blocked: true, retryAfter: 60 });
+  expect(await getCollectionSourceStatus(sourceId)).toEqual({
     blocked: true,
     retryAfter: 60,
   });
-  expect(memoryCounters.source.counters.size).toBe(maxMemoryCounters);
-  expect(redisState.counters.size).toBe(0);
+  expect(state.sharedCounters.size).toBe(0);
+  expect(prisma.transaction).not.toHaveBeenCalled();
 });
 
-test('checking an unknown source in Redis does not allocate a key', async () => {
-  redisState.enabled = true;
-  const sourceId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+test('a database outage fails closed when Redis is not configured', async () => {
+  state.failDatabase = true;
+
+  expect(await getCollectionIpLimit(request())).toEqual({ blocked: true, retryAfter: 60 });
+  expect(await getCollectionSourceLimit(sourceId)).toEqual({ blocked: true, retryAfter: 60 });
+  expect(await getCollectionSourceStatus(sourceId)).toEqual({
+    blocked: true,
+    retryAfter: 60,
+  });
+});
+
+test('configured Redis remains the shared fast path', async () => {
+  state.redisEnabled = true;
 
   expect(await getCollectionSourceStatus(sourceId)).toEqual({ blocked: false, retryAfter: 60 });
-  expect(redisState.counters.size).toBe(0);
-  expect(memoryCounters.source.counters.size).toBe(0);
-
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    expect((await getCollectionSourceLimit(sourceId.toUpperCase())).blocked).toBe(false);
-  }
-
-  expect(await getCollectionSourceStatus(sourceId)).toEqual({ blocked: true, retryAfter: 60 });
-  expect(redisState.counters.size).toBe(1);
+  expect(state.redisCounters.size).toBe(0);
+  expect((await getCollectionSourceLimit(sourceId)).blocked).toBe(false);
+  expect((await getCollectionIpLimit(request())).blocked).toBe(false);
+  expect(state.redisCounters.size).toBe(2);
+  expect(state.sharedCounters.size).toBe(0);
+  expect(prisma.transaction).not.toHaveBeenCalled();
 });

@@ -1,16 +1,7 @@
 import { hash } from '@/lib/crypto';
 import { getIpAddress } from '@/lib/ip';
+import prisma from '@/lib/prisma';
 import redis from '@/lib/redis';
-
-interface Counter {
-  count: number;
-  expiresAt: number;
-}
-
-interface CounterStore {
-  counters: Map<string, Counter>;
-  nextSweepAt: number;
-}
 
 type CounterKind = 'ip' | 'source';
 
@@ -19,8 +10,8 @@ export interface CollectionLimit {
   retryAfter: number;
 }
 
-const MEMORY_COUNTERS = 'analytics-collection-rate-limit-counters-v2';
-const MAX_MEMORY_COUNTERS = 20_000;
+const MAX_SHARED_COUNTERS = 20_000;
+const CLEANUP_BATCH_SIZE = 64;
 const transferableRequests = new WeakSet<Request>();
 const transferredRequests = new WeakSet<Request>();
 
@@ -51,92 +42,120 @@ function getPerSourceLimit(): number {
   return getBoundedInteger('COLLECTION_RATE_LIMIT_PER_SOURCE', 50_000, 100, 1_000_000);
 }
 
-function getMemoryCounters(kind: CounterKind): CounterStore {
-  const state = globalThis as typeof globalThis & Record<string, any>;
-
-  state[MEMORY_COUNTERS] ??= {
-    ip: { counters: new Map<string, Counter>(), nextSweepAt: 0 },
-    source: { counters: new Map<string, Counter>(), nextSweepAt: 0 },
-  };
-
-  return state[MEMORY_COUNTERS][kind];
-}
-
-function getMemoryCounter(kind: CounterKind, key: string): Counter | null {
-  const store = getMemoryCounters(kind);
-  const { counters } = store;
-  const now = Date.now();
-  const current = counters.get(key);
-
-  if (current && current.expiresAt > now) {
-    return current;
-  }
-
-  if (current) {
-    counters.delete(key);
-  }
-
-  if (counters.size >= MAX_MEMORY_COUNTERS && now >= store.nextSweepAt) {
-    store.nextSweepAt = now + 1000;
-
-    for (const [storedKey, counter] of counters) {
-      if (counter.expiresAt <= now) {
-        counters.delete(storedKey);
-      }
-    }
-  }
-
-  if (counters.size >= MAX_MEMORY_COUNTERS) {
-    return null;
-  }
-
-  const counter = { count: 0, expiresAt: now + getWindowSeconds() * 1000 };
-  counters.set(key, counter);
-
-  return counter;
-}
-
 function getSourceKey(sourceId: string): string {
   return `collection-rate:source:${hash(sourceId.toLowerCase()).slice(0, 32)}`;
 }
 
-async function getExistingCount(key: string): Promise<number> {
-  const memoryCounter = getMemoryCounters('source').counters.get(key);
-  let count = memoryCounter && memoryCounter.expiresAt > Date.now() ? memoryCounter.count : 0;
+function getSharedKey(kind: CounterKind, key: string): string {
+  return `rate:${kind}:${hash(key).slice(0, 32)}`;
+}
 
+async function getExistingCount(key: string): Promise<number | null> {
   if (redis.enabled) {
     try {
       const redisCount = await redis.client.get(key);
-
-      if (Number.isSafeInteger(redisCount) && redisCount >= 0) {
-        count = Math.max(count, redisCount);
-      }
+      return redisCount === null
+        ? 0
+        : Number.isSafeInteger(redisCount) && redisCount >= 0
+          ? redisCount
+          : null;
     } catch {
-      return count;
+      return null;
     }
   }
 
-  return count;
+  try {
+    const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
+    const windowSeconds = getWindowSeconds();
+    const rows = await client.$queryRaw<Array<{ requests: bigint }>>`
+      SELECT requests
+      FROM collection_ingest_budget
+      WHERE subject_type = 'source'
+        AND subject_key = ${getSharedKey('source', key)}
+        AND scope = 'minute'
+        AND window_start = to_timestamp(
+          floor(extract(epoch from clock_timestamp()) / ${windowSeconds}) * ${windowSeconds}
+        )
+    `;
+    const count = rows[0]?.requests ?? 0n;
+    return count <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(count) : null;
+  } catch {
+    return null;
+  }
 }
 
 async function increment(kind: CounterKind, key: string): Promise<number | null> {
   if (redis.enabled) {
     try {
-      return await redis.client.incrementWithExpiry(key, getWindowSeconds());
+      const count = await redis.client.incrementWithExpiry(key, getWindowSeconds());
+      return Number.isSafeInteger(count) && count > 0 ? count : null;
     } catch {
-      // Fall back to bounded local counters if Redis is unavailable.
+      return null;
     }
   }
 
-  const counter = getMemoryCounter(kind, key);
+  try {
+    const windowSeconds = getWindowSeconds();
+    const limit = kind === 'ip' ? getPerIpLimit() : getPerSourceLimit();
+    return await prisma.transaction(async transaction => {
+      const clock = await transaction.$queryRaw<Array<{ currentTime: Date }>>`
+        SELECT transaction_timestamp() AS "currentTime"
+      `;
+      const now = clock[0]?.currentTime;
+      if (!(now instanceof Date) || !Number.isFinite(now.getTime())) {
+        throw new Error('Collection rate-limit clock is unavailable.');
+      }
 
-  if (!counter) {
+      const windowStart = new Date(
+        Math.floor(now.getTime() / (windowSeconds * 1000)) * windowSeconds * 1000,
+      );
+      const expiresAt = new Date(windowStart.getTime() + windowSeconds * 2000);
+      const reserved = await transaction.$queryRaw<Array<{ requests: bigint }>>`
+        INSERT INTO collection_ingest_budget
+          (subject_type, subject_key, scope, window_start, bytes, rows, requests, expires_at)
+        VALUES
+          ('source', ${getSharedKey(kind, key)}, 'minute', ${windowStart}, 0, 0, 1, ${expiresAt})
+        ON CONFLICT (subject_type, subject_key, scope, window_start) DO UPDATE SET
+          requests = collection_ingest_budget.requests + 1
+        WHERE collection_ingest_budget.requests < ${limit}::bigint
+        RETURNING requests
+      `;
+      if (reserved.length === 0) {
+        return null;
+      }
+
+      if (reserved[0].requests === 1n) {
+        const pool = await transaction.$queryRaw<Array<{ requests: bigint }>>`
+          INSERT INTO collection_ingest_budget
+            (subject_type, subject_key, scope, window_start, bytes, rows, requests, expires_at)
+          VALUES
+            ('source', ${`rate:pool:${kind}`}, 'minute', ${windowStart}, 0, 0, 1, ${expiresAt})
+          ON CONFLICT (subject_type, subject_key, scope, window_start) DO UPDATE SET
+            requests = collection_ingest_budget.requests + 1
+          WHERE collection_ingest_budget.requests < ${MAX_SHARED_COUNTERS}::bigint
+          RETURNING requests
+        `;
+        if (pool.length === 0) {
+          throw new Error('Collection rate-limit key capacity exceeded.');
+        }
+
+        await transaction.$executeRaw`
+          DELETE FROM collection_ingest_budget
+          WHERE ctid IN (
+            SELECT ctid
+            FROM collection_ingest_budget
+            WHERE expires_at < transaction_timestamp()
+            ORDER BY expires_at
+            LIMIT ${CLEANUP_BATCH_SIZE}
+          )
+        `;
+      }
+
+      return Number(reserved[0].requests);
+    });
+  } catch {
     return null;
   }
-
-  counter.count += 1;
-
-  return counter.count;
 }
 
 export async function getCollectionIpLimit(request: Request): Promise<CollectionLimit> {
@@ -180,7 +199,7 @@ export async function getCollectionSourceStatus(sourceId: string): Promise<Colle
   const count = await getExistingCount(getSourceKey(sourceId));
 
   return {
-    blocked: count >= getPerSourceLimit(),
+    blocked: count === null || count >= getPerSourceLimit(),
     retryAfter: getWindowSeconds(),
   };
 }
