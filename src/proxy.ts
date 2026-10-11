@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { getContentSecurityPolicy } from '@/lib/csp';
+import { getAllowedFrameAncestors, getContentSecurityPolicy } from '@/lib/csp';
 import { matchesConfiguredPath } from '@/lib/match-configured-path';
 
 export const config = {
@@ -49,7 +49,12 @@ function getSafeTrackerUrl(value?: string) {
 }
 
 // Resolved once at startup — env vars don't change after the process starts.
-const contentSecurityPolicy = getContentSecurityPolicy();
+const contentSecurityPolicy = getContentSecurityPolicy({
+  ...process.env,
+  apiUrl: process.env.apiUrl,
+  cloudUrl: process.env.cloudUrl,
+});
+const allowsFraming = getAllowedFrameAncestors(process.env.ALLOWED_FRAME_URLS || '').length > 0;
 
 function customCollectEndpoint(request: NextRequest) {
   const collectEndpoint = process.env.COLLECT_API_ENDPOINT;
@@ -149,6 +154,11 @@ export default function middleware(request: NextRequest) {
   // Set the CSP here, not only at build time in next.config.ts, so
   // ALLOWED_FRAME_URLS is resolved from the runtime environment.
   response.headers.set('Content-Security-Policy', contentSecurityPolicy);
+  if (allowsFraming) {
+    response.headers.delete('X-Frame-Options');
+  } else {
+    response.headers.set('X-Frame-Options', 'DENY');
+  }
 
   return response;
 }

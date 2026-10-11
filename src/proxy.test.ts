@@ -91,3 +91,60 @@ test.each([
     expect(csp.includes('https://challenges.cloudflare.com')).toBe(enabled);
   },
 );
+
+test('runtime frame allowance retains build-time client API origin', async () => {
+  vi.stubEnv('NODE_ENV', 'production');
+  vi.stubEnv('API_URL', 'https://build-api.example.test');
+  vi.stubEnv('ALLOWED_FRAME_URLS', '');
+  vi.resetModules();
+
+  const { default: config } = await import('../next.config');
+  const routes = await config.headers?.();
+  const buildHeaders = routes?.find(route => route.source === '/:path*')?.headers;
+  expect(buildHeaders?.find(header => header.key === 'X-Frame-Options')).toBeUndefined();
+
+  vi.stubEnv('API_URL', '');
+  vi.stubEnv('apiUrl', 'https://build-api.example.test');
+  vi.stubEnv('ALLOWED_FRAME_URLS', 'https://portal.example.test');
+  vi.resetModules();
+
+  const { default: runtimeMiddleware } = await import('./proxy');
+  const response = runtimeMiddleware(new NextRequest('https://analytics.example.com/login'));
+  const policy = response.headers.get('Content-Security-Policy') ?? '';
+  expect(policy).toContain("frame-ancestors 'self' https://portal.example.test;");
+  expect(policy).toContain('https://build-api.example.test');
+  expect(response.headers.get('X-Frame-Options')).toBeNull();
+});
+
+test.each([
+  ['production', '', 'DENY'],
+  ['production', 'https://portal.example.test, https://other.example.test', null],
+  ['development', 'http://127.0.0.1:3000', null],
+])(
+  'build and runtime CSP agree in %s with frame origins %s',
+  async (mode, frames, xFrameOptions) => {
+    vi.stubEnv('NODE_ENV', mode);
+    vi.stubEnv('API_URL', 'https://api.example.test/api');
+    vi.stubEnv('CLOUD_URL', 'https://cloud.example.test');
+    vi.stubEnv('TURNSTILE_SITE_KEY', 'synthetic-key');
+    vi.stubEnv('ALLOWED_FRAME_URLS', frames);
+    vi.resetModules();
+
+    const [{ default: config }, { default: configuredMiddleware }] = await Promise.all([
+      import('../next.config'),
+      import('./proxy'),
+    ]);
+    const routes = await config.headers?.();
+    const configuredHeaders = routes?.find(route => route.source === '/:path*')?.headers;
+    const buildPolicy = configuredHeaders?.find(
+      header => header.key === 'Content-Security-Policy',
+    )?.value;
+    const buildFrameHeader = configuredHeaders?.find(header => header.key === 'X-Frame-Options');
+    const response = configuredMiddleware(new NextRequest('https://analytics.example.com/login'));
+
+    expect(buildPolicy).toBeTruthy();
+    expect(buildFrameHeader).toBeUndefined();
+    expect(response.headers.get('Content-Security-Policy')).toBe(buildPolicy);
+    expect(response.headers.get('X-Frame-Options')).toBe(xFrameOptions);
+  },
+);

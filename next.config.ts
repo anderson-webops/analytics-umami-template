@@ -2,6 +2,7 @@ import 'dotenv/config';
 import path from 'node:path';
 import createNextIntlPlugin from 'next-intl/plugin';
 import pkg from './package.json' with { type: 'json' };
+import { getContentSecurityPolicy } from './src/lib/csp.ts';
 
 const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
 const projectRoot = process.cwd();
@@ -26,14 +27,6 @@ const trackerScriptName = process.env.TRACKER_SCRIPT_NAME || '';
 const selfTrack = process.env.UMAMI_SELF_TRACK || '';
 const selfRecord = process.env.UMAMI_SELF_RECORD || '';
 
-function getUrlOrigin(url: string) {
-  try {
-    return new URL(url).origin;
-  } catch {
-    return '';
-  }
-}
-
 function isRelativeUrl(url: string) {
   return Boolean(url && !/^https?:\/\//i.test(url));
 }
@@ -56,63 +49,7 @@ function getSafeRoutePath(value: string, name: string, allowRoot = false) {
   return normalized;
 }
 
-function getAllowedFrameAncestors(value: string) {
-  const sources = value
-    .split(/[\s,]+/)
-    .map(source => source.trim())
-    .filter(Boolean)
-    .map(source => {
-      try {
-        const url = new URL(source);
-
-        if (
-          !['https:', ...(isProd ? [] : ['http:'])].includes(url.protocol) ||
-          url.username ||
-          url.password ||
-          url.pathname !== '/' ||
-          url.search ||
-          url.hash
-        ) {
-          throw new Error();
-        }
-
-        return url.origin;
-      } catch {
-        throw new Error('ALLOWED_FRAME_URLS must contain only exact HTTP(S) origins.');
-      }
-    });
-
-  return [...new Set(sources)];
-}
-
-const apiUrlOrigin = getUrlOrigin(apiUrl);
-const cloudUrlOrigin = getUrlOrigin(cloudUrl);
-const captchaOrigin = process.env.TURNSTILE_SITE_KEY ? 'https://challenges.cloudflare.com' : '';
-const connectSrc = ["'self'", apiUrlOrigin, cloudUrlOrigin, captchaOrigin]
-  .filter(Boolean)
-  .join(' ');
-const allowedFrameAncestors = getAllowedFrameAncestors(process.env.ALLOWED_FRAME_URLS || '');
-const frameAncestors = allowedFrameAncestors.length
-  ? ["'self'", ...allowedFrameAncestors].join(' ')
-  : "'none'";
-
-const contentSecurityPolicy = `
-  default-src 'self';
-  base-uri 'self';
-  object-src 'none';
-  form-action 'self';
-  img-src 'self' https: data: blob:;
-  font-src 'self' data:;
-  script-src 'self' 'unsafe-inline' ${isProd ? '' : "'unsafe-eval'"} ${captchaOrigin};
-  style-src 'self' 'unsafe-inline';
-  connect-src ${connectSrc};
-  frame-src 'self' https: ${isProd ? '' : 'http:'};
-  frame-ancestors ${frameAncestors};
-  media-src 'self';
-  worker-src 'self' blob:;
-  manifest-src 'self';
-  ${isProd ? 'upgrade-insecure-requests;' : ''}
-`;
+const contentSecurityPolicy = getContentSecurityPolicy();
 
 const defaultHeaders = [
   {
@@ -135,17 +72,9 @@ const defaultHeaders = [
     key: 'Permissions-Policy',
     value: 'camera=(), geolocation=(), microphone=(), payment=(), usb=()',
   },
-  ...(allowedFrameAncestors.length
-    ? []
-    : [
-        {
-          key: 'X-Frame-Options',
-          value: 'DENY',
-        },
-      ]),
   {
     key: 'Content-Security-Policy',
-    value: contentSecurityPolicy.replace(/\s{2,}/g, ' ').trim(),
+    value: contentSecurityPolicy,
   },
 ];
 
