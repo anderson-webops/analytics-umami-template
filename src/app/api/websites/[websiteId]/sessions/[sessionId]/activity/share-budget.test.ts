@@ -77,6 +77,17 @@ test('blocks a historical range that exceeds the remaining share budget', async 
   expect(getSessionActivityMock).not.toHaveBeenCalled();
 });
 
+test('rejects exhausted share discovery budget before linked-session lookup', async () => {
+  expect(await reserveShareQueryCost(shareId, 590)).toMatchObject({ blocked: false });
+
+  const response = await GET(new Request('http://localhost'), params);
+
+  expect(response.status).toBe(429);
+  expect(getLinkedDistinctIdsMock).toHaveBeenCalledWith(WEBSITE_ID, SESSION_ID, 2);
+  expect(getLinkedSessionIdsMock).not.toHaveBeenCalled();
+  expect(getSessionActivityMock).not.toHaveBeenCalled();
+});
+
 test('allows linked history until the actual-range budget is exhausted', async () => {
   const responses = [
     await GET(new Request('http://localhost'), params),
@@ -103,12 +114,24 @@ test('rejects oversized linked histories before reading activity', async () => {
 test('authenticated linked activity reserves the expanded range before reading', async () => {
   const userId = `linked-user-${crypto.randomUUID()}`;
   parseRequestMock.mockResolvedValue({ auth: { user: { id: userId } }, query: { startAt, endAt } });
-  expect((await reserveAuthenticatedQueryCost(userId, 19_900)).blocked).toBe(false);
+  expect((await reserveAuthenticatedQueryCost(userId, 19_800)).blocked).toBe(false);
 
   const response = await GET(new Request('http://localhost'), params);
 
   expect(response.status).toBe(429);
   expect(getLinkedSessionIdsMock).toHaveBeenCalledWith(WEBSITE_ID, 'visitor-1', 2_001);
+  expect(getSessionActivityMock).not.toHaveBeenCalled();
+});
+
+test('rejects exhausted authenticated discovery budget before linked-session lookup', async () => {
+  const userId = `linked-user-${crypto.randomUUID()}`;
+  parseRequestMock.mockResolvedValue({ auth: { user: { id: userId } }, query: { startAt, endAt } });
+  expect((await reserveAuthenticatedQueryCost(userId, 19_950)).blocked).toBe(false);
+
+  const response = await GET(new Request('http://localhost'), params);
+
+  expect(response.status).toBe(429);
+  expect(getLinkedSessionIdsMock).not.toHaveBeenCalled();
   expect(getSessionActivityMock).not.toHaveBeenCalled();
 });
 

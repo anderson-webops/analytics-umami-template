@@ -10,9 +10,11 @@ import { canDeleteWebsite, canViewWebsiteSection } from '@/permissions';
 import {
   getLinkedDistinctIds,
   getLinkedSessionIds,
+  getSessionActivity,
   getSessionData,
   getWebsiteSession,
 } from '@/queries/sql';
+import { GET as getSessionActivityRoute } from './websites/[websiteId]/sessions/[sessionId]/activity/route';
 import { GET as getSessionProperties } from './websites/[websiteId]/sessions/[sessionId]/properties/route';
 import { GET as getSessionDetail } from './websites/[websiteId]/sessions/[sessionId]/route';
 
@@ -29,6 +31,7 @@ vi.mock('@/permissions', () => ({
 vi.mock('@/queries/sql', () => ({
   getLinkedDistinctIds: vi.fn(),
   getLinkedSessionIds: vi.fn(),
+  getSessionActivity: vi.fn(),
   getSessionData: vi.fn(),
   getWebsiteSession: vi.fn(),
 }));
@@ -38,6 +41,7 @@ const canDeleteWebsiteMock = vi.mocked(canDeleteWebsite);
 const canViewWebsiteSectionMock = vi.mocked(canViewWebsiteSection);
 const getLinkedDistinctIdsMock = vi.mocked(getLinkedDistinctIds);
 const getLinkedSessionIdsMock = vi.mocked(getLinkedSessionIds);
+const getSessionActivityMock = vi.mocked(getSessionActivity);
 const getSessionDataMock = vi.mocked(getSessionData);
 const getWebsiteSessionMock = vi.mocked(getWebsiteSession);
 const WEBSITE_ID = '00000000-0000-4000-8000-000000000001';
@@ -50,6 +54,7 @@ beforeEach(() => {
   canViewWebsiteSectionMock.mockReset();
   getLinkedDistinctIdsMock.mockReset();
   getLinkedSessionIdsMock.mockReset();
+  getSessionActivityMock.mockReset();
   getSessionDataMock.mockReset();
   getWebsiteSessionMock.mockReset();
   canViewWebsiteSectionMock.mockResolvedValue(true);
@@ -110,6 +115,24 @@ test('a signed-in caller presenting a share token remains subject to its budget'
 
   expect(response.status).toBe(429);
   expect(getWebsiteSessionMock).not.toHaveBeenCalled();
+});
+
+test('activity rejects exhausted discovery capacity before linked-session lookup', async () => {
+  const shareId = `session-budget-${crypto.randomUUID()}`;
+  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  expect(await reserveShareQueryCost(shareId, 575)).toMatchObject({ blocked: false });
+
+  const response = await getSessionActivityRoute(
+    new Request(
+      `https://analytics.example/api/websites/${WEBSITE_ID}/sessions/${SESSION_ID}/activity?startAt=1766880000000&endAt=1766966400000`,
+    ),
+    params,
+  );
+
+  expect(response.status).toBe(429);
+  expect(getLinkedDistinctIdsMock).toHaveBeenCalledWith(WEBSITE_ID, SESSION_ID, 2);
+  expect(getLinkedSessionIdsMock).not.toHaveBeenCalled();
+  expect(getSessionActivityMock).not.toHaveBeenCalled();
 });
 
 test('public session detail refuses oversized linked identity results', async () => {

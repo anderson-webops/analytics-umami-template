@@ -60,6 +60,41 @@ export async function GET(
     return notFound();
   }
 
+  const reserveActivityWork = async (cost: number) => {
+    let limit;
+
+    if (auth.shareToken) {
+      const shareId =
+        auth.shareToken.shareId ??
+        auth.shareToken.websiteId ??
+        auth.shareToken.boardId ??
+        auth.shareToken.pixelId ??
+        auth.shareToken.linkId;
+
+      if (!shareId) {
+        return unauthorized();
+      }
+
+      limit = await reserveShareQueryCost(shareId, cost);
+    } else {
+      if (!auth.user?.id) {
+        return unauthorized();
+      }
+
+      limit = await reserveAuthenticatedQueryCost(auth.user.id, cost, 0);
+    }
+
+    if (limit.unavailable) {
+      return serviceUnavailable();
+    }
+
+    if (limit.blocked) {
+      return tooManyRequests(limit.retryAfter);
+    }
+
+    return null;
+  };
+
   let sessionIds = [sessionId];
   let startAt = query.startAt;
   let endAt = query.endAt;
@@ -76,6 +111,12 @@ export async function GET(
 
   if (distinctIds.length === 1) {
     const rowLimit = auth.shareToken ? MAX_SHARE_SESSION_ROWS : MAX_AUTH_SESSION_ROWS;
+    const discoveryLimit = await reserveActivityWork(Math.ceil(rowLimit / DEFAULT_PAGE_SIZE) + 1);
+
+    if (discoveryLimit) {
+      return discoveryLimit;
+    }
+
     const links = await getLinkedSessionIds(websiteId, distinctIds[0], rowLimit + 1);
 
     if (links.length > rowLimit) {
@@ -123,35 +164,10 @@ export async function GET(
       : sessionIds.length - 1);
 
   if (additionalCost > 0) {
-    let limit;
+    const expandedLimit = await reserveActivityWork(additionalCost);
 
-    if (auth.shareToken) {
-      const shareId =
-        auth.shareToken.shareId ??
-        auth.shareToken.websiteId ??
-        auth.shareToken.boardId ??
-        auth.shareToken.pixelId ??
-        auth.shareToken.linkId;
-
-      if (!shareId) {
-        return unauthorized();
-      }
-
-      limit = await reserveShareQueryCost(shareId, additionalCost);
-    } else {
-      if (!auth.user?.id) {
-        return unauthorized();
-      }
-
-      limit = await reserveAuthenticatedQueryCost(auth.user.id, additionalCost, 0);
-    }
-
-    if (limit.unavailable) {
-      return serviceUnavailable();
-    }
-
-    if (limit.blocked) {
-      return tooManyRequests(limit.retryAfter);
+    if (expandedLimit) {
+      return expandedLimit;
     }
   }
 
