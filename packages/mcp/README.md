@@ -105,6 +105,7 @@ An `UMAMI_API_KEY` without an endpoint must be a Cloud key (`api_…`); self-hos
 also require an explicit endpoint.
 
 The local stdio client limits each remote request to 30 seconds and 4 MiB of response data.
+MCP tool results are limited to 8 MiB across their text and structured output channels. A larger result returns a safe error; narrow the query and retry.
 Configured API endpoints must use HTTPS, except HTTP to `localhost`, `127.0.0.1`, or `[::1]` on the same host. Redirects are rejected so credentials cannot be forwarded to another endpoint.
 
 For Cloud stdio, set `UMAMI_API_KEY` and omit `UMAMI_URL` and `UMAMI_API_TOKEN`:

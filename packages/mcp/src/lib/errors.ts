@@ -9,6 +9,7 @@ export type McpToolErrorCode =
   | 'not_found'
   | 'rate_limited'
   | 'api_error'
+  | 'result_too_large'
   | 'network_error'
   | 'unknown';
 
