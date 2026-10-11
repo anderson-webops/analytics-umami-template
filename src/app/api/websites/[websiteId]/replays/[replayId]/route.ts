@@ -5,6 +5,7 @@ import { sanitizeReplayResourceEvents } from '@/lib/replay-resources.server';
 import { countReplayStructureUnits } from '@/lib/replay-structure';
 import { parseRequest } from '@/lib/request';
 import { badRequest, json, payloadTooLarge, unauthorized } from '@/lib/response';
+import { validateReplayData } from '@/lib/schema';
 import { canViewAuthenticatedWebsite } from '@/permissions';
 import { getReplayChunks } from '@/queries/sql';
 import { redactReplayNavigationEvents } from '@/recorder/url';
@@ -110,7 +111,10 @@ export async function GET(
       mergeReplayEvents(chunks, { until, endChunkIndex, endEventIndex }),
     );
 
-    if (countReplayStructureUnits(restoredEvents, undefined, 257) === null) {
+    if (
+      countReplayStructureUnits(restoredEvents, undefined, 257) === null ||
+      restoredEvents.some(event => !validateReplayData(event).valid)
+    ) {
       throw new ReplayBudgetExceededError();
     }
 

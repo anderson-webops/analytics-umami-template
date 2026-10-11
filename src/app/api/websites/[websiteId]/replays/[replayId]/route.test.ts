@@ -72,6 +72,42 @@ test('rejects a dense snapshot hidden in legacy fragments before parsing it', as
   expect((await GET(request, params)).status).toBe(413);
 });
 
+test.each([
+  ['a forbidden root key', '{"type":4,"__proto__":{"value":1}}'],
+  ['a forbidden nested key', '{"type":2,"data":{"node":{"constructor":{"value":1}}}}'],
+  ['a prototype key', '{"type":2,"data":{"node":{"__proto__":{"value":1}}}}'],
+  [
+    'an oversized nested key',
+    JSON.stringify({ type: 2, data: { node: { ['x'.repeat(1025)]: 1 } } }),
+  ],
+  [
+    'an oversized nested string',
+    JSON.stringify({ type: 2, data: { value: 'x'.repeat(1024 * 1024 + 1) } }),
+  ],
+  ['a non-object root', JSON.stringify([{ type: 4 }])],
+])('rejects %s restored from valid replay fragments', async (_, serialized) => {
+  const midpoint = Math.floor(serialized.length / 2);
+  vi.mocked(getReplayChunks).mockResolvedValue([
+    {
+      sessionId: '33333333-3333-4333-8333-333333333333',
+      visitId: replayId,
+      events: [serialized.slice(0, midpoint), serialized.slice(midpoint)].map((value, index) => ({
+        type: 'umami:rrweb-event-fragment',
+        data: { id: 'invalid-legacy', index, total: 2, value },
+      })),
+      chunkIndex: 1,
+      eventCount: 1,
+      startedAt: new Date(),
+      endedAt: new Date(),
+    },
+  ]);
+
+  const response = await GET(request, params);
+
+  expect(response.status).toBe(413);
+  expect(response.headers.get('Cache-Control')).toBe('no-store');
+});
+
 test('preserves an ordinary authenticated replay response', async () => {
   vi.mocked(getReplayChunks).mockResolvedValue([
     {

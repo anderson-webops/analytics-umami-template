@@ -300,10 +300,14 @@ function validateGenericData(
   });
 }
 
-function validateReplayData(
-  root: Record<string, unknown>,
+export function validateReplayData(
+  root: unknown,
 ): { valid: true } | { valid: false; message: string } {
-  const result = validateObjectData(root, {
+  if (!root || typeof root !== 'object' || Array.isArray(root)) {
+    return { valid: false, message: 'Replay data must be an object.' };
+  }
+
+  const result = validateObjectData(root as Record<string, unknown>, {
     label: 'Replay data',
     maxDepth: MAX_REPLAY_DATA_DEPTH,
     maxProperties: MAX_REPLAY_DATA_PROPERTIES,
