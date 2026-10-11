@@ -4,7 +4,7 @@
 import type { RequestOptions } from '../types';
 import type { components, operations as OperationTypes } from './types';
 
-export const API_VERSION = '4.2.111';
+export const API_VERSION = '4.2.112';
 
 export type HttpMethod = 'get' | 'post' | 'put' | 'patch' | 'delete';
 
@@ -5140,7 +5140,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Create a single sign-on token
-   * Returns the authenticated user and a new token valid for 24 hours. Requires Redis-backed authentication.
+   * Exchanges a bearer session for a Redis-backed session without extending the original token expiration. Requires Cloud mode and Redis.
    * `POST /api/auth/sso`
    */
   sso(input?: OperationInput<'sso'>, options?: RequestOptions): Promise<OperationOutput<'sso'>> {

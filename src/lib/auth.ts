@@ -267,6 +267,7 @@ export async function checkAuth(request: Request) {
     source,
     user,
     authType: user ? ('session' as const) : ('share' as const),
+    expiresAt: user && Number.isSafeInteger(payload?.exp) ? payload.exp : undefined,
     mfaVerified,
     mfaId: mfaVerified ? mfaId : undefined,
     enrollmentOnly,
@@ -274,14 +275,32 @@ export async function checkAuth(request: Request) {
   };
 }
 
-export async function saveAuth(data: any, expire = getAuthSessionTtlSeconds()) {
+export async function saveAuth(
+  data: any,
+  expire = getAuthSessionTtlSeconds(),
+  absoluteExpiresAt?: number,
+) {
+  const now = Math.floor(Date.now() / 1000);
+  const ttl = absoluteExpiresAt === undefined ? expire : Math.min(expire, absoluteExpiresAt - now);
+  const expiresAt = now + ttl;
+
+  if (
+    !Number.isSafeInteger(ttl) ||
+    ttl <= 0 ||
+    (absoluteExpiresAt !== undefined && !Number.isSafeInteger(absoluteExpiresAt))
+  ) {
+    throw new Error('Invalid session expiration.');
+  }
+
   const authKey = `auth:${createAuthKey()}`;
 
   if (redis.enabled) {
-    await redis.client.set(authKey, data, expire);
+    await redis.client.set(authKey, data, ttl);
   }
 
-  return createSecureToken({ authKey }, secret(), { expiresIn: expire });
+  return absoluteExpiresAt === undefined
+    ? createSecureToken({ authKey }, secret(), { expiresIn: ttl })
+    : createSecureToken({ authKey, exp: expiresAt }, secret());
 }
 
 export async function hasPermission(role: string, permission: string | string[]) {

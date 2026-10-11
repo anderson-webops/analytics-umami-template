@@ -187,6 +187,23 @@ const operation1 = defineOperation({
           },
         },
       },
+      '503': {
+        description: 'Service unavailable.',
+        content: {
+          'application/json': {
+            example: {
+              error: {
+                message: 'Service unavailable.',
+                code: 'service-unavailable',
+                status: 503,
+              },
+            },
+            schema: {
+              $ref: '#/components/schemas/ApiError',
+            },
+          },
+        },
+      },
     },
   } as ZodOpenApiOperationObject,
 });

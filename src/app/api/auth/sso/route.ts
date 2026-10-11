@@ -23,16 +23,37 @@ export async function POST(request: Request) {
     return serverError('Redis is disabled');
   }
 
+  if (
+    auth?.authType !== 'session' ||
+    auth.source !== 'bearer' ||
+    !Number.isSafeInteger(auth.expiresAt)
+  ) {
+    return unauthorized();
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const remaining = auth.expiresAt - now;
+
+  if (remaining <= 0) {
+    return unauthorized();
+  }
+
   const user = await getUser(auth.user.id, {
     includePassword: true,
     includeSessionGeneration: true,
   });
 
-  if (!user || user.sessionGeneration !== auth.sessionGeneration) {
+  if (!user || user.sessionGeneration !== auth.sessionGeneration || user.role !== auth.user.role) {
     return unauthorized();
   }
 
-  const sessionTtl = getAuthSessionTtlSeconds();
+  const currentNow = Math.floor(Date.now() / 1000);
+  const sessionTtl = Math.min(getAuthSessionTtlSeconds(), auth.expiresAt - currentNow);
+  if (sessionTtl <= 0) {
+    return unauthorized();
+  }
+
+  const expiresAt = currentNow + sessionTtl;
   const token = await saveAuth(
     {
       userId: auth.user.id,
@@ -41,6 +62,7 @@ export async function POST(request: Request) {
       sessionGeneration: auth.sessionGeneration,
     },
     sessionTtl,
+    expiresAt,
   );
 
   return setSessionCookie(json({ user: auth.user, token }), token, sessionTtl);

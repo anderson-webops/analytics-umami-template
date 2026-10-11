@@ -301,7 +301,7 @@ export interface paths {
     put?: never;
     /**
      * Create a single sign-on token
-     * @description Returns the authenticated user and a new token valid for 24 hours. Requires Redis-backed authentication.
+     * @description Exchanges a bearer session for a Redis-backed session without extending the original token expiration. Requires Cloud mode and Redis.
      */
     post: operations['sso'];
     delete?: never;
@@ -12851,11 +12851,13 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': {
-            t: string;
-            x: string;
-            y: number;
-          }[];
+          'application/json':
+            | null[]
+            | {
+                t: string;
+                x: string;
+                y: number;
+              }[];
         };
       };
       /** @description Bad request. */
@@ -13355,11 +13357,13 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': {
-            t: string;
-            x: string;
-            y: number;
-          }[];
+          'application/json':
+            | null[]
+            | {
+                t: string;
+                x: string;
+                y: number;
+              }[];
         };
       };
       /** @description Bad request. */
@@ -19580,11 +19584,13 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': {
-            t: string;
-            x: string;
-            y: number;
-          }[];
+          'application/json':
+            | null[]
+            | {
+                t: string;
+                x: string;
+                y: number;
+              }[];
         };
       };
       /** @description Bad request. */
@@ -20200,11 +20206,13 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': {
-            t: string;
-            x: string;
-            y: number;
-          }[];
+          'application/json':
+            | null[]
+            | {
+                t: string;
+                x: string;
+                y: number;
+              }[];
         };
       };
       /** @description Bad request. */
@@ -20896,6 +20904,24 @@ export interface operations {
            *         "code": "not-found",
            *         "message": "Not found.",
            *         "status": 404
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+      /** @description Service unavailable. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "service-unavailable",
+           *         "message": "Service unavailable.",
+           *         "status": 503
            *       }
            *     }
            */

@@ -36,7 +36,6 @@ const operation1 = defineOperation({
                       events: {
                         type: 'array',
                         items: {},
-                        maxItems: 200,
                       },
                       timestamp: {
                         type: 'integer',
@@ -160,7 +159,6 @@ const operation1 = defineOperation({
                             },
                           ],
                         },
-                        maxItems: 200,
                       },
                       timestamp: {
                         type: 'integer',

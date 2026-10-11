@@ -6,14 +6,14 @@ import {
   SHARE_TOKEN_TYPE,
 } from '@/lib/constants';
 import { hash } from '@/lib/crypto';
-import { parseSecureToken, parseToken } from '@/lib/jwt';
+import { createSecureToken, parseSecureToken, parseToken } from '@/lib/jwt';
 import redis from '@/lib/redis';
 import { resolveShareAccess } from '@/lib/share-access';
 import { getShare } from '@/queries/prisma';
 import { getApiKeyByHash, updateApiKeyLastUsed } from '@/queries/prisma/apiKey';
 import { getUser } from '@/queries/prisma/user';
 import { hashApiKey } from './api-key';
-import { checkAuth, parseShareToken } from './auth';
+import { checkAuth, parseShareToken, saveAuth } from './auth';
 import { parseRequest } from './request';
 
 const twoFactorMocks = vi.hoisted(() => ({
@@ -37,6 +37,7 @@ vi.mock('@/lib/prisma', () => ({
 }));
 
 vi.mock('@/lib/jwt', () => ({
+  createSecureToken: vi.fn(),
   parseSecureToken: vi.fn(),
   parseToken: vi.fn(() => null),
 }));
@@ -63,6 +64,7 @@ vi.mock('@/lib/redis', () => ({
     enabled: false,
     client: {
       get: vi.fn(),
+      set: vi.fn(),
     },
   },
 }));
@@ -75,6 +77,7 @@ const redisMock = redis as unknown as {
   enabled: boolean;
   client: {
     get: ReturnType<typeof vi.fn>;
+    set: ReturnType<typeof vi.fn>;
   };
 };
 
@@ -124,6 +127,8 @@ beforeEach(() => {
   updateApiKeyLastUsedMock.mockClear();
   redisMock.enabled = false;
   redisMock.client.get.mockReset();
+  redisMock.client.set.mockReset();
+  vi.mocked(createSecureToken).mockReset();
   twoFactorMocks.findTwoFactorAuth.mockReset().mockResolvedValue(null);
   twoFactorMocks.findGlobalSetting.mockReset().mockResolvedValue(null);
   twoFactorMocks.findUser.mockReset().mockResolvedValue({ twoFactorRequired: false });
@@ -737,7 +742,10 @@ describe('checkAuth password fingerprint', () => {
 
   test('authorizes a Redis session whose fingerprint matches the current password', async () => {
     redisMock.enabled = true;
-    parseSecureTokenMock.mockReturnValue({ authKey: 'auth:session-key' } as any);
+    parseSecureTokenMock.mockReturnValue({
+      authKey: 'auth:session-key',
+      exp: 1_800_000_000,
+    } as any);
     redisMock.client.get.mockResolvedValue({
       userId: 'user-1',
       role: 'user',
@@ -748,6 +756,10 @@ describe('checkAuth password fingerprint', () => {
     const result = await checkAuth(authedRequest());
 
     expect(result?.user?.id).toBe('user-1');
+    if (result?.authType !== 'session') {
+      throw new Error('Expected a session.');
+    }
+    expect(result?.expiresAt).toBe(1_800_000_000);
   });
 
   test('rejects a Redis session whose fingerprint predates a password change', async () => {
@@ -835,5 +847,62 @@ describe('checkAuth password fingerprint', () => {
     const result = await checkAuth(authedRequest());
 
     expect(result).toBeNull();
+  });
+});
+
+describe('saveAuth absolute expiration', () => {
+  test('pins the signed expiry even if Redis writes cross a clock boundary', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-11T12:00:00Z'));
+    vi.stubEnv('APP_SECRET', 'test-only-auth-secret-with-at-least-32-bytes');
+    redisMock.enabled = true;
+    const absoluteExpiry = Math.floor(Date.now() / 1000) + 120;
+    const session = { userId: 'user-1', role: 'user' };
+    redisMock.client.set.mockImplementationOnce(async () => {
+      vi.setSystemTime(new Date('2026-10-11T12:00:10Z'));
+    });
+    vi.mocked(createSecureToken).mockResolvedValueOnce('signed-token');
+
+    try {
+      await expect(saveAuth(session, 3_600, absoluteExpiry)).resolves.toBe('signed-token');
+      expect(redisMock.client.set).toHaveBeenCalledWith(
+        expect.stringMatching(/^auth:[a-f\d]{32}$/),
+        session,
+        120,
+      );
+      expect(createSecureToken).toHaveBeenCalledWith(
+        { authKey: expect.stringMatching(/^auth:[a-f\d]{32}$/), exp: absoluteExpiry },
+        expect.any(String),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('rejects an expired absolute deadline before creating any key', async () => {
+    await expect(saveAuth({ userId: 'user-1' }, 3_600, 1)).rejects.toThrow(
+      'Invalid session expiration.',
+    );
+    expect(redisMock.client.set).not.toHaveBeenCalled();
+    expect(createSecureToken).not.toHaveBeenCalled();
+  });
+
+  test('does not sign a deadline beyond the requested lifetime', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-11T12:00:00Z'));
+    vi.stubEnv('APP_SECRET', 'test-only-auth-secret-with-at-least-32-bytes');
+    redisMock.enabled = true;
+    const now = Math.floor(Date.now() / 1000);
+    vi.mocked(createSecureToken).mockResolvedValueOnce('signed-token');
+
+    try {
+      await expect(saveAuth({ userId: 'user-1' }, 120, now + 3_600)).resolves.toBe('signed-token');
+      expect(createSecureToken).toHaveBeenCalledWith(
+        { authKey: expect.any(String), exp: now + 120 },
+        expect.any(String),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

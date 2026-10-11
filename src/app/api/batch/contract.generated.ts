@@ -25,7 +25,6 @@ const operation1 = defineOperation({
               additionalProperties: true,
             },
             minItems: 1,
-            maxItems: 20,
           },
         },
       },
