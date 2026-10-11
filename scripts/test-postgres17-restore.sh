@@ -22,6 +22,19 @@ export PATH="$pg_bin:$PATH"
 export DATABASE_URL="postgresql://restore_test:synthetic-restore-password-000000@127.0.0.1:$port/postgres"
 export DATABASE_REPLICA_URL= DIRECT_DATABASE_URL= REDIS_URL= CLICKHOUSE_URL= KAFKA_URL=
 export LOGIN_RATE_LIMIT_ACCOUNT_FAILURES=10 LOGIN_RATE_LIMIT_WINDOW_SECONDS=900
+run_two_factor_state_races() {
+  ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 \
+    APP_SECRET=synthetic-factor-race-secret-000000000000000000 \
+    TWO_FACTOR_ENCRYPTION_KEY="$(printf 'a%.0s' {1..64})" \
+    PUBLIC_URL=https://analytics.example.com \
+    DOTENV_CONFIG_PATH=/dev/null REDIS_URL='' CLOUD_MODE='' \
+    node --conditions=react-server --import tsx scripts/test-two-factor-state-races.ts
+}
+if [[ "${1:-}" == --two-factor-state-races ]]; then
+  DOTENV_CONFIG_PATH=/dev/null pnpm run db:migrate
+  run_two_factor_state_races
+  exit 0
+fi
 if [[ "${1:-}" == --login-admission ]]; then
   "$pg_bin/psql" -h 127.0.0.1 -p "$port" -U restore_test -d postgres \
     -v ON_ERROR_STOP=1 -c 'CREATE TABLE "app_setting" ("key" TEXT PRIMARY KEY, "value" TEXT NOT NULL)' \
@@ -35,6 +48,7 @@ if [[ "${1:-}" == --session-data-bulk ]]; then
 fi
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node scripts/test-postgres-restore.mjs "$@"
 pnpm run db:migrate
+run_two_factor_state_races
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-session-data-bulk.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-heatmap-budget.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-recorder-budget-retention.ts

@@ -11,9 +11,8 @@ const mocks = vi.hoisted(() => ({
   verifyTotp: vi.fn(),
   reservePasswordVerificationAttempt: vi.fn(),
   transaction: vi.fn(),
-  userUpdateMany: vi.fn(),
+  queryRaw: vi.fn(),
   userFindUnique: vi.fn(),
-  deleteTwoFactorAuth: vi.fn(),
   deleteBackupCodes: vi.fn(),
   deleteRateLimit: vi.fn(),
   deleteApiKeys: vi.fn(),
@@ -95,9 +94,8 @@ beforeEach(() => {
   mocks.verifyTotp.mockReset();
   mocks.reservePasswordVerificationAttempt.mockReset();
   mocks.transaction.mockReset();
-  mocks.userUpdateMany.mockReset();
+  mocks.queryRaw.mockReset();
   mocks.userFindUnique.mockReset();
-  mocks.deleteTwoFactorAuth.mockReset();
   mocks.deleteBackupCodes.mockReset();
   mocks.deleteRateLimit.mockReset();
   mocks.deleteApiKeys.mockReset();
@@ -111,20 +109,21 @@ beforeEach(() => {
   mocks.reservePasswordVerificationAttempt.mockResolvedValue({ allowed: true, retryAfter: 0 });
   mocks.transaction.mockImplementation(async callback =>
     callback({
-      user: { updateMany: mocks.userUpdateMany, findUnique: mocks.userFindUnique },
-      twoFactorAuth: { deleteMany: mocks.deleteTwoFactorAuth },
+      $queryRaw: mocks.queryRaw,
+      user: { findUnique: mocks.userFindUnique },
       twoFactorBackupCode: { deleteMany: mocks.deleteBackupCodes },
       twoFactorRateLimit: { deleteMany: mocks.deleteRateLimit },
       apiKey: { deleteMany: mocks.deleteApiKeys },
     }),
   );
-  mocks.userUpdateMany.mockResolvedValue({ count: 1 });
+  mocks.queryRaw
+    .mockResolvedValueOnce([{ sessionGeneration: 1 }])
+    .mockResolvedValueOnce([{ id: 'factor-1' }]);
   mocks.userFindUnique.mockResolvedValue({
     role: 'user',
     password: 'hashed-password',
     sessionGeneration: 1,
   });
-  mocks.deleteTwoFactorAuth.mockResolvedValue({ count: 1 });
   mocks.consumeOtp.mockResolvedValue(true);
   mocks.deleteRateLimit.mockResolvedValue({ count: 1 });
   mocks.hash.mockReturnValue('password-fingerprint');
@@ -133,7 +132,7 @@ beforeEach(() => {
 
 test('POST rotates the session generation with factor deletion and returns only a fresh session', async () => {
   mocks.parseRequest.mockResolvedValue({
-    auth: { user: { id: 'user-1' } },
+    auth: { authType: 'session', user: { id: 'user-1' }, sessionGeneration: 0 },
     body: { password: 'password', token: '123456' },
     error: undefined,
   });
@@ -150,14 +149,19 @@ test('POST rotates the session generation with factor deletion and returns only 
 
   const response = await POST(new Request('http://localhost/api/2fa/disable', { method: 'POST' }));
 
-  expect(mocks.userUpdateMany).toHaveBeenCalledWith({
-    where: { id: 'user-1', password: 'hashed-password', deletedAt: null },
-    data: { sessionGeneration: { increment: 1 } },
-  });
+  const [userQuery, ...userParameters] = mocks.queryRaw.mock.calls[0];
+  expect(userQuery.join('?')).toContain('WHERE "user_id" = ?::uuid');
+  expect(userQuery.join('?')).toContain('AND "password" = ?');
+  expect(userQuery.join('?')).toContain('AND "deleted_at" IS NULL');
+  expect(userQuery.join('?')).toContain('AND "session_generation" = ?');
+  expect(userParameters).toEqual(['user-1', 'hashed-password', 0]);
   expect(mocks.consumeOtp).toHaveBeenCalledWith('user-1', '123456', expect.any(Object));
-  expect(mocks.deleteTwoFactorAuth).toHaveBeenCalledWith({
-    where: { id: 'factor-1', userId: 'user-1', isEnabled: true },
-  });
+  const [factorQuery, ...factorParameters] = mocks.queryRaw.mock.calls[1];
+  expect(factorQuery.join('?')).toContain('WHERE "id" = ?');
+  expect(factorQuery.join('?')).toContain('AND "user_id" = ?::uuid');
+  expect(factorQuery.join('?')).toContain('AND "secret" = ?');
+  expect(factorQuery.join('?')).toContain('AND "is_enabled" = true');
+  expect(factorParameters).toEqual(['factor-1', 'user-1', 'encrypted']);
   expect(mocks.deleteRateLimit).toHaveBeenCalledWith({ where: { userId: 'user-1' } });
   expect(mocks.deleteApiKeys).toHaveBeenCalledWith({ where: { userId: 'user-1' } });
   expect(mocks.createSecureToken).toHaveBeenCalledWith(
@@ -175,9 +179,9 @@ test('POST rotates the session generation with factor deletion and returns only 
   await expect(response.json()).resolves.toEqual({ ok: true, token: 'fresh-session' });
 });
 
-test('POST never deletes a different enrollment after concurrent replacement', async () => {
+test('POST rejects a revoked session before consuming an OTP or deleting its factor', async () => {
   mocks.parseRequest.mockResolvedValue({
-    auth: { user: { id: 'user-1' } },
+    auth: { authType: 'session', user: { id: 'user-1' }, sessionGeneration: 0 },
     body: { password: 'password', token: '123456' },
     error: undefined,
   });
@@ -191,7 +195,50 @@ test('POST never deletes a different enrollment after concurrent replacement', a
   });
   mocks.reserveTwoFactorAttempt.mockResolvedValue({ allowed: true });
   mocks.verifyTotp.mockResolvedValue(true);
-  mocks.deleteTwoFactorAuth.mockResolvedValue({ count: 0 });
+  mocks.queryRaw.mockReset();
+  mocks.queryRaw.mockResolvedValue([]);
+
+  const response = await POST(new Request('http://localhost/api/2fa/disable', { method: 'POST' }));
+
+  expect(response.status).toBe(401);
+  expect(mocks.queryRaw).toHaveBeenCalledTimes(1);
+  expect(mocks.consumeOtp).not.toHaveBeenCalled();
+  expect(mocks.deleteBackupCodes).not.toHaveBeenCalled();
+  expect(mocks.createSecureToken).not.toHaveBeenCalled();
+});
+
+test('POST rejects share-only authorization before checking factor state', async () => {
+  mocks.parseRequest.mockResolvedValue({
+    auth: { authType: 'share', shareToken: { shareId: 'share-1' } },
+    body: { password: 'password', token: '123456' },
+    error: undefined,
+  });
+
+  const response = await POST(new Request('http://localhost/api/2fa/disable', { method: 'POST' }));
+
+  expect(response.status).toBe(401);
+  expect(mocks.getTwoFactorRequirement).not.toHaveBeenCalled();
+  expect(mocks.getUser).not.toHaveBeenCalled();
+});
+
+test('POST never deletes a different enrollment after concurrent replacement', async () => {
+  mocks.parseRequest.mockResolvedValue({
+    auth: { authType: 'session', user: { id: 'user-1' }, sessionGeneration: 0 },
+    body: { password: 'password', token: '123456' },
+    error: undefined,
+  });
+  mocks.getTwoFactorRequirement.mockResolvedValue({ reason: null });
+  mocks.getUser.mockResolvedValue({ password: 'hashed-password' });
+  mocks.checkPassword.mockResolvedValue(true);
+  mocks.findTwoFactorAuth.mockResolvedValue({
+    id: 'factor-1',
+    isEnabled: true,
+    secret: 'encrypted',
+  });
+  mocks.reserveTwoFactorAttempt.mockResolvedValue({ allowed: true });
+  mocks.verifyTotp.mockResolvedValue(true);
+  mocks.queryRaw.mockReset();
+  mocks.queryRaw.mockResolvedValueOnce([{ sessionGeneration: 1 }]).mockResolvedValueOnce([]);
 
   const response = await POST(new Request('http://localhost/api/2fa/disable', { method: 'POST' }));
 
@@ -202,7 +249,7 @@ test('POST never deletes a different enrollment after concurrent replacement', a
 
 test('POST does not issue a replacement session when rate-limit cleanup fails inside the transaction', async () => {
   mocks.parseRequest.mockResolvedValue({
-    auth: { user: { id: 'user-1' } },
+    auth: { authType: 'session', user: { id: 'user-1' }, sessionGeneration: 0 },
     body: { password: 'password', token: '123456' },
     error: undefined,
   });
@@ -226,7 +273,7 @@ test('POST does not issue a replacement session when rate-limit cleanup fails in
 
 test('POST stops password guessing before hash comparison when the shared budget is exhausted', async () => {
   mocks.parseRequest.mockResolvedValue({
-    auth: { user: { id: 'user-1' } },
+    auth: { authType: 'session', user: { id: 'user-1' }, sessionGeneration: 0 },
     body: { password: 'guess', token: '123456' },
     error: undefined,
   });
@@ -246,7 +293,7 @@ test('POST stops password guessing before hash comparison when the shared budget
 
 test('POST fails closed when the password attempt budget cannot be checked', async () => {
   mocks.parseRequest.mockResolvedValue({
-    auth: { user: { id: 'user-1' } },
+    auth: { authType: 'session', user: { id: 'user-1' }, sessionGeneration: 0 },
     body: { password: 'guess', token: '123456' },
     error: undefined,
   });
@@ -263,7 +310,7 @@ test('POST fails closed when the password attempt budget cannot be checked', asy
 test('POST returns a configuration error after validating the caller', async () => {
   mocks.isTwoFactorConfigured.mockReturnValue(false);
   mocks.parseRequest.mockResolvedValue({
-    auth: { user: { id: 'user-1' } },
+    auth: { authType: 'session', user: { id: 'user-1' }, sessionGeneration: 0 },
     body: { password: 'secret', token: '123456' },
     error: undefined,
   });
@@ -282,7 +329,7 @@ test('POST returns a configuration error after validating the caller', async () 
 test('POST rejects an exhausted attempt before checking the disable code', async () => {
   const lockedUntil = new Date('2026-10-03T12:15:00.000Z');
   mocks.parseRequest.mockResolvedValue({
-    auth: { user: { id: 'user-1' } },
+    auth: { authType: 'session', user: { id: 'user-1' }, sessionGeneration: 0 },
     body: { password: 'password', token: '123456' },
     error: undefined,
   });

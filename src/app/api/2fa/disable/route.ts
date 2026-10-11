@@ -51,6 +51,10 @@ export async function POST(request: Request) {
     return error();
   }
 
+  if (auth.authType !== 'session' || !auth.user?.id) {
+    return unauthorized();
+  }
+
   if (!isTwoFactorConfigured()) {
     return serviceUnavailable(getTwoFactorConfigurationError());
   }
@@ -132,12 +136,21 @@ export async function POST(request: Request) {
 
   try {
     updatedUser = await prisma.transaction(async tx => {
-      const updated = await tx.user.updateMany({
-        where: { id: userId, password: userWithPw.password, deletedAt: null },
-        data: { sessionGeneration: { increment: 1 } },
-      });
+      const updatedUsers = await tx.$queryRaw<Array<{ sessionGeneration: number }>>`
+        UPDATE "user"
+        SET "session_generation" = "session_generation" + 1,
+            "updated_at" = CURRENT_TIMESTAMP
+        WHERE "user_id" = ${userId}::uuid
+          AND "password" = ${userWithPw.password}
+          AND "deleted_at" IS NULL
+          AND "session_generation" = ${auth.sessionGeneration}
+        RETURNING "session_generation" AS "sessionGeneration"
+      `;
 
-      if (updated.count !== 1) {
+      if (
+        updatedUsers.length !== 1 ||
+        updatedUsers[0].sessionGeneration !== auth.sessionGeneration + 1
+      ) {
         throw new CredentialsChangedError();
       }
 
@@ -145,11 +158,16 @@ export async function POST(request: Request) {
         throw new CodeAlreadyUsedError();
       }
 
-      const removed = await tx.twoFactorAuth.deleteMany({
-        where: { id: twoFactor.id, userId, isEnabled: true },
-      });
+      const removedFactors = await tx.$queryRaw<Array<{ id: string }>>`
+        DELETE FROM "two_factor_auth"
+        WHERE "id" = ${twoFactor.id}
+          AND "user_id" = ${userId}::uuid
+          AND "secret" = ${twoFactor.secret}
+          AND "is_enabled" = true
+        RETURNING "id"
+      `;
 
-      if (removed.count !== 1) {
+      if (removedFactors.length !== 1) {
         throw new FactorChangedError();
       }
 

@@ -4,12 +4,7 @@ import { confirmTwoFactorSetupSchema } from './schema';
 
 const mocks = vi.hoisted(() => {
   const tx = {
-    user: {
-      updateMany: vi.fn(),
-    },
-    twoFactorAuth: {
-      updateMany: vi.fn(),
-    },
+    $queryRaw: vi.fn(),
     twoFactorBackupCode: {
       deleteMany: vi.fn(),
       createMany: vi.fn(),
@@ -122,8 +117,7 @@ beforeEach(() => {
   mocks.parseRequest.mockReset();
   mocks.findUnique.mockReset();
   mocks.transaction.mockReset();
-  mocks.tx.user.updateMany.mockReset();
-  mocks.tx.twoFactorAuth.updateMany.mockReset();
+  mocks.tx.$queryRaw.mockReset();
   mocks.tx.twoFactorBackupCode.deleteMany.mockReset();
   mocks.tx.twoFactorBackupCode.createMany.mockReset();
   mocks.tx.apiKey.deleteMany.mockReset();
@@ -165,8 +159,9 @@ beforeEach(() => {
   mocks.resetRateLimit.mockResolvedValue(undefined);
   mocks.consumeOtp.mockResolvedValue(true);
   mocks.verifyTotp.mockResolvedValue(true);
-  mocks.tx.twoFactorAuth.updateMany.mockResolvedValue({ count: 1 });
-  mocks.tx.user.updateMany.mockResolvedValue({ count: 1 });
+  mocks.tx.$queryRaw
+    .mockResolvedValueOnce([{ sessionGeneration: 1 }])
+    .mockResolvedValueOnce([{ id: 'enrollment-1' }]);
   mocks.tx.twoFactorBackupCode.deleteMany.mockResolvedValue(undefined);
   mocks.tx.twoFactorBackupCode.createMany.mockResolvedValue(undefined);
   mocks.getUser.mockResolvedValue({
@@ -330,19 +325,18 @@ test('POST confirms setup, enables 2FA, stores backup codes, and resets the rate
   expect(mocks.reserveTwoFactorAttempt).toHaveBeenCalledWith('user-1');
   expect(mocks.decryptSecret).toHaveBeenCalledWith('encrypted');
   expect(mocks.verifyTotp).toHaveBeenCalledWith('123456', 'plain-secret');
-  expect(mocks.tx.user.updateMany).toHaveBeenCalledWith({
-    where: { id: 'user-1', password: 'hashed-password', deletedAt: null, sessionGeneration: 0 },
-    data: { sessionGeneration: { increment: 1 } },
-  });
-  expect(mocks.tx.twoFactorAuth.updateMany).toHaveBeenCalledWith({
-    where: {
-      id: 'enrollment-1',
-      userId: 'user-1',
-      secret: 'encrypted',
-      isEnabled: false,
-    },
-    data: { isEnabled: true },
-  });
+  const [userQuery, ...userParameters] = mocks.tx.$queryRaw.mock.calls[0];
+  expect(userQuery.join('?')).toContain('WHERE "user_id" = ?::uuid');
+  expect(userQuery.join('?')).toContain('AND "password" = ?');
+  expect(userQuery.join('?')).toContain('AND "deleted_at" IS NULL');
+  expect(userQuery.join('?')).toContain('AND "session_generation" = ?');
+  expect(userParameters).toEqual(['user-1', 'hashed-password', 0]);
+  const [factorQuery, ...factorParameters] = mocks.tx.$queryRaw.mock.calls[1];
+  expect(factorQuery.join('?')).toContain('WHERE "id" = ?');
+  expect(factorQuery.join('?')).toContain('AND "user_id" = ?::uuid');
+  expect(factorQuery.join('?')).toContain('AND "secret" = ?');
+  expect(factorQuery.join('?')).toContain('AND "is_enabled" = false');
+  expect(factorParameters).toEqual(['enrollment-1', 'user-1', 'encrypted']);
   expect(mocks.tx.twoFactorBackupCode.deleteMany).toHaveBeenCalledWith({
     where: { userId: 'user-1' },
   });
@@ -394,7 +388,8 @@ test('POST cannot issue a post-reset session from a pre-reset confirmation reque
 });
 
 test('POST rejects a stale session before enabling a factor or revoking keys', async () => {
-  mocks.tx.user.updateMany.mockResolvedValue({ count: 0 });
+  mocks.tx.$queryRaw.mockReset();
+  mocks.tx.$queryRaw.mockResolvedValue([]);
 
   const response = await POST(
     new Request('http://localhost/api/2fa/setup/confirm', { method: 'POST' }),
@@ -402,25 +397,28 @@ test('POST rejects a stale session before enabling a factor or revoking keys', a
 
   expect(response.status).toBe(401);
   await expect(response.json()).resolves.toMatchObject({ error: { code: 'credentials-changed' } });
-  expect(mocks.tx.twoFactorAuth.updateMany).not.toHaveBeenCalled();
+  expect(mocks.tx.$queryRaw).toHaveBeenCalledTimes(1);
   expect(mocks.tx.apiKey.deleteMany).not.toHaveBeenCalled();
   expect(mocks.tx.appSetting.deleteMany).not.toHaveBeenCalled();
   expect(mocks.createSecureToken).not.toHaveBeenCalled();
 });
 
 test('POST rejects a password change between verification and the enrollment write', async () => {
-  mocks.tx.user.updateMany.mockResolvedValue({ count: 0 });
+  mocks.tx.$queryRaw.mockReset();
+  mocks.tx.$queryRaw.mockResolvedValue([]);
 
   const response = await POST(
     new Request('http://localhost/api/2fa/setup/confirm', { method: 'POST' }),
   );
 
-  expect(mocks.tx.user.updateMany).toHaveBeenCalledWith({
-    where: { id: 'user-1', password: 'hashed-password', deletedAt: null, sessionGeneration: 0 },
-    data: { sessionGeneration: { increment: 1 } },
-  });
+  expect(mocks.tx.$queryRaw).toHaveBeenCalledWith(
+    expect.any(Array),
+    'user-1',
+    'hashed-password',
+    0,
+  );
   expect(response.status).toBe(401);
-  expect(mocks.tx.twoFactorAuth.updateMany).not.toHaveBeenCalled();
+  expect(mocks.tx.$queryRaw).toHaveBeenCalledTimes(1);
   expect(mocks.createSecureToken).not.toHaveBeenCalled();
 });
 
@@ -451,13 +449,14 @@ test('POST leaves setup pending when another request consumes the TOTP first', a
   await expect(response.json()).resolves.toMatchObject({
     error: { code: 'two-factor-error-code-used' },
   });
-  expect(mocks.tx.twoFactorAuth.updateMany).toHaveBeenCalled();
+  expect(mocks.tx.$queryRaw).toHaveBeenCalledTimes(2);
   expect(mocks.tx.appSetting.deleteMany).not.toHaveBeenCalled();
   expect(mocks.resetRateLimit).not.toHaveBeenCalled();
 });
 
 test('POST rejects a replaced or completed setup before consuming an OTP or issuing a session', async () => {
-  mocks.tx.twoFactorAuth.updateMany.mockResolvedValue({ count: 0 });
+  mocks.tx.$queryRaw.mockReset();
+  mocks.tx.$queryRaw.mockResolvedValueOnce([{ sessionGeneration: 1 }]).mockResolvedValueOnce([]);
 
   const response = await POST(
     new Request('http://localhost/api/2fa/setup/confirm', { method: 'POST' }),

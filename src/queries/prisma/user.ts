@@ -223,20 +223,22 @@ async function writePasswordIfCurrent(
     : runSerializedUserMutation;
 
   return runMutation(async transaction => {
-    const updated = await transaction.user.updateMany({
-      where: {
-        id: userId,
-        password: expectedPassword,
-        deletedAt: null,
-        sessionGeneration: expectedSessionGeneration,
-      },
-      data: {
-        password: nextPassword,
-        ...(rotateCredentials ? { sessionGeneration: { increment: 1 } } : {}),
-      },
-    });
+    const updated = await transaction.$queryRaw<Array<{ sessionGeneration: number }>>`
+      UPDATE "user"
+      SET "password" = ${nextPassword},
+          "session_generation" = "session_generation" + ${rotateCredentials ? 1 : 0},
+          "updated_at" = CURRENT_TIMESTAMP
+      WHERE "user_id" = ${userId}::uuid
+        AND "password" = ${expectedPassword}
+        AND "deleted_at" IS NULL
+        AND "session_generation" = ${expectedSessionGeneration}
+      RETURNING "session_generation" AS "sessionGeneration"
+    `;
 
-    if (updated.count !== 1) {
+    if (
+      updated.length !== 1 ||
+      updated[0].sessionGeneration !== expectedSessionGeneration + (rotateCredentials ? 1 : 0)
+    ) {
       throw new Error('USER_CREDENTIALS_CHANGED');
     }
 

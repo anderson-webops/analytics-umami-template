@@ -131,26 +131,36 @@ export async function POST(request: Request) {
 
   try {
     await prisma.transaction(async tx => {
-      const userUpdated = await tx.user.updateMany({
-        where: {
-          id: userId,
-          password: userWithPassword.password,
-          deletedAt: null,
-          sessionGeneration: auth.sessionGeneration,
-        },
-        data: { sessionGeneration: { increment: 1 } },
-      });
+      const updatedUsers = await tx.$queryRaw<Array<{ sessionGeneration: number }>>`
+        UPDATE "user"
+        SET "session_generation" = "session_generation" + 1,
+            "updated_at" = CURRENT_TIMESTAMP
+        WHERE "user_id" = ${userId}::uuid
+          AND "password" = ${userWithPassword.password}
+          AND "deleted_at" IS NULL
+          AND "session_generation" = ${auth.sessionGeneration}
+        RETURNING "session_generation" AS "sessionGeneration"
+      `;
 
-      if (userUpdated.count !== 1) {
+      if (
+        updatedUsers.length !== 1 ||
+        updatedUsers[0].sessionGeneration !== auth.sessionGeneration + 1
+      ) {
         throw new CredentialsChangedError();
       }
 
-      const updated = await tx.twoFactorAuth.updateMany({
-        where: { id: twoFactor.id, userId, secret: twoFactor.secret, isEnabled: false },
-        data: { isEnabled: true },
-      });
+      const updatedFactors = await tx.$queryRaw<Array<{ id: string }>>`
+        UPDATE "two_factor_auth"
+        SET "is_enabled" = true,
+            "updated_at" = CURRENT_TIMESTAMP
+        WHERE "id" = ${twoFactor.id}
+          AND "user_id" = ${userId}::uuid
+          AND "secret" = ${twoFactor.secret}
+          AND "is_enabled" = false
+        RETURNING "id"
+      `;
 
-      if (updated.count !== 1) {
+      if (updatedFactors.length !== 1) {
         throw new SetupChangedError();
       }
 

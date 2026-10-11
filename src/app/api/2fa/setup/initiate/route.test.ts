@@ -9,7 +9,8 @@ const mocks = vi.hoisted(() => ({
   reservePasswordVerificationAttempt: vi.fn(),
   findUnique: vi.fn(),
   createMany: vi.fn(),
-  updateMany: vi.fn(),
+  queryRaw: vi.fn(),
+  transaction: vi.fn(),
   generateTotpSecret: vi.fn(),
   encryptSecret: vi.fn(),
   isTwoFactorConfigured: vi.fn(),
@@ -39,10 +40,9 @@ vi.mock('@/lib/prisma', () => ({
     client: {
       twoFactorAuth: {
         findUnique: mocks.findUnique,
-        createMany: mocks.createMany,
-        updateMany: mocks.updateMany,
       },
     },
+    transaction: mocks.transaction,
   },
 }));
 
@@ -70,7 +70,13 @@ beforeEach(() => {
   mocks.reservePasswordVerificationAttempt.mockReset();
   mocks.findUnique.mockReset();
   mocks.createMany.mockReset();
-  mocks.updateMany.mockReset();
+  mocks.queryRaw.mockReset();
+  mocks.transaction.mockReset().mockImplementation(async operation =>
+    operation({
+      $queryRaw: mocks.queryRaw,
+      twoFactorAuth: { createMany: mocks.createMany },
+    }),
+  );
   mocks.generateTotpSecret.mockReset();
   mocks.encryptSecret.mockReset();
   mocks.isTwoFactorConfigured.mockReset();
@@ -79,7 +85,7 @@ beforeEach(() => {
 
   mocks.isTwoFactorConfigured.mockReturnValue(true);
   mocks.parseRequest.mockResolvedValue({
-    auth: { authType: 'session', user: { id: 'user-1' } },
+    auth: { authType: 'session', user: { id: 'user-1' }, sessionGeneration: 0 },
     body: { password: 'current-password' },
     error: undefined,
   });
@@ -92,7 +98,9 @@ beforeEach(() => {
   mocks.generateOtpAuthUri.mockReturnValue('otpauth://alice');
   mocks.generateQrCodeDataUrl.mockResolvedValue('data:image/png;base64,qr');
   mocks.createMany.mockResolvedValue({ count: 1 });
-  mocks.updateMany.mockResolvedValue({ count: 1 });
+  mocks.queryRaw.mockImplementation(async strings =>
+    strings.join('').includes('FOR UPDATE') ? [{ sessionGeneration: 0 }] : [{ id: 'enrollment-1' }],
+  );
 });
 
 afterEach(() => {
@@ -170,7 +178,7 @@ test('POST rejects an incorrect password without exposing or replacing a secret'
   expect(mocks.generateTotpSecret).not.toHaveBeenCalled();
   expect(mocks.findUnique).toHaveBeenCalledWith({ where: { userId: 'user-1' } });
   expect(mocks.createMany).not.toHaveBeenCalled();
-  expect(mocks.updateMany).not.toHaveBeenCalled();
+  expect(mocks.queryRaw).not.toHaveBeenCalled();
 });
 
 test('POST stops password guessing before comparison when the shared limit is exhausted', async () => {
@@ -220,7 +228,7 @@ test('POST reports a configuration error when the encryption key is missing', as
   );
 
   expect(mocks.createMany).not.toHaveBeenCalled();
-  expect(mocks.updateMany).not.toHaveBeenCalled();
+  expect(mocks.queryRaw).not.toHaveBeenCalled();
   await expect(response.json()).resolves.toMatchObject({
     error: {
       code: 'two-factor-error-not-configured',
@@ -237,7 +245,7 @@ test('POST rejects setup when 2FA is already enabled for the user', async () => 
   );
 
   expect(mocks.createMany).not.toHaveBeenCalled();
-  expect(mocks.updateMany).not.toHaveBeenCalled();
+  expect(mocks.queryRaw).not.toHaveBeenCalled();
   expect(mocks.reservePasswordVerificationAttempt).not.toHaveBeenCalled();
   await expect(response.json()).resolves.toMatchObject({
     error: {
@@ -259,23 +267,24 @@ test('POST replaces only the same still-pending setup', async () => {
     new Request('http://localhost/api/2fa/setup/initiate', { method: 'POST' }),
   );
 
-  expect(mocks.updateMany).toHaveBeenCalledWith({
-    where: {
-      id: 'enrollment-1',
-      userId: 'user-1',
-      secret: 'prior-secret',
-      isEnabled: false,
-    },
-    data: { secret: 'encrypted-secret' },
-  });
+  const [query, ...parameters] = mocks.queryRaw.mock.calls[1];
+  expect(query.join('?')).toContain('SET "secret" = ?');
+  expect(query.join('?')).toContain('WHERE "id" = ?');
+  expect(query.join('?')).toContain('AND "user_id" = ?::uuid');
+  expect(query.join('?')).toContain('AND "secret" = ?');
+  expect(query.join('?')).toContain('AND "is_enabled" = false');
+  expect(parameters).toEqual(['encrypted-secret', 'enrollment-1', 'user-1', 'prior-secret']);
+  expect(mocks.queryRaw.mock.calls[0][0].join('')).toContain('FOR UPDATE');
+  expect(mocks.queryRaw.mock.calls[0]).toContain('password-hash');
+  expect(mocks.queryRaw.mock.calls[0]).toContain(0);
   expect(mocks.createMany).not.toHaveBeenCalled();
   expect(response.status).toBe(200);
 });
 
-test.each(['createMany', 'updateMany'])(
+test.each(['createMany', 'queryRaw'])(
   'POST rejects a setup changed during %s without exposing its unused secret',
   async write => {
-    if (write === 'updateMany') {
+    if (write === 'queryRaw') {
       mocks.findUnique.mockResolvedValue({
         id: 'enrollment-1',
         userId: 'user-1',
@@ -283,7 +292,11 @@ test.each(['createMany', 'updateMany'])(
         isEnabled: false,
       });
     }
-    mocks[write].mockResolvedValue({ count: 0 });
+    if (write === 'queryRaw') {
+      mocks.queryRaw.mockResolvedValueOnce([{ sessionGeneration: 0 }]).mockResolvedValueOnce([]);
+    } else {
+      mocks.createMany.mockResolvedValue({ count: 0 });
+    }
 
     const response = await POST(
       new Request('http://localhost/api/2fa/setup/initiate', { method: 'POST' }),
@@ -295,3 +308,24 @@ test.each(['createMany', 'updateMany'])(
     });
   },
 );
+
+test('POST rejects a stale session before changing a pending factor', async () => {
+  mocks.findUnique.mockResolvedValue({
+    id: 'enrollment-1',
+    userId: 'user-1',
+    secret: 'prior-secret',
+    isEnabled: false,
+  });
+  mocks.queryRaw.mockResolvedValue([]);
+
+  const response = await POST(
+    new Request('http://localhost/api/2fa/setup/initiate', { method: 'POST' }),
+  );
+
+  expect(response.status).toBe(401);
+  await expect(response.json()).resolves.toMatchObject({
+    error: { code: 'credentials-changed' },
+  });
+  expect(mocks.queryRaw).toHaveBeenCalledTimes(1);
+  expect(mocks.createMany).not.toHaveBeenCalled();
+});

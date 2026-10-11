@@ -94,17 +94,47 @@ export async function POST(request: Request) {
   const otpAuthUri = generateOtpAuthUri(secret, user.username);
   const qrCodeDataUrl = await generateQrCodeDataUrl(otpAuthUri);
 
-  const written = existing
-    ? await prisma.client.twoFactorAuth.updateMany({
-        where: { id: existing.id, userId, secret: existing.secret, isEnabled: false },
-        data: { secret: encryptedSecret },
-      })
-    : await prisma.client.twoFactorAuth.createMany({
-        data: [{ userId, secret: encryptedSecret, isEnabled: false }],
-        skipDuplicates: true,
-      });
+  const writeResult = await prisma.transaction(async transaction => {
+    const current = await transaction.$queryRaw<Array<{ sessionGeneration: number }>>`
+      SELECT "session_generation" AS "sessionGeneration"
+      FROM "user"
+      WHERE "user_id" = ${userId}::uuid
+        AND "password" = ${user.password}
+        AND "deleted_at" IS NULL
+        AND "session_generation" = ${auth.sessionGeneration}
+      FOR UPDATE
+    `;
 
-  if (written.count !== 1) {
+    if (current.length !== 1) {
+      return 'credentials-changed';
+    }
+
+    if (existing) {
+      const updated = await transaction.$queryRaw<Array<{ id: string }>>`
+        UPDATE "two_factor_auth"
+        SET "secret" = ${encryptedSecret},
+            "updated_at" = CURRENT_TIMESTAMP
+        WHERE "id" = ${existing.id}
+          AND "user_id" = ${userId}::uuid
+          AND "secret" = ${existing.secret}
+          AND "is_enabled" = false
+        RETURNING "id"
+      `;
+      return updated.length === 1 ? 'written' : 'setup-changed';
+    }
+
+    const created = await transaction.twoFactorAuth.createMany({
+      data: [{ userId, secret: encryptedSecret, isEnabled: false }],
+      skipDuplicates: true,
+    });
+    return created.count === 1 ? 'written' : 'setup-changed';
+  });
+
+  if (writeResult === 'credentials-changed') {
+    return unauthorized({ code: 'credentials-changed' });
+  }
+
+  if (writeResult !== 'written') {
     return conflict({
       code: 'two-factor-error-setup-changed',
       message: '2FA setup changed; start again',
