@@ -1,6 +1,12 @@
 import { expect, test } from './fixtures';
 import { UNKNOWN_UUID } from './helpers/constants';
-import { createWebsite, deleteWebsite, uniqueDomain, uniqueName } from './helpers/entities';
+import {
+  createWebsite,
+  deleteWebsite,
+  uniqueDomain,
+  uniqueName,
+  uniqueSlug,
+} from './helpers/entities';
 
 test.describe('Teams', () => {
   test.describe.configure({ mode: 'serial' });
@@ -67,14 +73,14 @@ test.describe('Teams', () => {
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({ id: teamId, accessCode: expect.any(String) });
     expect(denied.status).toBe(401);
-    expect(unknown.status).toBe(404);
+    expect(unknown.status).toBe(401);
 
     accessCode = response.body.accessCode;
   });
 
   test('POST /api/teams/{teamId} updates the team', async ({ admin, user }) => {
     const name = uniqueName('renamed');
-    const newCode = `team_${uniqueName('code')}`;
+    const newCode = `team_${uniqueSlug('code')}`;
     const response = await admin.post(`/api/teams/${teamId}`, { name, accessCode: newCode });
     const denied = await user.post(`/api/teams/${teamId}`, { name });
 
@@ -85,19 +91,36 @@ test.describe('Teams', () => {
     accessCode = newCode;
   });
 
-  test('POST /api/teams/join adds the caller to a team', async ({ viewer, seed }) => {
+  test('POST /api/teams/join rejects view-only self-joining', async ({ viewer }) => {
     const response = await viewer.post('/api/teams/join', { accessCode });
-    const again = await viewer.post('/api/teams/join', { accessCode });
-    const unknown = await viewer.post('/api/teams/join', { accessCode: 'team_nope' });
+    const detail = await viewer.get(`/api/teams/${teamId}`);
+    const list = await viewer.get('/api/teams');
+
+    expect(response.status).toBe(401);
+    expect(detail.status).toBe(401);
+    expect(list.body.data.map((team: any) => team.id)).not.toContain(teamId);
+  });
+
+  test('POST /api/teams/join adds an ordinary caller to a team', async ({
+    admin,
+    user,
+    viewer,
+    seed,
+  }) => {
+    const response = await user.post('/api/teams/join', { accessCode });
+    const again = await user.post('/api/teams/join', { accessCode });
+    const unknown = await user.post('/api/teams/join', {
+      accessCode: 'team_0000000000000000',
+    });
 
     expect(response.status).toBe(200);
-    expect(response.body).toMatchObject({ teamId, userId: seed.viewer.id, role: 'team-member' });
+    expect(response.body).toMatchObject({ teamId, userId: seed.user.id, role: 'team-member' });
     expect(again.status).toBe(400);
     expect(unknown.status).toBe(404);
     expect(unknown.body.error.code).toBe('team-not-found');
 
-    const memberDetail = await viewer.get(`/api/teams/${teamId}`);
-    const memberList = await viewer.get('/api/teams');
+    const memberDetail = await user.get(`/api/teams/${teamId}`);
+    const memberList = await user.get('/api/teams');
 
     expect(memberDetail.status).toBe(200);
     expect(memberDetail.body).not.toHaveProperty('accessCode');
@@ -105,6 +128,18 @@ test.describe('Teams', () => {
 
     expect(listedTeam).toBeDefined();
     expect(listedTeam).not.toHaveProperty('accessCode');
+
+    const removed = await admin.del(`/api/teams/${teamId}/users/${seed.user.id}`);
+    expect(removed.status).toBe(200);
+
+    const granted = await admin.post(`/api/teams/${teamId}/users`, {
+      userId: seed.viewer.id,
+      role: 'team-member',
+    });
+    expect(granted.status).toBe(200);
+    const viewerDetail = await viewer.get(`/api/teams/${teamId}`);
+    expect(viewerDetail.status).toBe(200);
+    expect(viewerDetail.body).not.toHaveProperty('accessCode');
   });
 
   test('GET /api/teams/{teamId}/users lists the members', async ({ admin, viewer, user }) => {

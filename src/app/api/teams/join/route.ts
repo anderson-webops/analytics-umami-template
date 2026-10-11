@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { parseRequest } from '@/lib/request';
-import { badRequest, json, notFound } from '@/lib/response';
+import { badRequest, json, notFound, unauthorized } from '@/lib/response';
+import { canMutateResource } from '@/permissions/mutation';
 import { joinTeamByAccessCode } from '@/queries/prisma';
 
 export async function POST(request: Request) {
@@ -12,6 +13,10 @@ export async function POST(request: Request) {
 
   if (error) {
     return error();
+  }
+
+  if (!canMutateResource(auth.user)) {
+    return unauthorized();
   }
 
   const { accessCode } = body;
@@ -28,6 +33,8 @@ export async function POST(request: Request) {
         return badRequest({ message: 'User is already a team member.' });
       case 'TEAM_USER_NOT_FOUND':
         return badRequest({ message: 'Your account is no longer active.' });
+      case 'TEAM_ACTOR_NOT_AUTHORIZED':
+        return unauthorized({ message: 'Your team-join permission changed.' });
       default:
         throw error;
     }

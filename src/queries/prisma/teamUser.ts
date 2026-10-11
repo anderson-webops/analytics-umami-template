@@ -143,21 +143,30 @@ export async function addTeamUserByActor(
 
 export async function joinTeamByAccessCode(userId: string, accessCode: string) {
   return runSerializable(async transaction => {
+    const [user] = await transaction.$queryRaw<
+      Array<{ id: string; role: string; deletedAt: Date | null }>
+    >`
+      SELECT user_id AS id, role, deleted_at AS "deletedAt"
+      FROM "user"
+      WHERE user_id = ${userId}::uuid
+      FOR UPDATE
+    `;
+
+    if (!user || user.deletedAt) {
+      throw new Error('TEAM_USER_NOT_FOUND');
+    }
+
+    if (!hasMutableGlobalRole(user.role)) {
+      throw new Error('TEAM_ACTOR_NOT_AUTHORIZED');
+    }
+
     const team = await transaction.team.findFirst({
       where: { accessCode, deletedAt: null },
-      select: { id: true },
-    });
-    const user = await transaction.user.findFirst({
-      where: { id: userId, deletedAt: null },
       select: { id: true },
     });
 
     if (!team) {
       throw new Error('TEAM_NOT_FOUND');
-    }
-
-    if (!user) {
-      throw new Error('TEAM_USER_NOT_FOUND');
     }
 
     const existing = await transaction.teamUser.findFirst({

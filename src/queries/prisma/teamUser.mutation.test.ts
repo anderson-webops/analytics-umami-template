@@ -1,6 +1,11 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { ROLES } from '@/lib/constants';
-import { addTeamUserByActor, getTeamUsers, transferTeamOwnership } from './teamUser';
+import {
+  addTeamUserByActor,
+  getTeamUsers,
+  joinTeamByAccessCode,
+  transferTeamOwnership,
+} from './teamUser';
 
 const {
   transactionMock,
@@ -9,6 +14,7 @@ const {
   teamUserCreate,
   teamUserFindMany,
   teamUserUpdate,
+  userForUpdate,
 } = vi.hoisted(() => ({
   transactionMock: vi.fn(),
   pagedQueryMock: vi.fn(),
@@ -16,6 +22,7 @@ const {
   teamUserCreate: vi.fn(),
   teamUserFindMany: vi.fn(),
   teamUserUpdate: vi.fn(),
+  userForUpdate: vi.fn(),
 }));
 
 vi.mock('@/lib/prisma', () => ({
@@ -33,8 +40,10 @@ beforeEach(() => {
   teamUserCreate.mockResolvedValue({ id: 'membership-1' });
   teamUserFindMany.mockResolvedValue([{ id: 'owner-membership', userId: 'actor-1' }]);
   teamUserUpdate.mockResolvedValue({ id: 'new-owner-membership' });
+  userForUpdate.mockResolvedValue([{ id: 'target-user', role: ROLES.user, deletedAt: null }]);
   transactionMock.mockImplementation(async callback =>
     callback({
+      $queryRaw: userForUpdate,
       user: {
         findUnique: actorFindUnique,
         findFirst: vi.fn().mockResolvedValue({ id: 'target-user' }),
@@ -96,3 +105,42 @@ test('an ordinary owner can still transfer team ownership', async () => {
   });
   expect(teamUserUpdate).toHaveBeenCalledTimes(2);
 });
+
+test.each([ROLES.viewOnly, ROLES.teamMember])(
+  'a globally non-mutable %s account cannot join using an access code',
+  async role => {
+    userForUpdate.mockResolvedValue([{ id: 'target-user', role, deletedAt: null }]);
+
+    await expect(joinTeamByAccessCode('target-user', 'team_abcdefghijklmnop')).rejects.toThrow(
+      'TEAM_ACTOR_NOT_AUTHORIZED',
+    );
+    expect(teamUserCreate).not.toHaveBeenCalled();
+    expect(userForUpdate.mock.calls[0][0].join('')).toContain('FOR UPDATE');
+  },
+);
+
+test.each([
+  ['absent', []],
+  ['deleted', [{ id: 'target-user', role: ROLES.user, deletedAt: new Date() }]],
+])('an %s account cannot join using an access code', async (_state, userRows) => {
+  userForUpdate.mockResolvedValue(userRows);
+
+  await expect(joinTeamByAccessCode('target-user', 'team_abcdefghijklmnop')).rejects.toThrow(
+    'TEAM_USER_NOT_FOUND',
+  );
+  expect(teamUserCreate).not.toHaveBeenCalled();
+});
+
+test.each([ROLES.user, ROLES.admin])(
+  'an active %s account can still join using an access code',
+  async role => {
+    userForUpdate.mockResolvedValue([{ id: 'target-user', role, deletedAt: null }]);
+
+    await expect(
+      joinTeamByAccessCode('target-user', 'team_abcdefghijklmnop'),
+    ).resolves.toMatchObject({ id: 'membership-1' });
+    expect(userForUpdate.mock.invocationCallOrder[0]).toBeLessThan(
+      teamUserCreate.mock.invocationCallOrder[0],
+    );
+  },
+);

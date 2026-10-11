@@ -35,6 +35,12 @@ if [[ "${1:-}" == --two-factor-state-races ]]; then
   run_two_factor_state_races
   exit 0
 fi
+if [[ "${1:-}" == --team-join-role ]]; then
+  DOTENV_CONFIG_PATH=/dev/null pnpm run db:migrate
+  ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null REDIS_URL='' CLOUD_MODE='' \
+    node --conditions=react-server --import tsx scripts/test-team-join-role.ts
+  exit 0
+fi
 if [[ "${1:-}" == --login-admission ]]; then
   "$pg_bin/psql" -h 127.0.0.1 -p "$port" -U restore_test -d postgres \
     -v ON_ERROR_STOP=1 -c 'CREATE TABLE "app_setting" ("key" TEXT PRIMARY KEY, "value" TEXT NOT NULL)' \
@@ -49,6 +55,8 @@ fi
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node scripts/test-postgres-restore.mjs "$@"
 pnpm run db:migrate
 run_two_factor_state_races
+ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null REDIS_URL='' CLOUD_MODE='' \
+  node --conditions=react-server --import tsx scripts/test-team-join-role.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-session-data-bulk.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-heatmap-budget.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-recorder-budget-retention.ts
