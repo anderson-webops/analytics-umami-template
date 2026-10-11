@@ -7,12 +7,19 @@ interface Counter {
   expiresAt: number;
 }
 
+interface CounterStore {
+  counters: Map<string, Counter>;
+  nextSweepAt: number;
+}
+
+type CounterKind = 'ip' | 'source';
+
 export interface CollectionLimit {
   blocked: boolean;
   retryAfter: number;
 }
 
-const MEMORY_COUNTERS = 'analytics-collection-rate-limit-counters';
+const MEMORY_COUNTERS = 'analytics-collection-rate-limit-counters-v2';
 const MAX_MEMORY_COUNTERS = 20_000;
 const transferableRequests = new WeakSet<Request>();
 const transferredRequests = new WeakSet<Request>();
@@ -44,16 +51,20 @@ function getPerSourceLimit(): number {
   return getBoundedInteger('COLLECTION_RATE_LIMIT_PER_SOURCE', 50_000, 100, 1_000_000);
 }
 
-function getMemoryCounters(): Map<string, Counter> {
+function getMemoryCounters(kind: CounterKind): CounterStore {
   const state = globalThis as typeof globalThis & Record<string, any>;
 
-  state[MEMORY_COUNTERS] ??= new Map<string, Counter>();
+  state[MEMORY_COUNTERS] ??= {
+    ip: { counters: new Map<string, Counter>(), nextSweepAt: 0 },
+    source: { counters: new Map<string, Counter>(), nextSweepAt: 0 },
+  };
 
-  return state[MEMORY_COUNTERS];
+  return state[MEMORY_COUNTERS][kind];
 }
 
-function getMemoryCounter(key: string): Counter {
-  const counters = getMemoryCounters();
+function getMemoryCounter(kind: CounterKind, key: string): Counter | null {
+  const store = getMemoryCounters(kind);
+  const { counters } = store;
   const now = Date.now();
   const current = counters.get(key);
 
@@ -61,20 +72,22 @@ function getMemoryCounter(key: string): Counter {
     return current;
   }
 
-  for (const [storedKey, counter] of counters) {
-    if (counter.expiresAt <= now) {
-      counters.delete(storedKey);
+  if (current) {
+    counters.delete(key);
+  }
+
+  if (counters.size >= MAX_MEMORY_COUNTERS && now >= store.nextSweepAt) {
+    store.nextSweepAt = now + 1000;
+
+    for (const [storedKey, counter] of counters) {
+      if (counter.expiresAt <= now) {
+        counters.delete(storedKey);
+      }
     }
   }
 
-  while (counters.size >= MAX_MEMORY_COUNTERS) {
-    const oldestKey = counters.keys().next().value;
-
-    if (!oldestKey) {
-      break;
-    }
-
-    counters.delete(oldestKey);
+  if (counters.size >= MAX_MEMORY_COUNTERS) {
+    return null;
   }
 
   const counter = { count: 0, expiresAt: now + getWindowSeconds() * 1000 };
@@ -88,7 +101,7 @@ function getSourceKey(sourceId: string): string {
 }
 
 async function getExistingCount(key: string): Promise<number> {
-  const memoryCounter = getMemoryCounters().get(key);
+  const memoryCounter = getMemoryCounters('source').counters.get(key);
   let count = memoryCounter && memoryCounter.expiresAt > Date.now() ? memoryCounter.count : 0;
 
   if (redis.enabled) {
@@ -106,7 +119,7 @@ async function getExistingCount(key: string): Promise<number> {
   return count;
 }
 
-async function increment(key: string): Promise<number> {
+async function increment(kind: CounterKind, key: string): Promise<number | null> {
   if (redis.enabled) {
     try {
       return await redis.client.incrementWithExpiry(key, getWindowSeconds());
@@ -115,7 +128,12 @@ async function increment(key: string): Promise<number> {
     }
   }
 
-  const counter = getMemoryCounter(key);
+  const counter = getMemoryCounter(kind, key);
+
+  if (!counter) {
+    return null;
+  }
+
   counter.count += 1;
 
   return counter.count;
@@ -128,8 +146,8 @@ export async function getCollectionIpLimit(request: Request): Promise<Collection
 
   transferableRequests.delete(request);
   const ip = getIpAddress(request.headers) || 'unknown';
-  const count = await increment(`collection-rate:ip:${hash(ip).slice(0, 32)}`);
-  const blocked = count > getPerIpLimit();
+  const count = await increment('ip', `collection-rate:ip:${hash(ip).slice(0, 32)}`);
+  const blocked = count === null || count > getPerIpLimit();
 
   if (!blocked) {
     transferableRequests.add(request);
@@ -150,10 +168,10 @@ export function transferCollectionIpLimit(from: Request, to: Request): void {
 }
 
 export async function getCollectionSourceLimit(sourceId: string): Promise<CollectionLimit> {
-  const count = await increment(getSourceKey(sourceId));
+  const count = await increment('source', getSourceKey(sourceId));
 
   return {
-    blocked: count > getPerSourceLimit(),
+    blocked: count === null || count > getPerSourceLimit(),
     retryAfter: getWindowSeconds(),
   };
 }

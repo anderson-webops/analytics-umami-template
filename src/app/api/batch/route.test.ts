@@ -7,7 +7,7 @@ import { OPTIONS, POST } from './route';
 
 const redisState = vi.hoisted(() => ({ enabled: false }));
 const sendPost = vi.hoisted(() => vi.fn());
-const countersKey = 'analytics-collection-rate-limit-counters';
+const countersKey = 'analytics-collection-rate-limit-counters-v2';
 
 vi.mock('@/app/api/send/route', () => ({ POST: sendPost }));
 vi.mock('@/lib/request', () => ({ parseRequest: vi.fn() }));
@@ -24,7 +24,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv('CLIENT_IP_HEADER', 'x-real-ip');
   vi.stubEnv('COLLECTION_RATE_LIMIT_PER_IP', '10');
-  (globalThis as typeof globalThis & Record<string, unknown>)[countersKey] = new Map();
+  (globalThis as typeof globalThis & Record<string, unknown>)[countersKey] = {
+    ip: { counters: new Map(), nextSweepAt: 0 },
+    source: { counters: new Map(), nextSweepAt: 0 },
+  };
   sendPost.mockImplementation(async request => {
     const limit = await getCollectionIpLimit(request);
 
@@ -45,8 +48,9 @@ test('a valid batch charges once per child, including the outer admission', asyn
 
   const response = await POST(batchRequest());
   const counters = (
-    globalThis as typeof globalThis & Record<string, Map<string, { count: number }>>
-  )[countersKey];
+    globalThis as typeof globalThis &
+      Record<string, { ip: { counters: Map<string, { count: number }> } }>
+  )[countersKey].ip.counters;
 
   expect(response.status).toBe(200);
   expect(await response.json()).toMatchObject({ size: 3, processed: 3, errors: 0 });
