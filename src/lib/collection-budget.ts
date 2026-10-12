@@ -16,6 +16,25 @@ export const COLLECTION_BUDGET_LIMITS = {
   },
 } as const;
 
+export const COLLECTION_CLIENT_BUDGET_LIMITS = {
+  send: {
+    minute: { bytes: 16 * 1024 * 1024, rows: 25_000, requests: 1_000 },
+    day: { bytes: 128 * 1024 * 1024, rows: 250_000, requests: 10_000 },
+  },
+  replay: {
+    minute: { bytes: 16 * 1024 * 1024, rows: 50_000, requests: 2_000 },
+    day: { bytes: 128 * 1024 * 1024, rows: 500_000, requests: 20_000 },
+  },
+  heatmap: {
+    minute: { bytes: 5 * 1024 * 1024, rows: 10_000, requests: 1_000 },
+    day: { bytes: 32 * 1024 * 1024, rows: 50_000, requests: 10_000 },
+  },
+  account: {
+    minute: { bytes: 64 * 1024 * 1024, rows: 125_000, requests: 3_000 },
+    day: { bytes: 512 * 1024 * 1024, rows: 1_000_000, requests: 50_000 },
+  },
+} as const;
+
 export class CollectionBudgetExceededError extends Error {
   constructor(public readonly retryAfter: number) {
     super('Collection storage budget exceeded.');
@@ -46,10 +65,41 @@ interface CollectionIdentity extends CollectionAccount {
   sourceId: string;
 }
 
+interface CollectionClientIdentity extends CollectionIdentity {
+  sourceClientHash: string;
+  accountClientHash: string;
+}
+
+type CollectionClientKind = 'send' | 'replay' | 'heatmap';
+
 interface BudgetSubject {
   type: 'source' | 'user' | 'team';
   key: string;
-  limits: (typeof COLLECTION_BUDGET_LIMITS)[keyof typeof COLLECTION_BUDGET_LIMITS];
+  limits:
+    | (typeof COLLECTION_BUDGET_LIMITS)[keyof typeof COLLECTION_BUDGET_LIMITS]
+    | (typeof COLLECTION_CLIENT_BUDGET_LIMITS)[keyof typeof COLLECTION_CLIENT_BUDGET_LIMITS];
+}
+
+function getClientBudgetSubjects(
+  { sourceClientHash, accountClientHash }: CollectionClientIdentity,
+  kind: CollectionClientKind,
+): BudgetSubject[] {
+  if (![sourceClientHash, accountClientHash].every(value => /^[a-f0-9]{32}$/.test(value))) {
+    throw new CollectionBudgetExceededError(60);
+  }
+
+  return [
+    {
+      type: 'source',
+      key: `client:${kind}:${sourceClientHash}`,
+      limits: COLLECTION_CLIENT_BUDGET_LIMITS[kind],
+    },
+    {
+      type: 'source',
+      key: `client:account:${accountClientHash}`,
+      limits: COLLECTION_CLIENT_BUDGET_LIMITS.account,
+    },
+  ];
 }
 
 export function getCollectionCost(body: CollectionBody): CollectionCost {
@@ -68,17 +118,29 @@ export function getCollectionCost(body: CollectionBody): CollectionCost {
 
 export async function reserveCollectionBudget(
   transaction: Prisma.TransactionClient,
-  { sourceType, sourceId, accountType, accountId }: CollectionIdentity,
+  identity: CollectionClientIdentity,
   cost: CollectionCost,
 ) {
+  const { sourceType, sourceId, accountType, accountId } = identity;
+
   return reserveBudget(
     transaction,
     [
+      ...getClientBudgetSubjects(identity, 'send'),
       { type: 'source', key: `${sourceType}:${sourceId}`, limits: COLLECTION_BUDGET_LIMITS.source },
       { type: accountType, key: accountId, limits: COLLECTION_BUDGET_LIMITS.account },
     ],
     cost,
   );
+}
+
+export async function reserveCollectionClientBudget(
+  transaction: Prisma.TransactionClient,
+  identity: CollectionClientIdentity,
+  kind: Exclude<CollectionClientKind, 'send'>,
+  cost: CollectionCost,
+) {
+  return reserveBudget(transaction, getClientBudgetSubjects(identity, kind), cost);
 }
 
 export async function reserveCollectionAccountBudget(

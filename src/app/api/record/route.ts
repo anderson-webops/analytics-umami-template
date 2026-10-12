@@ -1,7 +1,11 @@
 import { z } from 'zod';
 import { type CacheToken, parseCacheToken } from '@/lib/cache-token';
 import clickhouse from '@/lib/clickhouse';
-import { CollectionBudgetExceededError } from '@/lib/collection-budget';
+import { getCollectionClientKeys } from '@/lib/collection-client-key';
+import {
+  CollectionBudgetExceededError,
+  reserveCollectionClientBudget,
+} from '@/lib/collection-budget';
 import {
   getCollectionIpLimit,
   getCollectionSourceLimit,
@@ -14,10 +18,15 @@ import { getClientInfo, hasBlockedIp } from '@/lib/detect';
 import { isEnvEnabled } from '@/lib/env';
 import { HeatmapBudgetExceededError, reserveHeatmapBudget } from '@/lib/heatmap-budget';
 import { getHeatmapUrlPath } from '@/lib/heatmap-url';
+import { getIpAddress } from '@/lib/ip';
 import { fetchAccount, fetchTeam } from '@/lib/load';
 import { getRecorderConfig } from '@/lib/recorder';
 import { getReplayEventCount } from '@/lib/replay';
-import { ReplayBudgetExceededError, reserveReplayBudget } from '@/lib/replay-budget';
+import {
+  ReplayBudgetExceededError,
+  getReplayChargedBytes,
+  reserveReplayBudget,
+} from '@/lib/replay-budget';
 import { countReplayStructureUnits } from '@/lib/replay-structure';
 import { parseRequest } from '@/lib/request';
 import {
@@ -239,6 +248,8 @@ export async function POST(request: Request) {
       return tooManyRequests(sourceLimit.retryAfter);
     }
 
+    const clientIp = getIpAddress(request.headers) || 'unknown';
+
     try {
       const externalWrite = await withActiveCollectionSource(
         'website',
@@ -289,6 +300,7 @@ export async function POST(request: Request) {
             const maxTimestamp = eventTimestamps.length ? Math.max(...eventTimestamps) : fallbackMs;
 
             const chunkIndex = timestamp || Math.floor(Date.now() / 1000);
+            const replayBytes = Buffer.byteLength(JSON.stringify(events), 'utf8');
             const isNewChunk = await reserveReplayBudget(transaction, {
               websiteId,
               visitId,
@@ -296,7 +308,7 @@ export async function POST(request: Request) {
               accountId,
               chunkIndex,
               idempotent: timestamp !== undefined,
-              bytes: Buffer.byteLength(JSON.stringify(events), 'utf8'),
+              bytes: replayBytes,
               events: events.length,
               structureUnits,
             });
@@ -304,6 +316,23 @@ export async function POST(request: Request) {
             if (!isNewChunk) {
               return null;
             }
+
+            await reserveCollectionClientBudget(
+              transaction,
+              {
+                sourceType: 'website',
+                sourceId: websiteId,
+                accountType,
+                accountId,
+                ...getCollectionClientKeys('website', websiteId, accountType, accountId, clientIp),
+              },
+              'replay',
+              {
+                bytes: getReplayChargedBytes(replayBytes, structureUnits) + events.length * 512,
+                rows: events.length,
+                requests: 1,
+              },
+            );
 
             const recording = {
               websiteId,
@@ -348,14 +377,28 @@ export async function POST(request: Request) {
             createdAt: new Date(event.timestamp ?? fallbackMs),
           }));
 
+          const heatmapBytes = Buffer.byteLength(JSON.stringify(events), 'utf8');
           await reserveHeatmapBudget(transaction, {
             websiteId,
             visitId,
             accountType,
             accountId,
-            bytes: Buffer.byteLength(JSON.stringify(events), 'utf8'),
+            bytes: heatmapBytes,
             events: events.length,
           });
+
+          await reserveCollectionClientBudget(
+            transaction,
+            {
+              sourceType: 'website',
+              sourceId: websiteId,
+              accountType,
+              accountId,
+              ...getCollectionClientKeys('website', websiteId, accountType, accountId, clientIp),
+            },
+            'heatmap',
+            { bytes: heatmapBytes + events.length * 512, rows: events.length, requests: 1 },
+          );
 
           if (clickhouse.enabled) {
             return { kind: 'heatmap' as const, heatmapRows, accountType, accountId };

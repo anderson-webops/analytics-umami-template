@@ -26,6 +26,13 @@ export class ReplayBudgetExceededError extends Error {
   }
 }
 
+export function getReplayChargedBytes(bytes: number, structureUnits: number) {
+  return Math.max(
+    bytes,
+    Math.ceil((structureUnits * MAX_REPLAY_BYTES) / MAX_REPLAY_STRUCTURE_UNITS),
+  );
+}
+
 interface ReserveReplayBudgetArgs extends RecorderAccount {
   websiteId: string;
   visitId: string;
@@ -60,10 +67,7 @@ export async function reserveReplayBudget(
     throw new ReplayBudgetExceededError();
   }
 
-  const chargedBytes = Math.max(
-    bytes,
-    Math.ceil((structureUnits * MAX_REPLAY_BYTES) / MAX_REPLAY_STRUCTURE_UNITS),
-  );
+  const chargedBytes = getReplayChargedBytes(bytes, structureUnits);
 
   await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${websiteId}), hashtext(${visitId}))::text`;
 

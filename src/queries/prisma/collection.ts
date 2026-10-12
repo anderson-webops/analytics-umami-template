@@ -1,5 +1,6 @@
 import type { Prisma } from '@/generated/prisma/client';
 import { getCollectionCost, reserveCollectionBudget } from '@/lib/collection-budget';
+import { getCollectionClientKeys } from '@/lib/collection-client-key';
 import prisma from '@/lib/prisma';
 
 export type CollectionSourceType = 'website' | 'link' | 'pixel';
@@ -58,6 +59,7 @@ export async function reserveActiveCollectionBudget(
     type: 'event' | 'identify' | 'performance';
     payload: { data?: Record<string, unknown>; id?: string };
   },
+  clientIp: string,
 ) {
   const cost = getCollectionCost(body);
 
@@ -79,7 +81,13 @@ export async function reserveActiveCollectionBudget(
 
       await reserveCollectionBudget(
         transaction,
-        { sourceType, sourceId, accountType, accountId },
+        {
+          sourceType,
+          sourceId,
+          accountType,
+          accountId,
+          ...getCollectionClientKeys(sourceType, sourceId, accountType, accountId, clientIp),
+        },
         cost,
       );
     },

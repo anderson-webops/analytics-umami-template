@@ -16,6 +16,7 @@ import { isUnsafeSpreadsheetValue } from '@/lib/csv';
 import { getClientInfo, hasBlockedIp } from '@/lib/detect';
 import { isEnvEnabled } from '@/lib/env';
 import { truncateString } from '@/lib/format';
+import { getIpAddress } from '@/lib/ip';
 import { fetchWebsite } from '@/lib/load';
 import { parseRequest } from '@/lib/request';
 import { badRequest, json, serverError, tooManyRequests } from '@/lib/response';
@@ -285,7 +286,12 @@ export async function POST(request: Request) {
     }
 
     try {
-      await reserveActiveCollectionBudget(sourceType, sourceId, body);
+      await reserveActiveCollectionBudget(
+        sourceType,
+        sourceId,
+        body,
+        getIpAddress(request.headers) || 'unknown',
+      );
     } catch (error: any) {
       if (error instanceof CollectionBudgetExceededError) {
         return tooManyRequests(error.retryAfter);

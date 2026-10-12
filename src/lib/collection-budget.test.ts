@@ -1,10 +1,12 @@
 import { expect, test, vi } from 'vitest';
 import type { Prisma } from '@/generated/prisma/client';
+import { getCollectionClientKeys } from './collection-client-key';
 import {
   CollectionBudgetExceededError,
   getCollectionCost,
   reserveCollectionAccountBudget,
   reserveCollectionBudget,
+  reserveCollectionClientBudget,
 } from './collection-budget';
 
 const identity = {
@@ -12,6 +14,13 @@ const identity = {
   sourceId: '11111111-1111-4111-8111-111111111111',
   accountType: 'user' as const,
   accountId: '22222222-2222-4222-8222-222222222222',
+  ...getCollectionClientKeys(
+    'website',
+    '11111111-1111-4111-8111-111111111111',
+    'user',
+    '22222222-2222-4222-8222-222222222222',
+    '192.0.2.10',
+  ),
 };
 const cost = { bytes: 2_048, rows: 3, requests: 1 };
 
@@ -41,21 +50,62 @@ test('property-rich events consume rows and bytes proportional to persisted work
   expect(rich.requests).toBe(1);
 });
 
+test('client keys separate sources and IPs while sharing an owner across sources', () => {
+  const sourceA = getCollectionClientKeys(
+    'website',
+    identity.sourceId,
+    'user',
+    identity.accountId,
+    '192.0.2.10',
+  );
+  const sourceB = getCollectionClientKeys(
+    'website',
+    '33333333-3333-4333-8333-333333333333',
+    'user',
+    identity.accountId,
+    '192.0.2.10',
+  );
+  const otherClient = getCollectionClientKeys(
+    'website',
+    identity.sourceId,
+    'user',
+    identity.accountId,
+    '192.0.2.11',
+  );
+
+  expect(sourceA.sourceClientHash).not.toBe(sourceB.sourceClientHash);
+  expect(sourceA.accountClientHash).toBe(sourceB.accountClientHash);
+  expect(sourceA.sourceClientHash).not.toBe(otherClient.sourceClientHash);
+  expect(sourceA.accountClientHash).not.toBe(otherClient.accountClientHash);
+  expect(JSON.stringify(sourceA)).not.toContain('192.0.2.10');
+});
+
 test('identify, performance, and team-owned sources use the same budget boundary', async () => {
   expect(getCollectionCost({ type: 'identify', payload: { data: { key: 'value' } } }).rows).toBe(5);
   expect(getCollectionCost({ type: 'performance', payload: {} }).rows).toBe(2);
 
   const { client, query } = transaction([
     [{ currentTime: new Date('2026-10-06T11:30:00Z') }],
-    [{ requests: 2n }],
-    [{ requests: 2n }],
-    [{ requests: 2n }],
-    [{ requests: 2n }],
+    ...Array.from({ length: 8 }, () => [{ requests: 2n }]),
   ]);
 
-  await reserveCollectionBudget(client, { ...identity, accountType: 'team' }, cost);
-  expect(query.mock.calls[3][1]).toBe('team');
-  expect(query.mock.calls[3][2]).toBe(identity.accountId);
+  await reserveCollectionBudget(
+    client,
+    {
+      ...identity,
+      accountType: 'team',
+      ...getCollectionClientKeys(
+        identity.sourceType,
+        identity.sourceId,
+        'team',
+        identity.accountId,
+        '192.0.2.10',
+      ),
+    },
+    cost,
+  );
+  expect(query.mock.calls[7][1]).toBe('team');
+  expect(query.mock.calls[7][2]).toBe(identity.accountId);
 });
 
 test('invalid costs fail before any database reservation', async () => {
@@ -70,22 +120,51 @@ test('invalid costs fail before any database reservation', async () => {
 test('source and account minute/day reservations use distinct atomic keys', async () => {
   const { client, query, execute } = transaction([
     [{ currentTime: new Date('2026-10-06T11:30:00Z') }],
-    [{ requests: 1n }],
-    [{ requests: 1n }],
-    [{ requests: 1n }],
-    [{ requests: 1n }],
+    ...Array.from({ length: 8 }, () => [{ requests: 1n }]),
   ]);
 
   await reserveCollectionBudget(client, identity, cost);
 
-  expect(query).toHaveBeenCalledTimes(5);
+  expect(query).toHaveBeenCalledTimes(9);
   expect(query.mock.calls.slice(1).map(call => call.slice(1, 4))).toEqual([
+    ['source', `client:send:${identity.sourceClientHash}`, 'minute'],
+    ['source', `client:send:${identity.sourceClientHash}`, 'day'],
+    ['source', `client:account:${identity.accountClientHash}`, 'minute'],
+    ['source', `client:account:${identity.accountClientHash}`, 'day'],
     ['source', `website:${identity.sourceId}`, 'minute'],
     ['source', `website:${identity.sourceId}`, 'day'],
     ['user', identity.accountId, 'minute'],
     ['user', identity.accountId, 'day'],
   ]);
   expect(execute).toHaveBeenCalledOnce();
+});
+
+test.each(['replay', 'heatmap'] as const)(
+  '%s reservations charge the client source and owner before recorder persistence',
+  async kind => {
+    const { client, query } = transaction([
+      [{ currentTime: new Date('2026-10-06T11:30:00Z') }],
+      ...Array.from({ length: 4 }, () => [{ requests: 1n }]),
+    ]);
+
+    await reserveCollectionClientBudget(client, identity, kind, cost);
+
+    expect(query.mock.calls.slice(1).map(call => call[2])).toEqual([
+      `client:${kind}:${identity.sourceClientHash}`,
+      `client:${kind}:${identity.sourceClientHash}`,
+      `client:account:${identity.accountClientHash}`,
+      `client:account:${identity.accountClientHash}`,
+    ]);
+  },
+);
+
+test('an exhausted client budget fails before charging the shared source or owner', async () => {
+  const { client, query } = transaction([[{ currentTime: new Date('2026-10-06T11:30:00Z') }], []]);
+
+  await expect(reserveCollectionBudget(client, identity, cost)).rejects.toMatchObject({
+    retryAfter: 60,
+  });
+  expect(query).toHaveBeenCalledTimes(2);
 });
 
 test('recorder reservations share owner windows without reducing recorder-specific website limits', async () => {
@@ -121,20 +200,14 @@ test('recorder account-only reservations reject an exhausted owner window', asyn
 
 test('exhausted source and account windows fail with bounded retry intervals', async () => {
   const clock = [{ currentTime: new Date('2026-10-06T11:30:00Z') }];
-  const source = transaction([clock, []]);
+  const source = transaction([clock, ...Array.from({ length: 4 }, () => [{ requests: 2n }]), []]);
 
   await expect(reserveCollectionBudget(source.client, identity, cost)).rejects.toMatchObject({
     retryAfter: 60,
   });
   expect(source.execute).not.toHaveBeenCalled();
 
-  const account = transaction([
-    clock,
-    [{ requests: 2n }],
-    [{ requests: 2n }],
-    [{ requests: 2n }],
-    [],
-  ]);
+  const account = transaction([clock, ...Array.from({ length: 7 }, () => [{ requests: 2n }]), []]);
 
   await expect(reserveCollectionBudget(account.client, identity, cost)).rejects.toMatchObject({
     retryAfter: 86_400,

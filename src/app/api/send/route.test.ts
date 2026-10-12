@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 // Set a deterministic secret before anything reads it so that real crypto/jwt
 // helpers used by the route and by the test produce matching tokens.
@@ -168,10 +168,15 @@ beforeEach(() => {
   reserveActiveCollectionBudgetMock.mockResolvedValue(undefined);
 });
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 test.each([false, true])(
   'property-rich collection is rejected before any persistent write in ClickHouse mode %s',
   async enabled => {
     (clickhouse as any).enabled = enabled;
+    vi.stubEnv('CLIENT_IP_HEADER', 'x-real-ip');
     reserveActiveCollectionBudgetMock.mockRejectedValueOnce(
       new CollectionBudgetExceededError(86_400),
     );
@@ -181,14 +186,19 @@ test.each([false, true])(
       data: Object.fromEntries(Array.from({ length: 100 }, (_, index) => [`key${index}`, 'x'])),
     };
 
-    const response = await callPOST({ type: 'event', payload });
+    const response = await callPOST(
+      { type: 'event', payload },
+      { headers: { 'x-real-ip': '192.0.2.10', 'x-forwarded-for': '192.0.2.99' } },
+    );
 
     expect(response.status).toBe(429);
     expect(response.headers.get('Retry-After')).toBe('86400');
-    expect(reserveActiveCollectionBudgetMock).toHaveBeenCalledWith('website', WEBSITE_ID, {
-      type: 'event',
-      payload: { ...payload, hostname: 'example.com' },
-    });
+    expect(reserveActiveCollectionBudgetMock).toHaveBeenCalledWith(
+      'website',
+      WEBSITE_ID,
+      { type: 'event', payload: { ...payload, hostname: 'example.com' } },
+      '192.0.2.10',
+    );
     expect(createSessionMock).not.toHaveBeenCalled();
     expect(saveEventMock).not.toHaveBeenCalled();
   },

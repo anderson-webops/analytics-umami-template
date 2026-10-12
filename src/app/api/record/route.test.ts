@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { CollectionBudgetExceededError } from '@/lib/collection-budget';
+import { getCollectionClientKeys } from '@/lib/collection-client-key';
+import {
+  CollectionBudgetExceededError,
+  reserveCollectionClientBudget,
+} from '@/lib/collection-budget';
 import {
   getCollectionIpLimit,
   getCollectionSourceLimit,
@@ -23,6 +27,11 @@ vi.mock('@/lib/clickhouse', () => ({
       return clickhouseState.enabled;
     },
   },
+}));
+
+vi.mock('@/lib/collection-budget', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/lib/collection-budget')>()),
+  reserveCollectionClientBudget: vi.fn(),
 }));
 
 vi.mock('@/lib/collection-rate-limit', () => ({
@@ -303,6 +312,16 @@ describe('heatmap intake budget', () => {
         accountId: ACCOUNT_ID,
       }),
     );
+    expect(reserveCollectionClientBudget).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        sourceId: websiteId,
+        accountId: ACCOUNT_ID,
+        ...getCollectionClientKeys('website', websiteId, 'user', ACCOUNT_ID, 'unknown'),
+      }),
+      'heatmap',
+      expect.objectContaining({ rows: 1, requests: 1 }),
+    );
     expect(saveHeatmapEvents).toHaveBeenCalledOnce();
     expect(getCollectionSourceLimit).toHaveBeenCalledWith(websiteId);
     expect(getCollectionSourceStatus).toHaveBeenCalledWith(websiteId);
@@ -310,6 +329,9 @@ describe('heatmap intake budget', () => {
       vi.mocked(getCollectionSourceLimit).mock.invocationCallOrder[0],
     );
     expect(vi.mocked(reserveHeatmapBudget).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(reserveCollectionClientBudget).mock.invocationCallOrder[0],
+    );
+    expect(vi.mocked(reserveCollectionClientBudget).mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(saveHeatmapEvents).mock.invocationCallOrder[0],
     );
   });
@@ -415,6 +437,25 @@ describe('heatmap intake budget', () => {
   test('does not write heatmaps when the shared owner budget is exhausted', async () => {
     prepareHeatmapRequest();
     vi.mocked(reserveHeatmapBudget).mockRejectedValueOnce(new CollectionBudgetExceededError(60));
+
+    const response = await POST(
+      new Request('http://localhost/api/record', {
+        method: 'POST',
+        headers: { 'x-umami-cache': 'signed-token' },
+      }),
+    );
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get('Retry-After')).toBe('60');
+    expect(saveHeatmapEvents).not.toHaveBeenCalled();
+  });
+
+  test('a saturated client cannot persist heatmaps in either sink', async () => {
+    prepareHeatmapRequest();
+    clickhouseState.enabled = true;
+    vi.mocked(reserveCollectionClientBudget).mockRejectedValueOnce(
+      new CollectionBudgetExceededError(60),
+    );
 
     const response = await POST(
       new Request('http://localhost/api/record', {
@@ -565,6 +606,21 @@ describe('external replay budget commit', () => {
       expect.anything(),
       expect.objectContaining({ accountType: 'user', accountId: ACCOUNT_ID }),
     );
+    expect(reserveCollectionClientBudget).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        accountId: ACCOUNT_ID,
+        ...getCollectionClientKeys(
+          'website',
+          '11111111-1111-4111-8111-111111111111',
+          'user',
+          ACCOUNT_ID,
+          'unknown',
+        ),
+      }),
+      'replay',
+      expect.objectContaining({ rows: 1, requests: 1 }),
+    );
     expect(withActiveCollectionSource).toHaveBeenCalledTimes(2);
     expect(saveRecording).toHaveBeenCalledWith(expect.objectContaining({ eventCount: 1 }));
     expect(vi.mocked(withActiveCollectionSource).mock.invocationCallOrder[1]).toBeLessThan(
@@ -629,6 +685,29 @@ describe('external replay budget commit', () => {
   test('does not write replays when the shared owner budget is exhausted', async () => {
     prepareReplayRequest();
     vi.mocked(reserveReplayBudget).mockRejectedValueOnce(new CollectionBudgetExceededError(86_400));
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get('Retry-After')).toBe('86400');
+    expect(saveRecording).not.toHaveBeenCalled();
+  });
+
+  test('an idempotent replay retry does not charge the client again', async () => {
+    prepareReplayRequest();
+    vi.mocked(reserveReplayBudget).mockResolvedValueOnce(false);
+
+    expect((await POST(request())).status).toBe(200);
+    expect(reserveCollectionClientBudget).not.toHaveBeenCalled();
+    expect(saveRecording).not.toHaveBeenCalled();
+  });
+
+  test('a saturated client cannot persist replay in either sink', async () => {
+    prepareReplayRequest();
+    clickhouseState.enabled = true;
+    vi.mocked(reserveCollectionClientBudget).mockRejectedValueOnce(
+      new CollectionBudgetExceededError(86_400),
+    );
 
     const response = await POST(request());
 

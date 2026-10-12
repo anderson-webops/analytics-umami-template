@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import {
   COLLECTION_BUDGET_LIMITS,
+  COLLECTION_CLIENT_BUDGET_LIMITS,
   CollectionBudgetExceededError,
   getCollectionCost,
 } from '@/lib/collection-budget';
+import { hash } from '@/lib/crypto';
 import prisma from '@/lib/prisma';
 import { reserveActiveCollectionBudget } from '@/queries/prisma/collection';
 
@@ -24,9 +26,19 @@ const body = {
   },
 };
 const cost = getCollectionCost(body);
+const firstClientIp = '192.0.2.10';
+const secondClientIp = '192.0.2.11';
+const clientSourceKey = (sourceType: string, sourceId: string, clientIp: string) =>
+  `client:send:${hash(`${sourceType}:${sourceId}:${clientIp}`).slice(0, 32)}`;
+const clientAccountKey = (clientIp: string) =>
+  `client:account:${hash(`user:${userId}:${clientIp}`).slice(0, 32)}`;
 
-async function reserve(sourceType: 'website' | 'link' | 'pixel', sourceId: string) {
-  return reserveActiveCollectionBudget(sourceType, sourceId, body);
+async function reserve(
+  sourceType: 'website' | 'link' | 'pixel',
+  sourceId: string,
+  clientIp = firstClientIp,
+) {
+  return reserveActiveCollectionBudget(sourceType, sourceId, body, clientIp);
 }
 
 try {
@@ -65,6 +77,38 @@ try {
   assert.ok(accountWindows.every(window => window.requests === 3n));
   assert.ok(accountWindows.every(window => window.rows === BigInt(cost.rows * 3)));
 
+  const firstClientMinute = await prisma.client.collectionIngestBudget.findFirstOrThrow({
+    where: {
+      subjectType: 'source',
+      subjectKey: clientSourceKey('website', websiteId, firstClientIp),
+      scope: 'minute',
+    },
+  });
+  await prisma.client.collectionIngestBudget.update({
+    where: {
+      subjectType_subjectKey_scope_windowStart: {
+        subjectType: 'source',
+        subjectKey: firstClientMinute.subjectKey,
+        scope: 'minute',
+        windowStart: firstClientMinute.windowStart,
+      },
+    },
+    data: { rows: BigInt(COLLECTION_CLIENT_BUDGET_LIMITS.send.minute.rows - cost.rows) },
+  });
+  await reserve('website', websiteId);
+  const beforeRejectedClient = await prisma.client.collectionIngestBudget.findFirstOrThrow({
+    where: { subjectType: 'user', subjectKey: userId, scope: 'minute' },
+  });
+  await assert.rejects(
+    () => reserve('website', websiteId),
+    error => error instanceof CollectionBudgetExceededError && error.retryAfter === 60,
+  );
+  const afterRejectedClient = await prisma.client.collectionIngestBudget.findFirstOrThrow({
+    where: { subjectType: 'user', subjectKey: userId, scope: 'minute' },
+  });
+  assert.equal(afterRejectedClient.rows, beforeRejectedClient.rows);
+  await reserve('website', websiteId, secondClientIp);
+
   const sourceMinute = await prisma.client.collectionIngestBudget.findFirstOrThrow({
     where: { subjectType: 'source', subjectKey: `website:${websiteId}`, scope: 'minute' },
   });
@@ -79,9 +123,9 @@ try {
     },
     data: { rows: BigInt(COLLECTION_BUDGET_LIMITS.source.minute.rows - cost.rows) },
   });
-  await reserve('website', websiteId);
+  await reserve('website', websiteId, secondClientIp);
   await assert.rejects(
-    () => reserve('website', websiteId),
+    () => reserve('website', websiteId, secondClientIp),
     error => error instanceof CollectionBudgetExceededError && error.retryAfter === 60,
   );
 
@@ -100,7 +144,10 @@ try {
     data: { rows: BigInt(COLLECTION_BUDGET_LIMITS.account.day.rows - cost.rows) },
   });
 
-  const concurrent = await Promise.allSettled([reserve('link', linkId), reserve('pixel', pixelId)]);
+  const concurrent = await Promise.allSettled([
+    reserve('link', linkId, secondClientIp),
+    reserve('pixel', pixelId, secondClientIp),
+  ]);
   assert.equal(concurrent.filter(result => result.status === 'fulfilled').length, 1);
   const rejected = concurrent.find(result => result.status === 'rejected');
   assert.ok(rejected?.status === 'rejected');
@@ -121,8 +168,16 @@ try {
 
   await assert.rejects(() => reserve('website', randomUUID()), /COLLECTION_SOURCE_NOT_FOUND/);
 
-  console.log('Collection budget passed source, account, exhaustion, and concurrency checks.');
+  console.log(
+    'Collection budget passed client isolation, source, account, and concurrency checks.',
+  );
 } finally {
+  const clientKeys = [firstClientIp, secondClientIp].flatMap(clientIp => [
+    clientAccountKey(clientIp),
+    clientSourceKey('website', websiteId, clientIp),
+    clientSourceKey('link', linkId, clientIp),
+    clientSourceKey('pixel', pixelId, clientIp),
+  ]);
   await prisma.client.collectionIngestBudget.deleteMany({
     where: {
       OR: [
@@ -130,6 +185,7 @@ try {
         { subjectType: 'source', subjectKey: `website:${websiteId}` },
         { subjectType: 'source', subjectKey: `link:${linkId}` },
         { subjectType: 'source', subjectKey: `pixel:${pixelId}` },
+        { subjectType: 'source', subjectKey: { in: clientKeys } },
       ],
     },
   });
