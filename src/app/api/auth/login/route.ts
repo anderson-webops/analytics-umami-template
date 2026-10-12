@@ -152,7 +152,6 @@ export async function POST(request: Request) {
   }
 
   const passwordFingerprint = hash(passwordHash);
-  await clearFailedLogins(request, username);
 
   if (twoFactor?.isEnabled) {
     if (!isTwoFactorConfigured()) {
@@ -187,6 +186,10 @@ export async function POST(request: Request) {
         expiresIn: sessionTtl,
       });
   const teams = enrollmentRequired ? [] : await getAllUserTeams(id);
+
+  if (!enrollmentRequired) {
+    await clearFailedLogins(request, username);
+  }
 
   return setSessionCookie(
     json({

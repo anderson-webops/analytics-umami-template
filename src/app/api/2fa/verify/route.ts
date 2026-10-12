@@ -4,6 +4,7 @@ import { PARTIAL_AUTH_TOKEN_TYPE, ROLES } from '@/lib/constants';
 import { hash, secret } from '@/lib/crypto';
 import { isEnvEnabled } from '@/lib/env';
 import { createSecureToken, parseSecureToken } from '@/lib/jwt';
+import { clearFailedLogins } from '@/lib/login-rate-limit';
 import prisma from '@/lib/prisma';
 import redis from '@/lib/redis';
 import { parseRequest } from '@/lib/request';
@@ -188,6 +189,7 @@ export async function POST(request: Request) {
   }
 
   const teams = await getAllUserTeams(id);
+  await clearFailedLogins(request, username);
 
   return setSessionCookie(
     json({

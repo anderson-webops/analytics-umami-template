@@ -275,8 +275,35 @@ test('a failed login does not block a later correct password while admission rem
   expect(mocks.recordFailedLogin).toHaveBeenCalledTimes(1);
   expect(mocks.reserveLoginAccountAttempt).toHaveBeenCalledTimes(2);
   expect(mocks.releaseLoginAccountAttempt).toHaveBeenCalledTimes(1);
-  expect(mocks.clearFailedLogins).toHaveBeenCalledWith(expect.any(Request), 'alice');
+  expect(mocks.clearFailedLogins).not.toHaveBeenCalled();
 });
+
+test.each([false, true])(
+  'repeated successful first factors retain the source budget until 2FA (Redis %s)',
+  async enabled => {
+    redis.enabled = enabled;
+    let sourceAttempts = 0;
+    mocks.getLoginLimit.mockImplementation(async () => ({
+      blocked: ++sourceAttempts > 10,
+      retryAfter: 900,
+    }));
+    mocks.clearFailedLogins.mockImplementation(async () => {
+      sourceAttempts = 0;
+    });
+    mocks.createSecureToken.mockReturnValue('partial-fixture');
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const response = await POST(loginRequest());
+      expect(response.status).toBe(200);
+      expect(response.headers.has('set-cookie')).toBe(false);
+    }
+
+    const denied = await POST(loginRequest());
+    expect(denied.status).toBe(429);
+    expect(mocks.checkPassword).toHaveBeenCalledTimes(10);
+    expect(mocks.clearFailedLogins).not.toHaveBeenCalled();
+  },
+);
 
 test.each([false, true])(
   'an exhausted account budget denies even a correct password before hashing (CAPTCHA %s)',
@@ -352,6 +379,7 @@ test('self-hosted enrolled login still requires a partial two-factor challenge',
     partialToken: 'partial-fixture',
   });
   expect(mocks.saveAuth).not.toHaveBeenCalled();
+  expect(mocks.clearFailedLogins).not.toHaveBeenCalled();
 });
 
 test.each([false, true])(
@@ -373,6 +401,7 @@ test.each([false, true])(
       user: { teams: [] },
     });
     expect(mocks.getAllUserTeams).not.toHaveBeenCalled();
+    expect(mocks.clearFailedLogins).not.toHaveBeenCalled();
     if (enabled) {
       expect(mocks.saveAuth).toHaveBeenCalledWith(
         {
@@ -397,6 +426,28 @@ test.each([false, true])(
         { expiresIn: 900 },
       );
     }
+  },
+);
+
+test.each([false, true])(
+  'a completed single-factor login clears the source budget after session issuance (Redis %s)',
+  async enabled => {
+    redis.enabled = enabled;
+    mocks.findTwoFactorAuth.mockResolvedValue(null);
+    mocks.getTwoFactorRequirement.mockResolvedValue({ reason: null, globalRequired: false });
+    mocks.createSecureToken.mockReturnValue('full-token');
+    mocks.saveAuth.mockResolvedValue('full-token');
+    mocks.getAllUserTeams.mockResolvedValue([]);
+
+    const response = await POST(loginRequest());
+
+    expect(response.status).toBe(200);
+    expect(response.headers.has('set-cookie')).toBe(true);
+    expect(mocks.clearFailedLogins).toHaveBeenCalledWith(expect.any(Request), 'alice');
+    const issuer = enabled ? mocks.saveAuth : mocks.createSecureToken;
+    expect(issuer.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.clearFailedLogins.mock.invocationCallOrder[0],
+    );
   },
 );
 

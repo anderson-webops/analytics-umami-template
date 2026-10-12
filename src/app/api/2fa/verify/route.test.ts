@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import redis from '@/lib/redis';
 
 const mocks = vi.hoisted(() => ({
   getBearerToken: vi.fn(),
@@ -19,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   verifyTotp: vi.fn(),
   secret: vi.fn(),
   hash: vi.fn(),
+  clearFailedLogins: vi.fn(),
 }));
 
 vi.mock('@/lib/auth', () => ({
@@ -87,11 +89,16 @@ vi.mock('@/lib/redis', () => ({
   },
 }));
 
+vi.mock('@/lib/login-rate-limit', () => ({
+  clearFailedLogins: mocks.clearFailedLogins,
+}));
+
 import { POST } from './route';
 
 beforeEach(() => {
   vi.stubEnv('CLOUD_MODE', '0');
   vi.stubEnv('DISABLE_LOGIN', '0');
+  redis.enabled = false;
   mocks.getBearerToken.mockReset();
   mocks.saveAuth.mockReset();
   mocks.parseSecureToken.mockReset();
@@ -110,6 +117,7 @@ beforeEach(() => {
   mocks.verifyTotp.mockReset();
   mocks.secret.mockReset();
   mocks.hash.mockReset();
+  mocks.clearFailedLogins.mockReset().mockResolvedValue(undefined);
 
   mocks.getBearerToken.mockReturnValue('partial-token');
   mocks.secret.mockReturnValue('app-secret');
@@ -209,7 +217,30 @@ test('POST accepts a token-only payload and completes 2FA verification', async (
     },
   });
   expect(response.status).toBe(200);
+  expect(mocks.clearFailedLogins).toHaveBeenCalledWith(expect.any(Request), 'alice');
 });
+
+test.each([false, true])(
+  'full 2FA completion clears the source budget only after session issuance (Redis %s)',
+  async enabled => {
+    redis.enabled = enabled;
+    mocks.saveAuth.mockResolvedValue('full-auth-token');
+
+    const response = await POST(
+      new Request('http://localhost/api/2fa/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer partial-token' },
+        body: JSON.stringify({ token: '123456' }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const issuer = enabled ? mocks.saveAuth : mocks.createSecureToken;
+    expect(issuer.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.clearFailedLogins.mock.invocationCallOrder[0],
+    );
+  },
+);
 
 test('POST rejects a partial token issued before factor reset without checking a code', async () => {
   mocks.getUser.mockResolvedValue({
@@ -252,6 +283,7 @@ test('POST rejects a valid TOTP already consumed by a concurrent request', async
   expect(mocks.createSecureToken).not.toHaveBeenCalled();
   expect(mocks.resetRateLimit).not.toHaveBeenCalled();
   expect(mocks.reserveTwoFactorAttempt).toHaveBeenCalledWith('user-1');
+  expect(mocks.clearFailedLogins).not.toHaveBeenCalled();
 });
 
 test('POST denies exhausted attempts before checking a TOTP', async () => {
@@ -272,6 +304,7 @@ test('POST denies exhausted attempts before checking a TOTP', async () => {
   });
   expect(mocks.verifyTotp).not.toHaveBeenCalled();
   expect(mocks.createSecureToken).not.toHaveBeenCalled();
+  expect(mocks.clearFailedLogins).not.toHaveBeenCalled();
 });
 
 test('POST bounds concurrent TOTP checks to reserved attempts', async () => {

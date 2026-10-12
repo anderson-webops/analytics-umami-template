@@ -2,6 +2,7 @@ import { saveAuth } from '@/lib/auth';
 import { hash, secret } from '@/lib/crypto';
 import { isEnvEnabled } from '@/lib/env';
 import { createSecureToken } from '@/lib/jwt';
+import { clearFailedLogins } from '@/lib/login-rate-limit';
 import { checkPassword } from '@/lib/password';
 import {
   getPasswordVerificationBudgetKey,
@@ -221,6 +222,7 @@ export async function POST(request: Request) {
   const sessionToken = redis.enabled
     ? await saveAuth(sessionData, sessionTtl)
     : await createSecureToken(sessionData, secret(), { expiresIn: sessionTtl });
+  await clearFailedLogins(request, user.username);
 
   return setSessionCookie(json({ backupCodes: plaintext }), sessionToken, sessionTtl);
 }

@@ -36,6 +36,7 @@ const mocks = vi.hoisted(() => {
     hash: vi.fn(),
     secret: vi.fn(),
     createSecureToken: vi.fn(),
+    clearFailedLogins: vi.fn(),
   };
 });
 
@@ -72,6 +73,10 @@ vi.mock('@/lib/redis', () => ({
 
 vi.mock('@/lib/auth', () => ({
   saveAuth: vi.fn(),
+}));
+
+vi.mock('@/lib/login-rate-limit', () => ({
+  clearFailedLogins: mocks.clearFailedLogins,
 }));
 
 vi.mock('@/lib/prisma', () => ({
@@ -136,6 +141,7 @@ beforeEach(() => {
   mocks.hash.mockReset();
   mocks.secret.mockReset();
   mocks.createSecureToken.mockReset();
+  mocks.clearFailedLogins.mockReset().mockResolvedValue(undefined);
 
   mocks.parseRequest.mockResolvedValue({
     auth: { authType: 'session', user: { id: 'user-1', role: 'user' }, sessionGeneration: 0 },
@@ -166,6 +172,7 @@ beforeEach(() => {
   mocks.tx.twoFactorBackupCode.createMany.mockResolvedValue(undefined);
   mocks.getUser.mockResolvedValue({
     id: 'user-1',
+    username: 'alice',
     role: 'user',
     password: 'hashed-password',
     sessionGeneration: 1,
@@ -364,6 +371,10 @@ test('POST confirms setup, enables 2FA, stores backup codes, and resets the rate
     'app-secret',
     expect.any(Object),
   );
+  expect(mocks.clearFailedLogins).toHaveBeenCalledWith(expect.any(Request), 'alice');
+  expect(mocks.createSecureToken.mock.invocationCallOrder[0]).toBeLessThan(
+    mocks.clearFailedLogins.mock.invocationCallOrder[0],
+  );
   expect(response.headers.get('set-cookie')).toContain('verified-session-token');
   await expect(response.json()).resolves.toEqual({
     backupCodes: ['code-1', 'code-2'],
@@ -385,6 +396,7 @@ test('POST cannot issue a post-reset session from a pre-reset confirmation reque
 
   expect(response.status).toBe(401);
   expect(mocks.createSecureToken).not.toHaveBeenCalled();
+  expect(mocks.clearFailedLogins).not.toHaveBeenCalled();
 });
 
 test('POST rejects a stale session before enabling a factor or revoking keys', async () => {
