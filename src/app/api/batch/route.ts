@@ -84,6 +84,10 @@ export async function POST(request: Request) {
 
       if (!response.ok) {
         errors.push({ index, response: responseJson });
+        if (response.status === 429) {
+          index++;
+          break;
+        }
       } else {
         if (!cache && responseJson.cache) {
           cache = responseJson.cache;

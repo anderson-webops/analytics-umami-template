@@ -105,7 +105,7 @@ test('batch stops before dispatching more children when the caller IP limit is r
   expect(ipCounts).toEqual([10n]);
 });
 
-test('a source limit on one item does not suppress later independent batch items', async () => {
+test('a source limit stops the batch before dispatching later items', async () => {
   vi.mocked(parseRequest).mockResolvedValue({
     body: [{ type: 'event' }, { type: 'event' }],
     error: undefined,
@@ -113,6 +113,30 @@ test('a source limit on one item does not suppress later independent batch items
   sendPost.mockImplementationOnce(async request => {
     expect((await getCollectionIpLimit(request)).blocked).toBe(false);
     return tooManyRequests(60);
+  });
+
+  const response = await POST(batchRequest());
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({
+    size: 2,
+    processed: 0,
+    errors: 1,
+    details: [{ index: 0, response: { error: { code: 'too-many-requests', status: 429 } } }],
+  });
+  expect(send.POST).toHaveBeenCalledOnce();
+  expect([...sharedCounters.keys()].filter(key => key.startsWith('rate:ip:'))).toHaveLength(1);
+  expect([...sharedCounters.values()]).toEqual([1n, 1n]);
+});
+
+test('a non-rate-limit child error preserves later independent batch items', async () => {
+  vi.mocked(parseRequest).mockResolvedValue({
+    body: [{ type: 'event' }, { type: 'event' }],
+    error: undefined,
+  } as any);
+  sendPost.mockImplementationOnce(async request => {
+    expect((await getCollectionIpLimit(request)).blocked).toBe(false);
+    return Response.json({ error: { code: 'bad-request', status: 400 } }, { status: 400 });
   });
 
   const response = await POST(batchRequest());
