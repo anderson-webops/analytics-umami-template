@@ -1,7 +1,9 @@
+import { API_KEY_PAGE_SIZE, MAX_API_KEYS_PER_USER } from '@/lib/api-key-limits';
 import prisma from '@/lib/prisma';
 import { consumeOtp } from '@/lib/two-factor/replay-prevention';
 
 export class ApiKeyCodeUsedError extends Error {}
+export class ApiKeyLimitReachedError extends Error {}
 
 interface ApiKeyFactorProof {
   id: string;
@@ -33,6 +35,12 @@ export async function createApiKey(
 
     if (rows[0]?.sessionGeneration !== expectedSessionGeneration) {
       return null;
+    }
+
+    const keyCount = await transaction.apiKey.count({ where: { userId: data.userId } });
+
+    if (keyCount >= MAX_API_KEYS_PER_USER) {
+      throw new ApiKeyLimitReachedError();
     }
 
     const currentFactor = await transaction.twoFactorAuth.findUnique({
@@ -75,7 +83,18 @@ export async function getApiKeyByHash(keyHash: string) {
   });
 }
 
-export async function getUserApiKeys(userId: string) {
+export async function getUserApiKeys(userId: string, cursor?: string) {
+  if (cursor) {
+    const anchor = await prisma.client.apiKey.findFirst({
+      where: { id: cursor, userId },
+      select: { id: true },
+    });
+
+    if (!anchor) {
+      return null;
+    }
+  }
+
   return prisma.client.apiKey.findMany({
     where: { userId },
     select: {
@@ -86,7 +105,9 @@ export async function getUserApiKeys(userId: string) {
       createdAt: true,
       expiresAt: true,
     },
-    orderBy: { createdAt: 'desc' },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: API_KEY_PAGE_SIZE,
+    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
   });
 }
 

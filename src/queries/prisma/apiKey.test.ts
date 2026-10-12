@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import { ApiKeyCodeUsedError, createApiKey, getApiKeyByHash } from './apiKey';
+import { API_KEY_PAGE_SIZE, MAX_API_KEYS_PER_USER } from '@/lib/api-key-limits';
+import {
+  ApiKeyCodeUsedError,
+  ApiKeyLimitReachedError,
+  createApiKey,
+  getApiKeyByHash,
+  getUserApiKeys,
+} from './apiKey';
 
 const {
   primaryFindFirstMock,
@@ -8,6 +15,8 @@ const {
   transactionMock,
   queryRawMock,
   createMock,
+  countMock,
+  findManyMock,
   findTwoFactorMock,
   deleteTwoFactorLimitMock,
   consumeOtpMock,
@@ -18,6 +27,8 @@ const {
   transactionMock: vi.fn(),
   queryRawMock: vi.fn(),
   createMock: vi.fn(),
+  countMock: vi.fn(),
+  findManyMock: vi.fn(),
   findTwoFactorMock: vi.fn(),
   deleteTwoFactorLimitMock: vi.fn(),
   consumeOtpMock: vi.fn(),
@@ -30,7 +41,7 @@ vi.mock('@/lib/prisma', () => ({
     transaction: transactionMock,
     client: {
       $primary: primaryMock,
-      apiKey: { findFirst: replicaFindFirstMock },
+      apiKey: { findFirst: replicaFindFirstMock, findMany: findManyMock },
     },
   },
 }));
@@ -43,7 +54,7 @@ describe('getApiKeyByHash', () => {
     transactionMock.mockReset().mockImplementation(async operation =>
       operation({
         $queryRaw: queryRawMock,
-        apiKey: { create: createMock },
+        apiKey: { create: createMock, count: countMock },
         twoFactorAuth: { findUnique: findTwoFactorMock },
         twoFactorRateLimit: { deleteMany: deleteTwoFactorLimitMock },
       }),
@@ -98,13 +109,14 @@ describe('createApiKey', () => {
     transactionMock.mockReset().mockImplementation(async operation =>
       operation({
         $queryRaw: queryRawMock,
-        apiKey: { create: createMock },
+        apiKey: { create: createMock, count: countMock },
         twoFactorAuth: { findUnique: findTwoFactorMock },
         twoFactorRateLimit: { deleteMany: deleteTwoFactorLimitMock },
       }),
     );
     queryRawMock.mockReset().mockResolvedValue([{ sessionGeneration: 0 }]);
     createMock.mockReset().mockResolvedValue({ id: data.id });
+    countMock.mockReset().mockResolvedValue(0);
     findTwoFactorMock.mockReset().mockResolvedValue(null);
     deleteTwoFactorLimitMock.mockReset();
     consumeOtpMock.mockReset().mockResolvedValue(true);
@@ -117,6 +129,13 @@ describe('createApiKey', () => {
     expect(String(queryRawMock.mock.calls[0][0])).toContain('"password" =');
     expect(queryRawMock.mock.calls[0]).toContain('password-hash');
     expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ data }));
+    expect(countMock).toHaveBeenCalledWith({ where: { userId: data.userId } });
+    expect(queryRawMock.mock.invocationCallOrder[0]).toBeLessThan(
+      countMock.mock.invocationCallOrder[0],
+    );
+    expect(countMock.mock.invocationCallOrder[0]).toBeLessThan(
+      createMock.mock.invocationCallOrder[0],
+    );
     expect(findTwoFactorMock).toHaveBeenCalledWith({
       where: { userId: data.userId },
       select: { id: true, secret: true, isEnabled: true },
@@ -127,6 +146,39 @@ describe('createApiKey', () => {
     queryRawMock.mockResolvedValue([{ sessionGeneration: 1 }]);
 
     await expect(createApiKey(data, 0, 'password-hash')).resolves.toBeNull();
+    expect(createMock).not.toHaveBeenCalled();
+    expect(countMock).not.toHaveBeenCalled();
+  });
+
+  test('accepts the last available slot, then refuses the quota under the user lock', async () => {
+    countMock
+      .mockResolvedValueOnce(MAX_API_KEYS_PER_USER - 1)
+      .mockResolvedValueOnce(MAX_API_KEYS_PER_USER);
+
+    await expect(createApiKey(data, 0, 'password-hash')).resolves.toEqual({ id: data.id });
+    await expect(createApiKey(data, 0, 'password-hash')).rejects.toBeInstanceOf(
+      ApiKeyLimitReachedError,
+    );
+    expect(createMock).toHaveBeenCalledTimes(1);
+    expect(queryRawMock).toHaveBeenCalledTimes(2);
+  });
+
+  test('a full quota does not consume a valid one-use authenticator code', async () => {
+    countMock.mockResolvedValue(MAX_API_KEYS_PER_USER);
+    findTwoFactorMock.mockResolvedValue({
+      id: 'factor-1',
+      secret: 'encrypted-secret',
+      isEnabled: true,
+    });
+
+    await expect(
+      createApiKey(data, 0, 'password-hash', {
+        id: 'factor-1',
+        secret: 'encrypted-secret',
+        token: '123456',
+      }),
+    ).rejects.toBeInstanceOf(ApiKeyLimitReachedError);
+    expect(consumeOtpMock).not.toHaveBeenCalled();
     expect(createMock).not.toHaveBeenCalled();
   });
 
@@ -187,5 +239,56 @@ describe('createApiKey', () => {
 
     await expect(createApiKey(data, 0, 'old-password-hash')).resolves.toBeNull();
     expect(createMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('getUserApiKeys', () => {
+  beforeEach(() => {
+    replicaFindFirstMock.mockReset();
+    findManyMock.mockReset().mockResolvedValue([]);
+  });
+
+  test('returns a bounded first page ordered by creation and ID', async () => {
+    await getUserApiKeys('user-1');
+
+    expect(findManyMock).toHaveBeenCalledWith({
+      where: { userId: 'user-1' },
+      select: {
+        id: true,
+        name: true,
+        keyPrefix: true,
+        lastUsedAt: true,
+        createdAt: true,
+        expiresAt: true,
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: API_KEY_PAGE_SIZE,
+    });
+  });
+
+  test('continues from an owned cursor without an unbounded list', async () => {
+    replicaFindFirstMock.mockResolvedValue({ id: 'key-50' });
+
+    await getUserApiKeys('user-1', 'key-50');
+
+    expect(replicaFindFirstMock).toHaveBeenCalledWith({
+      where: { id: 'key-50', userId: 'user-1' },
+      select: { id: true },
+    });
+    expect(findManyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId: 'user-1' },
+        take: API_KEY_PAGE_SIZE,
+        cursor: { id: 'key-50' },
+        skip: 1,
+      }),
+    );
+  });
+
+  test('rejects a foreign or missing cursor without listing any keys', async () => {
+    replicaFindFirstMock.mockResolvedValue(null);
+
+    await expect(getUserApiKeys('user-1', 'foreign-key')).resolves.toBeNull();
+    expect(findManyMock).not.toHaveBeenCalled();
   });
 });

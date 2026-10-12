@@ -4,7 +4,7 @@
 import type { RequestOptions } from '../types';
 import type { components, operations as OperationTypes } from './types';
 
-export const API_VERSION = '4.2.126';
+export const API_VERSION = '4.2.127';
 
 export type HttpMethod = 'get' | 'post' | 'put' | 'patch' | 'delete';
 
@@ -923,7 +923,7 @@ export const operations = {
     method: 'get',
     path: '/api/me/api-keys',
     pathParams: [],
-    queryParams: [],
+    queryParams: ['cursor'],
     hasBody: false,
   },
   getMyTeams: {

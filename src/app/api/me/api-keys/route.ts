@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { generateApiKey, getApiKeyPrefix, hashApiKey, isApiKeyEnabled } from '@/lib/api-key';
 import { uuid } from '@/lib/crypto';
 import { checkPassword } from '@/lib/password';
@@ -6,6 +7,7 @@ import prisma from '@/lib/prisma';
 import { parseRequest } from '@/lib/request';
 import {
   badRequest,
+  conflict,
   json,
   notFound,
   serviceUnavailable,
@@ -19,7 +21,12 @@ import {
 } from '@/lib/two-factor/crypto';
 import { reserveTwoFactorAttempt } from '@/lib/two-factor/rate-limit';
 import { verifyTotp } from '@/lib/two-factor/totp';
-import { ApiKeyCodeUsedError, createApiKey, getUserApiKeys } from '@/queries/prisma/apiKey';
+import {
+  ApiKeyCodeUsedError,
+  ApiKeyLimitReachedError,
+  createApiKey,
+  getUserApiKeys,
+} from '@/queries/prisma/apiKey';
 import { getUser } from '@/queries/prisma/user';
 import { createApiKeySchema } from './schema';
 
@@ -34,7 +41,20 @@ export async function GET(request: Request) {
     return notFound();
   }
 
-  return json(await getUserApiKeys(auth.user.id));
+  const cursors = new URL(request.url).searchParams.getAll('cursor');
+  const cursor = cursors.length === 0 ? undefined : z.uuid().safeParse(cursors[0]);
+
+  if (cursors.length > 1 || (cursor && !cursor.success)) {
+    return badRequest({ message: 'Invalid API key cursor' });
+  }
+
+  const keys = await getUserApiKeys(auth.user.id, cursor?.data);
+
+  if (!keys) {
+    return badRequest({ message: 'Invalid API key cursor' });
+  }
+
+  return json(keys);
 }
 
 export async function POST(request: Request) {
@@ -143,6 +163,13 @@ export async function POST(request: Request) {
   } catch (error) {
     if (error instanceof ApiKeyCodeUsedError) {
       return badRequest({ code: 'two-factor-error-code-used', message: 'Code already used' });
+    }
+
+    if (error instanceof ApiKeyLimitReachedError) {
+      return conflict({
+        code: 'api-key-limit-reached',
+        message: 'Delete an existing API key before creating another',
+      });
     }
 
     throw error;

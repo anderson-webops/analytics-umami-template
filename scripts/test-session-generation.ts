@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { MAX_API_KEYS_PER_USER } from '@/lib/api-key-limits';
 import { checkAuth } from '@/lib/auth';
 import { hash, secret } from '@/lib/crypto';
 import { createSecureToken } from '@/lib/jwt';
 import { hashPassword } from '@/lib/password';
 import prisma from '@/lib/prisma';
-import { createApiKey } from '@/queries/prisma/apiKey';
+import { ApiKeyLimitReachedError, createApiKey, getUserApiKeys } from '@/queries/prisma/apiKey';
 import {
   rehashPasswordIfCurrent,
   replacePasswordIfCurrent,
@@ -474,6 +475,58 @@ try {
   assert.equal(afterConcurrentPromotion.role, 'user');
   assert.equal(afterConcurrentPromotion.sessionGeneration, 8);
   assert.equal(await prisma.client.apiKey.findUnique({ where: { id: concurrentKeyId } }), null);
+
+  assert.equal(await prisma.client.apiKey.count({ where: { userId } }), 0);
+  await prisma.client.apiKey.createMany({
+    data: Array.from({ length: MAX_API_KEYS_PER_USER - 1 }, (_, index) => ({
+      ...apiKey,
+      id: randomUUID(),
+      name: `budget key ${index}`,
+      keyHash: hash(`${userId}-budget-${index}`),
+    })),
+  });
+  const quotaRace = await Promise.allSettled(
+    Array.from({ length: 2 }, () =>
+      createApiKey(
+        { ...apiKey, id: randomUUID(), keyHash: hash(randomUUID()) },
+        afterConcurrentPromotion.sessionGeneration,
+        afterConcurrentPromotion.password,
+      ),
+    ),
+  );
+  assert.equal(quotaRace.filter(result => result.status === 'fulfilled').length, 1);
+  assert.equal(
+    quotaRace.filter(
+      result => result.status === 'rejected' && result.reason instanceof ApiKeyLimitReachedError,
+    ).length,
+    1,
+  );
+  assert.equal(await prisma.client.apiKey.count({ where: { userId } }), MAX_API_KEYS_PER_USER);
+
+  const firstPage = await getUserApiKeys(userId);
+  assert.ok(firstPage);
+  assert.equal(firstPage.length, 50);
+  const firstPageEnd = firstPage.at(-1);
+  assert.ok(firstPageEnd);
+  const secondPage = await getUserApiKeys(userId, firstPageEnd.id);
+  assert.ok(secondPage);
+  assert.equal(secondPage.length, 50);
+  const secondPageEnd = secondPage.at(-1);
+  assert.ok(secondPageEnd);
+  const finalPage = await getUserApiKeys(userId, secondPageEnd.id);
+  assert.deepEqual(finalPage, []);
+  assert.equal(new Set([...firstPage, ...secondPage].map(key => key.id)).size, 100);
+
+  const foreignKeyId = randomUUID();
+  await prisma.client.apiKey.create({
+    data: {
+      ...apiKey,
+      id: foreignKeyId,
+      userId: adminId,
+      keyHash: hash(`${adminId}-foreign-cursor`),
+    },
+  });
+  assert.equal(await getUserApiKeys(userId, foreignKeyId), null);
 
   console.log('PostgreSQL session revocation and stale credential issuance denial passed.');
 } finally {

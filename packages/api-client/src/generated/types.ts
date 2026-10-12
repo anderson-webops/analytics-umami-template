@@ -7216,7 +7216,9 @@ export interface operations {
   };
   getMyApiKeys: {
     parameters: {
-      query?: never;
+      query?: {
+        cursor?: string;
+      };
       header?: never;
       path?: never;
       cookie?: never;
@@ -7252,6 +7254,24 @@ export interface operations {
             /** @description Display name of the resource. */
             name: string;
           }[];
+        };
+      };
+      /** @description Bad request. */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "bad-request",
+           *         "message": "Bad request.",
+           *         "status": 400
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
         };
       };
       /** @description Unauthorized. */
@@ -7393,6 +7413,15 @@ export interface operations {
            *       }
            *     }
            */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+      /** @description API key limit reached. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
           'application/json': components['schemas']['ApiError'];
         };
       };

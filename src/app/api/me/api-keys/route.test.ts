@@ -1,6 +1,6 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { parseRequest } from '@/lib/request';
-import { ApiKeyCodeUsedError } from '@/queries/prisma/apiKey';
+import { ApiKeyCodeUsedError, ApiKeyLimitReachedError } from '@/queries/prisma/apiKey';
 import { GET, POST } from './route';
 
 const mocks = vi.hoisted(() => ({
@@ -22,6 +22,7 @@ vi.mock('@/queries/prisma/apiKey', () => ({
   createApiKey: mocks.createApiKey,
   getUserApiKeys: mocks.getUserApiKeys,
   ApiKeyCodeUsedError: class extends Error {},
+  ApiKeyLimitReachedError: class extends Error {},
 }));
 
 vi.mock('@/lib/prisma', () => ({
@@ -93,7 +94,39 @@ test('GET returns the current user api keys', async () => {
 
   expect(response.status).toBe(200);
   await expect(response.json()).resolves.toEqual(keys);
-  expect(mocks.getUserApiKeys).toHaveBeenCalledWith('user-1');
+  expect(mocks.getUserApiKeys).toHaveBeenCalledWith('user-1', undefined);
+});
+
+test('GET supports an owned cursor while keeping the array response', async () => {
+  const cursor = '00000000-0000-4000-8000-000000000001';
+  mocks.getUserApiKeys.mockResolvedValue([{ id: 'older-key' }]);
+
+  const response = await GET(new Request(`http://localhost/api/me/api-keys?cursor=${cursor}`));
+
+  expect(response.status).toBe(200);
+  await expect(response.json()).resolves.toEqual([{ id: 'older-key' }]);
+  expect(mocks.getUserApiKeys).toHaveBeenCalledWith('user-1', cursor);
+});
+
+test.each([
+  '?cursor=not-a-uuid',
+  '?cursor=',
+  '?cursor=00000000-0000-4000-8000-000000000001&cursor=00000000-0000-4000-8000-000000000002',
+])('GET rejects an invalid cursor without a database read: %s', async query => {
+  const response = await GET(new Request(`http://localhost/api/me/api-keys${query}`));
+
+  expect(response.status).toBe(400);
+  expect(mocks.getUserApiKeys).not.toHaveBeenCalled();
+});
+
+test('GET rejects a cursor outside the current account', async () => {
+  mocks.getUserApiKeys.mockResolvedValue(null);
+
+  const response = await GET(
+    new Request('http://localhost/api/me/api-keys?cursor=00000000-0000-4000-8000-000000000001'),
+  );
+
+  expect(response.status).toBe(400);
 });
 
 test('GET returns 404 in cloud mode', async () => {
@@ -191,6 +224,17 @@ test('POST rejects an incorrect password without creating a key', async () => {
     error: { code: 'incorrect-password' },
   });
   expect(mocks.createApiKey).not.toHaveBeenCalled();
+});
+
+test('POST reports an exhausted key quota without returning a plaintext key', async () => {
+  mocks.createApiKey.mockRejectedValue(new ApiKeyLimitReachedError());
+
+  const response = await POST(new Request('http://localhost/api/me/api-keys', { method: 'POST' }));
+
+  expect(response.status).toBe(409);
+  await expect(response.json()).resolves.toMatchObject({
+    error: { code: 'api-key-limit-reached' },
+  });
 });
 
 test('POST requires a fresh authenticator code for a full session with 2FA enabled', async () => {
