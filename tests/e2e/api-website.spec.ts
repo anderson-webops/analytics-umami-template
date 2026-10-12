@@ -116,15 +116,30 @@ test.describe('Website API tests', () => {
     expect(body).toHaveProperty('domain', 'playwrightupdated.com');
   });
 
-  test('updates a website with only shareId', async ({ request }) => {
+  test('rejects a caller-selected shareId without changing the website', async ({ request }) => {
+    const before = await request.get(`/api/websites/${websiteId}`, {
+      headers: authHeaders(auth),
+    });
+    expect(before.status()).toBe(200);
+    const originalWebsite = await before.json();
+
     const response = await request.post(`/api/websites/${websiteId}`, {
       headers: authHeaders(auth),
       data: { shareId: 'ABCDEF12' },
     });
-    const body = await response.json();
+    expect(response.status()).toBe(400);
 
-    expect(response.status()).toBe(200);
-    expect(body).toHaveProperty('shareId', 'ABCDEF12');
+    const after = await request.get(`/api/websites/${websiteId}`, {
+      headers: authHeaders(auth),
+    });
+    expect(after.status()).toBe(200);
+    const updatedWebsite = await after.json();
+    expect(updatedWebsite).toMatchObject({
+      id: originalWebsite.id,
+      name: originalWebsite.name,
+      domain: originalWebsite.domain,
+      shareId: originalWebsite.shareId,
+    });
   });
 
   test('resets a website by removing all data related to the website', async ({ request }) => {
