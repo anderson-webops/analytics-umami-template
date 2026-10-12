@@ -860,9 +860,26 @@ async function pagedQuery<T>(
     },
   });
 
-  const count = await queryClient[model].count({ where: (criteria as any).where });
+  const { maxResults } = filters || {};
+  const count = maxResults
+    ? (
+        await queryClient[model].findMany({
+          where: (criteria as any).where,
+          select: { id: true },
+          take: maxResults,
+        })
+      ).length
+    : await queryClient[model].count({ where: (criteria as any).where });
 
-  return { data, count, page: +page, pageSize: size, orderBy, search };
+  return {
+    data,
+    count,
+    page: +page,
+    pageSize: size,
+    orderBy,
+    search,
+    ...(maxResults && { isCapped: count >= maxResults }),
+  };
 }
 
 async function pagedRawQuery(

@@ -134,6 +134,38 @@ describe('pagedQuery authority', () => {
     ).resolves.toMatchObject({ count: 1 });
     expect(replica.findMany).toHaveBeenCalledTimes(2);
   });
+
+  test('caps a public list count without changing its page or uncapped callers', async () => {
+    const model = {
+      findMany: vi
+        .fn()
+        .mockResolvedValueOnce([{ id: 'visible' }])
+        .mockResolvedValueOnce([{ id: 'a' }, { id: 'b' }, { id: 'c' }]),
+      count: vi.fn(),
+    };
+    client().team = model;
+
+    await expect(
+      prisma.pagedQuery(
+        'team',
+        { where: { websiteId: 'site' } },
+        {
+          page: 1,
+          pageSize: 20,
+          maxResults: 3,
+        },
+      ),
+    ).resolves.toMatchObject({ data: [{ id: 'visible' }], count: 3, isCapped: true });
+    expect(model.findMany).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        where: { websiteId: 'site' },
+        select: { id: true },
+        take: 3,
+      }),
+    );
+    expect(model.count).not.toHaveBeenCalled();
+  });
 });
 
 describe('report filter SQL', () => {
@@ -411,5 +443,18 @@ describe('pagedRawQuery default ordering', () => {
     queryRaw.mockClear();
     await prisma.pagedRawQuery('select * from thing', {}, { page: 1, pageSize: 2 });
     expect(queryRaw.mock.calls[1][0]).not.toMatch(/order by/);
+  });
+
+  test('limits PostgreSQL public-share count work independently of page depth', async () => {
+    const queryRaw = mockQueries('10000');
+    const result = await prisma.pagedRawQuery(
+      'select id from sessions',
+      {},
+      { page: 1, pageSize: 20, maxResults: 10_000 },
+    );
+
+    expect(queryRaw.mock.calls[0][0]).toContain('limit 10000');
+    expect(queryRaw.mock.calls[1][0]).toContain('limit 20 offset 0');
+    expect(result.isCapped).toBe(true);
   });
 });

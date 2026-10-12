@@ -77,7 +77,7 @@ export async function GET(
         return unauthorized();
       }
 
-      limit = await reserveShareQueryCost(shareId, cost);
+      limit = await reserveShareQueryCost(shareId, cost, 0);
     } else {
       if (!auth.user?.id) {
         return unauthorized();

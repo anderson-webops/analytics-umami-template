@@ -5,8 +5,14 @@ import { fetchAccount, fetchWebsite } from '@/lib/load';
 import { getWebsiteSegment } from '@/queries/prisma';
 import { getBoundedCompareDate, getQueryFilters, parseRequest } from './request';
 import { readRequestBodyBytes } from './request-body';
-import { fieldsParam, reportResultSchema, searchParams, withDateRange } from './schema';
-import { reserveShareQueryCost } from './share-query-budget';
+import {
+  fieldsParam,
+  pagingParams,
+  reportResultSchema,
+  searchParams,
+  withDateRange,
+} from './schema';
+import { getPagedShareWorkMultiplier, reserveShareQueryCost } from './share-query-budget';
 
 vi.hoisted(() => {
   process.env.DATABASE_URL ??= 'postgresql://user:pass@localhost:5432/umami?schema=public';
@@ -259,6 +265,45 @@ test('bounds public-share property fan-out while preserving ordinary filtered vi
 
   const amplified = await parseRequest(request(100), schema);
   expect(amplified.error?.().status).toBe(400);
+});
+
+test('caps public-share count work without changing authenticated pagination', async () => {
+  checkAuthMock.mockResolvedValue({
+    shareToken: { shareId: `count-cap-${crypto.randomUUID()}`, websiteId: 'website-1' },
+  } as any);
+
+  const schema = withDateRange(pagingParams);
+  const options = {
+    capShareCount: true,
+    shareQueryWorkMultiplier: (query: Record<string, any>) =>
+      getPagedShareWorkMultiplier(query.page, query.pageSize),
+  };
+  const request = (pagination = '') =>
+    new Request(
+      `https://analytics.example/api/websites/website-1/sessions?startAt=0&endAt=1${pagination}`,
+    );
+
+  expect((await parseRequest(request(), schema, options)).query.maxResults).toBe(10_000);
+  expect(
+    (await parseRequest(request('&page=2&pageSize=20&maxResults=100'), schema, options)).query
+      .maxResults,
+  ).toBe(100);
+  expect(
+    (await parseRequest(request('&page=10000&pageSize=500'), schema, options)).error?.().status,
+  ).toBe(400);
+  expect(
+    (await parseRequest(request('&page=501&pageSize=20'), schema, options)).error?.().status,
+  ).toBe(400);
+  expect(
+    (await parseRequest(request('&page=2&pageSize=20&maxResults=10'), schema, options)).error?.()
+      .status,
+  ).toBe(400);
+
+  checkAuthMock.mockResolvedValue({ user: { id: `count-control-${crypto.randomUUID()}` } } as any);
+  expect((await parseRequest(request(), schema, options)).query.maxResults).toBeUndefined();
+  expect(
+    (await parseRequest(request('&page=501&pageSize=20'), schema, options)).error,
+  ).toBeUndefined();
 });
 
 test('bounds realtime shares without a caller-supplied date range', async () => {

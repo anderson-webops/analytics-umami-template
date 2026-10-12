@@ -17,6 +17,7 @@ const MAX_WORK_MULTIPLIER = 1024;
 const MAX_AUTH_QUERY_COST = 20_000;
 const MAX_AUTH_WINDOW_COST = 20_000;
 const MAX_AUTH_WINDOW_REQUESTS = 60;
+const MAX_SHARE_WINDOW_REQUESTS = 60;
 const MAX_FILTERS = 24;
 const MAX_PROPERTY_FILTERS = 16;
 const WINDOW_SECONDS = 60;
@@ -28,6 +29,7 @@ const PROPERTY_FILTER = /^(?:pf_[A-Za-z0-9_-]+|epf\d+|spf\d+)$/;
 const REGEX_FILTER_WEIGHT = 200;
 
 export const MAX_SHARE_SESSION_ROWS = 500;
+export const MAX_SHARE_COUNT_RESULTS = 10_000;
 export const MAX_AUTH_SESSION_ROWS = 2_000;
 export const MAX_LINK_READ_ROWS = 262_144;
 export const LINKED_IDENTITY_LOOKUP_COST = 32;
@@ -38,6 +40,10 @@ export type ShareQueryWorkMultiplier = number;
 interface Counter {
   cost: number;
   expiresAt: number;
+}
+
+interface ShareCounter extends Counter {
+  requests: number;
 }
 
 interface AuthCounter extends Counter {
@@ -341,9 +347,9 @@ export function getAuthenticatedQueryCost(
   return getQueryCost(query, body, workMultiplier, MAX_AUTH_QUERY_COST, MAX_AUTH_WINDOW_COST);
 }
 
-function memoryCounters(): Map<string, Counter> {
+function memoryCounters(): Map<string, ShareCounter> {
   const state = globalThis as typeof globalThis & Record<string, any>;
-  state[MEMORY_COUNTERS] ??= new Map<string, Counter>();
+  state[MEMORY_COUNTERS] ??= new Map<string, ShareCounter>();
   return state[MEMORY_COUNTERS];
 }
 
@@ -353,7 +359,7 @@ function authMemoryCounters(): Map<string, AuthCounter> {
   return state[AUTH_MEMORY_COUNTERS];
 }
 
-function reserveLocal(key: string, cost: number) {
+function reserveLocal(key: string, cost: number, requestCount: 0 | 1) {
   const counters = memoryCounters();
   const now = Date.now();
   const current = counters.get(key);
@@ -363,18 +369,24 @@ function reserveLocal(key: string, cost: number) {
       if (counter.expiresAt <= now) counters.delete(storedKey);
     }
     if (counters.size >= MAX_MEMORY_COUNTERS) {
-      return MAX_WINDOW_COST + 1;
+      return false;
     }
-    counters.set(key, { cost, expiresAt: now + WINDOW_SECONDS * 1000 });
-    return cost;
+    counters.set(key, { cost, requests: requestCount, expiresAt: now + WINDOW_SECONDS * 1000 });
+    return true;
   }
 
-  if (current.cost + cost > MAX_WINDOW_COST) {
-    return MAX_WINDOW_COST + 1;
+  if (
+    !Number.isSafeInteger(current.requests) ||
+    current.requests < 0 ||
+    current.cost + cost > MAX_WINDOW_COST ||
+    current.requests + requestCount > MAX_SHARE_WINDOW_REQUESTS
+  ) {
+    return false;
   }
 
   current.cost += cost;
-  return current.cost;
+  current.requests += requestCount;
+  return true;
 }
 
 function reserveLocalAuth(key: string, cost: number, requestCount: 0 | 1) {
@@ -405,8 +417,18 @@ function reserveLocalAuth(key: string, cost: number, requestCount: 0 | 1) {
   return true;
 }
 
-export async function reserveShareQueryCost(shareId: string, cost: number) {
-  if (!Number.isSafeInteger(cost) || cost < 1 || cost > MAX_WINDOW_COST) {
+export async function reserveShareQueryCost(
+  shareId: string,
+  cost: number,
+  requestCount: 0 | 1 = 1,
+) {
+  if (
+    !shareId ||
+    !Number.isSafeInteger(cost) ||
+    cost < 1 ||
+    cost > MAX_WINDOW_COST ||
+    (requestCount !== 0 && requestCount !== 1)
+  ) {
     return { blocked: true, retryAfter: WINDOW_SECONDS };
   }
 
@@ -417,15 +439,31 @@ export async function reserveShareQueryCost(shareId: string, cost: number) {
       await redis.client.connect(1000);
       const total = await redis.client.client.withAbortSignal(AbortSignal.timeout(1000)).eval(
         `local current = tonumber(redis.call('GET', KEYS[1]) or '0')
+         local requests = tonumber(redis.call('GET', KEYS[2]) or '0')
          local charge = tonumber(ARGV[1])
          local capacity = tonumber(ARGV[3])
-         if not current or current < 0 or current > capacity or current + charge > capacity then
+         local requestCount = tonumber(ARGV[4])
+         local requestCapacity = tonumber(ARGV[5])
+         if not current or not requests or current < 0 or requests < 0 or
+            current > capacity or requests > requestCapacity or
+            current + charge > capacity or requests + requestCount > requestCapacity then
            return -1
          end
          local total = redis.call('INCRBY', KEYS[1], charge)
+         redis.call('INCRBY', KEYS[2], requestCount)
          if current == 0 then redis.call('EXPIRE', KEYS[1], ARGV[2]) end
+         if requests == 0 then redis.call('EXPIRE', KEYS[2], ARGV[2]) end
          return total`,
-        { keys: [key], arguments: [String(cost), String(WINDOW_SECONDS), String(MAX_WINDOW_COST)] },
+        {
+          keys: [key, `${key}:requests`],
+          arguments: [
+            String(cost),
+            String(WINDOW_SECONDS),
+            String(MAX_WINDOW_COST),
+            String(requestCount),
+            String(MAX_SHARE_WINDOW_REQUESTS),
+          ],
+        },
       );
       const reserved = Number(total);
       return {
@@ -437,9 +475,8 @@ export async function reserveShareQueryCost(shareId: string, cost: number) {
     }
   }
 
-  const reservation = reserveLocal(key, cost);
   return {
-    blocked: reservation > MAX_WINDOW_COST,
+    blocked: !reserveLocal(key, cost, requestCount),
     retryAfter: WINDOW_SECONDS,
   };
 }

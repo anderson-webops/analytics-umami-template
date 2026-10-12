@@ -14,6 +14,7 @@ export async function GET(
   const { auth, query, error } = await parseRequest(request, definitionListSchema, {
     budgetShareQuery: true,
     shareQueryWorkMultiplier: query => getPagedShareWorkMultiplier(query.page, query.pageSize),
+    capShareCount: true,
   });
   if (error) return error();
   const { websiteId } = await params;

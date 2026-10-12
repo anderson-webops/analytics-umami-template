@@ -1,6 +1,6 @@
 {
   "name": "umami",
-  "version": "4.2.124",
+  "version": "4.2.125",
   "private": true,
   "description": "A modern, privacy-focused alternative to Google Analytics.",
   "author": "Umami Software, Inc. <hello@umami.is>",

@@ -232,6 +232,18 @@ test('bounds repeated queries per share in a fixed window', async () => {
   expect((await reserveShareQueryCost(shareId, 1)).blocked).toBe(true);
 });
 
+test('bounds low-cost public-share requests independently of weighted cost', async () => {
+  const shareId = `share-request-count-${crypto.randomUUID()}`;
+  const reservations = await Promise.all(
+    Array.from({ length: 61 }, () => reserveShareQueryCost(shareId, 1)),
+  );
+
+  expect(reservations.filter(result => !result.blocked)).toHaveLength(60);
+  expect(reservations.filter(result => result.blocked)).toHaveLength(1);
+  expect((await reserveShareQueryCost(shareId, 540, 0)).blocked).toBe(false);
+  expect((await reserveShareQueryCost(shareId, 1)).blocked).toBe(true);
+});
+
 test('preserves a single historical authenticated breakdown but bounds repeated work', async () => {
   const userId = `historical-user-${crypto.randomUUID()}`;
   const range = { startAt: Date.UTC(2006, 0, 1), endAt: Date.UTC(2025, 11, 31) };
@@ -346,6 +358,46 @@ test('Redis atomically bounds authenticated cost and request count', async () =>
     expect(results.filter(result => result.blocked)).toHaveLength(1);
     expect((await reserveAuthenticatedQueryCost(userId, 19_940, 0)).blocked).toBe(false);
     expect((await reserveAuthenticatedQueryCost(userId, 1, 0)).blocked).toBe(true);
+  } finally {
+    redis.enabled = enabled;
+    connect.mockRestore();
+    withAbortSignal.mockRestore();
+  }
+});
+
+test('Redis atomically bounds public-share cost and request count', async () => {
+  const enabled = redis.enabled;
+  const connect = vi.spyOn(redis.client, 'connect').mockResolvedValue();
+  const counters = new Map<string, number>();
+  const withAbortSignal = vi.spyOn(redis.client.client, 'withAbortSignal').mockImplementation(
+    () =>
+      ({
+        eval: (_script: string, options: { keys: string[]; arguments: string[] }) => {
+          const [costKey, requestKey] = options.keys;
+          const [cost, , maxCost, requestCount, maxRequests] = options.arguments.map(Number);
+          const currentCost = counters.get(costKey) ?? 0;
+          const currentRequests = counters.get(requestKey) ?? 0;
+
+          if (currentCost + cost > maxCost || currentRequests + requestCount > maxRequests) {
+            return Promise.resolve(-1);
+          }
+
+          counters.set(costKey, currentCost + cost);
+          counters.set(requestKey, currentRequests + requestCount);
+          return Promise.resolve(currentCost + cost);
+        },
+      }) as any,
+  );
+  redis.enabled = true;
+
+  try {
+    const shareId = `redis-share-${crypto.randomUUID()}`;
+    const reservations = await Promise.all(
+      Array.from({ length: 61 }, () => reserveShareQueryCost(shareId, 1)),
+    );
+    expect(reservations.filter(result => !result.blocked)).toHaveLength(60);
+    expect(reservations.filter(result => result.blocked)).toHaveLength(1);
+    expect((await reserveShareQueryCost(shareId, 540, 0)).blocked).toBe(false);
   } finally {
     redis.enabled = enabled;
     connect.mockRestore();

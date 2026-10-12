@@ -23,17 +23,19 @@ export async function GET(request: Request) {
   const { auth, query, error } = await parseRequest(request, schema, {
     budgetShareQuery: true,
     shareQueryWorkMultiplier: query => getPagedShareWorkMultiplier(query.page, query.pageSize),
+    capShareCount: true,
   });
 
   if (error) {
     return error();
   }
 
-  const { page, search, pageSize, websiteId, type } = query;
+  const { page, search, pageSize, maxResults, websiteId, type } = query;
   const filters = {
     page,
     pageSize,
     search,
+    maxResults,
   };
 
   const section = getReportSection(type);

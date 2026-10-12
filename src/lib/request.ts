@@ -33,6 +33,7 @@ import {
   getAuthenticatedQueryCost,
   getShareQueryCost,
   getStepFilterCount,
+  MAX_SHARE_COUNT_RESULTS,
   reserveAuthenticatedQueryCost,
   reserveShareQueryCost,
   type ShareQueryWorkMultiplier,
@@ -91,6 +92,7 @@ export async function parseRequest(
     maxBodyBytes?: number;
     bodyPreflight?: (body: unknown) => boolean;
     budgetShareQuery?: boolean;
+    capShareCount?: boolean;
     shareQueryContext?: { section: ShareSection; websiteId?: string };
     shareQueryWorkMultiplier?:
       | ShareQueryWorkMultiplier
@@ -252,6 +254,18 @@ export async function parseRequest(
       ? (body as { parameters?: { startDate?: unknown; endDate?: unknown } }).parameters
       : undefined;
   const hasBodyRange = bodyParameters?.startDate != null && bodyParameters.endDate != null;
+
+  if (!error && auth?.shareToken && options?.capShareCount) {
+    const maxResults = Math.min(
+      query.maxResults ?? MAX_SHARE_COUNT_RESULTS,
+      MAX_SHARE_COUNT_RESULTS,
+    );
+    if ((query.page ?? 1) * (query.pageSize ?? DEFAULT_PAGE_SIZE) > maxResults) {
+      error = () => badRequest({ message: 'The public-share page exceeds the count limit.' });
+    } else {
+      query.maxResults = maxResults;
+    }
+  }
 
   if (!error && auth?.shareToken && options?.shareQueryContext) {
     const websiteId =

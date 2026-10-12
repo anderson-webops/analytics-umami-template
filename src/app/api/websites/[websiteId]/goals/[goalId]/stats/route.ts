@@ -45,7 +45,7 @@ export async function GET(
     if (!shareId) return unauthorized();
     const extraCharge = combined.charge - base.charge;
     if (extraCharge > 0) {
-      const limit = await reserveShareQueryCost(shareId, extraCharge);
+      const limit = await reserveShareQueryCost(shareId, extraCharge, 0);
       if (limit.unavailable) return serviceUnavailable();
       if (limit.blocked) return tooManyRequests(limit.retryAfter);
     }

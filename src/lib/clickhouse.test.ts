@@ -97,6 +97,26 @@ describe('bounded queries', () => {
       });
     }
   });
+
+  test('limits ClickHouse public-share count work independently of page depth', async () => {
+    const query = vi.fn().mockImplementation(async ({ query: sql }) => ({
+      json: async () => (sql.includes('count(*) as num') ? [{ num: 10_000 }] : [{ id: 1 }]),
+    }));
+    vi.stubEnv('CLICKHOUSE_URL', 'http://umami:synthetic@127.0.0.1:8123/umami');
+    vi.doMock('@clickhouse/client', () => ({ createClient: () => ({ query }) }));
+    vi.resetModules();
+
+    const { default: client } = await import('./clickhouse');
+    const result = await client.pagedRawQuery(
+      'select id from events',
+      {},
+      { page: 1, pageSize: 20, maxResults: 10_000 },
+    );
+
+    expect(query.mock.calls[0][0].query).toContain('limit 10000');
+    expect(query.mock.calls[1][0].query).toContain('limit 20 offset 0');
+    expect(result.isCapped).toBe(true);
+  });
 });
 
 describe('report filter parameters', () => {

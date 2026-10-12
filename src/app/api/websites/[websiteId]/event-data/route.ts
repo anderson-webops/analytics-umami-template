@@ -34,6 +34,7 @@ export async function GET(
 
   const { auth, query, error } = await parseRequest(request, schema, {
     shareQueryWorkMultiplier: query => getPagedShareWorkMultiplier(query.page, query.pageSize),
+    capShareCount: true,
   });
 
   if (error) {
