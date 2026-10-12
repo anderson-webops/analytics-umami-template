@@ -258,7 +258,7 @@ const operation3 = defineOperation({
     operationId: 'updateShare',
     summary: 'Update a share',
     description:
-      "Updates the specified share's name, slug, and parameters. Changing the slug rotates the share ID and revokes previously issued access tokens; use the returned ID for future management requests.",
+      "Updates a share's name and parameters. Set rotate to true to generate a new public URL slug and share ID, revoking the old URL and tokens; use the returned ID for future management requests. Caller-selected replacement slugs are rejected.",
     tags: ['Shares'],
     parameters: [
       {
@@ -285,6 +285,9 @@ const operation3 = defineOperation({
               },
               slug: {
                 description: 'URL slug used to access the resource.',
+              },
+              rotate: {
+                type: 'boolean',
               },
               parameters: {
                 description: 'Configuration parameters for the resource.',

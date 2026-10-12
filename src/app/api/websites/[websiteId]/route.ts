@@ -1,7 +1,6 @@
 import { redactWebsiteShareId } from '@/lib/api-key';
 import { parseRequest } from '@/lib/request';
 import { badRequest, json, notFound, ok, serverError, unauthorized } from '@/lib/response';
-import { publicSharesDisabled } from '@/lib/security';
 import {
   canDeleteWebsite,
   canUpdateWebsite,
@@ -66,8 +65,8 @@ export async function POST(
     return unauthorized({ message: 'An interactive session is required to manage public shares.' });
   }
 
-  if (shareId && publicSharesDisabled()) {
-    return badRequest({ message: 'Public analytics shares are disabled.' });
+  if (typeof shareId === 'string') {
+    return badRequest({ message: 'Manage or rotate public shares with the shares API.' });
   }
 
   if (!(await canUpdateWebsite(auth, websiteId))) {
@@ -83,7 +82,7 @@ export async function POST(
       },
       auth.user.id,
       {
-        shareSlug: shareId,
+        removeShares: shareId === null,
         replayConfig,
       },
     );
@@ -99,10 +98,6 @@ export async function POST(
 
     if (e.message === 'ENTITY_ACTOR_NOT_AUTHORIZED') {
       return unauthorized({ message: 'Your website-update permission changed.' });
-    }
-
-    if (e.message === 'WEBSITE_SHARE_ROTATION_AMBIGUOUS') {
-      return badRequest({ message: 'Manage the existing website shares individually.' });
     }
 
     if (e?.code === 'P2002') {

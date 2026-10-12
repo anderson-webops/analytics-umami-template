@@ -118,7 +118,7 @@ test('API keys cannot create public shares through website creation', async () =
   expect(createWebsiteMock).toHaveBeenCalledWith(
     expect.anything(),
     'user-1',
-    expect.objectContaining({ initialShare: undefined }),
+    expect.not.objectContaining({ initialShare: expect.anything() }),
   );
 });
 
@@ -300,14 +300,14 @@ test('admin website lists also honor current share-management authority', async 
   expect(redactWebsiteListShareIdsMock).toHaveBeenCalledTimes(1);
 });
 
-test('interactive sessions retain website share management', async () => {
-  setAuth('session', 'public-slug');
+test('interactive sessions can revoke existing website shares', async () => {
+  setAuth('session', null);
   const created = await create(new Request('http://localhost/api/websites', { method: 'POST' }));
   expect(created.status).toBe(200);
   expect(createWebsiteMock).toHaveBeenCalledWith(
     expect.anything(),
     'user-1',
-    expect.objectContaining({ initialShare: expect.objectContaining({ slug: 'public-slug' }) }),
+    expect.not.objectContaining({ initialShare: expect.anything() }),
   );
 
   const updated = await update(
@@ -319,6 +319,6 @@ test('interactive sessions retain website share management', async () => {
     websiteId,
     expect.anything(),
     'user-1',
-    expect.objectContaining({ shareSlug: 'public-slug' }),
+    expect.objectContaining({ removeShares: true }),
   );
 });

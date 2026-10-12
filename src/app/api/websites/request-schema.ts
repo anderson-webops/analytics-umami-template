@@ -1,11 +1,5 @@
 import { z } from 'zod';
-import {
-  domainParam,
-  pagingParams,
-  routeSlugParam,
-  searchParams,
-  sortingParams,
-} from '@/lib/schema';
+import { domainParam, pagingParams, searchParams, sortingParams } from '@/lib/schema';
 
 export const replayConfigInputSchema = z
   .object({
@@ -35,7 +29,7 @@ export const createWebsiteRequestSchema = z
   .object({
     name: z.string().trim().min(1).max(100),
     domain: domainParam,
-    shareId: routeSlugParam.nullable().optional(),
+    shareId: z.null().optional(),
     teamId: z.uuid().nullable().optional(),
     id: z.uuid().nullable().optional(),
   })
@@ -46,7 +40,7 @@ export const updateWebsiteRequestSchema = z
   .object({
     name: z.string().trim().min(1).max(100).optional(),
     domain: domainParam.optional(),
-    shareId: routeSlugParam.nullable().optional(),
+    shareId: z.null().optional(),
     replayConfig: replayConfigInputSchema.nullable().optional(),
   })
   .strict()

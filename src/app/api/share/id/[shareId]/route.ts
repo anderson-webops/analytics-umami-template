@@ -1,6 +1,6 @@
 import z from 'zod';
 import { parseRequest } from '@/lib/request';
-import { conflict, json, notFound, ok, unauthorized } from '@/lib/response';
+import { badRequest, conflict, json, notFound, ok, unauthorized } from '@/lib/response';
 import { routeSlugParam, shareParametersParam } from '@/lib/schema';
 import { publicSharesDisabled } from '@/lib/security';
 import { canDeleteShareEntity, canUpdateShareEntity } from '@/permissions';
@@ -34,7 +34,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ sha
 
   const schema = z.object({
     name: z.string().trim().min(1).max(200),
-    slug: routeSlugParam,
+    slug: routeSlugParam.meta({
+      description: 'Current public URL slug; replacement slugs are not accepted.',
+    }),
+    rotate: z.boolean().optional().meta({
+      description: 'Generate a new public URL and share ID, revoking the previous link and tokens.',
+    }),
     parameters: shareParametersParam,
   });
 
@@ -45,7 +50,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ sha
   }
 
   const { shareId } = await params;
-  const { name, slug, parameters } = body;
+  const { name, slug, rotate, parameters } = body;
   const share = await getShare(shareId);
 
   if (!share) {
@@ -56,6 +61,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ sha
     return unauthorized();
   }
 
+  if (slug !== share.slug) {
+    return badRequest({ message: 'Share URLs cannot be chosen by the caller.' });
+  }
+
   let result;
 
   try {
@@ -64,6 +73,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ sha
       {
         name,
         slug,
+        rotate,
         parameters,
       },
       auth.user.id,
@@ -75,6 +85,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ sha
 
     if (error?.message === 'SHARE_ACTOR_NOT_AUTHORIZED') {
       return unauthorized({ message: 'Your sharing permission changed.' });
+    }
+
+    if (error?.message === 'SHARE_SLUG_CHANGED') {
+      return conflict({ message: 'The share URL changed. Refresh before editing.' });
     }
 
     if (error?.code === 'P2002') {

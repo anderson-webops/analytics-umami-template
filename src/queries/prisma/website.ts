@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import type { Prisma, PrismaClient, Website } from '@/generated/prisma/client';
 import { ENTITY_TYPE, PERMISSIONS, ROLES, TEAM_ROLE_RANK } from '@/lib/constants';
-import { uuid } from '@/lib/crypto';
 import { isEnvEnabled } from '@/lib/env';
 import prisma, { getSchema } from '@/lib/prisma';
 import { getRecorderConfig, getRecorderEnabled } from '@/lib/recorder';
@@ -193,16 +192,11 @@ export async function createWebsite(
   data: Prisma.WebsiteUncheckedCreateInput,
   actorUserId: string,
   options: {
-    initialShare?: {
-      slug: string;
-      name: string;
-      parameters: Prisma.InputJsonValue;
-    };
     activeOwnerWebsiteLimit?: number;
     customEntityId?: boolean;
   } = {},
 ) {
-  const { initialShare, activeOwnerWebsiteLimit, customEntityId = false } = options;
+  const { activeOwnerWebsiteLimit, customEntityId = false } = options;
 
   return runSerializable(async transaction => {
     if (
@@ -246,18 +240,7 @@ export async function createWebsite(
     const website = await transaction.website.create({
       data,
     });
-    const share = initialShare
-      ? await transaction.share.create({
-          data: {
-            id: uuid(),
-            entityId: website.id,
-            shareType: ENTITY_TYPE.website,
-            ...initialShare,
-          },
-        })
-      : null;
-
-    return { website, share };
+    return { website };
   });
 }
 
@@ -266,11 +249,11 @@ export async function updateWebsite(
   data: Prisma.WebsiteUncheckedUpdateInput,
   actorUserId: string,
   options: {
-    shareSlug?: string | null;
+    removeShares?: boolean;
     replayConfig?: unknown;
   } = {},
 ) {
-  const { shareSlug, replayConfig } = options;
+  const { removeShares, replayConfig } = options;
   const result = await runSerializable(async transaction => {
     await lockCollectionSources(transaction, [websiteId]);
 
@@ -315,7 +298,7 @@ export async function updateWebsite(
     });
     let share;
 
-    if (shareSlug === null) {
+    if (removeShares) {
       await transaction.share.deleteMany({
         where: {
           entityId: websiteId,
@@ -323,37 +306,6 @@ export async function updateWebsite(
         },
       });
       share = null;
-    } else if (typeof shareSlug === 'string') {
-      const activeShares = await transaction.share.findMany({
-        where: {
-          entityId: websiteId,
-          shareType: ENTITY_TYPE.website,
-        },
-        select: { id: true, name: true, parameters: true },
-        take: 2,
-      });
-
-      if (activeShares.length > 1) {
-        throw new Error('WEBSITE_SHARE_ROTATION_AMBIGUOUS');
-      }
-
-      if (activeShares.length === 1) {
-        await transaction.share.delete({ where: { id: activeShares[0].id } });
-      }
-
-      share = await transaction.share.create({
-        data: {
-          id: uuid(),
-          entityId: websiteId,
-          shareType: ENTITY_TYPE.website,
-          name: activeShares[0]?.name ?? website.name,
-          slug: shareSlug,
-          parameters:
-            activeShares.length === 1
-              ? (activeShares[0].parameters as Prisma.InputJsonObject)
-              : { overview: true, events: true },
-        },
-      });
     } else {
       const activeShares = await transaction.share.findMany({
         where: {

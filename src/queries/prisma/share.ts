@@ -2,6 +2,7 @@ import type { Prisma } from '@/generated/prisma/client';
 import { getBoardEntityIds } from '@/lib/boards';
 import { ENTITY_TYPE, PERMISSIONS } from '@/lib/constants';
 import { isUuid, uuid } from '@/lib/crypto';
+import { getRandomChars } from '@/lib/generate';
 import prisma from '@/lib/prisma';
 import type { BoardParameters, QueryFilters } from '@/lib/types';
 import {
@@ -172,6 +173,7 @@ export async function updateShare(
   data: {
     name: string;
     slug: string;
+    rotate?: boolean;
     parameters: Prisma.ShareUncheckedUpdateInput['parameters'];
   },
   actorUserId: string,
@@ -212,13 +214,27 @@ export async function updateShare(
       throw error;
     }
 
+    if (share.slug !== data.slug) {
+      throw new Error('SHARE_SLUG_CHANGED');
+    }
+
+    let nextSlug = share.slug;
+
+    if (data.rotate) {
+      do {
+        nextSlug = getRandomChars(16);
+      } while (nextSlug === share.slug);
+    }
+
     return transaction.share.update({
       where: {
         id: shareId,
       },
       data: {
-        ...data,
-        ...(data.slug !== share.slug ? { id: uuid() } : {}),
+        name: data.name,
+        slug: nextSlug,
+        parameters: data.parameters,
+        ...(data.rotate ? { id: uuid() } : {}),
       },
     });
   });

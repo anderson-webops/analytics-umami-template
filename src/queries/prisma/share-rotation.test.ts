@@ -55,27 +55,30 @@ beforeEach(() => {
   });
 });
 
-test('rotating a slug revokes the old share ID even after rotating back', async () => {
+test('repeated rotations revoke every previous share ID and URL', async () => {
   const firstRotation = await updateShare(
     originalId,
-    { name: 'Example', slug: 'replacement', parameters: { events: true } },
+    { name: 'Example', slug: 'original', rotate: true, parameters: { events: true } },
     'manager',
   );
   const replacementId = firstRotation.id;
 
   expect(isUuid(replacementId)).toBe(true);
   expect(replacementId).not.toBe(originalId);
+  expect(firstRotation.slug).toMatch(/^[A-Za-z0-9]{16}$/);
+  expect(firstRotation.slug).not.toBe('original');
   expect(await getShare(originalId)).toBeNull();
   expect(await getShare(replacementId)).toEqual(firstRotation);
 
   const secondRotation = await updateShare(
     replacementId,
-    { name: 'Example', slug: 'original', parameters: { events: true } },
+    { name: 'Example', slug: firstRotation.slug, rotate: true, parameters: { events: true } },
     'manager',
   );
 
   expect(secondRotation.id).not.toBe(replacementId);
   expect(secondRotation.id).not.toBe(originalId);
+  expect(secondRotation.slug).not.toBe(firstRotation.slug);
   expect(await getShare(originalId)).toBeNull();
   expect(await getShare(replacementId)).toBeNull();
   expect(await getShare(secondRotation.id)).toEqual(secondRotation);
@@ -106,10 +109,24 @@ test('revoked update permission prevents slug and ID changes', async () => {
   await expect(
     updateShare(
       originalId,
-      { name: 'Example', slug: 'replacement', parameters: { events: true } },
+      { name: 'Example', slug: 'original', rotate: true, parameters: { events: true } },
       'manager',
     ),
   ).rejects.toThrow('SHARE_ACTOR_NOT_AUTHORIZED');
   expect(database.share.update).not.toHaveBeenCalled();
   expect(currentShare.id).toBe(originalId);
+});
+
+test('a stale edit cannot restore an already replaced public URL', async () => {
+  currentShare.slug = 'replacement';
+
+  await expect(
+    updateShare(
+      originalId,
+      { name: 'Stale edit', slug: 'original', parameters: { events: false } },
+      'manager',
+    ),
+  ).rejects.toThrow('SHARE_SLUG_CHANGED');
+  expect(database.share.update).not.toHaveBeenCalled();
+  expect(currentShare.slug).toBe('replacement');
 });

@@ -2,8 +2,7 @@ import { uuid } from '@/lib/crypto';
 import { isEnvEnabled } from '@/lib/env';
 import { fetchAccount, fetchTeam } from '@/lib/load';
 import { getQueryFilters, parseRequest } from '@/lib/request';
-import { conflict, forbidden, json, unauthorized } from '@/lib/response';
-import { publicSharesDisabled } from '@/lib/security';
+import { badRequest, conflict, json, unauthorized } from '@/lib/response';
 import { getCloudWebsiteLimit } from '@/lib/subscription';
 import { canCreateTeamWebsite, canCreateWebsite, redactWebsiteListShareIds } from '@/permissions';
 import { createWebsite } from '@/queries/prisma';
@@ -49,12 +48,12 @@ export async function POST(request: Request) {
     return unauthorized({ message: 'An interactive session is required to manage public shares.' });
   }
 
-  if (id && !auth.user.isAdmin) {
-    return unauthorized({ message: 'Only an administrator can supply an entity ID.' });
+  if (typeof shareId === 'string') {
+    return badRequest({ message: 'Create public shares with the shares API.' });
   }
 
-  if (shareId && publicSharesDisabled()) {
-    return forbidden({ message: 'Public analytics shares are disabled.' });
+  if (id && !auth.user.isAdmin) {
+    return unauthorized({ message: 'Only an administrator can supply an entity ID.' });
   }
 
   let activeOwnerWebsiteLimit: number | undefined;
@@ -84,19 +83,11 @@ export async function POST(request: Request) {
   }
 
   let website;
-  let share;
 
   try {
-    ({ website, share } = await createWebsite(data, auth.user.id, {
+    ({ website } = await createWebsite(data, auth.user.id, {
       activeOwnerWebsiteLimit,
       customEntityId: !!id,
-      initialShare: shareId
-        ? {
-            name,
-            slug: shareId,
-            parameters: { overview: true, events: true },
-          }
-        : undefined,
     }));
   } catch (error: any) {
     switch (error?.message) {
@@ -121,6 +112,6 @@ export async function POST(request: Request) {
 
   return json({
     ...website,
-    shareId: share?.slug ?? null,
+    shareId: null,
   });
 }

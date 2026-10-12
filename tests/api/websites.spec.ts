@@ -76,10 +76,16 @@ test.describe('Websites', () => {
   test('POST /api/websites validates the body', async ({ admin }) => {
     const domain = await admin.post('/api/websites', { name: 'x', domain: 'not a domain' });
     const name = await admin.post('/api/websites', { domain: uniqueDomain() });
+    const callerShare = await admin.post('/api/websites', {
+      name: 'x',
+      domain: uniqueDomain(),
+      shareId: 'guessable',
+    });
 
     expect(domain.status).toBe(400);
     expect(domain.body.error.code).toBe('bad-request');
     expect(name.status).toBe(400);
+    expect(callerShare.status).toBe(400);
   });
 
   test('POST /api/websites requires a user that can create websites', async ({ api, viewer }) => {
@@ -140,45 +146,54 @@ test.describe('Websites', () => {
     expect(denied.status).toBe(401);
   });
 
-  test('POST /api/websites/{websiteId} manages the legacy share id', async ({ admin }) => {
-    const created = await admin.post(`/api/websites/${websiteId}`, { shareId: 'SPECSHARE1' });
+  test('POST /api/websites/{websiteId} rejects custom slugs and can revoke shares', async ({
+    admin,
+    api,
+  }) => {
+    const created = await admin.post(`/api/websites/${websiteId}/shares`, {
+      name: uniqueName('legacy-share'),
+    });
+    const rejected = await admin.post(`/api/websites/${websiteId}`, { shareId: 'SPECSHARE1' });
     const removed = await admin.post(`/api/websites/${websiteId}`, { shareId: null });
 
     expect(created.status).toBe(200);
-    expect(created.body.shareId).toBe('SPECSHARE1');
+    expect(rejected.status).toBe(400);
     expect(removed.status).toBe(200);
     expect(removed.body.shareId).toBeNull();
+    expect((await api.get(`/api/share/${created.body.slug}`)).status).toBe(404);
   });
 
-  test('legacy share rotation revokes the prior slug and token atomically', async ({
-    admin,
-    api,
-    seed,
-  }) => {
-    const oldSlug = uniqueSlug('old-share');
-    const newSlug = uniqueSlug('new-share');
-    const created = await admin.post(`/api/websites/${websiteId}`, { shareId: oldSlug });
+  test('share rotation revokes the prior slug and token atomically', async ({ admin, api }) => {
+    const created = await admin.post(`/api/websites/${websiteId}/shares`, {
+      name: uniqueName('rotating-share'),
+    });
+    const oldSlug = created.body.slug;
     const oldExchange = await api.get(`/api/share/${oldSlug}`);
 
     expect(created.status).toBe(200);
     expect(oldExchange.status).toBe(200);
 
-    const rotated = await admin.post(`/api/websites/${websiteId}`, { shareId: newSlug });
+    const rotated = await admin.post(`/api/share/id/${created.body.id}`, {
+      name: created.body.name,
+      slug: oldSlug,
+      rotate: true,
+      parameters: created.body.parameters,
+    });
     const oldToken = api.with({
       [SHARE_TOKEN_HEADER]: oldExchange.body.token,
       [SHARE_CONTEXT_HEADER]: '1',
     });
 
     expect(rotated.status).toBe(200);
-    expect(rotated.body.shareId).toBe(newSlug);
+    const newSlug = rotated.body.slug;
+    expect(newSlug).toMatch(/^[A-Za-z0-9]{16}$/);
+    expect(newSlug).not.toBe(oldSlug);
     expect((await api.get(`/api/share/${oldSlug}`)).status).toBe(404);
     expect((await oldToken.get(`/api/websites/${websiteId}`)).status).toBe(401);
     expect((await api.get(`/api/share/${newSlug}`)).status).toBe(200);
     expect((await admin.get(`/api/websites/${websiteId}`)).body.shareId).toBe(newSlug);
 
-    const collision = await admin.post(`/api/websites/${websiteId}`, {
-      shareId: seed.share.slug,
-    });
+    const collision = await admin.post(`/api/websites/${websiteId}`, { shareId: 'guessable' });
 
     expect(collision.status).toBe(400);
     expect((await api.get(`/api/share/${newSlug}`)).status).toBe(200);
@@ -189,10 +204,7 @@ test.describe('Websites', () => {
     expect((await api.get(`/api/share/${newSlug}`)).status).toBe(404);
   });
 
-  test('legacy rotation rejects ambiguous shares without revoking explicit links', async ({
-    admin,
-    api,
-  }) => {
+  test('legacy slug writes cannot replace explicit shares', async ({ admin, api }) => {
     const first = await admin.post(`/api/websites/${websiteId}/shares`, {
       name: uniqueName('first-share'),
       parameters: { overview: true },
@@ -223,13 +235,16 @@ test.describe('Websites', () => {
 
     expect((await admin.del(`/api/share/id/${first.body.id}`)).status).toBe(200);
 
-    const rotated = await admin.post(`/api/websites/${websiteId}`, {
-      shareId: replacementSlug,
+    const rotated = await admin.post(`/api/share/id/${second.body.id}`, {
+      name: second.body.name,
+      slug: second.body.slug,
+      rotate: true,
+      parameters: second.body.parameters,
     });
 
     expect(rotated.status).toBe(200);
     expect((await api.get(`/api/share/${second.body.slug}`)).status).toBe(404);
-    const replacement = await api.get(`/api/share/${replacementSlug}`);
+    const replacement = await api.get(`/api/share/${rotated.body.slug}`);
 
     expect(replacement.status).toBe(200);
     expect(replacement.body.parameters).toEqual({ overview: true });

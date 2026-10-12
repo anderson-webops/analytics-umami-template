@@ -36,16 +36,15 @@ test.describe('Shares', () => {
 
   test('POST /api/share creates a share for an entity', async ({ admin }) => {
     const name = uniqueName('share');
-    slug = uniqueSlug('share');
     const response = await admin.post('/api/share', {
       entityId: websiteId,
       shareType: ENTITY_TYPE.website,
       name,
-      slug,
       parameters: { overview: true },
     });
 
     expect(response.status).toBe(200);
+    slug = response.body.slug;
     expect(response.body).toMatchObject({
       id: expect.any(String),
       entityId: websiteId,
@@ -55,22 +54,21 @@ test.describe('Shares', () => {
       parameters: { overview: true },
       createdAt: expect.any(String),
     });
+    expect(slug).toMatch(/^[A-Za-z0-9]{16}$/);
 
     shareId = response.body.id;
   });
 
-  test('POST /api/share generates a slug when omitted', async ({ admin }) => {
+  test('POST /api/share rejects a caller-selected slug', async ({ admin }) => {
     const response = await admin.post('/api/share', {
       entityId: websiteId,
       shareType: ENTITY_TYPE.website,
       name: uniqueName('share'),
+      slug: uniqueSlug('weak'),
       parameters: {},
     });
 
-    expect(response.status).toBe(200);
-    expect(response.body.slug).toMatch(/^[A-Za-z0-9]{16}$/);
-
-    await admin.del(`/api/share/id/${response.body.id}`);
+    expect(response.status).toBe(400);
   });
 
   test('POST /api/share validates the body and checks entity access', async ({
@@ -142,12 +140,17 @@ test.describe('Shares', () => {
     expect(anonymous.status).toBe(401);
   });
 
-  test('POST /api/share/id/{shareId} updates a share', async ({ admin, viewer }) => {
+  test('POST /api/share/id/{shareId} edits and rotates a share', async ({ admin, api, viewer }) => {
     const name = uniqueName('renamed');
-    slug = uniqueSlug('renamed');
     const response = await admin.post(`/api/share/id/${shareId}`, {
       name,
       slug,
+      parameters: { overview: true, events: true },
+    });
+    const oldExchange = await api.get(`/api/share/${slug}`);
+    const custom = await admin.post(`/api/share/id/${shareId}`, {
+      name,
+      slug: uniqueSlug('weak'),
       parameters: { overview: true, events: true },
     });
     const partial = await admin.post(`/api/share/id/${shareId}`, { name });
@@ -169,9 +172,33 @@ test.describe('Shares', () => {
       slug,
       parameters: { overview: true, events: true },
     });
+    expect(oldExchange.status).toBe(200);
+    expect(custom.status).toBe(400);
     expect(partial.status).toBe(400);
     expect(unknown.status).toBe(404);
     expect(denied.status).toBe(401);
+
+    const rotated = await admin.post(`/api/share/id/${shareId}`, {
+      name,
+      slug,
+      rotate: true,
+      parameters: { overview: true, events: true },
+    });
+    const oldToken = api.with({
+      [SHARE_TOKEN_HEADER]: oldExchange.body.token,
+      [SHARE_CONTEXT_HEADER]: '1',
+    });
+
+    expect(rotated.status).toBe(200);
+    expect(rotated.body.id).not.toBe(shareId);
+    expect(rotated.body.slug).toMatch(/^[A-Za-z0-9]{16}$/);
+    expect(rotated.body.slug).not.toBe(slug);
+    expect((await api.get(`/api/share/${slug}`)).status).toBe(404);
+    expect((await oldToken.get(`/api/websites/${websiteId}`)).status).toBe(401);
+    expect((await api.get(`/api/share/${rotated.body.slug}`)).status).toBe(200);
+
+    shareId = rotated.body.id;
+    slug = rotated.body.slug;
   });
 
   test('GET /api/websites/{websiteId}/shares lists website shares', async ({
@@ -230,17 +257,16 @@ test.describe('Shares', () => {
     seed,
     viewer,
   }) => {
-    gatedSlug = uniqueSlug('gated');
     const created = await admin.post('/api/share', {
       entityId: seed.website.id,
       shareType: ENTITY_TYPE.website,
       name: uniqueName('gated'),
-      slug: gatedSlug,
       parameters: { overview: true, events: false, allowFilter: false },
     });
 
     expect(created.status).toBe(200);
     gatedShareId = created.body.id;
+    gatedSlug = created.body.slug;
 
     const resolved = await api.get(`/api/share/${gatedSlug}`);
 
@@ -291,19 +317,17 @@ test.describe('Shares', () => {
     const paths = [base, `${base}/properties`, `${base}/activity`];
 
     for (const section of ['events', 'realtime', 'revenue'] as const) {
-      const slug = uniqueSlug(`profile-${section}`);
       const created = await admin.post('/api/share', {
         entityId: seed.website.id,
         shareType: ENTITY_TYPE.website,
         name: uniqueName(`profile-${section}`),
-        slug,
         parameters: { sessions: false, [section]: true },
       });
 
       expect(created.status).toBe(200);
 
       try {
-        const client = await share(slug);
+        const client = await share(created.body.slug);
 
         for (const path of paths) {
           const response = await client.get(path, { params: dateRange(seed) });
@@ -315,19 +339,17 @@ test.describe('Shares', () => {
     }
 
     for (const parameters of [{ sessions: true, events: false }, {}]) {
-      const slug = uniqueSlug('profile-allowed');
       const created = await admin.post('/api/share', {
         entityId: seed.website.id,
         shareType: ENTITY_TYPE.website,
         name: uniqueName('profile-allowed'),
-        slug,
         parameters,
       });
 
       expect(created.status).toBe(200);
 
       try {
-        const client = await share(slug);
+        const client = await share(created.body.slug);
 
         for (const path of paths) {
           const response = await client.get(path, { params: dateRange(seed) });
@@ -349,19 +371,17 @@ test.describe('Shares', () => {
     seed,
     share,
   }) => {
-    const sharedSlug = uniqueSlug('bounded-query');
     const created = await admin.post('/api/share', {
       entityId: seed.website.id,
       shareType: ENTITY_TYPE.website,
       name: uniqueName('bounded-query'),
-      slug: sharedSlug,
       parameters: { overview: true, allowFilter: true },
     });
 
     expect(created.status).toBe(200);
 
     try {
-      const client = await share(sharedSlug);
+      const client = await share(created.body.slug);
       const path = `/api/websites/${seed.website.id}/stats`;
       const ordinary = await client.get(path, { params: dateRange(seed) });
       const properties = Object.fromEntries(

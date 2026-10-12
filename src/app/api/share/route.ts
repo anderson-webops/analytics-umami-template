@@ -4,7 +4,7 @@ import { uuid } from '@/lib/crypto';
 import { getRandomChars } from '@/lib/generate';
 import { parseRequest } from '@/lib/request';
 import { conflict, json, notFound, unauthorized } from '@/lib/response';
-import { entityTypeParam, routeSlugParam, shareParametersParam } from '@/lib/schema';
+import { entityTypeParam, shareParametersParam } from '@/lib/schema';
 import { publicSharesDisabled } from '@/lib/security';
 import {
   canShareBoardEntities,
@@ -20,13 +20,14 @@ export async function POST(request: Request) {
     return notFound();
   }
 
-  const schema = z.object({
-    entityId: z.uuid(),
-    shareType: entityTypeParam,
-    name: z.string().trim().min(1).max(200),
-    slug: routeSlugParam.optional(),
-    parameters: shareParametersParam,
-  });
+  const schema = z
+    .object({
+      entityId: z.uuid(),
+      shareType: entityTypeParam,
+      name: z.string().trim().min(1).max(200),
+      parameters: shareParametersParam,
+    })
+    .strict();
 
   const { auth, body, error } = await parseRequest(request, schema);
 
@@ -34,7 +35,7 @@ export async function POST(request: Request) {
     return error();
   }
 
-  const { entityId, shareType, name, slug, parameters } = body;
+  const { entityId, shareType, name, parameters } = body;
   const shareParameters = parameters ?? {};
 
   if (shareType === ENTITY_TYPE.board) {
@@ -73,7 +74,7 @@ export async function POST(request: Request) {
         entityId,
         shareType,
         name,
-        slug: slug || getRandomChars(16),
+        slug: getRandomChars(16),
         parameters: shareParameters,
       },
       auth.user.id,

@@ -12,7 +12,7 @@ const operation1 = defineOperation({
     operationId: 'transferWebsite',
     summary: 'Transfer website ownership',
     description:
-      'Transfers the specified website to another user or team after checking permission for the destination.',
+      'Transfers the specified website to another user or team after checking permission for the destination. A change of owner atomically revokes all direct public website shares, including existing links and tokens; the new owner must create new shares.',
     tags: ['Websites'],
     parameters: [
       {
