@@ -467,6 +467,17 @@ describe('checkAuth api keys', () => {
     expect(await checkAuth(apiKeyRequest())).toBeNull();
   });
 
+  test('rejects a key revoked while its current role is being read', async () => {
+    getApiKeyByHashMock
+      .mockResolvedValueOnce({ id: 'key-1', userId: 'user-1', name: 'old key' } as any)
+      .mockResolvedValueOnce(null);
+    getUserMock.mockResolvedValue({ id: 'user-1', role: 'admin' } as any);
+
+    expect(await checkAuth(apiKeyRequest())).toBeNull();
+    expect(getApiKeyByHashMock).toHaveBeenCalledTimes(2);
+    expect(updateApiKeyLastUsedMock).not.toHaveBeenCalled();
+  });
+
   test('rejects API keys on credential and administration routes', async () => {
     mockApiKey();
     mockUser();

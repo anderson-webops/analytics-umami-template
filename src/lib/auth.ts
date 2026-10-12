@@ -66,7 +66,8 @@ export async function checkApiKeyAuth(request: Request, token: string) {
     return null;
   }
 
-  const apiKey = await getApiKeyByHash(hashApiKey(token));
+  const keyHash = hashApiKey(token);
+  const apiKey = await getApiKeyByHash(keyHash);
   if (!apiKey) {
     log('API key not found');
     return null;
@@ -75,6 +76,12 @@ export async function checkApiKeyAuth(request: Request, token: string) {
   const user: any = await getUser(apiKey.userId);
   if (!user?.id) {
     log('API key user not found');
+    return null;
+  }
+
+  const currentApiKey = await getApiKeyByHash(keyHash);
+  if (currentApiKey?.id !== apiKey.id || currentApiKey.userId !== apiKey.userId) {
+    log('API key changed during authorization');
     return null;
   }
 

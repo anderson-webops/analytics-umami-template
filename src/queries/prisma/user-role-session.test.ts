@@ -50,22 +50,28 @@ beforeEach(() => {
   assertAdmin.mockReset();
 });
 
-test('a role round trip cannot resurrect an earlier session with the same role', async () => {
+test('a role round trip revokes sessions and API keys at each transition', async () => {
   await updateUser('user-1', { role: 'admin' }, 'admin-1');
   expect(state).toEqual({ role: 'admin', sessionGeneration: 1 });
   expect(hasCurrentSessionGeneration(0, state.sessionGeneration)).toBe(false);
+  expect(runSerialized).toHaveBeenCalledOnce();
+  expect(runRevocation).not.toHaveBeenCalled();
+  expect(transaction.apiKey.deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-1' } });
+  expect(transaction.apiKey.deleteMany).toHaveBeenCalledTimes(1);
 
   await updateUser('user-1', { role: 'user' }, 'admin-1');
   expect(state).toEqual({ role: 'user', sessionGeneration: 2 });
   expect(hasCurrentSessionGeneration(0, state.sessionGeneration)).toBe(false);
   expect(hasCurrentSessionGeneration(1, state.sessionGeneration)).toBe(false);
-  expect(transaction.apiKey.deleteMany).not.toHaveBeenCalled();
+  expect(transaction.apiKey.deleteMany).toHaveBeenCalledTimes(2);
 });
 
 test('a same-role update preserves current sessions', async () => {
   await updateUser('user-1', { role: 'user', username: 'renamed' }, 'admin-1');
 
   expect(state.sessionGeneration).toBe(0);
+  expect(runSerialized).toHaveBeenCalledOnce();
+  expect(transaction.apiKey.deleteMany).not.toHaveBeenCalled();
   expect(transaction.user.update).toHaveBeenCalledWith(
     expect.objectContaining({ data: { role: 'user', username: 'renamed' } }),
   );
@@ -75,6 +81,7 @@ test('Prisma set-form role transitions also revoke earlier sessions', async () =
   await updateUser('user-1', { role: { set: 'admin' } }, 'admin-1');
 
   expect(state).toEqual({ role: 'admin', sessionGeneration: 1 });
+  expect(transaction.apiKey.deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-1' } });
 });
 
 test('combined role and password changes increment once and revoke API keys', async () => {
@@ -83,6 +90,7 @@ test('combined role and password changes increment once and revoke API keys', as
   expect(state).toEqual({ role: 'admin', sessionGeneration: 1 });
   expect(runRevocation).toHaveBeenCalledOnce();
   expect(transaction.apiKey.deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-1' } });
+  expect(transaction.apiKey.deleteMany).toHaveBeenCalledTimes(1);
 });
 
 test('the last active administrator cannot be demoted', async () => {

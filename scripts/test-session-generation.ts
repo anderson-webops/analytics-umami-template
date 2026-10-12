@@ -318,6 +318,15 @@ try {
     { expiresIn: '5m' },
   );
   assert.equal((await sessionRequest(prePromotionToken))?.user?.id, adminId);
+  const prePromotionKeyId = randomUUID();
+  await prisma.client.apiKey.create({
+    data: {
+      ...apiKey,
+      id: prePromotionKeyId,
+      userId: adminId,
+      keyHash: 'h'.repeat(128),
+    },
+  });
 
   function provisionAdmin(extraEnv: Record<string, string> = {}) {
     return spawnSync(process.execPath, ['--import', 'tsx', 'scripts/provision-site.ts'], {
@@ -343,13 +352,24 @@ try {
   assert.equal(promotedUser.role, 'admin');
   assert.equal(promotedUser.sessionGeneration, 1);
   assert.equal(await sessionRequest(prePromotionToken), null);
+  assert.equal(await prisma.client.apiKey.findUnique({ where: { id: prePromotionKeyId } }), null);
 
+  const reusedAdminKeyId = randomUUID();
+  await prisma.client.apiKey.create({
+    data: {
+      ...apiKey,
+      id: reusedAdminKeyId,
+      userId: adminId,
+      keyHash: 'k'.repeat(128),
+    },
+  });
   const repeatedProvision = provisionAdmin();
   assert.equal(repeatedProvision.status, 0, repeatedProvision.stderr);
   assert.equal(
     (await prisma.client.user.findUniqueOrThrow({ where: { id: adminId } })).sessionGeneration,
     1,
   );
+  assert.notEqual(await prisma.client.apiKey.findUnique({ where: { id: reusedAdminKeyId } }), null);
 
   await prisma.client.user.update({ where: { id: adminId }, data: { role: 'user' } });
   const preCombinedToken = await createSecureToken(
@@ -373,6 +393,87 @@ try {
   assert.equal(combinedUser.role, 'admin');
   assert.equal(combinedUser.sessionGeneration, 2);
   assert.equal(await sessionRequest(preCombinedToken), null);
+  assert.equal(await prisma.client.apiKey.findUnique({ where: { id: reusedAdminKeyId } }), null);
+
+  assert.notEqual(await prisma.client.apiKey.findUnique({ where: { id: protectedKeyId } }), null);
+  await updateUser(userId, { role: 'admin' }, adminId);
+  assert.equal(await prisma.client.apiKey.findUnique({ where: { id: protectedKeyId } }), null);
+  assert.equal(
+    (await prisma.client.user.findUniqueOrThrow({ where: { id: userId } })).sessionGeneration,
+    6,
+  );
+  const preDemotionKeyId = randomUUID();
+  assert.equal(
+    (
+      await createApiKey(
+        { ...apiKey, id: preDemotionKeyId, keyHash: 'i'.repeat(128) },
+        6,
+        'r'.repeat(60),
+      )
+    )?.id,
+    preDemotionKeyId,
+  );
+  await updateUser(userId, { role: 'user' }, adminId);
+  assert.equal(await prisma.client.apiKey.findUnique({ where: { id: preDemotionKeyId } }), null);
+  assert.equal(
+    (await prisma.client.user.findUniqueOrThrow({ where: { id: userId } })).sessionGeneration,
+    7,
+  );
+
+  let releaseConcurrentPromotion: () => void = () => {};
+  let signalConcurrentPromotionReady: () => void = () => {};
+  const promotionGate = new Promise<void>(resolve => {
+    releaseConcurrentPromotion = resolve;
+  });
+  const promotionReady = new Promise<void>(resolve => {
+    signalConcurrentPromotionReady = resolve;
+  });
+  const concurrentKeyId = randomUUID();
+  const concurrentPromotion = prisma.transaction(
+    async transaction => {
+      await transaction.user.update({ where: { id: userId }, data: { role: 'admin' } });
+      await transaction.apiKey.create({
+        data: { ...apiKey, id: concurrentKeyId, keyHash: 'j'.repeat(128) },
+      });
+      signalConcurrentPromotionReady();
+      await promotionGate;
+    },
+    { isolationLevel: 'ReadCommitted', timeout: 15_000 },
+  );
+
+  await promotionReady;
+  const sameRoleEdit = updateUser(userId, { role: 'user' }, adminId);
+  try {
+    let blocked = false;
+
+    for (let attempt = 0; attempt < 200; attempt++) {
+      const [{ waiting }] = await prisma.client.$queryRaw<Array<{ waiting: number }>>`
+        SELECT count(*)::int AS waiting FROM pg_stat_activity
+        WHERE datname = current_database()
+          AND wait_event_type = 'Lock'
+          AND wait_event = 'transactionid'
+      `;
+
+      if (waiting > 0) {
+        blocked = true;
+        break;
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+
+    assert.equal(blocked, true);
+  } finally {
+    releaseConcurrentPromotion();
+  }
+
+  await Promise.all([concurrentPromotion, sameRoleEdit]);
+  const afterConcurrentPromotion = await prisma.client.user.findUniqueOrThrow({
+    where: { id: userId },
+  });
+  assert.equal(afterConcurrentPromotion.role, 'user');
+  assert.equal(afterConcurrentPromotion.sessionGeneration, 8);
+  assert.equal(await prisma.client.apiKey.findUnique({ where: { id: concurrentKeyId } }), null);
 
   console.log('PostgreSQL session revocation and stale credential issuance denial passed.');
 } finally {

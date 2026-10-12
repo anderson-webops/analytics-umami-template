@@ -185,15 +185,14 @@ export async function updateUser(
       }
     }
 
+    const changingRole = nextRole !== null && nextRole !== current.role;
     const updated = await transaction.user.update({
       where: {
         id: userId,
       },
       data: {
         ...data,
-        ...(changingPassword || (nextRole !== null && nextRole !== current.role)
-          ? { sessionGeneration: { increment: 1 } }
-          : {}),
+        ...(changingPassword || changingRole ? { sessionGeneration: { increment: 1 } } : {}),
       },
       select: {
         id: true,
@@ -203,7 +202,7 @@ export async function updateUser(
       },
     });
 
-    if (changingPassword) {
+    if (changingPassword || changingRole) {
       await transaction.apiKey.deleteMany({ where: { userId } });
     }
 

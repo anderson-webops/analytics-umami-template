@@ -379,6 +379,7 @@ async function main() {
             messages.push(`Reusing existing admin user: ${existingUser.username}`);
           }
 
+          let passwordUpdated = false;
           if ((updateAdminPassword || usesDefaultPassword) && passwordHash) {
             await transaction.user.update({
               where: { id: existingUser.id },
@@ -387,13 +388,17 @@ async function main() {
                 ...(promotingExistingAdmin ? {} : { sessionGeneration: { increment: 1 } }),
               },
             });
-            await transaction.apiKey.deleteMany({ where: { userId: existingUser.id } });
+            passwordUpdated = true;
 
             messages.push(`Updated password for admin user: ${existingUser.username}`);
           } else if (adminPassword) {
             messages.push(
               `UMAMI_ADMIN_PASSWORD was provided for ${existingUser.username}, but the password was left unchanged. Set UMAMI_UPDATE_ADMIN_PASSWORD=true or pass --update-admin-password to rotate it.`,
             );
+          }
+
+          if (promotingExistingAdmin || passwordUpdated) {
+            await transaction.apiKey.deleteMany({ where: { userId: existingUser.id } });
           }
         }
 
