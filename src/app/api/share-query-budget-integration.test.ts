@@ -519,6 +519,70 @@ test('website list charts do not expose overview data through an events-only sha
 });
 
 test.each([
+  { name: 'website', run: getWebsiteChartsRoute },
+  { name: 'link', run: getLinkChartsRoute },
+  { name: 'pixel', run: getPixelChartsRoute },
+])('$name list charts require overview even when compare is enabled', async ({ name, run }) => {
+  const shareId = `compare-only-charts-${crypto.randomUUID()}`;
+  checkAuthMock.mockResolvedValue({
+    shareToken: {
+      shareId,
+      websiteId: WEBSITE_ID,
+      parameters: { overview: false, compare: true },
+    },
+  } as any);
+  canViewBatchWebsitesMock.mockImplementation(async auth => (auth.shareToken ? [WEBSITE_ID] : []));
+  canViewLinkMock.mockImplementation(async auth => !!auth.shareToken);
+  canViewPixelMock.mockImplementation(async auth => !!auth.shareToken);
+  getWebsiteListChartsMock.mockImplementation(async ids =>
+    ids.length ? { [WEBSITE_ID]: { values: [1], total: 1 } } : {},
+  );
+
+  const response = await run(
+    new Request(`https://analytics.example/api/${name}s/charts?ids=${WEBSITE_ID}`),
+  );
+
+  expect(response.status).toBe(200);
+  await expect(response.json()).resolves.toEqual({ data: {} });
+  expect(getWebsiteListChartsMock).toHaveBeenCalledWith([], expect.any(Object));
+  if (name === 'website') {
+    expect(canViewBatchWebsitesMock.mock.calls[0][0].shareToken).toBeUndefined();
+  } else if (name === 'link') {
+    expect(canViewLinkMock.mock.calls[0][0].shareToken).toBeUndefined();
+  } else {
+    expect(canViewPixelMock.mock.calls[0][0].shareToken).toBeUndefined();
+  }
+});
+
+test.each([
+  { name: 'website', run: getWebsiteChartsRoute },
+  { name: 'link', run: getLinkChartsRoute },
+  { name: 'pixel', run: getPixelChartsRoute },
+])('$name list charts retain overview-share access', async ({ name, run }) => {
+  const shareId = `overview-charts-${crypto.randomUUID()}`;
+  checkAuthMock.mockResolvedValue({
+    shareToken: {
+      shareId,
+      websiteId: WEBSITE_ID,
+      parameters: { overview: true, compare: false },
+    },
+  } as any);
+  canViewBatchWebsitesMock.mockImplementation(async auth => (auth.shareToken ? [WEBSITE_ID] : []));
+  canViewLinkMock.mockImplementation(async auth => !!auth.shareToken);
+  canViewPixelMock.mockImplementation(async auth => !!auth.shareToken);
+  const chart = { values: [1], total: 1 };
+  getWebsiteListChartsMock.mockResolvedValue({ [WEBSITE_ID]: chart } as any);
+
+  const response = await run(
+    new Request(`https://analytics.example/api/${name}s/charts?ids=${WEBSITE_ID}`),
+  );
+
+  expect(response.status).toBe(200);
+  await expect(response.json()).resolves.toEqual({ data: { [WEBSITE_ID]: chart } });
+  expect(getWebsiteListChartsMock).toHaveBeenCalledWith([WEBSITE_ID], expect.any(Object));
+});
+
+test.each([
   {
     name: 'active visitors with ignored URL dates',
     path: `/api/websites/${WEBSITE_ID}/active?startAt=2&endAt=1`,

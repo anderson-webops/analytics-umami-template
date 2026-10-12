@@ -44,7 +44,7 @@ export async function GET(request: Request) {
     ? new Date(query.endAt)
     : fromZonedTime(defaultRange.endDate, timezone);
 
-  const sectionAuth = restrictShareAuthToSection(auth, ['overview', 'compare']);
+  const sectionAuth = restrictShareAuthToSection(auth, 'overview');
   const linkIds = (
     await Promise.all(
       query.ids.map(async (linkId: string) =>

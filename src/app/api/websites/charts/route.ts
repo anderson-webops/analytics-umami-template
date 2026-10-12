@@ -44,7 +44,7 @@ export async function GET(request: Request) {
     : fromZonedTime(defaultRange.endDate, timezone);
 
   const websiteIds = await canViewBatchWebsites(
-    restrictShareAuthToSection(auth, ['overview', 'compare']),
+    restrictShareAuthToSection(auth, 'overview'),
     query.ids,
   );
 
