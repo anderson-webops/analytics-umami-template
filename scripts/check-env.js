@@ -28,6 +28,13 @@ const FORBIDDEN_CLIENT_IP_HEADERS = new Set([
   'x-umami-client-info-key',
   'x-umami-share-token',
 ]);
+const LOCATION_HEADER_PROVIDERS = new Set([
+  'umami',
+  'cloudflare',
+  'vercel',
+  'cloudfront',
+  'edgeone',
+]);
 
 function fail(message) {
   console.error(message);
@@ -522,6 +529,20 @@ if (isEnabled(process.env.TRUST_CLIENT_INFO_PAYLOAD)) {
 
 if (isEnabled(process.env.TRUST_LOCATION_HEADERS) && isEnabled(process.env.SKIP_LOCATION_HEADERS)) {
   fail('TRUST_LOCATION_HEADERS and SKIP_LOCATION_HEADERS cannot both be enabled.');
+}
+
+const locationHeaderProvider = getValue('LOCATION_HEADER_PROVIDER');
+if (locationHeaderProvider && !LOCATION_HEADER_PROVIDERS.has(locationHeaderProvider)) {
+  fail('LOCATION_HEADER_PROVIDER must be umami, cloudflare, vercel, cloudfront, or edgeone.');
+}
+
+if (isEnabled(process.env.TRUST_LOCATION_HEADERS)) {
+  if (!locationHeaderProvider) {
+    fail('TRUST_LOCATION_HEADERS requires LOCATION_HEADER_PROVIDER.');
+  }
+  if (!isEnabled(process.env.TRUST_CLIENT_INFO_PAYLOAD)) {
+    fail('TRUST_LOCATION_HEADERS requires TRUST_CLIENT_INFO_PAYLOAD.');
+  }
 }
 
 if (process.env.NODE_ENV === 'production') {

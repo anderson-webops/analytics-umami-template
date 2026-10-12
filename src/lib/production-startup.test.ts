@@ -278,6 +278,57 @@ describe('direct production startup', () => {
     },
   );
 
+  test.each([
+    [{ TRUST_LOCATION_HEADERS: '1' }, 'TRUST_LOCATION_HEADERS requires LOCATION_HEADER_PROVIDER.'],
+    [
+      { TRUST_LOCATION_HEADERS: '1', LOCATION_HEADER_PROVIDER: 'other' },
+      'LOCATION_HEADER_PROVIDER must be umami, cloudflare, vercel, cloudfront, or edgeone.',
+    ],
+    [
+      { TRUST_LOCATION_HEADERS: '1', LOCATION_HEADER_PROVIDER: 'cloudflare' },
+      'TRUST_LOCATION_HEADERS requires TRUST_CLIENT_INFO_PAYLOAD.',
+    ],
+  ])('rejects ambiguous location-header trust configuration', (configuration, message) => {
+    const result = spawnSync(process.execPath, ['scripts/check-env.js'], {
+      cwd: repositoryRoot,
+      encoding: 'utf8',
+      env: {
+        NODE_ENV: 'development',
+        APP_SECRET: 'a'.repeat(32),
+        DATABASE_URL: `postgresql://umami:${'b'.repeat(32)}@localhost:5432/umami`,
+        ...configuration,
+      },
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(message);
+  });
+
+  test.each(['cloudflare', 'umami'])(
+    'accepts explicit %s geography with authenticated cloud collector trust',
+    provider => {
+      const result = spawnSync(process.execPath, ['scripts/check-env.js'], {
+        cwd: repositoryRoot,
+        encoding: 'utf8',
+        env: {
+          NODE_ENV: 'development',
+          APP_SECRET: 'a'.repeat(32),
+          DATABASE_URL: `postgresql://umami:${'b'.repeat(32)}@localhost:5432/umami`,
+          CLOUD_MODE: '1',
+          CLOUD_URL: 'https://cloud.example.test',
+          CLICKHOUSE_URL: 'http://127.0.0.1:8123',
+          REDIS_URL: 'redis://127.0.0.1:6379',
+          TRUST_LOCATION_HEADERS: '1',
+          LOCATION_HEADER_PROVIDER: provider,
+          TRUST_CLIENT_INFO_PAYLOAD: '1',
+          CLIENT_INFO_TRUST_KEY: 'synthetic-trusted-collector-key-000000000000',
+        },
+      });
+
+      expect(result.status).toBe(0);
+    },
+  );
+
   test('binds the development server explicitly to loopback', () => {
     const packageJson = JSON.parse(read('package.json'));
 

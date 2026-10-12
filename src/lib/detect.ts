@@ -12,42 +12,33 @@ import { safeDecodeURIComponent } from '@/lib/url';
 
 const MAXMIND = 'maxmind';
 
-const PROVIDER_HEADERS = [
-  // Umami custom headers (cloud mode only)
-  ...(isEnvEnabled('CLOUD_MODE')
-    ? [
-        {
-          countryHeader: 'x-umami-client-country',
-          regionHeader: 'x-umami-client-region',
-          cityHeader: 'x-umami-client-city',
-        },
-      ]
-    : []),
-  // Cloudflare headers
-  {
+const PROVIDER_HEADERS = {
+  umami: {
+    countryHeader: 'x-umami-client-country',
+    regionHeader: 'x-umami-client-region',
+    cityHeader: 'x-umami-client-city',
+  },
+  cloudflare: {
     countryHeader: 'cf-ipcountry',
     regionHeader: 'cf-region-code',
     cityHeader: 'cf-ipcity',
   },
-  // Vercel headers
-  {
+  vercel: {
     countryHeader: 'x-vercel-ip-country',
     regionHeader: 'x-vercel-ip-country-region',
     cityHeader: 'x-vercel-ip-city',
   },
-  // CloudFront headers
-  {
+  cloudfront: {
     countryHeader: 'cloudfront-viewer-country',
     regionHeader: 'cloudfront-viewer-country-region',
     cityHeader: 'cloudfront-viewer-city',
   },
-  // EdgeOne headers (requires custom request headers in Rule Priorities, see: https://edgeone.ai/document/46151)
-  {
+  edgeone: {
     countryHeader: 'eo-ipcountry',
     regionHeader: 'eo-region-code',
     cityHeader: 'eo-ipcity',
   },
-];
+} as const;
 
 const BOT_SIGNATURES = [
   { pattern: /\bGPTBot\b/i, name: 'GPTBot', category: 'ai-crawler' },
@@ -157,7 +148,15 @@ export async function getLocation(ip: string = '', headers: Headers, skipHeaders
     isEnvEnabled('TRUST_LOCATION_HEADERS') &&
     !isEnvEnabled('SKIP_LOCATION_HEADERS')
   ) {
-    for (const provider of PROVIDER_HEADERS) {
+    const providerName = process.env.LOCATION_HEADER_PROVIDER?.trim();
+    const provider =
+      providerName &&
+      Object.hasOwn(PROVIDER_HEADERS, providerName) &&
+      (providerName !== 'umami' || isEnvEnabled('CLOUD_MODE'))
+        ? PROVIDER_HEADERS[providerName as keyof typeof PROVIDER_HEADERS]
+        : null;
+
+    if (provider) {
       const countryHeader = headers.get(provider.countryHeader);
       if (countryHeader) {
         const country = decodeHeader(countryHeader);
