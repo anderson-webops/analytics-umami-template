@@ -32,7 +32,11 @@ export function SSOPage() {
         },
         body: '{}',
       }).then(response => {
-        router.replace(response.ok ? target.url : '/login');
+        if (response.ok) {
+          router.replace(target.url);
+        } else {
+          window.location.href = `${process.env.cloudUrl}/login`;
+        }
       });
     }
   }, [router, url, token]);

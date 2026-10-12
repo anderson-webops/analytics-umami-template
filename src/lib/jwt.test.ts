@@ -1,6 +1,12 @@
 import crypto from 'node:crypto';
 import { describe, expect, test, vi } from 'vitest';
-import { createSecureToken, createToken, parseSecureToken, parseToken } from './jwt';
+import {
+  createSecureToken,
+  createToken,
+  parseAuthToken,
+  parseSecureToken,
+  parseToken,
+} from './jwt';
 
 const SECRET = 'test-secret';
 
@@ -32,7 +38,7 @@ describe('createSecureToken/parseSecureToken', () => {
     expect(parsed.userId).toBe('456');
   });
 
-  test('accepts tokens encrypted with the previous synchronous envelope', async () => {
+  test('rejects previously issued legacy envelopes without deriving a key', async () => {
     const salt = Buffer.alloc(64, 1);
     const iv = Buffer.alloc(16, 2);
     const key = crypto.pbkdf2Sync(SECRET, salt, 10000, 32, 'sha512');
@@ -43,7 +49,14 @@ describe('createSecureToken/parseSecureToken', () => {
     ]);
     const token = Buffer.concat([salt, iv, cipher.getAuthTag(), encrypted]).toString('base64');
 
-    expect(await parseSecureToken(token, SECRET)).toMatchObject({ userId: 'legacy' });
+    const deriveKey = vi.spyOn(crypto, 'pbkdf2');
+
+    try {
+      expect(await parseSecureToken(token, SECRET)).toBeNull();
+      expect(deriveKey).not.toHaveBeenCalled();
+    } finally {
+      deriveKey.mockRestore();
+    }
   });
 
   test('produces an opaque (encrypted) token, not a raw jwt', async () => {
@@ -72,17 +85,36 @@ describe('createSecureToken/parseSecureToken', () => {
     }
   });
 
-  test('rejects a correctly shaped forged envelope without blocking the event loop', async () => {
+  test('rejects a correctly shaped forged legacy envelope without key derivation', async () => {
     const deriveKey = vi.spyOn(crypto, 'pbkdf2');
     const deriveKeySync = vi.spyOn(crypto, 'pbkdf2Sync');
 
     try {
       expect(await parseSecureToken(Buffer.alloc(97).toString('base64'), SECRET)).toBeNull();
-      expect(deriveKey).toHaveBeenCalledOnce();
+      expect(deriveKey).not.toHaveBeenCalled();
       expect(deriveKeySync).not.toHaveBeenCalled();
     } finally {
       deriveKey.mockRestore();
       deriveKeySync.mockRestore();
+    }
+  });
+
+  test('rejects a forged legacy bearer before derivation while accepting a v2 bearer', async () => {
+    const deriveKey = vi.spyOn(crypto, 'pbkdf2');
+    const request = (token: string) =>
+      new Request('https://analytics.example.test/api/me', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+    try {
+      expect(await parseAuthToken(request(Buffer.alloc(97).toString('base64')), SECRET)).toBeNull();
+      expect(deriveKey).not.toHaveBeenCalled();
+
+      const validToken = await createSecureToken({ userId: '456' }, SECRET);
+      expect(await parseAuthToken(request(validToken), SECRET)).toMatchObject({ userId: '456' });
+      expect(deriveKey).not.toHaveBeenCalled();
+    } finally {
+      deriveKey.mockRestore();
     }
   });
 });

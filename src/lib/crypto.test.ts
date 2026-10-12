@@ -84,59 +84,20 @@ describe('encrypt/decrypt', () => {
     }
   });
 
-  test('retains the previous encrypted-token format during rollout', async () => {
-    await expect(decrypt(createLegacyEnvelope('value', 'secret'), 'secret')).resolves.toBe('value');
-  });
-
-  test('bounds concurrent derivations without retaining a waiting queue', async () => {
-    const now = vi.spyOn(Date, 'now').mockReturnValue(1000);
-
-    try {
-      vi.resetModules();
-      const isolated = await import('./crypto');
-      const token = createLegacyEnvelope('value', 'secret');
-      const pending = Array.from({ length: 64 }, () => isolated.decrypt(token, 'wrong-secret'));
-
-      await expect(isolated.decrypt(token, 'secret')).rejects.toThrow(
-        'Too many concurrent decryptions',
-      );
-      await Promise.allSettled(pending);
-      now.mockReturnValue(2000);
-      await expect(isolated.decrypt(token, 'secret')).resolves.toBe('value');
-    } finally {
-      now.mockRestore();
-    }
-  });
-
-  test('admits only bounded decryptions before deriving attacker-selected salts', async () => {
-    const now = vi.spyOn(Date, 'now').mockReturnValue(1000);
+  test('rejects authenticated and forged legacy envelopes without deriving a key', async () => {
     const deriveKey = vi.spyOn(crypto, 'pbkdf2');
 
     try {
-      vi.resetModules();
-      const isolated = await import('./crypto');
       const token = createLegacyEnvelope('value', 'secret');
       const bytes = Buffer.from(token, 'base64');
       bytes[bytes.length - 1] ^= 0xff;
       const forged = bytes.toString('base64');
-      deriveKey.mockClear();
 
-      await Promise.allSettled(
-        Array.from({ length: 64 }, () => isolated.decrypt(forged, 'secret')),
-      );
-      expect(deriveKey).toHaveBeenCalledTimes(64);
-
-      await expect(isolated.decrypt(forged, 'secret')).rejects.toThrow(
-        'Too many decryption attempts',
-      );
-      expect(deriveKey).toHaveBeenCalledTimes(64);
-
-      now.mockReturnValue(2000);
-      await expect(isolated.decrypt(token, 'secret')).resolves.toBe('value');
-      expect(deriveKey).toHaveBeenCalledTimes(65);
+      await expect(decrypt(token, 'secret')).rejects.toThrow('Invalid encrypted value');
+      await Promise.allSettled(Array.from({ length: 128 }, () => decrypt(forged, 'secret')));
+      expect(deriveKey).not.toHaveBeenCalled();
     } finally {
       deriveKey.mockRestore();
-      now.mockRestore();
     }
   });
 });
