@@ -40,6 +40,11 @@ const READ_QUERY_MAX_RESULT_ROWS = 100_000;
 const READ_QUERY_MAX_MEMORY_BYTES = 1024 * 1024 * 1024;
 const READ_QUERY_MAX_BYTES_TO_READ = 2 * 1024 * 1024 * 1024;
 
+export function isClickHouseReadLimitError(error: unknown): boolean {
+  const failure = error as { code?: unknown; type?: unknown } | null;
+  return failure?.code === '158' && failure.type === 'TOO_MANY_ROWS';
+}
+
 let clickhouse: ClickHouseClient;
 const enabled = Boolean(process.env.CLICKHOUSE_URL);
 
@@ -733,7 +738,7 @@ async function rawQuery<T = unknown>(
   query: string,
   params: Record<string, unknown> = {},
   name?: string,
-  limits?: { maxExecutionTimeSeconds: number; maxResultRows: number },
+  limits?: { maxExecutionTimeSeconds?: number; maxResultRows?: number; maxRowsToRead?: number },
 ): Promise<T> {
   if (isEnvEnabled('LOG_QUERY')) {
     log({ query, params, name });
@@ -761,6 +766,10 @@ async function rawQuery<T = unknown>(
       timeout_before_checking_execution_speed: 0,
       max_result_rows: String(maxResultRows),
       result_overflow_mode: 'throw' as const,
+      ...(limits?.maxRowsToRead && {
+        max_rows_to_read: String(limits.maxRowsToRead),
+        read_overflow_mode: 'throw' as const,
+      }),
       max_memory_usage: String(READ_QUERY_MAX_MEMORY_BYTES),
       max_bytes_to_read: String(READ_QUERY_MAX_BYTES_TO_READ),
     },

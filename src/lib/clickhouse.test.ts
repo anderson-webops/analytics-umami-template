@@ -8,6 +8,31 @@ afterEach(() => {
 });
 
 describe('bounded queries', () => {
+  test('passes a linked-identity scan cap to ClickHouse', async () => {
+    const query = vi.fn().mockResolvedValue({ json: vi.fn().mockResolvedValue([]) });
+    vi.stubEnv('CLICKHOUSE_URL', 'http://umami:synthetic@127.0.0.1:8123/umami');
+    vi.doMock('@clickhouse/client', () => ({ createClient: () => ({ query }) }));
+    vi.resetModules();
+
+    const { default: client } = await import('./clickhouse');
+    await client.rawQuery('select 1', {}, 'getLinkedSessionIds', {
+      maxExecutionTimeSeconds: 5,
+      maxResultRows: 501,
+      maxRowsToRead: 262_144,
+    });
+
+    expect(query).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clickhouse_settings: expect.objectContaining({
+          max_execution_time: 5,
+          max_result_rows: '501',
+          max_rows_to_read: '262144',
+          read_overflow_mode: 'throw',
+        }),
+      }),
+    );
+  });
+
   test('passes event-series time and result limits to ClickHouse', async () => {
     const query = vi.fn().mockResolvedValue({ json: vi.fn().mockResolvedValue([]) });
     vi.stubEnv('CLICKHOUSE_URL', 'http://umami:synthetic@127.0.0.1:8123/umami');

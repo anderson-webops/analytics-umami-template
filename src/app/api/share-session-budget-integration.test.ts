@@ -120,7 +120,7 @@ test('a signed-in caller presenting a share token remains subject to its budget'
 test('activity rejects exhausted discovery capacity before linked-session lookup', async () => {
   const shareId = `session-budget-${crypto.randomUUID()}`;
   checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
-  expect(await reserveShareQueryCost(shareId, 575)).toMatchObject({ blocked: false });
+  expect(await reserveShareQueryCost(shareId, 550)).toMatchObject({ blocked: false });
 
   const response = await getSessionActivityRoute(
     new Request(

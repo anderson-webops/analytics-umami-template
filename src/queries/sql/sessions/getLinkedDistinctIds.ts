@@ -1,7 +1,11 @@
 import clickhouse from '@/lib/clickhouse';
 import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
 import prisma from '@/lib/prisma';
-import { MAX_AUTH_SESSION_ROWS } from '@/lib/share-query-budget';
+import {
+  LINKED_QUERY_TIMEOUT_MS,
+  MAX_AUTH_SESSION_ROWS,
+  MAX_LINK_READ_ROWS,
+} from '@/lib/share-query-budget';
 
 const FUNCTION_NAME = 'getLinkedDistinctIds';
 
@@ -27,7 +31,7 @@ async function relationalQuery(
 
   return rawQuery(
     `
-    select distinct distinct_id as "distinctId"
+    select distinct_id as "distinctId"
     from session_link
     where website_id = {{websiteId::uuid}}
       and session_id = {{sessionId::uuid}}
@@ -35,6 +39,7 @@ async function relationalQuery(
     `,
     { websiteId, sessionId, rowLimit },
     FUNCTION_NAME,
+    LINKED_QUERY_TIMEOUT_MS,
   ).then(result => (result as { distinctId: string }[]).map(({ distinctId }) => distinctId));
 }
 
@@ -55,5 +60,10 @@ async function clickhouseQuery(
     `,
     { websiteId, sessionId, rowLimit },
     FUNCTION_NAME,
+    {
+      maxExecutionTimeSeconds: LINKED_QUERY_TIMEOUT_MS / 1000,
+      maxResultRows: rowLimit,
+      maxRowsToRead: MAX_LINK_READ_ROWS,
+    },
   ).then(result => (result as { distinctId: string }[]).map(({ distinctId }) => distinctId));
 }

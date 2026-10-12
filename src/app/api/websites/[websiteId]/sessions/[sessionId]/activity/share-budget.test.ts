@@ -78,12 +78,23 @@ test('blocks a historical range that exceeds the remaining share budget', async 
 });
 
 test('rejects exhausted share discovery budget before linked-session lookup', async () => {
-  expect(await reserveShareQueryCost(shareId, 590)).toMatchObject({ blocked: false });
+  expect(await reserveShareQueryCost(shareId, 560)).toMatchObject({ blocked: false });
 
   const response = await GET(new Request('http://localhost'), params);
 
   expect(response.status).toBe(429);
   expect(getLinkedDistinctIdsMock).toHaveBeenCalledWith(WEBSITE_ID, SESSION_ID, 2);
+  expect(getLinkedSessionIdsMock).not.toHaveBeenCalled();
+  expect(getSessionActivityMock).not.toHaveBeenCalled();
+});
+
+test('rejects insufficient share lookup budget before reading linked identities', async () => {
+  expect(await reserveShareQueryCost(shareId, 580)).toMatchObject({ blocked: false });
+
+  const response = await GET(new Request('http://localhost'), params);
+
+  expect(response.status).toBe(429);
+  expect(getLinkedDistinctIdsMock).not.toHaveBeenCalled();
   expect(getLinkedSessionIdsMock).not.toHaveBeenCalled();
   expect(getSessionActivityMock).not.toHaveBeenCalled();
 });
@@ -111,6 +122,30 @@ test('rejects oversized linked histories before reading activity', async () => {
   expect(getSessionActivityMock).not.toHaveBeenCalled();
 });
 
+test.each(['distinct identities', 'linked sessions'])(
+  'rejects a ClickHouse read cap on %s without querying activity',
+  async step => {
+    const readLimit = { code: '158', type: 'TOO_MANY_ROWS' };
+    if (step === 'distinct identities') {
+      getLinkedDistinctIdsMock.mockRejectedValue(readLimit);
+    } else {
+      getLinkedSessionIdsMock.mockRejectedValue(readLimit);
+    }
+
+    const response = await GET(new Request('http://localhost'), params);
+
+    expect(response.status).toBe(400);
+    expect(getSessionActivityMock).not.toHaveBeenCalled();
+  },
+);
+
+test('propagates unrelated linked-query failures', async () => {
+  const databaseError = new Error('synthetic database outage');
+  getLinkedDistinctIdsMock.mockRejectedValue(databaseError);
+
+  await expect(GET(new Request('http://localhost'), params)).rejects.toBe(databaseError);
+});
+
 test('authenticated linked activity reserves the expanded range before reading', async () => {
   const userId = `linked-user-${crypto.randomUUID()}`;
   parseRequestMock.mockResolvedValue({ auth: { user: { id: userId } }, query: { startAt, endAt } });
@@ -131,6 +166,19 @@ test('rejects exhausted authenticated discovery budget before linked-session loo
   const response = await GET(new Request('http://localhost'), params);
 
   expect(response.status).toBe(429);
+  expect(getLinkedSessionIdsMock).not.toHaveBeenCalled();
+  expect(getSessionActivityMock).not.toHaveBeenCalled();
+});
+
+test('rejects insufficient authenticated lookup budget before reading linked identities', async () => {
+  const userId = `linked-user-${crypto.randomUUID()}`;
+  parseRequestMock.mockResolvedValue({ auth: { user: { id: userId } }, query: { startAt, endAt } });
+  expect((await reserveAuthenticatedQueryCost(userId, 19_980)).blocked).toBe(false);
+
+  const response = await GET(new Request('http://localhost'), params);
+
+  expect(response.status).toBe(429);
+  expect(getLinkedDistinctIdsMock).not.toHaveBeenCalled();
   expect(getLinkedSessionIdsMock).not.toHaveBeenCalled();
   expect(getSessionActivityMock).not.toHaveBeenCalled();
 });

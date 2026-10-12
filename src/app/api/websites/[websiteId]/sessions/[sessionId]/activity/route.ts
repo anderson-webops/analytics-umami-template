@@ -1,5 +1,6 @@
 import { endOfMonth, startOfMonth } from 'date-fns';
 import { z } from 'zod';
+import { isClickHouseReadLimitError } from '@/lib/clickhouse';
 import { DEFAULT_PAGE_SIZE, FIELD_LENGTH } from '@/lib/constants';
 import { isUuid } from '@/lib/crypto';
 import { getQueryFilters, parseRequest } from '@/lib/request';
@@ -14,6 +15,7 @@ import {
 import {
   getAuthenticatedQueryCost,
   getShareQueryCost,
+  LINKED_IDENTITY_LOOKUP_COST,
   MAX_AUTH_SESSION_ROWS,
   MAX_SHARE_SESSION_ROWS,
   reserveAuthenticatedQueryCost,
@@ -95,10 +97,30 @@ export async function GET(
     return null;
   };
 
+  const tooLarge = () =>
+    badRequest({
+      message: auth.shareToken ? 'Public-share session is too large.' : 'Session is too large.',
+    });
+
+  const identityLookupLimit = await reserveActivityWork(LINKED_IDENTITY_LOOKUP_COST);
+
+  if (identityLookupLimit) {
+    return identityLookupLimit;
+  }
+
   let sessionIds = [sessionId];
   let startAt = query.startAt;
   let endAt = query.endAt;
-  const linkedDistinctIds = await getLinkedDistinctIds(websiteId, sessionId, 2);
+  let linkedDistinctIds: string[];
+
+  try {
+    linkedDistinctIds = await getLinkedDistinctIds(websiteId, sessionId, 2);
+  } catch (error) {
+    if (isClickHouseReadLimitError(error)) {
+      return tooLarge();
+    }
+    throw error;
+  }
   const distinctIds = linkedDistinctIds.length
     ? linkedDistinctIds
     : session.distinctId
@@ -117,12 +139,19 @@ export async function GET(
       return discoveryLimit;
     }
 
-    const links = await getLinkedSessionIds(websiteId, distinctIds[0], rowLimit + 1);
+    let links: Awaited<ReturnType<typeof getLinkedSessionIds>>;
+
+    try {
+      links = await getLinkedSessionIds(websiteId, distinctIds[0], rowLimit + 1);
+    } catch (error) {
+      if (isClickHouseReadLimitError(error)) {
+        return tooLarge();
+      }
+      throw error;
+    }
 
     if (links.length > rowLimit) {
-      return badRequest({
-        message: auth.shareToken ? 'Public-share session is too large.' : 'Session is too large.',
-      });
+      return tooLarge();
     }
 
     const linkedIds = links.map(link => link.sessionId);
@@ -133,9 +162,7 @@ export async function GET(
     sessionIds = Array.from(new Set([sessionId, ...linkedIds]));
 
     if (sessionIds.length > rowLimit) {
-      return badRequest({
-        message: auth.shareToken ? 'Public-share session is too large.' : 'Session is too large.',
-      });
+      return tooLarge();
     }
 
     if (sessionIds.length > 1 && linkedDates.length) {

@@ -130,6 +130,34 @@ test('GET does not stitch a session with multiple linked identities', async () =
   expect(getLinkedSessionIdsMock).not.toHaveBeenCalled();
 });
 
+test.each(['distinct identities', 'linked sessions'])(
+  'GET rejects a ClickHouse read cap on %s without returning partial identity data',
+  async step => {
+    parseRequestMock.mockResolvedValue({ auth: {}, error: undefined });
+    canViewWebsiteSectionMock.mockResolvedValue(true);
+    isRelationalOnlyMock.mockReturnValue(false);
+    getWebsiteSessionMock.mockResolvedValue({ id: SESSION_ID, distinctId: 'distinct-1' });
+    getLinkedDistinctIdsMock.mockResolvedValue(['distinct-1']);
+    getLinkedSessionIdsMock.mockResolvedValue([]);
+    const readLimit = { code: '158', type: 'TOO_MANY_ROWS' };
+    if (step === 'distinct identities') {
+      getLinkedDistinctIdsMock.mockRejectedValue(readLimit);
+    } else {
+      getLinkedSessionIdsMock.mockRejectedValue(readLimit);
+    }
+
+    const response = await GET(
+      new Request(`http://localhost/api/websites/${WEBSITE_ID}/sessions/${SESSION_ID}`),
+      { params: Promise.resolve({ websiteId: WEBSITE_ID, sessionId: SESSION_ID }) },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { message: 'Session is too large.' },
+    });
+  },
+);
+
 test('DELETE rejects session deletion for non-relational storage', async () => {
   parseRequestMock.mockResolvedValue({ auth: {}, error: undefined });
   isRelationalOnlyMock.mockReturnValue(false);

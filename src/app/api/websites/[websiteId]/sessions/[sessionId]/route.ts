@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isClickHouseReadLimitError } from '@/lib/clickhouse';
 import { isUuid } from '@/lib/crypto';
 import { isRelationalOnly } from '@/lib/db';
 import { parseRequest } from '@/lib/request';
@@ -46,7 +47,16 @@ export async function GET(
     badRequest({
       message: auth.shareToken ? 'Public-share session is too large.' : 'Session is too large.',
     });
-  const linkedDistinctIds = await getLinkedDistinctIds(websiteId, sessionId, queryLimit);
+  let linkedDistinctIds: string[];
+
+  try {
+    linkedDistinctIds = await getLinkedDistinctIds(websiteId, sessionId, queryLimit);
+  } catch (error) {
+    if (isClickHouseReadLimitError(error)) {
+      return tooLarge();
+    }
+    throw error;
+  }
 
   if (linkedDistinctIds.length >= queryLimit) {
     return tooLarge();
@@ -63,7 +73,16 @@ export async function GET(
   data.distinctId = distinctId;
 
   if (distinctId) {
-    const links = await getLinkedSessionIds(websiteId, distinctId, queryLimit);
+    let links: Awaited<ReturnType<typeof getLinkedSessionIds>>;
+
+    try {
+      links = await getLinkedSessionIds(websiteId, distinctId, queryLimit);
+    } catch (error) {
+      if (isClickHouseReadLimitError(error)) {
+        return tooLarge();
+      }
+      throw error;
+    }
 
     if (links.length >= queryLimit) {
       return tooLarge();

@@ -29,6 +29,9 @@ const REGEX_FILTER_WEIGHT = 200;
 
 export const MAX_SHARE_SESSION_ROWS = 500;
 export const MAX_AUTH_SESSION_ROWS = 2_000;
+export const MAX_LINK_READ_ROWS = 262_144;
+export const LINKED_IDENTITY_LOOKUP_COST = 32;
+export const LINKED_QUERY_TIMEOUT_MS = 5_000;
 
 export type ShareQueryWorkMultiplier = number;
 

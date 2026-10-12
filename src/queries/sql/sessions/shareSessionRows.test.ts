@@ -1,4 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest';
+import { LINKED_QUERY_TIMEOUT_MS, MAX_LINK_READ_ROWS } from '@/lib/share-query-budget';
 
 async function loadQueries(mode: 'prisma' | 'clickhouse') {
   vi.resetModules();
@@ -60,5 +61,49 @@ test.each(['prisma', 'clickhouse'] as const)(
     await getSessionData('website', 'session');
     expect(rawQuery.mock.lastCall?.[0]).not.toContain('limit {{rowLimit}}');
     expect(rawQuery.mock.lastCall?.[0]).not.toContain('limit {rowLimit:UInt32}');
+  },
+);
+
+test.each(['prisma', 'clickhouse'] as const)(
+  '%s bounds identity discovery work without truncating valid linked sessions',
+  async mode => {
+    const { getLinkedDistinctIds, getLinkedSessionIds, rawQuery } = await loadQueries(mode);
+
+    await getLinkedDistinctIds('website', 'session', 2);
+    const [identitySql, , , identityLimits] = rawQuery.mock.lastCall as [
+      string,
+      unknown,
+      unknown,
+      number | Record<string, number> | undefined,
+    ];
+    await getLinkedSessionIds('website', 'visitor', 501);
+    const [linksSql, , , linksLimits] = rawQuery.mock.lastCall as [
+      string,
+      unknown,
+      unknown,
+      number | Record<string, number> | undefined,
+    ];
+
+    if (mode === 'prisma') {
+      expect(identitySql).toContain('select distinct_id as "distinctId"');
+      expect(identitySql).not.toContain('select distinct distinct_id');
+      expect(linksSql).toContain('order by session_id');
+      expect(linksSql).not.toContain('group by session_id');
+      expect(identityLimits).toBe(LINKED_QUERY_TIMEOUT_MS);
+      expect(linksLimits).toBe(LINKED_QUERY_TIMEOUT_MS);
+    } else {
+      expect(identitySql).toContain('select distinct distinct_id');
+      expect(linksSql).toContain('group by session_id');
+      expect(identityLimits).toEqual({
+        maxExecutionTimeSeconds: LINKED_QUERY_TIMEOUT_MS / 1000,
+        maxResultRows: 2,
+        maxRowsToRead: MAX_LINK_READ_ROWS,
+      });
+      expect(linksLimits).toEqual({
+        maxExecutionTimeSeconds: LINKED_QUERY_TIMEOUT_MS / 1000,
+        maxResultRows: 501,
+        maxRowsToRead: MAX_LINK_READ_ROWS,
+      });
+    }
   },
 );

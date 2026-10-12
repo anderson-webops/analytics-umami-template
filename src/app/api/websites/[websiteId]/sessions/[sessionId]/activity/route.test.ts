@@ -114,7 +114,11 @@ test('keeps activity scoped to the raw session when multiple identities are link
   };
   const filters = { startDate: new Date(query.startAt), endDate: new Date(query.endAt) };
 
-  parseRequestMock.mockResolvedValue({ auth: {}, query, error: undefined });
+  parseRequestMock.mockResolvedValue({
+    auth: { user: { id: `activity-user-${crypto.randomUUID()}` } },
+    query,
+    error: undefined,
+  });
   canViewWebsiteSectionMock.mockResolvedValue(true);
   getLinkedDistinctIdsMock.mockResolvedValue(['distinct-1', 'distinct-2']);
   getQueryFiltersMock.mockResolvedValue(filters);
@@ -135,7 +139,7 @@ test('keeps activity scoped to the raw session when multiple identities are link
 
 test('rejects an unrelated identity before reading linked history or activity', async () => {
   parseRequestMock.mockResolvedValue({
-    auth: {},
+    auth: { user: { id: `activity-user-${crypto.randomUUID()}` } },
     query: { startAt: 1, endAt: 2, distinctId: 'unrelated' },
     error: undefined,
   });
@@ -153,7 +157,7 @@ test('rejects an unrelated identity before reading linked history or activity', 
 
 test('rejects a supplied identity when the anchor has collided identities', async () => {
   parseRequestMock.mockResolvedValue({
-    auth: {},
+    auth: { user: { id: `activity-user-${crypto.randomUUID()}` } },
     query: { startAt: 1, endAt: 2, distinctId: 'bob@aol.com' },
     error: undefined,
   });

@@ -1,7 +1,11 @@
 import clickhouse from '@/lib/clickhouse';
 import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
 import prisma from '@/lib/prisma';
-import { MAX_AUTH_SESSION_ROWS } from '@/lib/share-query-budget';
+import {
+  LINKED_QUERY_TIMEOUT_MS,
+  MAX_AUTH_SESSION_ROWS,
+  MAX_LINK_READ_ROWS,
+} from '@/lib/share-query-budget';
 
 const FUNCTION_NAME = 'getLinkedSessionIds';
 
@@ -25,15 +29,16 @@ async function relationalQuery(websiteId: string, distinctId: string, rowLimit: 
     `
     select
       session_id as "sessionId",
-      min(created_at) as "createdAt"
+      created_at as "createdAt"
     from session_link
     where website_id = {{websiteId::uuid}}
       and distinct_id = {{distinctId}}
-    group by session_id
+    order by session_id
     limit {{rowLimit}}
     `,
     { websiteId, distinctId, rowLimit },
     FUNCTION_NAME,
+    LINKED_QUERY_TIMEOUT_MS,
   );
 }
 
@@ -53,5 +58,10 @@ async function clickhouseQuery(websiteId: string, distinctId: string, rowLimit: 
     `,
     { websiteId, distinctId, rowLimit },
     FUNCTION_NAME,
+    {
+      maxExecutionTimeSeconds: LINKED_QUERY_TIMEOUT_MS / 1000,
+      maxResultRows: rowLimit,
+      maxRowsToRead: MAX_LINK_READ_ROWS,
+    },
   );
 }
