@@ -1,6 +1,5 @@
 import { expect, test, vi } from 'vitest';
 import type { Prisma } from '@/generated/prisma/client';
-import { getCollectionClientKeys } from './collection-client-key';
 import {
   CollectionBudgetExceededError,
   getCollectionCost,
@@ -8,6 +7,7 @@ import {
   reserveCollectionBudget,
   reserveCollectionClientBudget,
 } from './collection-budget';
+import { getCollectionClientKeys } from './collection-client-key';
 
 const identity = {
   sourceType: 'website' as const,

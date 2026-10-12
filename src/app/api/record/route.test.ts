@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { getCollectionClientKeys } from '@/lib/collection-client-key';
 import {
   CollectionBudgetExceededError,
   reserveCollectionClientBudget,
 } from '@/lib/collection-budget';
+import { getCollectionClientKeys } from '@/lib/collection-client-key';
 import {
   getCollectionIpLimit,
   getCollectionSourceLimit,
