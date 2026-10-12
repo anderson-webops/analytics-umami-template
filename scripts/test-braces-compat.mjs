@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 const rootRequire = createRequire(import.meta.url);
 
@@ -27,7 +29,7 @@ test('both build-tool paths resolve the guarded local package', async () => {
   for (const plugin of ['rollup-plugin-copy', 'rollup-plugin-delete']) {
     const { packagePath } = installedBraces(plugin);
     const manifest = JSON.parse(await readFile(packagePath, 'utf8'));
-    assert.equal(manifest.version, '3.0.4-webops.1');
+    assert.equal(manifest.version, '3.0.4-webops.2');
   }
 });
 
@@ -67,6 +69,115 @@ test('aggregate expansion is bounded before Cartesian and array outputs are mate
     });
     assert.deepEqual(braces.expand('item-{1..3}'), ['item-1', 'item-2', 'item-3']);
   }
+});
+
+test('range limits cover explicit steps, descending sequences, and letters', () => {
+  const { braces } = installedBraces('rollup-plugin-copy');
+  for (const pattern of ['{1..2001..2}', '{1001..1}', `{a..\u0510}`]) {
+    assert.throws(() => braces.expand(pattern), {
+      name: 'RangeError',
+      message: /expanded array length exceeds range limit/,
+    });
+  }
+  assert.deepEqual(braces.expand('{1..10..2}'), ['1', '3', '5', '7', '9']);
+  assert.deepEqual(braces.expand('{10..1..2}'), ['10', '8', '6', '4', '2']);
+  assert.deepEqual(braces.expand('{a..e..2}'), ['a', 'c', 'e']);
+  assert.throws(() => braces.expand('{1..10001}', { rangeLimit: false }), {
+    name: 'RangeError',
+    message: 'expanded array length exceeds aggregate limit',
+  });
+  assert.throws(() => braces.expand('{9007199254740992..9007199254740993}'), RangeError);
+});
+
+test('preflight rejects oversized alternatives and output before materializing ranges', () => {
+  const probe = `
+    const assert = require('node:assert/strict');
+    const { createRequire } = require('node:module');
+    const vendorRequire = createRequire(require.resolve('./vendor/braces/lib/expand.js'));
+    const fillPath = vendorRequire.resolve('fill-range');
+    const fill = vendorRequire('fill-range');
+    let calls = 0;
+    require.cache[fillPath].exports = (...args) => { calls += 1; return fill(...args); };
+    const braces = require('./vendor/braces');
+    const tooManyArms = '{' + Array(11).fill('{1..1000}').join(',') + '}';
+    assert.throws(() => braces.expand(tooManyArms), /aggregate limit/);
+    assert.equal(calls, 0);
+    assert.throws(() => braces.expand('{1..1000}{1..1000}'), /aggregate limit/);
+    assert.equal(calls, 0);
+    assert.throws(() => braces.expand('x'.repeat(9000) + '{1..1000}'), /byte limit/);
+    assert.equal(calls, 0);
+    assert.throws(() => braces.expand('é'.repeat(4500) + '{1..1000}'), /byte limit/);
+    assert.equal(calls, 0);
+    assert.equal(braces.expand('x'.repeat(8384) + '{1..1000}').length, 1000);
+    assert.equal(calls, 1);
+    assert.throws(() => braces.expand('{1..20000}', { step: {} }), TypeError);
+    assert.throws(() => braces.expand('{1..20000}', { step: () => 1 }), TypeError);
+    assert.throws(() => braces.expand("{1..20000..''}", { step: {} }), TypeError);
+    const arrayOptions = [];
+    arrayOptions.step = 10001;
+    assert.throws(() => braces.expand('{1..10001}', arrayOptions), TypeError);
+    const callableOptions = () => {};
+    callableOptions.step = 10001;
+    assert.throws(() => braces.expand('{1..10001}', callableOptions), TypeError);
+    assert.equal(calls, 1);
+    const crafted = braces.parse('{1..20000}');
+    crafted.nodes[1].type = 'bos';
+    assert.throws(() => braces.expand(crafted), /range limit/);
+    assert.equal(calls, 1);
+    const craftedStep = braces.parse('{1..20000..2}');
+    craftedStep.nodes[1].nodes[5].value = { step: 1 };
+    assert.throws(() => braces.expand(craftedStep), TypeError);
+    assert.equal(calls, 1);
+    const craftedCommas = braces.parse(tooManyArms);
+    craftedCommas.nodes[1].commas = 0;
+    assert.throws(() => braces.expand(craftedCommas), /aggregate limit/);
+    assert.equal(calls, 1);
+    const extraClose = braces.parse('{a,b}{1..2}');
+    extraClose.nodes[1].nodes.splice(-1, 0, ...Array(12).fill({ type: 'close', value: '}' }));
+    assert.throws(() => braces.expand(extraClose), TypeError);
+    assert.equal(calls, 1);
+    const missingOpen = braces.parse('{a,b}'.repeat(8) + '{1..2}');
+    for (const child of missingOpen.nodes) {
+      if (child.type === 'brace' && child.commas > 0) child.nodes.shift();
+    }
+    assert.throws(() => braces.expand(missingOpen), TypeError);
+    assert.equal(calls, 1);
+    assert.throws(() => braces.expand('{1..20}', {}, { count: -100000, bytes: 0 }), TypeError);
+    assert.equal(calls, 1);
+    const extraRangeArgument = braces.parse("{1..20000..''}");
+    extraRangeArgument.nodes[1].nodes.splice(-1, 0, { type: 'text', value: 'x' });
+    assert.throws(() => braces.expand(extraRangeArgument, { step: 20000 }), TypeError);
+    assert.equal(calls, 1);
+    const numericLetterArgument = braces.parse('{a..\u4e20}');
+    numericLetterArgument.nodes[1].nodes[1].value = 1.5;
+    assert.throws(() => braces.expand(numericLetterArgument), TypeError);
+    assert.equal(calls, 1);
+    const sharedText = { type: 'text', value: 'x'.repeat(8192) };
+    const oversizedLiteral = { type: 'brace', invalid: true, nodes: Array(1025).fill(sharedText) };
+    assert.throws(() => braces.expand({ type: 'root', nodes: [oversizedLiteral] }), /byte limit/);
+    assert.equal(calls, 1);
+    const arrayText = braces.parse('x{1..20}');
+    arrayText.nodes[1].value = Array(1001).fill('x');
+    assert.throws(() => braces.expand(arrayText), TypeError);
+    assert.equal(calls, 1);
+    const oversizedArrayText = braces.parse('x');
+    oversizedArrayText.nodes[1].value = Array(8193).fill('x'.repeat(1023));
+    assert.throws(() => braces.expand(oversizedArrayText), TypeError);
+    assert.equal(calls, 1);
+    assert.throws(() => braces.expand('{1..3}', { transform: () => 'x' }), TypeError);
+    assert.throws(() => braces.expand('{1..3}', { toRegex: true }), TypeError);
+    assert.equal(calls, 1);
+    assert.throws(() => braces(Array(11).fill('{1..1000}'), { expand: true }), /aggregate limit/);
+    assert.equal(calls, 11);
+    assert.throws(() => braces(Array(2).fill('{a,a}'.repeat(13)), { expand: true, nodupes: true }), /aggregate limit/);
+    assert.equal(calls, 11);
+    assert.deepEqual(braces.expand('{a,{b,c}}'), ['a', 'b', 'c']);
+    assert.deepEqual(braces.expand('{x{a,b}}'), ['{xa}', '{xb}']);
+  `;
+  execFileSync(process.execPath, ['-e', probe], {
+    cwd: fileURLToPath(new URL('..', import.meta.url)),
+    stdio: 'pipe',
+  });
 });
 
 test('deep strings are rejected before recursive walkers exhaust the stack', () => {

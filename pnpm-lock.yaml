@@ -3191,7 +3191,7 @@ packages:
 
   braces@file:vendor/braces:
     resolution: {directory: vendor/braces, type: directory}
-    engines: {node: '>=8'}
+    engines: {node: '>=12'}
 
   browserslist@4.29.0:
     resolution: {integrity: sha512-3GSvyjvDI4Dur1Meg2BekJquu5uF+9R9a1+5M1Mde192eZoXbeXjzgOsgqPS2V8D5wrrip0gR5Hf/GhWQ9ZzaA==}

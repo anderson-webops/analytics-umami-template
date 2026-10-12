@@ -2,23 +2,9 @@
 
 const fill = require('fill-range');
 const assertDepth = require('./assert-depth');
-const { MAX_EXPANSIONS } = require('./constants');
+const { assertBudget, concatenate, measureValues, reserve, summarize } = require('./expansion-budget');
 const stringify = require('./stringify');
 const utils = require('./utils');
-
-const countValues = values => {
-  let count = 0;
-
-  for (const value of values) {
-    count += Array.isArray(value) ? countValues(value) : 1;
-
-    if (count > MAX_EXPANSIONS) {
-      throw new RangeError('expanded array length exceeds aggregate limit');
-    }
-  }
-
-  return count;
-};
 
 const append = (queue = '', stash = '', enclose = false) => {
   const result = [];
@@ -26,15 +12,16 @@ const append = (queue = '', stash = '', enclose = false) => {
   queue = [].concat(queue);
   stash = [].concat(stash);
 
-  const queueCount = countValues(queue);
-  const stashCount = countValues(stash);
-
-  if (stashCount && queueCount > Math.floor(MAX_EXPANSIONS / stashCount)) {
-    throw new RangeError('expanded array length exceeds aggregate limit');
+  const queueSize = measureValues(queue);
+  const stashSize = measureValues(stash);
+  if (stashSize.count && queueSize.count) {
+    const size = concatenate(queueSize, stashSize);
+    assertBudget({ count: size.count, bytes: size.bytes + (enclose ? size.count * 2 : 0) });
   }
 
   if (!stash.length) return queue;
   if (!queue.length) {
+    assertBudget({ count: stashSize.count, bytes: stashSize.bytes + (enclose ? stashSize.count * 2 : 0) });
     return enclose ? utils.flatten(stash).map(ele => `{${ele}}`) : stash;
   }
 
@@ -53,8 +40,11 @@ const append = (queue = '', stash = '', enclose = false) => {
   return utils.flatten(result);
 };
 
-const expand = (ast, options = {}) => {
-  const rangeLimit = options.rangeLimit === undefined ? 1000 : options.rangeLimit;
+const expand = (ast, options = {}, budget = { count: 0, bytes: 0 }) => {
+  if (options === null || typeof options !== 'object' || Array.isArray(options)) {
+    throw new TypeError('expansion options must be an object');
+  }
+  reserve(budget, summarize(ast, options));
 
   const walk = (node, parent = {}, depth = 0) => {
     assertDepth(depth);
@@ -80,10 +70,6 @@ const expand = (ast, options = {}) => {
 
     if (node.nodes && node.ranges > 0) {
       const args = utils.reduce(node.nodes);
-
-      if (utils.exceedsLimit(...args, options.step, rangeLimit)) {
-        throw new RangeError('expanded array length exceeds range limit. Use options.rangeLimit to increase or disable the limit.');
-      }
 
       let range = fill(...args, options);
       if (range.length === 0) {

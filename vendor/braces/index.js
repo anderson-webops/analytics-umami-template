@@ -4,7 +4,7 @@ const stringify = require('./lib/stringify');
 const compile = require('./lib/compile');
 const expand = require('./lib/expand');
 const parse = require('./lib/parse');
-const { MAX_EXPANSIONS } = require('./lib/constants');
+const { reserve } = require('./lib/expansion-budget');
 
 /**
  * Expand the given pattern or create a regex-compatible string.
@@ -24,12 +24,9 @@ const braces = (input, options = {}) => {
   let output = [];
 
   if (Array.isArray(input)) {
+    const budget = { count: 0, bytes: 0 };
     for (const pattern of input) {
-      const result = braces.create(pattern, options);
-      const resultCount = Array.isArray(result) ? result.length : 1;
-      if (options.expand === true && output.length + resultCount > MAX_EXPANSIONS) {
-        throw new RangeError('expanded array length exceeds aggregate limit');
-      }
+      const result = braces.create(pattern, options, options.expand === true ? budget : undefined);
       if (Array.isArray(result)) {
         output.push(...result);
       } else {
@@ -122,12 +119,12 @@ braces.compile = (input, options = {}) => {
  * @api public
  */
 
-braces.expand = (input, options = {}) => {
+braces.expand = (input, options = {}, budget) => {
   if (typeof input === 'string') {
     input = braces.parse(input, options);
   }
 
-  let result = expand(input, options);
+  let result = expand(input, options, budget);
 
   // filter out empty strings if specified
   if (options.noempty === true) {
@@ -158,14 +155,15 @@ braces.expand = (input, options = {}) => {
  * @api public
  */
 
-braces.create = (input, options = {}) => {
+braces.create = (input, options = {}, budget) => {
   if (input === '' || input.length < 3) {
+    if (budget) reserve(budget, { count: 1, bytes: Buffer.byteLength(String(input)) });
     return [input];
   }
 
   return options.expand !== true
     ? braces.compile(input, options)
-    : braces.expand(input, options);
+    : braces.expand(input, options, budget);
 };
 
 /**
