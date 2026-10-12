@@ -414,6 +414,10 @@ export async function transferWebsiteByActor(
     }
 
     const isAdmin = actor.role === ROLES.admin;
+    const nextOwnership =
+      'userId' in destination
+        ? { userId: destination.userId, teamId: null }
+        : { userId: null, teamId: destination.teamId };
 
     if ('userId' in destination) {
       const destinationUser = await transaction.user.findFirst({
@@ -449,59 +453,58 @@ export async function transferWebsiteByActor(
           throw new Error('WEBSITE_TRANSFER_NOT_AUTHORIZED');
         }
       }
-
-      return transaction.website.update({
+    } else {
+      const destinationTeam = await transaction.team.findFirst({
         where: {
-          id: websiteId,
+          id: destination.teamId,
+          deletedAt: null,
         },
-        data: {
-          userId: destination.userId,
-          teamId: null,
+        select: {
+          id: true,
         },
       });
-    }
+      const destinationMembership = await transaction.teamUser.findFirst({
+        where: {
+          teamId: destination.teamId,
+          userId: actorUserId,
+          team: { deletedAt: null },
+          user: { deletedAt: null },
+        },
+        select: {
+          role: true,
+        },
+      });
 
-    const destinationTeam = await transaction.team.findFirst({
-      where: {
-        id: destination.teamId,
-        deletedAt: null,
-      },
-      select: {
-        id: true,
-      },
-    });
-    const destinationMembership = await transaction.teamUser.findFirst({
-      where: {
-        teamId: destination.teamId,
-        userId: actorUserId,
-        team: { deletedAt: null },
-        user: { deletedAt: null },
-      },
-      select: {
-        role: true,
-      },
-    });
+      if (!destinationTeam) {
+        throw new Error('WEBSITE_TRANSFER_TEAM_NOT_FOUND');
+      }
 
-    if (!destinationTeam) {
-      throw new Error('WEBSITE_TRANSFER_TEAM_NOT_FOUND');
+      if (
+        !isAdmin &&
+        (currentWebsite.userId !== actorUserId ||
+          (TEAM_ROLE_RANK[destinationMembership?.role] ?? -1) < TEAM_ROLE_RANK[ROLES.teamManager])
+      ) {
+        throw new Error('WEBSITE_TRANSFER_NOT_AUTHORIZED');
+      }
     }
 
     if (
-      !isAdmin &&
-      (currentWebsite.userId !== actorUserId ||
-        (TEAM_ROLE_RANK[destinationMembership?.role] ?? -1) < TEAM_ROLE_RANK[ROLES.teamManager])
+      currentWebsite.userId !== nextOwnership.userId ||
+      currentWebsite.teamId !== nextOwnership.teamId
     ) {
-      throw new Error('WEBSITE_TRANSFER_NOT_AUTHORIZED');
+      await transaction.share.deleteMany({
+        where: {
+          entityId: websiteId,
+          shareType: ENTITY_TYPE.website,
+        },
+      });
     }
 
     return transaction.website.update({
       where: {
         id: websiteId,
       },
-      data: {
-        userId: null,
-        teamId: destination.teamId,
-      },
+      data: nextOwnership,
     });
   });
 

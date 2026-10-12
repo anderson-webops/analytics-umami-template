@@ -347,20 +347,74 @@ test.describe('Websites', () => {
 
   test('POST /api/websites/{websiteId}/transfer moves a website between owners', async ({
     admin,
+    api,
     user,
     seed,
   }) => {
+    const shareSlugs: string[] = [];
+    const shareTokens: string[] = [];
+
+    for (const name of ['first', 'second']) {
+      const created = await admin.post(`/api/websites/${websiteId}/shares`, {
+        name: uniqueName(`${name}-transfer-share`),
+        parameters: { overview: true },
+      });
+      expect(created.status).toBe(200);
+      shareSlugs.push(created.body.slug);
+
+      const resolved = await api.get(`/api/share/${created.body.slug}`);
+      expect(resolved.status).toBe(200);
+      shareTokens.push(resolved.body.token);
+    }
+
+    const unchanged = await admin.post(`/api/websites/${websiteId}/transfer`, {
+      userId: seed.admin.id,
+    });
+    expect(unchanged.status).toBe(200);
+    expect((await api.get(`/api/share/${shareSlugs[0]}`)).status).toBe(200);
+
+    const invalidDestination = await admin.post(`/api/websites/${websiteId}/transfer`, {
+      teamId: UNKNOWN_UUID,
+    });
+    expect(invalidDestination.status).toBe(400);
+    expect((await api.get(`/api/share/${shareSlugs[0]}`)).status).toBe(200);
+
     const toTeam = await admin.post(`/api/websites/${websiteId}/transfer`, { teamId });
+    const revokedSlugs = await Promise.all(shareSlugs.map(slug => api.get(`/api/share/${slug}`)));
+    const revokedTokens = await Promise.all(
+      shareTokens.map(token =>
+        api
+          .with({ [SHARE_TOKEN_HEADER]: token, [SHARE_CONTEXT_HEADER]: '1' })
+          .get(`/api/websites/${websiteId}`),
+      ),
+    );
+    const teamShare = await admin.post(`/api/websites/${websiteId}/shares`, {
+      name: uniqueName('team-transfer-share'),
+      parameters: { overview: true },
+    });
+    expect(teamShare.status).toBe(200);
+    const teamShareExchange = await api.get(`/api/share/${teamShare.body.slug}`);
+    expect(teamShareExchange.status).toBe(200);
+
     const toUser = await admin.post(`/api/websites/${websiteId}/transfer`, {
       userId: seed.admin.id,
+    });
+    const revokedTeamToken = api.with({
+      [SHARE_TOKEN_HEADER]: teamShareExchange.body.token,
+      [SHARE_CONTEXT_HEADER]: '1',
     });
     const empty = await admin.post(`/api/websites/${websiteId}/transfer`, {});
     const denied = await user.post(`/api/websites/${websiteId}/transfer`, { userId: seed.user.id });
 
     expect(toTeam.status).toBe(200);
     expect(toTeam.body).toMatchObject({ teamId, userId: null });
+    expect(revokedSlugs.map(response => response.status)).toEqual([404, 404]);
+    expect(revokedTokens.map(response => response.status)).toEqual([401, 401]);
     expect(toUser.status).toBe(200);
     expect(toUser.body).toMatchObject({ teamId: null, userId: seed.admin.id });
+    expect((await api.get(`/api/share/${teamShare.body.slug}`)).status).toBe(404);
+    expect((await revokedTeamToken.get(`/api/websites/${websiteId}`)).status).toBe(401);
+    expect((await api.get(`/api/share/${shareSlugs[0]}`)).status).toBe(404);
     expect(empty.status).toBe(400);
     expect(denied.status).toBe(401);
   });

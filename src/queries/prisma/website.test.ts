@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { ENTITY_TYPE } from '@/lib/constants';
 import { deleteWebsite, resetWebsite, transferWebsiteByActor } from './website';
 
 const { transactionMock, redisDelMock, redisSetMock } = vi.hoisted(() => ({
@@ -210,6 +211,7 @@ describe('website transfer authorization after role changes', () => {
 
   test('a demoted team owner cannot transfer a team website', async () => {
     const update = vi.fn().mockResolvedValue({ id: 'website-1' });
+    const deleteShares = vi.fn();
     const actorLookup = vi
       .fn()
       .mockResolvedValueOnce({ role: 'view-only' })
@@ -226,6 +228,7 @@ describe('website transfer authorization after role changes', () => {
           }),
           update,
         },
+        share: { deleteMany: deleteShares },
         teamUser: { findFirst: vi.fn().mockResolvedValue({ role: 'team-owner' }) },
       }),
     );
@@ -234,10 +237,19 @@ describe('website transfer authorization after role changes', () => {
       transferWebsiteByActor('website-1', { userId: 'actor-1' }, 'actor-1'),
     ).rejects.toThrow('WEBSITE_TRANSFER_NOT_AUTHORIZED');
     expect(update).not.toHaveBeenCalled();
+    expect(deleteShares).not.toHaveBeenCalled();
   });
 
   test('an ordinary team owner can still transfer a team website to self', async () => {
-    const update = vi.fn().mockResolvedValue({ id: 'website-1', userId: 'actor-1' });
+    const calls: string[] = [];
+    const update = vi.fn(async () => {
+      calls.push('websiteUpdate');
+      return { id: 'website-1', userId: 'actor-1' };
+    });
+    const deleteShares = vi.fn(async () => {
+      calls.push('shareDelete');
+      return { count: 1 };
+    });
     transactionMock.mockImplementation(async callback =>
       callback({
         $queryRaw: vi.fn(),
@@ -255,6 +267,7 @@ describe('website transfer authorization after role changes', () => {
           }),
           update,
         },
+        share: { deleteMany: deleteShares },
         teamUser: { findFirst: vi.fn().mockResolvedValue({ role: 'team-owner' }) },
       }),
     );
@@ -263,5 +276,104 @@ describe('website transfer authorization after role changes', () => {
       transferWebsiteByActor('website-1', { userId: 'actor-1' }, 'actor-1'),
     ).resolves.toMatchObject({ userId: 'actor-1' });
     expect(update).toHaveBeenCalledOnce();
+    expect(deleteShares).toHaveBeenCalledWith({
+      where: { entityId: 'website-1', shareType: ENTITY_TYPE.website },
+    });
+    expect(calls).toEqual(['shareDelete', 'websiteUpdate']);
+  });
+
+  test('moving a personal website into a team revokes only direct website shares', async () => {
+    const update = vi.fn().mockResolvedValue({ id: 'website-1', teamId: 'team-2' });
+    const deleteShares = vi.fn().mockResolvedValue({ count: 2 });
+    transactionMock.mockImplementation(async callback =>
+      callback({
+        $queryRaw: vi.fn(),
+        user: { findFirst: vi.fn().mockResolvedValue({ role: 'user' }) },
+        website: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: 'website-1',
+            userId: 'actor-1',
+            teamId: null,
+          }),
+          update,
+        },
+        team: { findFirst: vi.fn().mockResolvedValue({ id: 'team-2' }) },
+        teamUser: { findFirst: vi.fn().mockResolvedValue({ role: 'team-manager' }) },
+        share: { deleteMany: deleteShares },
+      }),
+    );
+
+    await expect(
+      transferWebsiteByActor('website-1', { teamId: 'team-2' }, 'actor-1'),
+    ).resolves.toMatchObject({ teamId: 'team-2' });
+    expect(deleteShares).toHaveBeenCalledWith({
+      where: { entityId: 'website-1', shareType: ENTITY_TYPE.website },
+    });
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 'website-1' },
+      data: { userId: null, teamId: 'team-2' },
+    });
+  });
+
+  test('a no-op transfer to the current owner preserves existing shares', async () => {
+    const update = vi.fn().mockResolvedValue({ id: 'website-1', userId: 'actor-1' });
+    const deleteShares = vi.fn();
+    transactionMock.mockImplementation(async callback =>
+      callback({
+        $queryRaw: vi.fn(),
+        user: {
+          findFirst: vi
+            .fn()
+            .mockResolvedValueOnce({ role: 'admin' })
+            .mockResolvedValueOnce({ id: 'actor-1' }),
+        },
+        website: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: 'website-1',
+            userId: 'actor-1',
+            teamId: null,
+          }),
+          update,
+        },
+        share: { deleteMany: deleteShares },
+      }),
+    );
+
+    await expect(
+      transferWebsiteByActor('website-1', { userId: 'actor-1' }, 'actor-1'),
+    ).resolves.toMatchObject({ userId: 'actor-1' });
+    expect(deleteShares).not.toHaveBeenCalled();
+    expect(update).toHaveBeenCalledOnce();
+  });
+
+  test('a failed share revocation prevents the ownership update', async () => {
+    const update = vi.fn();
+    const deleteShares = vi.fn().mockRejectedValue(new Error('SHARE_DELETE_FAILED'));
+    transactionMock.mockImplementation(async callback =>
+      callback({
+        $queryRaw: vi.fn(),
+        user: {
+          findFirst: vi
+            .fn()
+            .mockResolvedValueOnce({ role: 'admin' })
+            .mockResolvedValueOnce({ id: 'destination' }),
+        },
+        website: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: 'website-1',
+            userId: 'actor-1',
+            teamId: null,
+          }),
+          update,
+        },
+        share: { deleteMany: deleteShares },
+      }),
+    );
+
+    await expect(
+      transferWebsiteByActor('website-1', { userId: 'destination' }, 'actor-1'),
+    ).rejects.toThrow('SHARE_DELETE_FAILED');
+    expect(update).not.toHaveBeenCalled();
+    expect(redisDelMock).not.toHaveBeenCalled();
   });
 });

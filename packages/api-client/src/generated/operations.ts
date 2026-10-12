@@ -4,7 +4,7 @@
 import type { RequestOptions } from '../types';
 import type { components, operations as OperationTypes } from './types';
 
-export const API_VERSION = '4.2.113';
+export const API_VERSION = '4.2.114';
 
 export type HttpMethod = 'get' | 'post' | 'put' | 'patch' | 'delete';
 
@@ -5149,7 +5149,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Transfer website ownership
-   * Transfers the specified website to another user or team after checking permission for the destination.
+   * Transfers the specified website to another user or team after checking permission for the destination. A change of owner atomically revokes all direct public website shares, including existing links and tokens; the new owner must create new shares.
    * `POST /api/websites/{websiteId}/transfer`
    */
   transferWebsite(
