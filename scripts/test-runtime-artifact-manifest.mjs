@@ -503,6 +503,121 @@ test('refuses broad or overlapping copy destinations', async () => {
   );
 });
 
+test('copy refuses a case-folded alias of the source directory', async context => {
+  const { root, contractPath } = await createFixture();
+  await createRuntimeManifest(root, { contractPath, source });
+  const alias = path.join(path.dirname(root), 'RUNTIME');
+  const sourceMetadata = await fs.stat(root);
+  const aliasMetadata = await fs.stat(alias).catch(error => {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  });
+
+  if (
+    !aliasMetadata ||
+    aliasMetadata.dev !== sourceMetadata.dev ||
+    aliasMetadata.ino !== sourceMetadata.ino
+  ) {
+    return context.skip('The fixture filesystem is case-sensitive.');
+  }
+
+  await assert.rejects(
+    copyRuntimeArtifact(root, alias, { contractPath }),
+    /too broad or overlaps protected source/,
+  );
+  await verifyRuntimeArtifact(root, { contractPath });
+});
+
+test('copy refuses a symlinked destination ancestor without deleting its target', async () => {
+  const { root, contractPath } = await createFixture();
+  await createRuntimeManifest(root, { contractPath, source });
+  const fixture = path.dirname(root);
+  const outside = path.join(fixture, 'unrelated', 'runtime');
+  const staging = path.join(fixture, 'staging');
+  await fs.mkdir(outside, { recursive: true });
+  await fs.mkdir(staging);
+  await fs.writeFile(path.join(outside, 'preserve.txt'), 'unrelated contents\n');
+  await fs.symlink(path.dirname(outside), path.join(staging, 'alias'));
+
+  await assert.rejects(
+    copyRuntimeArtifact(root, path.join(staging, 'alias', 'runtime'), { contractPath }),
+    /trusted|symlink|ancestor/i,
+  );
+  assert.equal(
+    await fs.readFile(path.join(outside, 'preserve.txt'), 'utf8'),
+    'unrelated contents\n',
+  );
+});
+
+test('copy refuses a group-writable destination parent before removing the old tree', async () => {
+  const { root, contractPath } = await createFixture();
+  await createRuntimeManifest(root, { contractPath, source });
+  const staging = path.join(path.dirname(root), 'staging');
+  const destination = path.join(staging, 'runtime');
+  await fs.mkdir(destination, { recursive: true });
+  await fs.writeFile(path.join(destination, 'preserve.txt'), 'old contents\n');
+  await fs.chmod(staging, 0o777);
+
+  await assert.rejects(
+    copyRuntimeArtifact(root, destination, { contractPath }),
+    /trusted|writable|ancestor/i,
+  );
+  assert.equal(await fs.readFile(path.join(destination, 'preserve.txt'), 'utf8'), 'old contents\n');
+});
+
+test('copy refuses a replaceable ancestor above an otherwise protected parent', async () => {
+  const { root, contractPath } = await createFixture();
+  await createRuntimeManifest(root, { contractPath, source });
+  const staging = path.join(path.dirname(root), 'staging');
+  const destination = path.join(staging, 'protected', 'runtime');
+  await fs.mkdir(destination, { recursive: true });
+  await fs.writeFile(path.join(destination, 'preserve.txt'), 'old contents\n');
+  await fs.chmod(staging, 0o777);
+
+  await assert.rejects(
+    copyRuntimeArtifact(root, destination, { contractPath }),
+    /writable destination ancestor/i,
+  );
+  assert.equal(await fs.readFile(path.join(destination, 'preserve.txt'), 'utf8'), 'old contents\n');
+});
+
+test('copy refuses a symlink at the destination itself', async () => {
+  const { root, contractPath } = await createFixture();
+  await createRuntimeManifest(root, { contractPath, source });
+  const fixture = path.dirname(root);
+  const staging = path.join(fixture, 'staging');
+  const outside = path.join(fixture, 'unrelated');
+  await fs.mkdir(staging);
+  await fs.mkdir(outside);
+  await fs.writeFile(path.join(outside, 'preserve.txt'), 'unrelated contents\n');
+  await fs.symlink(outside, path.join(staging, 'runtime'));
+
+  await assert.rejects(
+    copyRuntimeArtifact(root, path.join(staging, 'runtime'), { contractPath }),
+    /destination is not a trusted directory/i,
+  );
+  assert.equal(
+    await fs.readFile(path.join(outside, 'preserve.txt'), 'utf8'),
+    'unrelated contents\n',
+  );
+});
+
+test('copy replaces an old tree beneath a protected parent and rechecks its manifest', async () => {
+  const { root, contractPath } = await createFixture();
+  await createRuntimeManifest(root, { contractPath, source });
+  const staging = path.join(path.dirname(root), 'staging');
+  const destination = path.join(staging, 'runtime');
+  await fs.mkdir(destination, { recursive: true });
+  await fs.writeFile(path.join(destination, 'obsolete.txt'), 'old contents\n');
+
+  const manifest = await copyRuntimeArtifact(root, destination, { contractPath });
+
+  assert.equal(manifest.source.commit, source.commit);
+  await assert.rejects(fs.access(path.join(destination, 'obsolete.txt')), { code: 'ENOENT' });
+  await verifyRuntimeArtifact(destination, { contractPath });
+  assert.deepEqual(await fs.readdir(staging), ['runtime']);
+});
+
 test('marks an otherwise clean checkout dirty when it contains an untracked source file', async () => {
   const repository = await fs.mkdtemp(path.join(os.tmpdir(), 'umami-runtime-source-'));
   temporaryDirectories.push(repository);

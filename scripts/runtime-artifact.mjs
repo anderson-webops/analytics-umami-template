@@ -625,37 +625,116 @@ export async function verifyRuntimeArtifact(
   return manifest;
 }
 
-export async function copyRuntimeArtifact(source, destination, options = {}) {
-  source = path.resolve(source);
-  destination = path.resolve(destination);
-
+function assertSafeCopyDestination(destination, source, protectedRoots) {
   const destinationParts = path
     .relative(path.parse(destination).root, destination)
     .split(path.sep)
     .filter(Boolean);
-  const forbiddenDestinations = new Set([
-    path.parse(destination).root,
-    os.homedir(),
-    repositoryRoot,
-    process.cwd(),
-    source,
-  ]);
+  const forbiddenDestinations = new Set([path.parse(destination).root, ...protectedRoots, source]);
 
   if (
     destinationParts.length < 3 ||
     forbiddenDestinations.has(destination) ||
     isWithin(source, destination) ||
     isWithin(destination, source) ||
-    isWithin(destination, repositoryRoot)
+    protectedRoots.some(root => isWithin(destination, root))
   ) {
     throw new Error('Runtime artifact copy destination is too broad or overlaps protected source.');
   }
+}
+
+async function assertTrustedCopyDirectoryChain(directory) {
+  const effectiveUid = process.geteuid?.() ?? process.getuid?.();
+  if (effectiveUid === undefined) {
+    throw new Error('Runtime artifact copy requires a supported file ownership check.');
+  }
+
+  const root = path.parse(directory).root;
+  const components = path.relative(root, directory).split(path.sep).filter(Boolean);
+  let current = root;
+
+  for (let index = -1; index < components.length; index++) {
+    if (index >= 0) current = path.join(current, components[index]);
+    const metadata = await fs.lstat(current);
+    const symlink = metadata.isSymbolicLink();
+
+    if ((!metadata.isDirectory() && !symlink) || (symlink && metadata.uid !== 0)) {
+      throw new Error(`Runtime artifact copy has an untrusted destination ancestor: ${current}`);
+    }
+    if (metadata.uid !== 0 && metadata.uid !== effectiveUid) {
+      throw new Error(`Runtime artifact copy has an untrusted destination ancestor: ${current}`);
+    }
+    if (
+      !symlink &&
+      (metadata.mode & 0o022) !== 0 &&
+      (current === directory || !(metadata.mode & 0o1000))
+    ) {
+      throw new Error(`Runtime artifact copy has a writable destination ancestor: ${current}`);
+    }
+  }
+}
+
+async function trustedCopyDestination(destination) {
+  const parent = path.dirname(destination);
+  await assertTrustedCopyDirectoryChain(parent);
+  const canonicalParent = await fs.realpath(parent);
+  await assertTrustedCopyDirectoryChain(canonicalParent);
+  if ((await fs.realpath(parent)) !== canonicalParent) {
+    throw new Error('Runtime artifact copy destination ancestor changed.');
+  }
+
+  const canonicalDestination = path.join(canonicalParent, path.basename(destination));
+  let existingDestination;
+  try {
+    const metadata = await fs.lstat(canonicalDestination);
+    const effectiveUid = process.geteuid?.() ?? process.getuid?.();
+    if (!metadata.isDirectory() || (metadata.uid !== 0 && metadata.uid !== effectiveUid)) {
+      throw new Error('Runtime artifact copy destination is not a trusted directory.');
+    }
+    existingDestination = await fs.realpath(canonicalDestination);
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
+
+  return { canonicalDestination, canonicalParent, existingDestination };
+}
+
+export async function copyRuntimeArtifact(source, destination, options = {}) {
+  const suppliedSource = path.resolve(source);
+  source = await fs.realpath(suppliedSource);
+  destination = path.resolve(destination);
+  const repository = await fs.realpath(repositoryRoot);
+  const cwd = await fs.realpath(process.cwd());
+  const home = os.homedir();
+  let canonicalHome = home;
+  try {
+    canonicalHome = await fs.realpath(home);
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
+  const protectedRoots = [home, canonicalHome, repositoryRoot, repository, process.cwd(), cwd];
+  assertSafeCopyDestination(destination, suppliedSource, protectedRoots);
+  assertSafeCopyDestination(destination, source, protectedRoots);
+  const { canonicalDestination, canonicalParent, existingDestination } =
+    await trustedCopyDestination(destination);
+  assertSafeCopyDestination(canonicalDestination, source, protectedRoots);
+  if (existingDestination) assertSafeCopyDestination(existingDestination, source, protectedRoots);
 
   await verifyRuntimeArtifact(source, options);
-  await fs.rm(destination, { recursive: true, force: true });
-  await fs.cp(source, destination, { recursive: true, verbatimSymlinks: true });
-
-  return verifyRuntimeArtifact(destination, options);
+  const stagingRoot = await fs.mkdtemp(path.join(canonicalParent, '.runtime-copy-'));
+  const stagedRuntime = path.join(stagingRoot, 'runtime');
+  try {
+    await fs.cp(source, stagedRuntime, { recursive: true, verbatimSymlinks: true });
+    await verifyRuntimeArtifact(stagedRuntime, options);
+    if ((await fs.realpath(path.dirname(destination))) !== canonicalParent) {
+      throw new Error('Runtime artifact copy destination ancestor changed.');
+    }
+    await fs.rm(canonicalDestination, { recursive: true, force: true });
+    await fs.rename(stagedRuntime, canonicalDestination);
+    return verifyRuntimeArtifact(canonicalDestination, options);
+  } finally {
+    await fs.rm(stagingRoot, { recursive: true, force: true });
+  }
 }
 
 // Called only with the builder stopped and the tree inaccessible to writers.

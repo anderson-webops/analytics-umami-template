@@ -133,9 +133,18 @@ node scripts/runtime-artifact.mjs verify STAGED_RUNTIME \
   --expected-application EXPECTED_REPOSITORY_NAME
 ```
 
-The copy command removes only its explicit destination, copies the complete
-tree, then rechecks membership and every hash. Do not point it at a live release,
-state directory, workspace root, or broad path.
+The copy destination's parent must already exist under protected ownership and
+permissions. The copier resolves both the supplied and canonical parent paths
+and the identity of an existing destination, rejects untrusted symlinks and
+replaceable ancestors, and requires a trusted destination directory if one is
+present. Even a private leaf is unsafe beneath a group/world-writable non-sticky
+mountpoint. A privileged copier
+must use root-owned staging ancestors, not a build-user-writable tree.
+It copies to a private sibling first and verifies that tree before removing only
+the explicit destination and renaming the verified copy into place. It then
+rechecks membership and every hash. A failed preflight or staging verification
+leaves an existing destination intact. Do not point it at a live release, state directory,
+workspace root, or broad path; the protected host handles promotion and rollback.
 
 ## Exact clean-runtime acceptance
 
