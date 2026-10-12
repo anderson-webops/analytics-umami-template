@@ -10,6 +10,7 @@ import chalk from 'chalk';
 import { Client } from 'pg';
 import { PrismaClient } from '../generated/prisma/client.js';
 import { verifyAppliedMigrations } from './applied-migrations.mjs';
+import { assertDatabaseTransport, DatabaseTransportError } from './database-transport.mjs';
 import { verifyMigrationLedgerContract } from './migration-ledger-contract.mjs';
 
 const MIN_VERSION = '15.0';
@@ -65,8 +66,14 @@ function parseDatabaseUrl(name, { required = false } = {}) {
       throw new Error();
     }
 
+    assertDatabaseTransport(name, value, { requireVerifiedTlsForPublicHost: true });
+
     return url;
-  } catch {
+  } catch (error) {
+    if (error instanceof DatabaseTransportError) {
+      throw error;
+    }
+
     throw new Error(`${name} must be a valid PostgreSQL connection URL.`);
   }
 }

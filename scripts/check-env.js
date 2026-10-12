@@ -1,7 +1,7 @@
 /* eslint-disable no-console */
 import 'dotenv/config';
 import ipaddr from 'ipaddr.js';
-import { isPrivateDatabaseHost } from './database-host-policy.mjs';
+import { assertDatabaseTransport, DatabaseTransportError } from './database-transport.mjs';
 
 const TRUE_VALUES = new Set(['1', 'true', 'yes', 'on']);
 const FALSE_VALUES = new Set(['0', 'false', 'no', 'off']);
@@ -114,8 +114,6 @@ function parsePostgresUrl(name, { production = false } = {}) {
     const username = decodeURIComponent(url.username);
     const password = decodeURIComponent(url.password);
     const schema = url.searchParams.get('schema');
-    const sslMode = url.searchParams.get('sslmode')?.toLowerCase();
-    const ssl = url.searchParams.get('ssl')?.toLowerCase();
 
     if (
       !['postgres:', 'postgresql:'].includes(url.protocol) ||
@@ -138,22 +136,17 @@ function parsePostgresUrl(name, { production = false } = {}) {
       throw new Error();
     }
 
-    if (
-      production &&
-      !isPrivateDatabaseHost(url.hostname) &&
-      !['require', 'verify-ca', 'verify-full'].includes(sslMode) &&
-      ssl !== 'true'
-    ) {
-      fail(
-        `${name} targets a non-private host and must require TLS with sslmode=require, verify-ca, or verify-full.`,
-      );
-    }
+    assertDatabaseTransport(name, value, { requireVerifiedTlsForPublicHost: production });
 
     return {
       password: password || null,
       schema: schema || null,
     };
-  } catch {
+  } catch (error) {
+    if (error instanceof DatabaseTransportError) {
+      fail(error.message);
+    }
+
     fail(
       `${name} must be a valid PostgreSQL URL with a host, username, database name, optional simple schema identifier, and${
         production ? ' a non-placeholder password of at least 16 UTF-8 bytes' : ' valid credentials'

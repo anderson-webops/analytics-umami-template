@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { isPrivateDatabaseHost } from './database-host-policy.mjs';
+import { assertDatabaseTransport, DatabaseTransportError } from './database-transport.mjs';
 
 test('recognizes only explicit local database aliases', () => {
   for (const hostname of ['localhost', 'db', 'postgres', 'host.docker.internal', 'DB']) {
@@ -49,7 +50,8 @@ test('production environment validation requires TLS for an arbitrary single-lab
 
   for (const [hostname, suffix, expectedStatus] of [
     ['database', '', 1],
-    ['database', '?sslmode=require', 0],
+    ['database', '?sslmode=require', 1],
+    ['database', '?sslmode=verify-full', 0],
     ['localhost', '', 0],
   ]) {
     const result = spawnSync(process.execPath, [validationScript], {
@@ -63,7 +65,138 @@ test('production environment validation requires TLS for an arbitrary single-lab
 
     assert.equal(result.status, expectedStatus, `${hostname}${suffix}: ${result.stderr}`);
     if (expectedStatus !== 0) {
-      assert.match(result.stderr, /DATABASE_URL targets a non-private host and must require TLS/);
+      assert.match(
+        result.stderr,
+        /DATABASE_URL targets a non-private host and must use sslmode=verify-full/,
+      );
+    }
+  }
+});
+
+test('rejects query overrides and ambiguous TLS settings before connecting', () => {
+  const base = 'postgresql://synthetic:synthetic-password@database:5432/synthetic';
+
+  for (const suffix of [
+    '?sslmode=verify-full&sslmode=disable',
+    '?sslmode=verify-full&ssl=no-verify',
+    '?sslmode=require&uselibpqcompat=true',
+    '?sslmode=verify-full&host=localhost',
+    '?sslmode=verify-full&hostaddr=127.0.0.1',
+    '?sslmode=verify-full&port=5433',
+  ]) {
+    assert.throws(
+      () =>
+        assertDatabaseTransport('DATABASE_URL', `${base}${suffix}`, {
+          requireVerifiedTlsForPublicHost: true,
+        }),
+      DatabaseTransportError,
+      suffix,
+    );
+  }
+
+  assert.throws(
+    () =>
+      assertDatabaseTransport(
+        'DATABASE_URL',
+        `${base.replace('database', 'localhost')}?host=database`,
+      ),
+    DatabaseTransportError,
+  );
+  assert.doesNotThrow(() =>
+    assertDatabaseTransport('DATABASE_URL', `${base}?sslmode=verify-full`, {
+      requireVerifiedTlsForPublicHost: true,
+    }),
+  );
+  assert.doesNotThrow(() =>
+    assertDatabaseTransport('DATABASE_URL', base.replace('database', 'localhost'), {
+      requireVerifiedTlsForPublicHost: true,
+    }),
+  );
+});
+
+test('production environment validation rejects insecure direct and replica URLs', () => {
+  const validationScript = fileURLToPath(new URL('./check-env.js', import.meta.url));
+  const safeUrl =
+    'postgresql://synthetic:synthetic-password-0000000000000000@localhost:5432/synthetic';
+  const unsafeUrl =
+    'postgresql://synthetic:synthetic-password-0000000000000000@database:5432/synthetic?sslmode=verify-full&sslmode=disable';
+
+  for (const name of ['DIRECT_DATABASE_URL', 'DATABASE_REPLICA_URL']) {
+    const result = spawnSync(process.execPath, [validationScript], {
+      env: {
+        PATH: process.env.PATH || '/usr/bin:/bin',
+        DOTENV_CONFIG_PATH: '/dev/null',
+        NODE_ENV: 'production',
+        APP_SECRET: 'synthetic-app-secret-11111111111111111',
+        PUBLIC_URL: 'https://analytics.example',
+        CLIENT_IP_HEADER: 'X-Forwarded-For',
+        DATABASE_URL: safeUrl,
+        [name]: unsafeUrl,
+      },
+      encoding: 'utf8',
+      timeout: 10_000,
+    });
+
+    assert.equal(result.status, 1, `${name}: ${result.stderr}`);
+    assert.match(
+      result.stderr,
+      new RegExp(`${name} must not override or repeat PostgreSQL connection settings`),
+    );
+  }
+});
+
+test('guarded migration and startup paths reject unsafe database transport before connection', () => {
+  const validationScript = fileURLToPath(new URL('./check-db.js', import.meta.url));
+  const safeUrl =
+    'postgresql://synthetic:synthetic-password-0000000000000000@localhost:5432/synthetic';
+  const publicUrl =
+    'postgresql://synthetic:synthetic-password-0000000000000000@database:5432/synthetic';
+
+  for (const [name, url, expectedMessage, extraEnvironment] of [
+    [
+      'DATABASE_URL',
+      `${publicUrl}?sslmode=verify-full&sslmode=disable`,
+      /DATABASE_URL must not override or repeat PostgreSQL connection settings/,
+      {},
+    ],
+    [
+      'DATABASE_URL',
+      `${publicUrl}?sslmode=require`,
+      /DATABASE_URL targets a non-private host and must use sslmode=verify-full/,
+      {},
+    ],
+    [
+      'DATABASE_URL',
+      `${publicUrl}?sslmode=verify-full`,
+      /DATABASE_URL targets a non-private host and must use sslmode=verify-full/,
+      { NODE_TLS_REJECT_UNAUTHORIZED: '0' },
+    ],
+    [
+      'DIRECT_DATABASE_URL',
+      `${publicUrl}?sslmode=verify-full&host=localhost`,
+      /DIRECT_DATABASE_URL must not override or repeat PostgreSQL connection settings/,
+      {},
+    ],
+  ]) {
+    for (const mode of ['--migrate-only', '--verify-only']) {
+      const result = spawnSync(process.execPath, [validationScript, mode], {
+        env: {
+          PATH: process.env.PATH || '/usr/bin:/bin',
+          DOTENV_CONFIG_PATH: '/dev/null',
+          NODE_ENV: 'production',
+          DATABASE_URL: name === 'DATABASE_URL' ? url : safeUrl,
+          ...(name === 'DIRECT_DATABASE_URL' ? { DIRECT_DATABASE_URL: url } : {}),
+          ...extraEnvironment,
+        },
+        encoding: 'utf8',
+        timeout: 10_000,
+      });
+
+      const output = `${result.stdout}${result.stderr}`;
+
+      assert.equal(result.status, 1, `${name} ${mode}: ${output}`);
+      assert.match(output, expectedMessage);
+      assert.doesNotMatch(result.stdout, /Database connection successful|Database is up to date/);
     }
   }
 });

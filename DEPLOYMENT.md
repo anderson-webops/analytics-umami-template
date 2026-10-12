@@ -24,6 +24,10 @@ serve both address families.
    check out that exact commit there.
 2. Verify Node and pnpm match `package.json`, then run
    `pnpm install --frozen-lockfile`.
+   For a non-private PostgreSQL host, confirm the protected URL uses
+   `sslmode=verify-full` and trusts the server certificate before updating
+   any host-approved validator checksum. Never approve a changed validation
+   script by checksum alone.
 3. Load the protected instance environment and run `pnpm run audit:all`,
    `pnpm run audit:prod`, `pnpm run validate`, and
    `pnpm run build:production`.
