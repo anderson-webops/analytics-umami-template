@@ -16,7 +16,8 @@ import TeamFindManyArgs = Prisma.TeamFindManyArgs;
 const TEAM_SORT_FIELDS = ['name', 'createdAt'] as const;
 
 export async function findTeam(criteria: Prisma.TeamFindUniqueArgs): Promise<Team | null> {
-  return prisma.client.team.findUnique({
+  const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
+  return client.team.findUnique({
     ...criteria,
     where: {
       ...criteria.where,

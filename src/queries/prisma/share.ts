@@ -74,6 +74,7 @@ export async function getSharesByEntityId(entityId: string, filters?: QueryFilte
       },
     },
     filters,
+    { usePrimary: true },
   );
 }
 

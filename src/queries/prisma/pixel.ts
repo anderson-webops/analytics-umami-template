@@ -18,7 +18,8 @@ import { lockCollectionSources } from './collection';
 const PIXEL_SORT_FIELDS = ['name', 'slug', 'createdAt'] as const;
 
 export async function findPixel(criteria: Prisma.PixelFindUniqueArgs) {
-  return prisma.client.pixel.findUnique(criteria);
+  const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
+  return client.pixel.findUnique(criteria);
 }
 
 export async function getPixel(pixelId: string) {
@@ -43,7 +44,7 @@ export async function getPixels(criteria: Prisma.PixelFindManyArgs, filters: Que
     ...prisma.getSearchParameters(search, [{ name: 'contains' }, { slug: 'contains' }]),
   };
 
-  return prisma.pagedQuery('pixel', { ...criteria, where }, sortFilters);
+  return prisma.pagedQuery('pixel', { ...criteria, where }, sortFilters, { usePrimary: true });
 }
 
 export async function getUserPixels(userId: string, filters?: QueryFilters) {
