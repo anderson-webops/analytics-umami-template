@@ -156,7 +156,18 @@ export async function updateBoard(
       transaction,
       references.map(reference => reference.entityId),
     );
-    await assertActorCanAccessEntities(transaction, actorUserId, references);
+    const hasPublicShare =
+      (data.type !== undefined || data.parameters !== undefined) &&
+      !!(await transaction.share.findFirst({
+        where: { entityId: boardId, shareType: ENTITY_TYPE.board },
+        select: { id: true },
+      }));
+    await assertActorCanAccessEntities(
+      transaction,
+      actorUserId,
+      references,
+      hasPublicShare ? PERMISSIONS.websiteUpdate : undefined,
+    );
 
     return transaction.board.update({ where: { id: boardId }, data });
   });

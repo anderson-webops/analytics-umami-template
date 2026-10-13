@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { filterSharedBoardParameters } from '@/lib/board-public';
 import { BOARD_TYPES, normalizeBoardType } from '@/lib/boards';
 import { parseRequest } from '@/lib/request';
 import { badRequest, json, notFound, ok, serverError, unauthorized } from '@/lib/response';
@@ -38,7 +39,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ boar
       type: board.type,
       name: board.name,
       description: board.description,
-      parameters: board.parameters,
+      parameters: filterSharedBoardParameters(board, auth.shareToken ?? {}),
       createdAt: board.createdAt,
       updatedAt: board.updatedAt,
     });

@@ -87,6 +87,33 @@ describe('transactional mutation authorization after role changes', () => {
     ).resolves.toBeUndefined();
   });
 
+  test('view-only cross-team references cannot be added to an already public board', async () => {
+    websiteFindFirst.mockResolvedValue({ id: entityId, userId: 'other-user', teamId });
+    teamUserFindMany.mockResolvedValue([{ teamId, role: ROLES.teamViewOnly }]);
+
+    await expect(
+      assertActorCanAccessEntities(client, actorId, [{ entityType: 'website', entityId }]),
+    ).resolves.toBeUndefined();
+    await expect(
+      assertActorCanAccessEntities(
+        client,
+        actorId,
+        [{ entityType: 'website', entityId }],
+        PERMISSIONS.websiteUpdate,
+      ),
+    ).rejects.toThrow('ENTITY_REFERENCE_NOT_AUTHORIZED');
+
+    teamUserFindMany.mockResolvedValue([{ teamId, role: ROLES.teamManager }]);
+    await expect(
+      assertActorCanAccessEntities(
+        client,
+        actorId,
+        [{ entityType: 'website', entityId }],
+        PERMISSIONS.websiteUpdate,
+      ),
+    ).resolves.toBeUndefined();
+  });
+
   test('rejects a demoted owner even when global create permission is optional', async () => {
     userFindFirst.mockResolvedValue({ role: ROLES.viewOnly });
 
