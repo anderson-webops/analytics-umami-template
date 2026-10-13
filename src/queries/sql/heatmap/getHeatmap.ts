@@ -1,11 +1,9 @@
 import clickhouse from '@/lib/clickhouse';
 import { HEATMAP_EVENT_TYPE, OPERATORS } from '@/lib/constants';
 import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
-import { buildHeatmapPageUrl } from '@/lib/heatmap-url';
 import { filtersObjectToArray } from '@/lib/params';
 import prisma from '@/lib/prisma';
 import type { QueryFilters } from '@/lib/types';
-import { getWebsite } from '@/queries/prisma';
 
 const FUNCTION_NAME = 'getHeatmap';
 
@@ -228,20 +226,11 @@ async function relationalQuery(
       viewportW: viewport?.width ?? null,
       viewportH: viewport?.height ?? null,
     };
-    const snapshot = await resolveHeatmapSnapshot({
-      websiteId,
-      urlPath,
-      viewportW: viewport?.width ?? null,
-      viewportH: viewport?.height ?? null,
-      pageW: viewport?.pageW ?? null,
-      pageH: viewport?.pageH ?? null,
-    });
-
     return {
       mode,
       pages,
       points: [],
-      snapshot,
+      snapshot: null,
       scroll,
     };
   }
@@ -290,17 +279,7 @@ async function relationalQuery(
     FUNCTION_NAME,
   );
 
-  const viewport = pickSnapshotViewport(rawPoints);
-  const snapshot = await resolveHeatmapSnapshot({
-    websiteId,
-    urlPath,
-    viewportW: viewport?.width ?? null,
-    viewportH: viewport?.height ?? null,
-    pageW: viewport?.pageW ?? null,
-    pageH: viewport?.pageH ?? null,
-  });
-
-  return { mode, pages, points: rawPoints, snapshot, scroll: emptyScroll() };
+  return { mode, pages, points: rawPoints, snapshot: null, scroll: emptyScroll() };
 }
 
 async function clickhouseQuery(
@@ -444,20 +423,11 @@ async function clickhouseQuery(
       viewportW: viewport?.width ?? null,
       viewportH: viewport?.height ?? null,
     };
-    const snapshot = await resolveHeatmapSnapshot({
-      websiteId,
-      urlPath,
-      viewportW: viewport?.width ?? null,
-      viewportH: viewport?.height ?? null,
-      pageW: viewport?.pageW ?? null,
-      pageH: viewport?.pageH ?? null,
-    });
-
     return {
       mode,
       pages,
       points: [],
-      snapshot,
+      snapshot: null,
       scroll,
     };
   }
@@ -530,17 +500,7 @@ async function clickhouseQuery(
     count: Number(p.count),
   }));
 
-  const viewport = pickSnapshotViewport(points);
-  const snapshot = await resolveHeatmapSnapshot({
-    websiteId,
-    urlPath,
-    viewportW: viewport?.width ?? null,
-    viewportH: viewport?.height ?? null,
-    pageW: viewport?.pageW ?? null,
-    pageH: viewport?.pageH ?? null,
-  });
-
-  return { mode, pages, points, snapshot, scroll: emptyScroll() };
+  return { mode, pages, points, snapshot: null, scroll: emptyScroll() };
 }
 
 function emptyScroll(): HeatmapResult['scroll'] {
@@ -551,130 +511,6 @@ function emptyScroll(): HeatmapResult['scroll'] {
     pageH: null,
     viewportW: null,
     viewportH: null,
-  };
-}
-
-async function resolveHeatmapSnapshot({
-  websiteId,
-  urlPath,
-  viewportW,
-  viewportH,
-  pageW,
-  pageH,
-}: {
-  websiteId: string;
-  urlPath: string;
-  viewportW: number | null;
-  viewportH: number | null;
-  pageW: number | null;
-  pageH: number | null;
-}): Promise<HeatmapSnapshot | null> {
-  return getIframeSnapshot({
-    websiteId,
-    urlPath,
-    viewportW,
-    viewportH,
-    pageW,
-    pageH,
-  });
-}
-
-async function getIframeSnapshot({
-  websiteId,
-  urlPath,
-  viewportW,
-  viewportH,
-  pageW,
-  pageH,
-}: {
-  websiteId: string;
-  urlPath: string;
-  viewportW: number | null;
-  viewportH: number | null;
-  pageW: number | null;
-  pageH: number | null;
-}): Promise<HeatmapSnapshotIframe | null> {
-  if (!urlPath || !viewportW || !pageW || !pageH) {
-    return null;
-  }
-
-  const website = await getWebsite(websiteId);
-  const url = buildHeatmapPageUrl(website?.domain, urlPath);
-
-  if (!url) {
-    return null;
-  }
-
-  const fallbackViewportH = Math.min(Math.max(pageH, 640), 1080);
-  const height = viewportH || fallbackViewportH;
-
-  return {
-    kind: 'iframe',
-    id: `iframe:${websiteId}:${urlPath}:${viewportW}x${height}`,
-    url,
-    pageW,
-    pageH,
-    viewportW,
-    viewportH: height,
-  };
-}
-
-function pickSnapshotViewport(
-  points: HeatmapPoint[],
-): { width: number; height: number; pageW: number; pageH: number } | null {
-  const viewportBuckets = new Map<
-    string,
-    {
-      width: number;
-      height: number;
-      count: number;
-      maxPageW: number;
-      maxPageH: number;
-    }
-  >();
-
-  for (const p of points) {
-    const viewportKey = `${p.viewportW}x${p.viewportH}`;
-    const viewportBucket = viewportBuckets.get(viewportKey);
-
-    if (viewportBucket) {
-      viewportBucket.count += p.count;
-      viewportBucket.maxPageW = Math.max(viewportBucket.maxPageW, p.pageW);
-      viewportBucket.maxPageH = Math.max(viewportBucket.maxPageH, p.pageH);
-    } else {
-      viewportBuckets.set(viewportKey, {
-        width: p.viewportW,
-        height: p.viewportH,
-        count: p.count,
-        maxPageW: p.pageW,
-        maxPageH: p.pageH,
-      });
-    }
-  }
-
-  let bestViewport: {
-    width: number;
-    height: number;
-    count: number;
-    maxPageW: number;
-    maxPageH: number;
-  } | null = null;
-
-  for (const bucket of viewportBuckets.values()) {
-    if (!bestViewport || bucket.count > bestViewport.count) {
-      bestViewport = bucket;
-    }
-  }
-
-  if (!bestViewport) {
-    return null;
-  }
-
-  return {
-    width: bestViewport.width,
-    height: bestViewport.height,
-    pageW: bestViewport.maxPageW,
-    pageH: bestViewport.maxPageH,
   };
 }
 

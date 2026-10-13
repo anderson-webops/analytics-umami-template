@@ -14,7 +14,7 @@ import {
   Text,
 } from '@umami/react-zen';
 import { Laptop, Monitor, Smartphone, Tablet } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ControlledDialog } from '@/components/common/ControlledDialog';
 import { IconLabel } from '@/components/common/IconLabel';
 import { LoadingPanel } from '@/components/common/LoadingPanel';
@@ -26,7 +26,7 @@ import {
   boundHeatmapRenderWidth,
   isPointWithinHeatmapRender,
 } from '@/lib/heatmap-render-dimensions';
-import type { HeatmapMode, HeatmapPoint, HeatmapResult, HeatmapSnapshot } from '@/queries/sql';
+import type { HeatmapMode, HeatmapPoint, HeatmapResult } from '@/queries/sql';
 import styles from './Heatmap.module.css';
 
 const SCROLL_BUCKET_SIZE = 10;
@@ -103,7 +103,6 @@ export function Heatmap({ websiteId, urlPath, onUrlPathChange, mode, search }: H
   const selectedPage = filteredPages.find(page => page.urlPath === urlPath) ?? null;
   const points = detailData?.points ?? [];
   const scroll = detailData?.scroll;
-  const snapshot = detailData?.snapshot ?? null;
   const detailLoading = Boolean(urlPath) && (isDetailLoading || isDetailFetching);
 
   useEffect(() => {
@@ -169,19 +168,9 @@ export function Heatmap({ websiteId, urlPath, onUrlPathChange, mode, search }: H
 
           {urlPath ? (
             mode === 'scroll' ? (
-              <ScrollHeatmapView
-                urlPath={urlPath}
-                scroll={scroll}
-                snapshot={snapshot}
-                isLoading={detailLoading}
-              />
+              <ScrollHeatmapView urlPath={urlPath} scroll={scroll} isLoading={detailLoading} />
             ) : (
-              <ClickHeatmapView
-                urlPath={urlPath}
-                points={points}
-                snapshot={snapshot}
-                isLoading={detailLoading}
-              />
+              <ClickHeatmapView urlPath={urlPath} points={points} isLoading={detailLoading} />
             )
           ) : (
             <EmptyState />
@@ -234,19 +223,9 @@ export function Heatmap({ websiteId, urlPath, onUrlPathChange, mode, search }: H
           <Column className={styles.contentColumn} gap>
             {urlPath ? (
               mode === 'scroll' ? (
-                <ScrollHeatmapView
-                  urlPath={urlPath}
-                  scroll={scroll}
-                  snapshot={snapshot}
-                  isLoading={detailLoading}
-                />
+                <ScrollHeatmapView urlPath={urlPath} scroll={scroll} isLoading={detailLoading} />
               ) : (
-                <ClickHeatmapView
-                  urlPath={urlPath}
-                  points={points}
-                  snapshot={snapshot}
-                  isLoading={detailLoading}
-                />
+                <ClickHeatmapView urlPath={urlPath} points={points} isLoading={detailLoading} />
               )
             ) : (
               <EmptyState />
@@ -641,16 +620,13 @@ function ScreenWidthIcon({ width }: { width: number }) {
 function ClickHeatmapView({
   urlPath,
   points,
-  snapshot,
   isLoading,
 }: {
   urlPath: string;
   points: HeatmapPoint[];
-  snapshot: HeatmapSnapshot | null;
   isLoading: boolean;
 }) {
   const { isPhone } = useMobile();
-  const [snapshotReady, setSnapshotReady] = useState(false);
   const screenWidthBuckets = useMemo(() => getScreenWidthBuckets(points), [points]);
   const { viewport, setSelectedScreenWidth } = useSelectedScreenWidthBucket(screenWidthBuckets);
 
@@ -662,32 +638,22 @@ function ClickHeatmapView({
     return getNormalizedBucketPoints(points, viewport);
   }, [points, viewport]);
 
-  const handleSnapshotReady = useCallback(() => setSnapshotReady(true), []);
-  const hasSnapshot = Boolean(snapshot);
-
-  useEffect(() => {
-    setSnapshotReady(!hasSnapshot);
-  }, [hasSnapshot, snapshot?.id]);
   const overlayGutter = Math.max(48, Math.round((viewport?.width ?? 1920) * 0.04));
   const maxPointX = visible.reduce((max, point) => Math.max(max, point.pageX), 0);
-  const snapshotHeight = snapshot ? getSnapshotFrameHeight(snapshot) : 0;
   // Keep the canvas sized to real content and clip outlier clicks instead of stretching it.
   const baseWidth = Math.max(viewport?.pageW ?? 0, maxPointX + overlayGutter, 1);
-  const renderWidth = boundHeatmapRenderWidth(viewport?.width ?? snapshot?.viewportW ?? baseWidth);
-  // Match the canvas height to the snapshot height we actually render.
-  const contentHeight = snapshotHeight || viewport?.pageH || 0;
+  const renderWidth = boundHeatmapRenderWidth(viewport?.width ?? baseWidth);
+  const contentHeight = viewport?.pageH || 0;
   const renderHeight = boundHeatmapRenderHeight(Math.max(contentHeight, 640));
   const drawable = visible.filter(point =>
     isPointWithinHeatmapRender(point, renderWidth, renderHeight),
   );
   const maxCount = drawable.reduce((max, point) => Math.max(max, point.count), 1);
-  const hasMeasuredWidth = Boolean(viewport?.width || snapshot?.viewportW || maxPointX);
+  const hasMeasuredWidth = Boolean(viewport?.width || maxPointX);
   const fit = useCanvasFit(renderWidth, renderHeight);
   const canvasWidth = hasMeasuredWidth ? `${fit.width}px` : '100%';
   const canvasHeight = hasMeasuredWidth ? `${fit.height}px` : '360px';
   const overlayPageW = renderWidth;
-  const shouldRenderSnapshot = renderWidth > 0 && hasSnapshot;
-  const showOverlay = !shouldRenderSnapshot || snapshotReady;
   const totalClicks = visible.reduce((sum, point) => sum + point.count, 0);
   const bucketDescription = viewport
     ? viewport.minViewportW === viewport.maxViewportW
@@ -763,42 +729,34 @@ function ClickHeatmapView({
                 transform: `scale(${fit.scale})`,
               }}
             >
-              <div className={styles.snapshotClip}>
-                {shouldRenderSnapshot && !snapshotReady && <CanvasLoading />}
-                {shouldRenderSnapshot && snapshot && (
-                  <SnapshotPreview snapshot={snapshot} onReady={handleSnapshotReady} />
-                )}
-              </div>
-              {showOverlay && (
-                <div className={styles.overlay}>
-                  {drawable.map((point, index) => {
-                    const intensity = Math.min(1, point.count / maxCount);
-                    const desiredSize = 24 + intensity * 36;
-                    const size = desiredSize;
-                    const centerX = Math.max(0, Math.min(overlayPageW, point.pageX));
-                    // Don't clamp to the canvas height: points below the real
-                    // content overflow and are clipped by the canvas instead of
-                    // piling up on the bottom edge.
-                    const centerY = Math.max(0, point.pageY);
+              <div className={styles.overlay}>
+                {drawable.map((point, index) => {
+                  const intensity = Math.min(1, point.count / maxCount);
+                  const desiredSize = 24 + intensity * 36;
+                  const size = desiredSize;
+                  const centerX = Math.max(0, Math.min(overlayPageW, point.pageX));
+                  // Don't clamp to the canvas height: points below the real
+                  // content overflow and are clipped by the canvas instead of
+                  // piling up on the bottom edge.
+                  const centerY = Math.max(0, point.pageY);
 
-                    return (
-                      <div
-                        key={`${point.pageX}-${point.pageY}-${index}`}
-                        className={styles.dot}
-                        style={{
-                          left: centerX,
-                          top: centerY,
-                          width: size,
-                          height: size,
-                          transform: 'translate(-50%, -50%)',
-                          opacity: 0.25 + intensity * 0.55,
-                        }}
-                        title={`${point.count} click${point.count === 1 ? '' : 's'}`}
-                      />
-                    );
-                  })}
-                </div>
-              )}
+                  return (
+                    <div
+                      key={`${point.pageX}-${point.pageY}-${index}`}
+                      className={styles.dot}
+                      style={{
+                        left: centerX,
+                        top: centerY,
+                        width: size,
+                        height: size,
+                        transform: 'translate(-50%, -50%)',
+                        opacity: 0.25 + intensity * 0.55,
+                      }}
+                      title={`${point.count} click${point.count === 1 ? '' : 's'}`}
+                    />
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
@@ -810,22 +768,13 @@ function ClickHeatmapView({
 function ScrollHeatmapView({
   urlPath,
   scroll,
-  snapshot,
   isLoading,
 }: {
   urlPath: string;
   scroll: HeatmapResult['scroll'] | undefined;
-  snapshot: HeatmapSnapshot | null;
   isLoading: boolean;
 }) {
   const { isPhone } = useMobile();
-  const [snapshotReady, setSnapshotReady] = useState(false);
-  const handleSnapshotReady = useCallback(() => setSnapshotReady(true), []);
-  const hasSnapshot = Boolean(snapshot);
-
-  useEffect(() => {
-    setSnapshotReady(!hasSnapshot);
-  }, [hasSnapshot, snapshot?.id]);
   const scrollMetrics = useMemo(() => getScrollScreenWidthMetrics(scroll), [scroll]);
   const screenWidthBuckets = useMemo(
     () => getScreenWidthBuckets(scrollMetrics, { pageSize: 'weightedAverage' }),
@@ -841,19 +790,14 @@ function ScrollHeatmapView({
   const pageH = viewport?.pageH ?? scroll?.pageH ?? 0;
   const viewportW = viewport?.width ?? scroll?.viewportW ?? 0;
   const viewportH = viewport?.viewportH ?? scroll?.viewportH ?? 0;
-  const snapshotHeight = snapshot ? getSnapshotFrameHeight(snapshot) : 0;
   const baseWidth = Math.max(pageW, 1);
-  const baseHeight = Math.max(snapshotHeight || pageH, 640);
-  const renderWidth = boundHeatmapRenderWidth(
-    viewport?.width ?? snapshot?.viewportW ?? viewportW ?? baseWidth,
-  );
+  const baseHeight = Math.max(pageH, 640);
+  const renderWidth = boundHeatmapRenderWidth(viewport?.width ?? viewportW ?? baseWidth);
   const renderHeight = boundHeatmapRenderHeight(baseHeight);
-  const hasMeasuredWidth = Boolean(viewport?.width || snapshot?.viewportW || viewportW || pageW);
+  const hasMeasuredWidth = Boolean(viewport?.width || viewportW || pageW);
   const fit = useCanvasFit(renderWidth, renderHeight);
   const canvasWidth = hasMeasuredWidth ? `${fit.width}px` : '100%';
   const canvasHeight = hasMeasuredWidth ? `${fit.height}px` : '360px';
-  const shouldRenderSnapshot = renderWidth > 0 && hasSnapshot;
-  const showOverlay = !shouldRenderSnapshot || snapshotReady;
   const hasScrollData = Boolean(
     viewport && selectedBuckets.length > 0 && totalSessions > 0 && pageW && pageH && viewportW,
   );
@@ -948,116 +892,43 @@ function ScrollHeatmapView({
                 transform: `scale(${fit.scale})`,
               }}
             >
-              {shouldRenderSnapshot && !snapshotReady && <CanvasLoading />}
-              {shouldRenderSnapshot && snapshot && (
-                <SnapshotPreview snapshot={snapshot} onReady={handleSnapshotReady} />
-              )}
-              {showOverlay && (
-                <div className={styles.overlay}>
-                  {bands.map(band => {
-                    const intensity = band.ratio;
-                    const hue = Math.round(60 - intensity * 60);
+              <div className={styles.overlay}>
+                {bands.map(band => {
+                  const intensity = band.ratio;
+                  const hue = Math.round(60 - intensity * 60);
 
-                    return (
-                      <div
-                        key={band.fromPct}
-                        className={styles.scrollBand}
-                        style={{
-                          top: `${band.fromPct}%`,
-                          height: `${Math.max(0, band.toPct - band.fromPct)}%`,
-                          background:
-                            intensity > 0
-                              ? `hsla(${hue}, 90%, 55%, ${0.12 + intensity * 0.45})`
-                              : 'none',
-                        }}
-                        title={`${band.toPct}% depth - ${formatLongNumber(band.reached)} sessions reached`}
+                  return (
+                    <div
+                      key={band.fromPct}
+                      className={styles.scrollBand}
+                      style={{
+                        top: `${band.fromPct}%`,
+                        height: `${Math.max(0, band.toPct - band.fromPct)}%`,
+                        background:
+                          intensity > 0
+                            ? `hsla(${hue}, 90%, 55%, ${0.12 + intensity * 0.45})`
+                            : 'none',
+                      }}
+                      title={`${band.toPct}% depth - ${formatLongNumber(band.reached)} sessions reached`}
+                    >
+                      <span
+                        className={styles.scrollBandLabel}
+                        // Counter-scale the label by the inverse of the canvas
+                        // scale so its on-screen size stays constant while the
+                        // bands resize with the rest of the overlay.
+                        style={{ transform: `scale(${1 / fit.scale})` }}
                       >
-                        <span
-                          className={styles.scrollBandLabel}
-                          // Counter-scale the label by the inverse of the canvas
-                          // scale so its on-screen size stays constant while the
-                          // bands resize with the rest of the overlay.
-                          style={{ transform: `scale(${1 / fit.scale})` }}
-                        >
-                          {band.toPct}% depth - {Math.round(intensity * 100)}% reached
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+                        {band.toPct}% depth - {Math.round(intensity * 100)}% reached
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
       </div>
     </Column>
-  );
-}
-
-function getSnapshotFrameHeight(snapshot: HeatmapSnapshot) {
-  const { pageH, viewportH } = snapshot;
-
-  // Use the recorded viewport height for near-single-screen pages so `100vh` matches the visitor's screen.
-  if (pageH <= viewportH * 1.25) {
-    return boundHeatmapRenderHeight(viewportH);
-  }
-
-  return boundHeatmapRenderHeight(pageH);
-}
-
-function SnapshotPreview({
-  snapshot,
-  onReady,
-}: {
-  snapshot: HeatmapSnapshot;
-  onReady: () => void;
-}) {
-  return <IframeSnapshot snapshot={snapshot} onReady={onReady} />;
-}
-
-function IframeSnapshot({ snapshot, onReady }: { snapshot: HeatmapSnapshot; onReady: () => void }) {
-  const [available, setAvailable] = useState(true);
-  const iframeUrl = snapshot.url;
-  const frameHeight = getSnapshotFrameHeight(snapshot);
-
-  useEffect(() => {
-    setAvailable(true);
-
-    const readyTimer = window.setTimeout(() => onReady(), 1500);
-
-    return () => window.clearTimeout(readyTimer);
-  }, [onReady, snapshot.id]);
-
-  const handleLoad = useCallback(() => onReady(), [onReady]);
-  const handleError = useCallback(() => {
-    setAvailable(false);
-    onReady();
-  }, [onReady]);
-
-  if (!available) {
-    return null;
-  }
-
-  return (
-    <div
-      className={styles.snapshot}
-      style={{
-        height: Math.max(1, frameHeight),
-      }}
-    >
-      <iframe
-        className={`${styles.snapshotIframe} rr-block`}
-        src={iframeUrl}
-        title={iframeUrl}
-        tabIndex={-1}
-        loading="lazy"
-        scrolling="no"
-        referrerPolicy="no-referrer"
-        sandbox="allow-scripts"
-        onLoad={handleLoad}
-        onError={handleError}
-      />
-    </div>
   );
 }
 

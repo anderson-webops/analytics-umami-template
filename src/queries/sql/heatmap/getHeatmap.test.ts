@@ -38,6 +38,52 @@ beforeEach(() => {
   getWebsite.mockResolvedValue(null);
 });
 
+test.each([
+  ['prisma', 'click', 'http://127.0.0.1:3001'],
+  ['prisma', 'scroll', 'https://tracked.example'],
+  ['clickhouse', 'click', 'https://tracked.example'],
+  ['clickhouse', 'scroll', 'http://[::1]:3001'],
+] as const)(
+  '%s %s heatmaps never send a preview URL for %s to analyst browsers',
+  async (database, mode, domain) => {
+    state.mode = database;
+    const rawQuery = database === 'prisma' ? prismaRawQuery : clickhouseRawQuery;
+    getWebsite.mockResolvedValue({ domain });
+    rawQuery
+      .mockResolvedValueOnce([{ urlPath: '/', count: 1, sessions: 1 }])
+      .mockResolvedValueOnce([
+        {
+          depth: 20,
+          sessions: 1,
+          x: 12,
+          y: 24,
+          pageX: 12,
+          pageY: 24,
+          pageW: 1024,
+          pageH: 2048,
+          viewportW: 1024,
+          viewportH: 768,
+          count: 1,
+        },
+      ]);
+
+    const result = await getHeatmap('website-1', {
+      mode,
+      urlPath: '/',
+      startDate: new Date('2026-10-01T00:00:00Z'),
+      endDate: new Date('2026-10-02T00:00:00Z'),
+    });
+
+    if (mode === 'click') {
+      expect(result.points).toHaveLength(1);
+    } else {
+      expect(result.scroll.buckets).toHaveLength(1);
+    }
+    expect(result.snapshot).toBeNull();
+    expect(getWebsite).not.toHaveBeenCalled();
+  },
+);
+
 test.each(['prisma', 'clickhouse'] as const)(
   '%s scroll queries aggregate by bounded screen width and preserve visit counts',
   async mode => {
