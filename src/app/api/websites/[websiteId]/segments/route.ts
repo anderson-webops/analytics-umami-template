@@ -3,7 +3,7 @@ import { uuid } from '@/lib/crypto';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import { json, unauthorized } from '@/lib/response';
 import { savedSegmentSchema, searchParams, segmentTypeParam } from '@/lib/schema';
-import { canUpdateWebsite, canViewSharedWebsiteFilters } from '@/permissions';
+import { canUpdateWebsite, canViewSavedWebsiteSegments } from '@/permissions';
 import { createSegment, getWebsiteSegments } from '@/queries/prisma';
 
 export async function GET(
@@ -24,7 +24,7 @@ export async function GET(
   const { websiteId } = await params;
   const { type } = query;
 
-  if (websiteId && !(await canViewSharedWebsiteFilters(auth, websiteId))) {
+  if (!(await canViewSavedWebsiteSegments(auth, websiteId))) {
     return unauthorized();
   }
 

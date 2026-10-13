@@ -1,7 +1,9 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { ENTITY_TYPE } from '@/lib/constants';
+import { SHARE_SECTIONS } from '@/lib/share';
 import {
   canViewAuthenticatedWebsite,
+  canViewSavedWebsiteSegments,
   canViewSharedWebsite,
   canViewSharedWebsiteFilters,
   canViewWebsiteSection,
@@ -240,6 +242,87 @@ test('canViewSharedWebsiteFilters requires allowFilter for share tokens', async 
       'website-1',
     ),
   ).resolves.toBe(true);
+});
+
+test('saved segment definitions require every section for website shares', async () => {
+  const websiteId = 'website-1';
+  vi.mocked(canViewWebsite).mockImplementation(
+    async auth => auth.user?.id === 'owner' || auth.shareToken?.websiteId === websiteId,
+  );
+
+  for (const disabledSection of SHARE_SECTIONS) {
+    const parameters = Object.fromEntries(
+      SHARE_SECTIONS.map(section => [section, section !== disabledSection]),
+    );
+    await expect(
+      canViewSavedWebsiteSegments(
+        { shareToken: { shareType: ENTITY_TYPE.website, websiteId, parameters } },
+        websiteId,
+      ),
+    ).resolves.toBe(false);
+  }
+
+  const allSections = Object.fromEntries(SHARE_SECTIONS.map(section => [section, true]));
+  const restrictedShare = {
+    shareToken: {
+      shareType: ENTITY_TYPE.website,
+      websiteId,
+      parameters: { overview: true, events: false, allowFilter: true },
+    },
+  };
+  await expect(canViewSharedWebsiteFilters(restrictedShare, websiteId)).resolves.toBe(true);
+  await expect(canViewSavedWebsiteSegments(restrictedShare, websiteId)).resolves.toBe(false);
+  await expect(
+    canViewSavedWebsiteSegments({ ...restrictedShare, user: unrelatedUser }, websiteId),
+  ).resolves.toBe(false);
+
+  for (const parameters of [allSections, {}, { allowFilter: true }]) {
+    await expect(
+      canViewSavedWebsiteSegments(
+        { shareToken: { shareType: ENTITY_TYPE.website, websiteId, parameters } },
+        websiteId,
+      ),
+    ).resolves.toBe(true);
+  }
+
+  await expect(
+    canViewSavedWebsiteSegments(
+      {
+        shareToken: {
+          shareType: ENTITY_TYPE.website,
+          websiteId,
+          parameters: { ...allSections, allowFilter: false },
+        },
+      },
+      websiteId,
+    ),
+  ).resolves.toBe(false);
+  await expect(
+    canViewSavedWebsiteSegments(
+      { shareToken: { shareType: ENTITY_TYPE.website, websiteId, parameters: allSections } },
+      'different-website',
+    ),
+  ).resolves.toBe(false);
+  await expect(
+    canViewSavedWebsiteSegments(
+      {
+        user: { ...unrelatedUser, id: 'owner' },
+        shareToken: {
+          shareType: ENTITY_TYPE.website,
+          websiteId,
+          parameters: { overview: true, events: false },
+        },
+      },
+      websiteId,
+    ),
+  ).resolves.toBe(true);
+  await expect(
+    canViewSavedWebsiteSegments(
+      { shareToken: { shareType: ENTITY_TYPE.board, websiteIds: [websiteId] } },
+      websiteId,
+    ),
+  ).resolves.toBe(false);
+  await expect(canViewSavedWebsiteSegments(null, websiteId)).resolves.toBe(false);
 });
 
 test('canViewWebsiteSection allows validated pixel shares for the shared entity id', async () => {

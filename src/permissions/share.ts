@@ -1,5 +1,5 @@
 import { ENTITY_TYPE } from '@/lib/constants';
-import { canViewShareSection, type ShareSection } from '@/lib/share';
+import { canViewShareSection, SHARE_SECTIONS, type ShareSection } from '@/lib/share';
 import type { Auth } from '@/lib/types';
 import { canDeleteBoard, canUpdateBoard, canViewBoard } from './board';
 import { canDeleteLink, canUpdateLink, canViewLink } from './link';
@@ -145,6 +145,23 @@ export async function canViewSharedWebsiteFilters(
     shareAuth.shareToken?.parameters?.allowFilter !== false &&
     (await canViewWebsite(shareAuth, websiteId))
   );
+}
+
+export async function canViewSavedWebsiteSegments(
+  auth: Auth | null | undefined,
+  websiteId: string,
+) {
+  if (await canViewWebsiteAsUser(auth, websiteId)) {
+    return true;
+  }
+
+  const shareToken = auth?.shareToken;
+
+  if (!shareToken || !(await canViewSharedWebsiteFilters({ shareToken }, websiteId))) {
+    return false;
+  }
+
+  return SHARE_SECTIONS.every(section => canViewShareSection(shareToken.parameters, section));
 }
 
 export async function canViewAuthenticatedWebsite(

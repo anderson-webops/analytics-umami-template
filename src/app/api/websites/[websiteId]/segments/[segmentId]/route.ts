@@ -1,7 +1,7 @@
 import { parseRequest } from '@/lib/request';
 import { json, notFound, ok, unauthorized } from '@/lib/response';
 import { savedSegmentSchema } from '@/lib/schema';
-import { canDeleteWebsite, canUpdateWebsite, canViewSharedWebsiteFilters } from '@/permissions';
+import { canDeleteWebsite, canUpdateWebsite, canViewSavedWebsiteSegments } from '@/permissions';
 import { deleteSegment, getWebsiteSegment, updateSegment } from '@/queries/prisma';
 
 export async function GET(
@@ -16,7 +16,7 @@ export async function GET(
 
   const { websiteId, segmentId } = await params;
 
-  if (!(await canViewSharedWebsiteFilters(auth, websiteId))) {
+  if (!(await canViewSavedWebsiteSegments(auth, websiteId))) {
     return unauthorized();
   }
 
