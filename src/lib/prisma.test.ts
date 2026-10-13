@@ -3,12 +3,21 @@ import { afterEach, beforeAll, describe, expect, test, vi } from 'vitest';
 process.env.DATABASE_URL ??= 'postgresql://user:pass@localhost:5432/umami?schema=public';
 delete process.env.DATABASE_REPLICA_URL;
 
+const databaseInitialization = vi.hoisted(() => ({ adapters: 0, replicaExtensions: 0 }));
+
 vi.mock('@prisma/adapter-pg', () => ({
-  PrismaPg: class PrismaPg {},
+  PrismaPg: class PrismaPg {
+    constructor() {
+      databaseInitialization.adapters += 1;
+    }
+  },
 }));
 
 vi.mock('@prisma/extension-read-replicas', () => ({
-  readReplicas: () => () => ({}),
+  readReplicas: () => {
+    databaseInitialization.replicaExtensions += 1;
+    return () => ({});
+  },
 }));
 
 vi.mock('@/generated/prisma/client', () => ({
@@ -28,7 +37,41 @@ let getSchema!: typeof import('./prisma').getSchema;
 let prisma!: typeof import('./prisma').default;
 
 beforeAll(async () => {
+  vi.stubEnv(
+    'DATABASE_REPLICA_URL',
+    'postgresql://replica:synthetic@localhost:5432/unrelated?schema=public',
+  );
   ({ getRawQueryClient, getSchema, default: prisma } = await import('./prisma'));
+  vi.unstubAllEnvs();
+});
+
+test('does not initialize an unverified replica when one is configured', () => {
+  expect(databaseInitialization.adapters).toBe(1);
+  expect(databaseInitialization.replicaExtensions).toBe(0);
+});
+
+test('unwraps a cached replica client during hot reload', async () => {
+  const cache = globalThis as typeof globalThis & { prisma?: unknown };
+  const cachedClient = cache.prisma;
+  const primary = createClient();
+  const replica = createClient();
+  const extended = {
+    $primary: vi.fn(() => primary),
+    $replica: vi.fn(() => replica),
+  };
+
+  cache.prisma = extended;
+  vi.resetModules();
+
+  try {
+    const reloaded = await import('./prisma');
+
+    expect(reloaded.default.client).toBe(primary);
+    expect(cache.prisma).toBe(primary);
+    expect(extended.$replica).not.toHaveBeenCalled();
+  } finally {
+    cache.prisma = cachedClient;
+  }
 });
 
 interface RawQueryClient {
@@ -46,23 +89,14 @@ function createClient(): RawQueryClient {
 }
 
 describe('getRawQueryClient', () => {
-  test('uses a replica client for read queries when replicas are enabled', () => {
-    const replica = createClient();
-    const client = {
-      ...createClient(),
-      $replica: vi.fn(() => replica),
-    };
-
-    expect(getRawQueryClient(client, { useReplica: true })).toBe(replica);
-  });
-
-  test('keeps read queries on the primary client when replicas are disabled', () => {
+  test('does not select an unverified replica for read queries', () => {
     const client = {
       ...createClient(),
       $replica: vi.fn(() => createClient()),
     };
 
-    expect(getRawQueryClient(client, { useReplica: false })).toBe(client);
+    expect(getRawQueryClient(client)).toBe(client);
+    expect(client.$replica).not.toHaveBeenCalled();
   });
 
   test('uses the primary client for raw writes when available', () => {
@@ -73,7 +107,7 @@ describe('getRawQueryClient', () => {
       $replica: vi.fn(() => createClient()),
     };
 
-    expect(getRawQueryClient(client, { useReplica: true, write: true })).toBe(primary);
+    expect(getRawQueryClient(client, { write: true })).toBe(primary);
   });
 
   test('falls back to the current client for raw writes without a primary helper', () => {
@@ -113,7 +147,7 @@ describe('pagedQuery authority', () => {
     expect(replica.count).not.toHaveBeenCalled();
   });
 
-  test('retains replica reads by default and single-client fallback', async () => {
+  test('uses the current client by default and supports single-client fallback', async () => {
     const replica = {
       findMany: vi.fn().mockResolvedValue([{ id: 'listed' }]),
       count: vi.fn().mockResolvedValue(1),
@@ -293,22 +327,34 @@ describe('bounded raw regex queries', () => {
     });
   });
 
-  test('does not bypass the timeout when the selected replica has no transaction', async () => {
+  test('uses a bounded primary transaction when a configured replica lacks one', async () => {
     const replica = {
       $executeRawUnsafe: vi.fn(),
       $queryRawUnsafe: vi.fn(),
     };
+    const transaction = {
+      $executeRawUnsafe: vi.fn(),
+      $queryRawUnsafe: vi
+        .fn()
+        .mockResolvedValueOnce([{ setting: '0', unit: 'ms' }])
+        .mockResolvedValueOnce([{ matched: true }]),
+    };
     client().$replica = vi.fn(() => replica);
-    vi.stubEnv('DATABASE_REPLICA_URL', 'postgresql://replica:synthetic@localhost:5432/umami');
-
-    await expect(prisma.rawQuery('select value ~* {{pattern}}', { pattern: '.*' })).rejects.toThrow(
-      'Regex queries require a transactional database client.',
+    vi.stubEnv(
+      'DATABASE_REPLICA_URL',
+      'postgresql://replica:synthetic@localhost:5432/unrelated?schema=public',
     );
+    vi.mocked(client().$transaction).mockImplementation(async action => action(transaction));
+
+    await expect(
+      prisma.rawQuery('select value ~* {{pattern}}', { pattern: '.*' }),
+    ).resolves.toEqual([{ matched: true }]);
     expect(replica.$queryRawUnsafe).not.toHaveBeenCalled();
-    expect(client().$transaction).not.toHaveBeenCalled();
+    expect(client().$replica).not.toHaveBeenCalled();
+    expect(client().$transaction).toHaveBeenCalledTimes(1);
   });
 
-  test('applies the same timeout on the selected read replica', async () => {
+  test('keeps bounded raw reads on primary despite a configured replica', async () => {
     const transaction = {
       $executeRawUnsafe: vi.fn(),
       $queryRawUnsafe: vi
@@ -322,13 +368,20 @@ describe('bounded raw regex queries', () => {
       $transaction: vi.fn(async action => action(transaction)),
     };
     client().$replica = vi.fn(() => replica);
-    vi.stubEnv('DATABASE_REPLICA_URL', 'postgresql://replica:synthetic@localhost:5432/umami');
+    vi.stubEnv(
+      'DATABASE_REPLICA_URL',
+      'postgresql://replica:synthetic@localhost:5432/unrelated?schema=public',
+    );
+    vi.mocked(client().$transaction).mockImplementation(async action => action(transaction));
 
     await expect(
       prisma.rawQuery('select value ~* {{pattern}}', { pattern: '.*' }),
     ).resolves.toEqual([{ matched: true }]);
-    expect(replica.$transaction).toHaveBeenCalledTimes(1);
-    expect(client().$transaction).not.toHaveBeenCalled();
+    expect(client().$transaction).toHaveBeenCalledTimes(1);
+    expect(replica.$transaction).not.toHaveBeenCalled();
+    expect(transaction.$executeRawUnsafe).toHaveBeenCalledWith(
+      "SET LOCAL statement_timeout = '2000ms'",
+    );
   });
 });
 

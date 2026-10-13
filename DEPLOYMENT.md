@@ -14,6 +14,11 @@ supported topology.
 - release directories under `/srv/umami/<instance>/releases/`
 - a root-owned environment file at `/etc/umami/<instance>.env`, mode `0600`
 
+`DATABASE_REPLICA_URL` remains accepted for legacy environment compatibility, but
+the runtime does not route Prisma reads to it. All database authorization and
+analytics reads use `DATABASE_URL` until a verified replica identity and freshness
+contract is available. Do not count a configured replica as serving read traffic.
+
 Do not remove or disable any existing A or AAAA record when deploying or
 troubleshooting. The application remains loopback-only; Nginx continues to
 serve both address families.

@@ -1,5 +1,4 @@
 import { PrismaPg } from '@prisma/adapter-pg';
-import { readReplicas } from '@prisma/extension-read-replicas';
 import debug from 'debug';
 import { type Prisma, PrismaClient } from '@/generated/prisma/client';
 import {
@@ -21,6 +20,7 @@ const REGEX_QUERY_TIMEOUT_MS = 2_000;
 const READ_QUERY_TIMEOUT_MS = 30_000;
 
 const PRISMA = 'prisma';
+type PrimaryEnabledClient = PrismaClient & { $primary: () => PrismaClient };
 
 const PRISMA_LOG_OPTIONS = {
   log: [
@@ -38,7 +38,6 @@ export interface RawQueryExecutor {
 
 export interface RawQueryClient extends RawQueryExecutor {
   $primary?: () => unknown;
-  $replica?: () => unknown;
 }
 
 interface TransactionalRawQueryExecutor extends RawQueryExecutor {
@@ -65,25 +64,11 @@ function isTransactionalRawQueryExecutor(
 
 export function getRawQueryClient(
   client: RawQueryClient,
-  {
-    useReplica = false,
-    write = false,
-  }: {
-    useReplica?: boolean;
-    write?: boolean;
-  } = {},
+  { write = false }: { write?: boolean } = {},
 ) {
   if (write) {
     const primary = typeof client.$primary === 'function' ? client.$primary() : null;
     return isRawQueryExecutor(primary) ? primary : client;
-  }
-
-  if (useReplica && typeof client.$replica === 'function') {
-    const replica = client.$replica();
-
-    if (isRawQueryExecutor(replica)) {
-      return replica;
-    }
   }
 
   return client;
@@ -762,10 +747,7 @@ async function executeRawQuery(
     return `$${params.length}${type ?? ''}`;
   });
 
-  const queryClient = getRawQueryClient(client, {
-    useReplica: !!process.env.DATABASE_REPLICA_URL,
-    write,
-  });
+  const queryClient = getRawQueryClient(client, { write });
 
   const isRegexQuery = query.includes('~*');
   const requestedTimeout = isRegexQuery
@@ -982,7 +964,6 @@ export function getSchema() {
 
 function getClient() {
   const url = process.env.DATABASE_URL;
-  const replicaUrl = process.env.DATABASE_REPLICA_URL;
   const logQuery = process.env.LOG_QUERY;
 
   if (!url) {
@@ -1003,37 +984,18 @@ function getClient() {
     baseClient.$on('query', log);
   }
 
-  if (!replicaUrl) {
-    log('Prisma initialized');
-    globalThis[PRISMA] ??= baseClient;
-    return baseClient;
-  }
-
-  const replicaAdapter = new PrismaPg({ connectionString: replicaUrl }, { schema });
-
-  const replicaClient = new PrismaClient({
-    adapter: replicaAdapter,
-    errorFormat: 'pretty',
-    ...(logQuery ? PRISMA_LOG_OPTIONS : {}),
-  });
-
-  if (logQuery) {
-    replicaClient.$on('query', log);
-  }
-
-  const extended = baseClient.$extends(
-    readReplicas({
-      replicas: [replicaClient],
-    }),
-  );
-
-  log('Prisma initialized (with replica)');
-  globalThis[PRISMA] ??= extended;
-
-  return extended;
+  log('Prisma initialized');
+  globalThis[PRISMA] ??= baseClient;
+  return baseClient;
 }
 
-const client = (globalThis[PRISMA] || getClient()) as ReturnType<typeof getClient>;
+const cachedClient = globalThis[PRISMA];
+const client = (
+  cachedClient && typeof cachedClient.$primary === 'function'
+    ? cachedClient.$primary()
+    : cachedClient || getClient()
+) as PrismaClient | PrimaryEnabledClient;
+globalThis[PRISMA] = client;
 
 export default {
   client,
