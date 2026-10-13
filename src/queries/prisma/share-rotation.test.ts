@@ -65,7 +65,7 @@ test('repeated rotations revoke every previous share ID and URL', async () => {
 
   expect(isUuid(replacementId)).toBe(true);
   expect(replacementId).not.toBe(originalId);
-  expect(firstRotation.slug).toMatch(/^[A-Za-z0-9]{16}$/);
+  expect(firstRotation.slug).toMatch(/^[A-Za-z0-9_-]{24}$/);
   expect(firstRotation.slug).not.toBe('original');
   expect(await getShare(originalId)).toBeNull();
   expect(await getShare(replacementId)).toEqual(firstRotation);

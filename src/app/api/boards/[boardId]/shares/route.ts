@@ -1,11 +1,11 @@
 import { z } from 'zod';
 import { ENTITY_TYPE } from '@/lib/constants';
 import { uuid } from '@/lib/crypto';
-import { getRandomChars } from '@/lib/generate';
 import { parseRequest } from '@/lib/request';
 import { conflict, json, notFound, unauthorized } from '@/lib/response';
 import { filterParams, pagingParams, shareParametersParam } from '@/lib/schema';
 import { publicSharesDisabled } from '@/lib/security';
+import { getRandomShareSlug } from '@/lib/share-slug';
 import { canUpdateBoard } from '@/permissions';
 import { createShare, getSharesByEntityId } from '@/queries/prisma';
 
@@ -70,7 +70,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ boa
         entityId: boardId,
         shareType: ENTITY_TYPE.board,
         name,
-        slug: getRandomChars(16),
+        slug: getRandomShareSlug(),
         parameters: shareParameters,
       },
       auth.user.id,

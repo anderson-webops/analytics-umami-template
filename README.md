@@ -83,6 +83,8 @@ The exact artifact and clean-runtime acceptance rules are documented in
 
 ## Operational Notes
 
+- New public-share URLs and explicit rotations use server-generated, URL-safe slugs with 144 random bits; callers cannot choose them. Existing links remain valid. Owners should review historical caller-chosen or predictable slugs and deliberately rotate them through the share API, which revokes the prior URL and tokens. Publishing source alone does not establish that production's legacy shares have been rotated.
+
 - The build fallback and runtime proxy use the same CSP policy. Production allows outbound connections only to configured API, cloud, and challenge origins, and permits framing only from exact HTTPS origins in `ALLOWED_FRAME_URLS`. The runtime proxy sets `X-Frame-Options: DENY` when no framing is allowed; validate final response headers when build-time and runtime settings differ.
 - A global `view-only` account can read resources it owns or belongs to, but cannot create, edit, transfer, share, delete, or self-join teams using an invitation code. An authorized team manager may still grant it membership; ordinary account self-service remains available.
 - PostgreSQL 15 or newer is required. Redis and ClickHouse are optional, but readiness reports them when configured.

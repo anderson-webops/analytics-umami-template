@@ -2,8 +2,8 @@ import type { Prisma } from '@/generated/prisma/client';
 import { getBoardEntityIds } from '@/lib/boards';
 import { ENTITY_TYPE, PERMISSIONS } from '@/lib/constants';
 import { isUuid, uuid } from '@/lib/crypto';
-import { getRandomChars } from '@/lib/generate';
 import prisma from '@/lib/prisma';
+import { getRandomShareSlug } from '@/lib/share-slug';
 import type { BoardParameters, QueryFilters } from '@/lib/types';
 import {
   assertActorCanAccessEntities,
@@ -223,7 +223,7 @@ export async function updateShare(
 
     if (data.rotate) {
       do {
-        nextSlug = getRandomChars(16);
+        nextSlug = getRandomShareSlug();
       } while (nextSlug === share.slug);
     }
 

@@ -114,9 +114,9 @@ test('share creation returns a server-generated bearer slug', async () => {
   const response = await createShareRoute(post('/api/share', shareBody));
 
   expect(response.status).toBe(200);
-  expect((await response.json()).slug).toMatch(/^[A-Za-z0-9]{16}$/);
+  expect((await response.json()).slug).toMatch(/^[A-Za-z0-9_-]{24}$/);
   expect(createShare).toHaveBeenCalledWith(
-    expect.objectContaining({ slug: expect.stringMatching(/^[A-Za-z0-9]{16}$/) }),
+    expect.objectContaining({ slug: expect.stringMatching(/^[A-Za-z0-9_-]{24}$/) }),
     'manager',
   );
 });
