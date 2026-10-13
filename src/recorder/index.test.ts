@@ -42,7 +42,27 @@ test('recorder blocks private elements and redacts navigation before sending', a
       timestamp: 2,
       data: { tag: 'url-change', payload: { url: 'https://example.com/next?code=secret' } },
     });
-    emit({ type: 2, timestamp: 3, data: { node: { type: 0, childNodes: [] } } });
+    emit({
+      type: 2,
+      timestamp: 3,
+      data: {
+        node: {
+          type: 0,
+          childNodes: [
+            {
+              type: 2,
+              id: 3,
+              tagName: 'img',
+              attributes: {
+                alt: 'Public image',
+                src: 'https://assets.example/photo?token=image-secret',
+              },
+              childNodes: [],
+            },
+          ],
+        },
+      },
+    });
 
     const replayPayloads = fetchMock.mock.calls
       .filter(([url]) => String(url).endsWith('/api/record'))
@@ -52,6 +72,9 @@ test('recorder blocks private elements and redacts navigation before sending', a
     expect(replayPayloads[0].payload.events[0].data.href).toBe('https://example.com/private');
     expect(replayPayloads[0].payload.events[1].data.payload.url).toBe('https://example.com/next');
     expect(JSON.stringify(replayPayloads)).not.toContain('secret');
+    expect(replayPayloads[1].payload.events[0].data.node.childNodes[0].attributes).toEqual({
+      alt: 'Public image',
+    });
   } finally {
     if (originalCurrentScript) {
       Object.defineProperty(document, 'currentScript', originalCurrentScript);

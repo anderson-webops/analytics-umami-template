@@ -74,6 +74,14 @@ const SAFE_ATTRIBUTES = new Set([
 ]);
 const INERT_TAGS = new Set(['base', 'embed', 'meta', 'object', 'script']);
 
+function isSafePlainAttribute(name: string, value: unknown): boolean {
+  if (typeof value !== 'string') {
+    return typeof value === 'number' || typeof value === 'boolean' || value === null;
+  }
+
+  return !name.startsWith('data-') || /^[a-z\d _.-]{0,128}$/i.test(value);
+}
+
 function sanitizeCss(value: unknown, styleAttribute = false): string {
   if (typeof value !== 'string' || Buffer.byteLength(value) > MAX_CSS_BYTES) {
     return '';
@@ -125,6 +133,16 @@ function sanitizeCss(value: unknown, styleAttribute = false): string {
   } catch {
     return '';
   }
+}
+
+function sanitizeUnclassifiedText(value: unknown) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  return /\\|@import|(?:url|image|image-set|cross-fade)\s*\(|\/\s*[^\s]*[{};:]/i.test(value)
+    ? ''
+    : value;
 }
 
 function sanitizeStyleValue(property: string, value: unknown): string | null {
@@ -199,10 +217,7 @@ function sanitizeAttributes(value: unknown) {
       (SAFE_ATTRIBUTES.has(normalized) ||
         normalized.startsWith('aria-') ||
         normalized.startsWith('data-')) &&
-      (typeof raw === 'string' ||
-        typeof raw === 'number' ||
-        typeof raw === 'boolean' ||
-        raw === null)
+      isSafePlainAttribute(normalized, raw)
     ) {
       safe[name] = raw;
     }
@@ -249,7 +264,10 @@ function sanitizeNode(
     return {
       ...value,
       id,
-      textContent: inStyle || value?.isStyle ? sanitizeCss(value?.textContent) : value?.textContent,
+      textContent:
+        inStyle || value?.isStyle
+          ? sanitizeCss(value?.textContent)
+          : sanitizeUnclassifiedText(value?.textContent),
     };
   }
 
@@ -330,11 +348,12 @@ export function sanitizeReplayResourceEvents(events: any[]): any[] {
             }))
           : [];
         const texts = Array.isArray(data.texts)
-          ? data.texts.map((mutation: any) =>
-              styleTextIds.has(mutation?.id)
-                ? { ...mutation, value: sanitizeCss(mutation?.value) }
-                : mutation,
-            )
+          ? data.texts.map((mutation: any) => ({
+              ...mutation,
+              value: styleTextIds.has(mutation?.id)
+                ? sanitizeCss(mutation?.value)
+                : sanitizeUnclassifiedText(mutation?.value),
+            }))
           : [];
 
         safeEvents.push({ ...event, data: { ...data, adds, attributes, texts } });

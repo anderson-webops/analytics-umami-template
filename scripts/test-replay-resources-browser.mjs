@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { chromium } from '@playwright/test';
 import { sanitizeReplayResourceEvents } from '../src/lib/replay-resources.server.ts';
+import { createReplayResourceRedactor } from '../src/recorder/resources.js';
 
 const rrwebScript = fileURLToPath(
   new URL('../node_modules/rrweb/dist/rrweb.umd.cjs', import.meta.url),
@@ -195,6 +196,8 @@ test('replay snapshots and later mutations cannot load viewer-browser resources'
   try {
     const raw = await playEvents(browser, events);
     const safe = await playEvents(browser, sanitizeReplayResourceEvents(events));
+    const redactForCapture = createReplayResourceRedactor();
+    const clientSafe = await playEvents(browser, events.map(redactForCapture));
 
     for (const url of [
       'https://attacker.invalid/image',
@@ -205,6 +208,8 @@ test('replay snapshots and later mutations cannot load viewer-browser resources'
     }
     assert.deepEqual(safe.requests, []);
     assert.deepEqual(safe.state, { className: 'layout', text: 'Replay content' });
+    assert.deepEqual(clientSafe.requests, []);
+    assert.deepEqual(clientSafe.state, { className: 'layout', text: 'Replay content' });
   } finally {
     await browser.close();
   }

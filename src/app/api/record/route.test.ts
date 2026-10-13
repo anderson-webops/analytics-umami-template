@@ -1,3 +1,4 @@
+import { gunzipSync } from 'node:zlib';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import {
   CollectionBudgetExceededError,
@@ -15,7 +16,7 @@ import { parseToken } from '@/lib/jwt';
 import { reserveReplayBudget } from '@/lib/replay-budget';
 import { parseRequest } from '@/lib/request';
 import { getWebsite, withActiveCollectionSource } from '@/queries/prisma';
-import { saveRecording } from '@/queries/sql';
+import { saveReassembledRecordingFragments, saveRecording } from '@/queries/sql';
 import { saveHeatmapEvents } from '@/queries/sql/heatmap/saveHeatmapEvents';
 import { OPTIONS, POST } from './route';
 
@@ -63,6 +64,8 @@ vi.mock('@/lib/request', () => ({
   parseRequest: vi.fn(),
 }));
 
+vi.mock('@/lib/prisma', () => ({ default: { client: {} } }));
+
 vi.mock('@/queries/prisma', () => ({
   getWebsite: vi.fn(),
   withActiveCollectionSource: vi.fn(),
@@ -70,6 +73,7 @@ vi.mock('@/queries/prisma', () => ({
 
 vi.mock('@/queries/sql', () => ({
   saveRecording: vi.fn(),
+  saveReassembledRecordingFragments: vi.fn(),
 }));
 
 vi.mock('@/queries/sql/heatmap/saveHeatmapEvents', () => ({
@@ -195,7 +199,7 @@ function prepareHeatmapRequest() {
 }
 
 function prepareReplayRequest() {
-  const { websiteId, visitId } = prepareHeatmapRequest();
+  const { websiteId, visitId, transaction } = prepareHeatmapRequest();
   vi.mocked(reserveReplayBudget).mockResolvedValue(true);
   parseRequestMock.mockResolvedValue({
     body: {
@@ -209,7 +213,7 @@ function prepareReplayRequest() {
     error: undefined,
   });
 
-  return { websiteId, visitId };
+  return { websiteId, visitId, transaction };
 }
 
 describe('heatmap intake budget', () => {
@@ -680,6 +684,170 @@ describe('external replay budget commit', () => {
     expect(response.status).toBe(200);
     expect(withActiveCollectionSource).toHaveBeenCalledOnce();
     expect(saveRecording).toHaveBeenCalledWith(expect.any(Object), expect.any(Object));
+  });
+
+  test.each([false, true])(
+    'reassembles split snapshots only after both charged requests commit (external=%s)',
+    async external => {
+      const { websiteId } = prepareReplayRequest();
+      clickhouseState.enabled = external;
+      const event = {
+        type: 2,
+        timestamp: Date.now(),
+        data: {
+          node: {
+            type: 0,
+            id: 1,
+            childNodes: [
+              {
+                type: 2,
+                id: 2,
+                tagName: 'img',
+                attributes: { src: 'https://assets.example/photo?token=fragment-secret' },
+                childNodes: [],
+              },
+            ],
+          },
+        },
+      };
+      const serialized = JSON.stringify(event);
+      const boundary = serialized.indexOf('fragment-secret') + 5;
+      const chunkIndex = Math.floor(Date.now() / 1000);
+      const fragmentId = `route-${external ? 'external' : 'relational'}`;
+      const fragments = [serialized.slice(0, boundary), serialized.slice(boundary)].map(
+        (value, index) => ({
+          type: 'umami:rrweb-event-fragment',
+          timestamp: event.timestamp,
+          data: { id: fragmentId, index, total: 2, value },
+        }),
+      );
+
+      for (const [index, fragment] of fragments.entries()) {
+        parseRequestMock.mockResolvedValueOnce({
+          body: {
+            type: 'record',
+            payload: {
+              website: websiteId,
+              timestamp: chunkIndex + index,
+              events: [fragment],
+            },
+          },
+          error: undefined,
+        });
+
+        expect((await POST(request())).status).toBe(200);
+        expect(saveRecording).not.toHaveBeenCalled();
+        expect(saveReassembledRecordingFragments).toHaveBeenCalledTimes(index);
+      }
+
+      expect(reserveReplayBudget).toHaveBeenCalledTimes(2);
+      expect(saveReassembledRecordingFragments).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event,
+          parts: [
+            expect.objectContaining({ index: 0, chunkIndex }),
+            expect.objectContaining({ index: 1, chunkIndex: chunkIndex + 1 }),
+          ],
+        }),
+        external ? undefined : expect.any(Object),
+      );
+      expect(withActiveCollectionSource).toHaveBeenCalledTimes(3);
+    },
+  );
+
+  test('writes only a sanitized reassembled snapshot through the real relational sink', async () => {
+    const { websiteId, transaction } = prepareReplayRequest();
+    const create = vi.fn(async (_input: { data: { events: Buffer } }) => ({}));
+    Object.assign(transaction, { sessionReplay: { create } });
+    const actual = await vi.importActual<typeof import('@/queries/sql/replays/saveRecording')>(
+      '@/queries/sql/replays/saveRecording',
+    );
+    vi.mocked(saveReassembledRecordingFragments).mockImplementation((args, client) =>
+      actual.saveReassembledRecordingFragments(args, client),
+    );
+    const event = {
+      type: 2,
+      timestamp: Date.now(),
+      data: {
+        node: {
+          type: 0,
+          id: 1,
+          childNodes: [
+            {
+              type: 2,
+              id: 2,
+              tagName: 'img',
+              attributes: { src: 'https://assets.example/?token=route-secret', alt: 'Photo' },
+              childNodes: [],
+            },
+          ],
+        },
+      },
+    };
+    const serialized = JSON.stringify(event);
+    const boundary = serialized.indexOf('route-secret') + 5;
+    const chunkIndex = Math.floor(Date.now() / 1000);
+
+    for (const [index, value] of [
+      serialized.slice(0, boundary),
+      serialized.slice(boundary),
+    ].entries()) {
+      parseRequestMock.mockResolvedValueOnce({
+        body: {
+          type: 'record',
+          payload: {
+            website: websiteId,
+            timestamp: chunkIndex + index,
+            events: [
+              {
+                type: 'umami:rrweb-event-fragment',
+                timestamp: event.timestamp,
+                data: { id: 'route-real-sink', index, total: 2, value },
+              },
+            ],
+          },
+        },
+        error: undefined,
+      });
+
+      expect((await POST(request())).status).toBe(200);
+      expect(create).toHaveBeenCalledTimes(index === 0 ? 0 : 2);
+    }
+
+    const storedEvents = create.mock.calls.flatMap(([input]) =>
+      JSON.parse(gunzipSync(input.data.events).toString('utf8')),
+    );
+    expect(JSON.stringify(storedEvents)).not.toContain('route-secret');
+    expect(saveRecording).not.toHaveBeenCalled();
+  });
+
+  test('rejects mixed or unindexed fragments before charging a visit', async () => {
+    const { websiteId } = prepareReplayRequest();
+    const fragment = {
+      type: 'umami:rrweb-event-fragment',
+      timestamp: Date.now(),
+      data: { id: 'route-invalid', index: 0, total: 2, value: '{' },
+    };
+
+    for (const payload of [
+      { website: websiteId, events: [fragment] },
+      { website: websiteId, timestamp: Math.floor(Date.now() / 1000), events: [fragment, {}] },
+      {
+        website: websiteId,
+        timestamp: Math.floor(Date.now() / 1000),
+        events: [{ ...fragment, data: { ...fragment.data, total: 0 } }],
+      },
+    ]) {
+      parseRequestMock.mockResolvedValueOnce({
+        body: { type: 'record', payload },
+        error: undefined,
+      });
+      expect((await POST(request())).status).toBe(413);
+    }
+
+    expect(reserveReplayBudget).not.toHaveBeenCalled();
+    expect(saveRecording).not.toHaveBeenCalled();
+    expect(saveReassembledRecordingFragments).not.toHaveBeenCalled();
   });
 
   test('does not write replays when the shared owner budget is exhausted', async () => {

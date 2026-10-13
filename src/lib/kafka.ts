@@ -17,7 +17,7 @@ const enabled = Boolean(process.env.KAFKA_URL && process.env.KAFKA_BROKER);
 type KafkaMessage = Record<string, unknown>;
 type KafkaProducerMessage = { value: string };
 
-function getMaxMessageBytes() {
+export function getMaxMessageBytes() {
   const size = Number(process.env.KAFKA_MAX_MESSAGE_BYTES);
 
   return Number.isFinite(size) && size > 0 ? size : DEFAULT_MAX_MESSAGE_BYTES;

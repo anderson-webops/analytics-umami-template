@@ -21,12 +21,17 @@ import { getHeatmapUrlPath } from '@/lib/heatmap-url';
 import { getIpAddress } from '@/lib/ip';
 import { fetchAccount, fetchTeam } from '@/lib/load';
 import { getRecorderConfig } from '@/lib/recorder';
-import { getReplayEventCount } from '@/lib/replay';
+import {
+  getReplayEventCount,
+  isReplayEventFragment,
+  REPLAY_EVENT_FRAGMENT_TYPE,
+} from '@/lib/replay';
 import {
   getReplayChargedBytes,
   ReplayBudgetExceededError,
   reserveReplayBudget,
 } from '@/lib/replay-budget';
+import { replayFragmentBuffer } from '@/lib/replay-fragment-buffer';
 import { countReplayStructureUnits } from '@/lib/replay-structure';
 import { parseRequest } from '@/lib/request';
 import {
@@ -40,7 +45,7 @@ import {
 } from '@/lib/response';
 import { replayObjectParam, urlOrPathParam } from '@/lib/schema';
 import { getWebsite, withActiveCollectionSource } from '@/queries/prisma';
-import { saveRecording } from '@/queries/sql';
+import { saveReassembledRecordingFragments, saveRecording } from '@/queries/sql';
 import { saveHeatmapEvents } from '@/queries/sql/heatmap/saveHeatmapEvents';
 
 const MAX_RECORD_REQUEST_BYTES = 1024 * 1024;
@@ -286,6 +291,15 @@ export async function POST(request: Request) {
               throw new Error('REPLAY_DISABLED');
             }
 
+            const hasFragment = events.some(event => event?.type === REPLAY_EVENT_FRAGMENT_TYPE);
+
+            if (
+              hasFragment &&
+              (events.length !== 1 || timestamp === undefined || !isReplayEventFragment(events[0]))
+            ) {
+              throw new ReplayBudgetExceededError();
+            }
+
             const structureUnits = countReplayStructureUnits(events, undefined, 257);
 
             if (structureUnits === null) {
@@ -344,6 +358,18 @@ export async function POST(request: Request) {
               startedAt: new Date(minTimestamp),
               endedAt: new Date(maxTimestamp),
             };
+
+            if (hasFragment) {
+              return {
+                kind: 'replay-fragment' as const,
+                event: events[0],
+                chunkIndex,
+                startedAt: recording.startedAt,
+                endedAt: recording.endedAt,
+                accountType,
+                accountId,
+              };
+            }
 
             if (clickhouse.enabled) {
               return { kind: 'replay' as const, recording, accountType, accountId };
@@ -410,6 +436,27 @@ export async function POST(request: Request) {
       );
 
       if (externalWrite) {
+        const completed =
+          externalWrite.kind === 'replay-fragment'
+            ? replayFragmentBuffer.stage({
+                websiteId,
+                sessionId,
+                visitId,
+                accountType: externalWrite.accountType,
+                accountId: externalWrite.accountId,
+                chunkIndex: externalWrite.chunkIndex,
+                event: externalWrite.event,
+              })
+            : null;
+
+        if (completed && !replayEventParam.safeParse(completed.event).success) {
+          throw new ReplayBudgetExceededError();
+        }
+
+        if (externalWrite.kind === 'replay-fragment' && !completed) {
+          return withCorsHeaders(json({ ok: true }));
+        }
+
         await withActiveCollectionSource('website', websiteId, async transaction => {
           const currentWebsite = await transaction.website.findFirst({
             where: { id: websiteId, deletedAt: null },
@@ -429,7 +476,28 @@ export async function POST(request: Request) {
 
           const currentConfig = getRecorderConfig(currentWebsite.replayConfig);
 
-          if (externalWrite.kind === 'replay') {
+          if (externalWrite.kind === 'replay-fragment') {
+            if (currentConfig.replayEnabled !== true) {
+              throw new Error('REPLAY_DISABLED');
+            }
+
+            if (!completed) {
+              throw new ReplayBudgetExceededError();
+            }
+
+            await saveReassembledRecordingFragments(
+              {
+                websiteId,
+                sessionId,
+                visitId,
+                event: completed.event,
+                parts: completed.parts,
+                startedAt: externalWrite.startedAt,
+                endedAt: externalWrite.endedAt,
+              },
+              clickhouse.enabled ? undefined : transaction,
+            );
+          } else if (externalWrite.kind === 'replay') {
             if (currentConfig.replayEnabled !== true) {
               throw new Error('REPLAY_DISABLED');
             }

@@ -1,4 +1,5 @@
 import { addCustomEvent, record } from 'rrweb';
+import { createReplayResourceRedactor } from './resources.js';
 import { getReplaySafeUrl, redactReplayNavigationEvent } from './url.js';
 
 (window => {
@@ -52,6 +53,7 @@ import { getReplaySafeUrl, redactReplayNavigationEvent } from './url.js';
   let replayLastChunkIndex = 0;
   let replayStopped = false;
   let heatmapStarted = false;
+  const redactReplayResourceEvent = createReplayResourceRedactor();
 
   const getSessionCache = () => window.umami?.getSession?.()?.cache;
 
@@ -441,7 +443,9 @@ import { getReplaySafeUrl, redactReplayNavigationEvent } from './url.js';
       emit(event) {
         if (replayStopped) return;
 
-        event = redactReplayNavigationEvent(event);
+        event = redactReplayResourceEvent(redactReplayNavigationEvent(event));
+
+        if (!event) return;
 
         if (Date.now() - replayStartTime > maxDuration) {
           stopReplay();
