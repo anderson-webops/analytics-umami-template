@@ -73,6 +73,98 @@ test('production environment validation requires TLS for an arbitrary single-lab
   }
 });
 
+test('production validates service transport for dotless and public IPv6 hosts', () => {
+  const validationScript = fileURLToPath(new URL('./check-env.js', import.meta.url));
+  const baseEnvironment = {
+    PATH: process.env.PATH || '/usr/bin:/bin',
+    DOTENV_CONFIG_PATH: '/dev/null',
+    NODE_ENV: 'production',
+    APP_SECRET: 'synthetic-app-secret-11111111111111111',
+    PUBLIC_URL: 'https://analytics.example',
+    CLIENT_IP_HEADER: 'X-Forwarded-For',
+    DATABASE_URL:
+      'postgresql://synthetic:synthetic-password-0000000000000000@localhost:5432/synthetic',
+  };
+
+  for (const { name, settings, expectedStatus, error } of [
+    { name: 'secure Redis', settings: { REDIS_URL: 'rediss://database:6379' }, expectedStatus: 0 },
+    {
+      name: 'insecure Redis',
+      settings: { REDIS_URL: 'redis://database:6379' },
+      expectedStatus: 1,
+      error: /REDIS_URL must use an encrypted protocol/,
+    },
+    {
+      name: 'insecure public IPv6 ClickHouse',
+      settings: { CLICKHOUSE_URL: 'http://[2606:4700:4700::1111]:8123' },
+      expectedStatus: 1,
+      error: /CLICKHOUSE_URL must use an encrypted protocol/,
+    },
+    {
+      name: 'private IPv6 ClickHouse',
+      settings: { CLICKHOUSE_URL: 'http://[fd00::1]:8123' },
+      expectedStatus: 0,
+    },
+    {
+      name: 'secure Kafka',
+      settings: { KAFKA_URL: 'kafkas://broker', KAFKA_BROKER: 'database:9092' },
+      expectedStatus: 0,
+    },
+    {
+      name: 'secure public IPv6 Kafka',
+      settings: { KAFKA_URL: 'kafkas://broker', KAFKA_BROKER: '[2606:4700:4700::1111]:9092' },
+      expectedStatus: 0,
+    },
+    {
+      name: 'insecure Kafka',
+      settings: { KAFKA_URL: 'kafka://broker', KAFKA_BROKER: 'database:9092' },
+      expectedStatus: 1,
+      error: /KAFKA_SSL must be enabled when a Kafka broker is outside a private network/,
+    },
+    {
+      name: 'insecure public IPv6 Kafka',
+      settings: { KAFKA_URL: 'kafka://broker', KAFKA_BROKER: '[2606:4700:4700::1111]:9092' },
+      expectedStatus: 1,
+      error: /KAFKA_SSL must be enabled when a Kafka broker is outside a private network/,
+    },
+    {
+      name: 'private IPv6 Kafka',
+      settings: { KAFKA_URL: 'kafka://broker', KAFKA_BROKER: '[fd00::1]:9092' },
+      expectedStatus: 0,
+    },
+    {
+      name: 'Kafka broker with a path',
+      settings: { KAFKA_URL: 'kafkas://broker', KAFKA_BROKER: 'database:9092/other' },
+      expectedStatus: 1,
+      error: /KAFKA_BROKER must be a comma-separated list of host:port entries/,
+    },
+    {
+      name: 'Kafka broker with a trailing slash',
+      settings: { KAFKA_URL: 'kafkas://broker', KAFKA_BROKER: 'database:9092/' },
+      expectedStatus: 1,
+      error: /KAFKA_BROKER must be a comma-separated list of host:port entries/,
+    },
+    {
+      name: 'Kafka broker with a query',
+      settings: { KAFKA_URL: 'kafkas://broker', KAFKA_BROKER: 'database:9092?host=localhost' },
+      expectedStatus: 1,
+      error: /KAFKA_BROKER must be a comma-separated list of host:port entries/,
+    },
+  ]) {
+    const result = spawnSync(process.execPath, [validationScript], {
+      env: { ...baseEnvironment, ...settings },
+      encoding: 'utf8',
+      timeout: 10_000,
+    });
+
+    assert.equal(result.status, expectedStatus, `${name}: ${result.stderr}`);
+    if (error) {
+      assert.match(result.stderr, error, name);
+    }
+    assert.doesNotMatch(result.stderr, /ReferenceError|must be a valid absolute/);
+  }
+});
+
 test('rejects query overrides and ambiguous TLS settings before connecting', () => {
   const base = 'postgresql://synthetic:synthetic-password@database:5432/synthetic';
 

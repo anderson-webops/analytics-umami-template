@@ -1,6 +1,7 @@
 /* eslint-disable no-console */
 import 'dotenv/config';
 import ipaddr from 'ipaddr.js';
+import { isPrivateDatabaseHost } from './database-host-policy.mjs';
 import { assertDatabaseTransport, DatabaseTransportError } from './database-transport.mjs';
 
 const TRUE_VALUES = new Set(['1', 'true', 'yes', 'on']);
@@ -393,7 +394,9 @@ function checkServiceConfiguration({ production = false } = {}) {
         port > 65_535 ||
         broker.username ||
         broker.password ||
-        broker.pathname !== '/'
+        broker.pathname ||
+        broker.search ||
+        broker.hash
       ) {
         throw new Error();
       }
