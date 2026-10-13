@@ -10,13 +10,26 @@
  *   - Demo SaaS: Average traffic (~500 sessions/day)
  *
  * Usage:
- *   pnpm db:seed              # Generate 30 days of data
- *   pnpm db:seed --days 90    # Generate 90 days of data
- *   pnpm db:seed --clear      # Clear existing demo data first
- *   pnpm db:seed --verbose    # Show detailed progress
+ *   NODE_ENV=development pnpm db:seed --allow-disposable-seed
+ *   NODE_ENV=development pnpm db:seed --allow-disposable-seed --days 90
+ *   NODE_ENV=development pnpm db:seed --allow-disposable-seed --clear --confirm-clear
  */
 
 import { type SeedConfig, seed } from './seed/index.js';
+import { MAX_SEED_DAYS, SeedSafetyError } from './seed/safety.js';
+
+function parseDays(value: string | undefined): number {
+  if (!value || !/^[1-9][0-9]*$/.test(value)) {
+    throw new SeedSafetyError(`--days must be an integer between 1 and ${MAX_SEED_DAYS}.`);
+  }
+
+  const days = Number(value);
+  if (!Number.isSafeInteger(days) || days > MAX_SEED_DAYS) {
+    throw new SeedSafetyError(`--days must be an integer between 1 and ${MAX_SEED_DAYS}.`);
+  }
+
+  return days;
+}
 
 function parseArgs(): SeedConfig {
   const args = process.argv.slice(2);
@@ -25,31 +38,31 @@ function parseArgs(): SeedConfig {
     days: 30,
     clear: false,
     verbose: false,
+    allowDisposableSeed: false,
+    confirmClear: false,
   };
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
 
-    if (arg === '--days' && args[i + 1]) {
-      config.days = parseInt(args[i + 1], 10);
-      if (Number.isNaN(config.days) || config.days < 1) {
-        console.error('Error: --days must be a positive integer');
-        process.exit(1);
-      }
+    if (arg === '--days') {
+      config.days = parseDays(args[i + 1]);
       i++;
     } else if (arg === '--clear') {
       config.clear = true;
+    } else if (arg === '--confirm-clear') {
+      config.confirmClear = true;
+    } else if (arg === '--allow-disposable-seed') {
+      config.allowDisposableSeed = true;
     } else if (arg === '--verbose' || arg === '-v') {
       config.verbose = true;
     } else if (arg === '--help' || arg === '-h') {
       printHelp();
       process.exit(0);
     } else if (arg.startsWith('--days=')) {
-      config.days = parseInt(arg.split('=')[1], 10);
-      if (Number.isNaN(config.days) || config.days < 1) {
-        console.error('Error: --days must be a positive integer');
-        process.exit(1);
-      }
+      config.days = parseDays(arg.slice('--days='.length));
+    } else {
+      throw new SeedSafetyError('Unknown seed option. Use --help for supported options.');
     }
   }
 
@@ -66,54 +79,40 @@ Usage:
   pnpm db:seed [options]
 
 Options:
-  --days <number>    Number of days of data to generate (default: 30)
-  --clear            Clear existing demo data before generating
-  --verbose, -v      Show detailed progress
-  --help, -h         Show this help message
+  --allow-disposable-seed   Explicitly opt in to a disposable local database
+  --days <number>           Days of data to generate (1-${MAX_SEED_DAYS}, default: 30)
+  --clear                   Clear existing seed-owned data first
+  --confirm-clear           Required with --clear
+  --verbose, -v             Show detailed progress
+  --help, -h                Show this help message
 
 Examples:
-  pnpm db:seed                 # Generate 30 days of data
-  pnpm db:seed --days 90       # Generate 90 days of data
-  pnpm db:seed --clear         # Clear existing demo data first
-  pnpm db:seed --days 7 -v     # Generate 7 days with verbose output
+  NODE_ENV=development pnpm db:seed --allow-disposable-seed
+  NODE_ENV=development pnpm db:seed --allow-disposable-seed --days 90
+  NODE_ENV=development pnpm db:seed --allow-disposable-seed --clear --confirm-clear
 
 Generated Sites:
   - Demo Blog:  Low traffic (~90 sessions/month)
   - Demo SaaS:  Average traffic (~500 sessions/day) with revenue tracking
 
-Note:
-  This script is blocked from running in production environments
-  (NODE_ENV=production or cloud platforms like Vercel/Netlify/Railway).
+Before use, create the disposable marker table in a dedicated local PostgreSQL
+database. See docs/development-seed-safety.md. This command never accepts a
+non-loopback database target or clears old name-matched demo websites.
 `);
-}
-
-function checkEnvironment(): void {
-  const nodeEnv = process.env.NODE_ENV;
-
-  if (nodeEnv === 'production') {
-    console.error('\nError: db:seed cannot run in production environment.');
-    console.error('This script is only for local development and testing.\n');
-    process.exit(1);
-  }
-
-  if (process.env.VERCEL || process.env.NETLIFY || process.env.RAILWAY_ENVIRONMENT) {
-    console.error('\nError: db:seed cannot run in cloud environments.');
-    console.error('This script is only for local development and testing.\n');
-    process.exit(1);
-  }
 }
 
 async function main(): Promise<void> {
   console.log('\nUmami Sample Data Generator\n');
 
-  checkEnvironment();
-
-  const config = parseArgs();
-
   try {
+    const config = parseArgs();
     await seed(config);
   } catch (error) {
-    console.error('\nError generating seed data:', error);
+    console.error(
+      error instanceof SeedSafetyError
+        ? `\nError: ${error.message}`
+        : '\nError generating seed data.',
+    );
     process.exit(1);
   }
 }

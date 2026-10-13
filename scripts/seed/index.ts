@@ -15,6 +15,14 @@ import {
 } from './generators/revenue.js';
 import { createSessions, type SessionData } from './generators/sessions.js';
 import {
+  parseSeedTarget,
+  SEED_WEBSITES,
+  type SeedConfig,
+  SeedSafetyError,
+  verifySeedMarker,
+  verifySeedWebsiteIdentity,
+} from './safety.js';
+import {
   BLOG_SESSIONS_PER_DAY,
   BLOG_WEBSITE_DOMAIN,
   BLOG_WEBSITE_NAME,
@@ -29,7 +37,9 @@ import {
   SAAS_WEBSITE_NAME,
   saasRevenueConfigs,
 } from './sites/saas.js';
-import { formatNumber, generateDatesBetween, progressBar, subDays, uuid } from './utils.js';
+import { formatNumber, generateDatesBetween, progressBar, subDays } from './utils.js';
+
+export type { SeedConfig } from './safety.js';
 
 const BATCH_SIZE = 1000;
 
@@ -37,12 +47,6 @@ type SessionCreateInput = Prisma.SessionCreateManyInput;
 type WebsiteEventCreateInput = Prisma.WebsiteEventCreateManyInput;
 type EventDataCreateInput = Prisma.EventDataCreateManyInput;
 type RevenueCreateInput = Prisma.RevenueCreateManyInput;
-
-export interface SeedConfig {
-  days: number;
-  clear: boolean;
-  verbose: boolean;
-}
 
 export interface SeedResult {
   websites: number;
@@ -135,12 +139,11 @@ async function findAdminUser(prisma: PrismaClient): Promise<string> {
 
 async function createWebsite(
   prisma: PrismaClient,
+  websiteId: string,
   name: string,
   domain: string,
   adminUserId: string,
 ): Promise<string> {
-  const websiteId = uuid();
-
   await prisma.website.create({
     data: {
       id: websiteId,
@@ -154,39 +157,50 @@ async function createWebsite(
   return websiteId;
 }
 
-async function clearDemoData(prisma: PrismaClient): Promise<void> {
+async function clearDemoData(prisma: PrismaClient, adminUserId: string): Promise<void> {
   console.log('Clearing existing demo data...');
 
-  const demoWebsites = await prisma.website.findMany({
-    where: {
-      OR: [{ name: BLOG_WEBSITE_NAME }, { name: SAAS_WEBSITE_NAME }],
+  await prisma.$transaction(
+    async transaction => {
+      const demoWebsites = await transaction.website.findMany({
+        where: { id: { in: SEED_WEBSITES.map(website => website.id) } },
+        select: {
+          id: true,
+          name: true,
+          domain: true,
+          userId: true,
+          createdBy: true,
+          teamId: true,
+          deletedAt: true,
+        },
+      });
+
+      for (const website of demoWebsites) {
+        verifySeedWebsiteIdentity(website, adminUserId);
+      }
+
+      const websiteIds = demoWebsites.map(website => website.id);
+      if (websiteIds.length === 0) {
+        return;
+      }
+
+      await transaction.revenue.deleteMany({ where: { websiteId: { in: websiteIds } } });
+      await transaction.eventData.deleteMany({ where: { websiteId: { in: websiteIds } } });
+      await transaction.sessionData.deleteMany({ where: { websiteId: { in: websiteIds } } });
+      await transaction.websiteEvent.deleteMany({ where: { websiteId: { in: websiteIds } } });
+      await transaction.session.deleteMany({ where: { websiteId: { in: websiteIds } } });
+      await transaction.segment.deleteMany({ where: { websiteId: { in: websiteIds } } });
+      await transaction.report.deleteMany({ where: { websiteId: { in: websiteIds } } });
+      await transaction.website.deleteMany({ where: { id: { in: websiteIds } } });
     },
-    select: { id: true },
-  });
-
-  const websiteIds = demoWebsites.map(w => w.id);
-
-  if (websiteIds.length === 0) {
-    console.log('  No existing demo websites found');
-    return;
-  }
-
-  console.log(`  Found ${websiteIds.length} demo website(s)`);
-
-  // Delete in correct order due to foreign key constraints
-  await prisma.revenue.deleteMany({ where: { websiteId: { in: websiteIds } } });
-  await prisma.eventData.deleteMany({ where: { websiteId: { in: websiteIds } } });
-  await prisma.sessionData.deleteMany({ where: { websiteId: { in: websiteIds } } });
-  await prisma.websiteEvent.deleteMany({ where: { websiteId: { in: websiteIds } } });
-  await prisma.session.deleteMany({ where: { websiteId: { in: websiteIds } } });
-  await prisma.segment.deleteMany({ where: { websiteId: { in: websiteIds } } });
-  await prisma.report.deleteMany({ where: { websiteId: { in: websiteIds } } });
-  await prisma.website.deleteMany({ where: { id: { in: websiteIds } } });
+    { isolationLevel: 'Serializable', timeout: 120_000 },
+  );
 
   console.log('  Cleared existing demo data');
 }
 
 interface SiteGeneratorConfig {
+  websiteId: string;
   name: string;
   domain: string;
   sessionsPerDay: number;
@@ -204,7 +218,13 @@ async function generateSiteData(
 ): Promise<{ sessions: number; events: number; eventData: number; revenue: number }> {
   console.log(`\nGenerating data for ${config.name}...`);
 
-  const websiteId = await createWebsite(prisma, config.name, config.domain, adminUserId);
+  const websiteId = await createWebsite(
+    prisma,
+    config.websiteId,
+    config.name,
+    config.domain,
+    adminUserId,
+  );
   console.log(`  Created website: ${config.name} (${websiteId})`);
 
   const siteConfig = config.getSiteConfig();
@@ -269,28 +289,8 @@ async function generateSiteData(
   };
 }
 
-function createPrismaClient(): PrismaClient {
-  const url = process.env.DATABASE_URL;
-  if (!url) {
-    throw new Error(
-      'DATABASE_URL environment variable is not set.\n' +
-        'Please set DATABASE_URL in your .env file or environment.\n' +
-        'Example: DATABASE_URL=postgresql://user:password@localhost:5432/umami',
-    );
-  }
-
-  let schema: string | undefined;
-  try {
-    const connectionUrl = new URL(url);
-    schema = connectionUrl.searchParams.get('schema') ?? undefined;
-  } catch {
-    throw new Error(
-      'DATABASE_URL is not a valid URL.\n' +
-        'Expected format: postgresql://user:password@host:port/database',
-    );
-  }
-
-  const adapter = new PrismaPg({ connectionString: url }, { schema });
+function createPrismaClient(connectionString: string, schema: string): PrismaClient {
+  const adapter = new PrismaPg({ connectionString }, { schema });
 
   return new PrismaClient({
     adapter,
@@ -299,9 +299,31 @@ function createPrismaClient(): PrismaClient {
 }
 
 export async function seed(config: SeedConfig): Promise<SeedResult> {
-  const prisma = createPrismaClient();
+  const target = parseSeedTarget(config, process.env);
+  const prisma = createPrismaClient(target.connectionString, target.schema);
 
   try {
+    let markerRows: Array<{ marker: string; schema: string }>;
+    try {
+      markerRows = await prisma.$queryRaw<Array<{ marker: string; schema: string }>>`
+        SELECT marker, current_schema()::text AS schema
+        FROM umami_seed_disposable_guard
+        LIMIT 2
+      `;
+    } catch {
+      throw new SeedSafetyError('Database is not attested as a disposable seed target.');
+    }
+    verifySeedMarker(markerRows, target.schema);
+
+    if (
+      SEED_WEBSITES[0].name !== BLOG_WEBSITE_NAME ||
+      SEED_WEBSITES[0].domain !== BLOG_WEBSITE_DOMAIN ||
+      SEED_WEBSITES[1].name !== SAAS_WEBSITE_NAME ||
+      SEED_WEBSITES[1].domain !== SAAS_WEBSITE_DOMAIN
+    ) {
+      throw new SeedSafetyError('Seed website identity no longer matches the generator.');
+    }
+
     const endDate = new Date();
     const startDate = subDays(endDate, config.days);
     const days = generateDatesBetween(startDate, endDate);
@@ -313,18 +335,26 @@ export async function seed(config: SeedConfig): Promise<SeedResult> {
     console.log(`  Days: ${days.length}`);
     console.log(`  Clear existing: ${config.clear}`);
 
+    const adminUserId = await findAdminUser(prisma);
     if (config.clear) {
-      await clearDemoData(prisma);
+      await clearDemoData(prisma, adminUserId);
     }
 
-    // Find admin user to own the demo websites
-    const adminUserId = await findAdminUser(prisma);
+    const existingSeedWebsite = await prisma.website.findFirst({
+      where: { id: { in: SEED_WEBSITES.map(website => website.id) } },
+      select: { id: true },
+    });
+    if (existingSeedWebsite) {
+      throw new SeedSafetyError('Seed-owned websites already exist; use --clear --confirm-clear.');
+    }
+
     console.log(`  Using admin user: ${adminUserId}`);
 
     // Generate Blog site (low traffic)
     const blogResults = await generateSiteData(
       prisma,
       {
+        websiteId: SEED_WEBSITES[0].id,
         name: BLOG_WEBSITE_NAME,
         domain: BLOG_WEBSITE_DOMAIN,
         sessionsPerDay: BLOG_SESSIONS_PER_DAY,
@@ -340,6 +370,7 @@ export async function seed(config: SeedConfig): Promise<SeedResult> {
     const saasResults = await generateSiteData(
       prisma,
       {
+        websiteId: SEED_WEBSITES[1].id,
         name: SAAS_WEBSITE_NAME,
         domain: SAAS_WEBSITE_DOMAIN,
         sessionsPerDay: SAAS_SESSIONS_PER_DAY,
