@@ -78,6 +78,7 @@ docker --context colima run --rm --user 501:20 --network bridge \
     set -euo pipefail
     mkdir -p /work/home /work/tmp
     git clone --quiet --no-checkout "${RELEASE_CONFIG%/*}/source.bundle" /work/source
+    printf "/.ai-work/\n" >> "$(git -C /work/source rev-parse --path-format=absolute --git-path info/exclude)"
     git -C /work/source checkout --quiet --detach "$RELEASE_TAG^{commit}"
     node /work/source/deploy/mac-build/public-environment.mjs "$RELEASE_CONFIG" run \
       bash /work/source/deploy/mac-build/container-phase.sh build
