@@ -202,7 +202,7 @@ jobs:
       - name: Exercise bounded event-series queries
         run: |
           pnpm install --frozen-lockfile
-          pnpm run generate:db:client
+          pnpm run build:db
           pnpm exec vitest run src/queries/sql/events/getEventStats.clickhouse.test.ts
           pnpm exec vitest run src/queries/sql/sessions/linked-session.clickhouse.test.ts
           pnpm exec vitest run src/queries/sql/property-series.clickhouse.test.ts
