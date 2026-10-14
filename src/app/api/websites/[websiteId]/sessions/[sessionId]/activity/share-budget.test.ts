@@ -113,6 +113,22 @@ test('allows linked history until the actual-range budget is exhausted', async (
   expect(getSessionActivityMock).toHaveBeenCalledTimes(2);
 });
 
+test('charges public shares for each linked session before reading activity', async () => {
+  getLinkedSessionIdsMock.mockResolvedValue(
+    Array.from({ length: 499 }, (_, index) => ({
+      sessionId: `00000000-0000-4000-8000-${String(index + 1000).padStart(12, '0')}`,
+      createdAt: '2025-12-29T00:00:00.000Z',
+    })),
+  );
+  expect(await reserveShareQueryCost(shareId, 516)).toMatchObject({ blocked: false });
+
+  const response = await GET(new Request('http://localhost'), params);
+
+  expect(response.status).toBe(429);
+  expect(getLinkedSessionIdsMock).toHaveBeenCalledWith(WEBSITE_ID, 'visitor-1', 501);
+  expect(getSessionActivityMock).not.toHaveBeenCalled();
+});
+
 test('rejects oversized linked histories before reading activity', async () => {
   getLinkedSessionIdsMock.mockResolvedValue(
     Array(501).fill({ sessionId: LINKED_SESSION_ID, createdAt: '2025-12-29T00:00:00.000Z' }),

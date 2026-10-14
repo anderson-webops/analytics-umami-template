@@ -6,7 +6,7 @@ import prisma from '@/lib/prisma';
 const FUNCTION_NAME = 'getEventDataById';
 
 export async function getEventDataById(
-  ...args: [websiteId: string, eventId: string]
+  ...args: [websiteId: string, eventId: string, rowLimit?: number]
 ): Promise<EventData[]> {
   return runQuery({
     [PRISMA]: () => relationalQuery(...args),
@@ -14,7 +14,7 @@ export async function getEventDataById(
   });
 }
 
-async function relationalQuery(websiteId: string, eventId: string) {
+async function relationalQuery(websiteId: string, eventId: string, rowLimit?: number) {
   const { rawQuery } = prisma;
 
   return rawQuery(
@@ -33,13 +33,18 @@ async function relationalQuery(websiteId: string, eventId: string) {
       and website_event.website_id = {{websiteId::uuid}}
     where event_data.website_id = {{websiteId::uuid}}
       and event_data.website_event_id = {{eventId::uuid}}
+    ${rowLimit === undefined ? '' : 'limit {{rowLimit}}'}
     `,
-    { websiteId, eventId },
+    { websiteId, eventId, rowLimit },
     FUNCTION_NAME,
   );
 }
 
-async function clickhouseQuery(websiteId: string, eventId: string): Promise<EventData[]> {
+async function clickhouseQuery(
+  websiteId: string,
+  eventId: string,
+  rowLimit?: number,
+): Promise<EventData[]> {
   const { rawQuery } = clickhouse;
 
   return rawQuery(
@@ -56,8 +61,9 @@ async function clickhouseQuery(websiteId: string, eventId: string): Promise<Even
       from event_data
       where website_id = {websiteId:UUID}
         and event_id = {eventId:UUID}
+      ${rowLimit === undefined ? '' : 'limit {rowLimit:UInt32}'}
     `,
-    { websiteId, eventId },
+    { websiteId, eventId, rowLimit },
     FUNCTION_NAME,
   );
 }

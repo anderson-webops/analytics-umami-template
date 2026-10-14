@@ -45,6 +45,7 @@ import {
 import { getAttribution } from '@/queries/sql/attribution/getAttribution';
 import { getBreakdown } from '@/queries/sql/breakdown/getBreakdown';
 import { getEventData } from '@/queries/sql/events/getEventData';
+import { getEventDataById } from '@/queries/sql/events/getEventDataById';
 import { getEventDataPivot } from '@/queries/sql/events/getEventDataPivot';
 import { getFunnel } from '@/queries/sql/funnels/getFunnel';
 import { getJourney } from '@/queries/sql/journeys/getJourney';
@@ -72,6 +73,7 @@ import { GET as getActiveVisitorsRoute } from './websites/[websiteId]/active/rou
 import { GET as getAttributionRoute } from './websites/[websiteId]/attribution/route';
 import { GET as getBreakdownRoute } from './websites/[websiteId]/breakdown/route';
 import { GET as getDateRangeRoute } from './websites/[websiteId]/daterange/route';
+import { GET as getEventDataDetailRoute } from './websites/[websiteId]/event-data/[eventId]/route';
 import { GET as getEventDataRoute } from './websites/[websiteId]/event-data/route';
 import { GET as getEventDataPivotRoute } from './websites/[websiteId]/event-data-pivot/route';
 import { GET as getEventsRoute } from './websites/[websiteId]/events/route';
@@ -140,6 +142,7 @@ vi.mock('@/queries/sql', () => ({
 vi.mock('@/queries/sql/attribution/getAttribution', () => ({ getAttribution: vi.fn() }));
 vi.mock('@/queries/sql/breakdown/getBreakdown', () => ({ getBreakdown: vi.fn() }));
 vi.mock('@/queries/sql/events/getEventData', () => ({ getEventData: vi.fn() }));
+vi.mock('@/queries/sql/events/getEventDataById', () => ({ getEventDataById: vi.fn() }));
 vi.mock('@/queries/sql/funnels/getFunnel', () => ({ getFunnel: vi.fn() }));
 vi.mock('@/queries/sql/journeys/getJourney', () => ({ getJourney: vi.fn() }));
 vi.mock('@/queries/sql/performance/getPerformance', () => ({ getPerformance: vi.fn() }));
@@ -177,6 +180,7 @@ const getSessionStatsMock = vi.mocked(getSessionStats);
 const getAttributionMock = vi.mocked(getAttribution);
 const getBreakdownMock = vi.mocked(getBreakdown);
 const getEventDataMock = vi.mocked(getEventData);
+const getEventDataByIdMock = vi.mocked(getEventDataById);
 const getFunnelMock = vi.mocked(getFunnel);
 const getJourneyMock = vi.mocked(getJourney);
 const getPerformanceMock = vi.mocked(getPerformance);
@@ -231,6 +235,7 @@ beforeEach(() => {
   getAttributionMock.mockReset();
   getBreakdownMock.mockReset();
   getEventDataMock.mockReset();
+  getEventDataByIdMock.mockReset();
   getFunnelMock.mockReset();
   getJourneyMock.mockReset();
   getPerformanceMock.mockReset();
@@ -275,6 +280,7 @@ beforeEach(() => {
   getRealtimeDataMock.mockResolvedValue({} as any);
   getSessionStatsMock.mockResolvedValue({} as any);
   getEventDataMock.mockResolvedValue({ data: [], count: 0, page: 1, pageSize: 20 } as any);
+  getEventDataByIdMock.mockResolvedValue([]);
   getJourneyMock.mockResolvedValue([] as any);
   getWebsiteEventsMock.mockResolvedValue({ data: [], count: 0, page: 1, pageSize: 20 } as any);
   getWebsiteSessionsMock.mockResolvedValue({ data: [], count: 0, page: 1, pageSize: 20 } as any);
@@ -827,6 +833,108 @@ test.each([
   checkAuthMock.mockResolvedValue({ user: { id: 'website-owner' } } as any);
   expect((await request(3, 20)).status).toBe(200);
   expect(route.query).toHaveBeenCalledOnce();
+});
+
+test('public event detail spends its share budget before reading event properties', async () => {
+  const shareId = `event-detail-${crypto.randomUUID()}`;
+  const eventId = SESSION_ID;
+  const context = { params: Promise.resolve({ websiteId: WEBSITE_ID, eventId }) };
+  const request = () =>
+    new Request(
+      `https://analytics.example/api/websites/${WEBSITE_ID}/event-data/${eventId}?startAt=1&endAt=2`,
+    );
+
+  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  canViewWebsiteSectionMock.mockResolvedValue(true);
+  expect((await reserveShareQueryCost(shareId, 597)).blocked).toBe(false);
+
+  const exhausted = await getEventDataDetailRoute(request(), context);
+  expect(exhausted.status).toBe(429);
+  expect(getEventDataByIdMock).not.toHaveBeenCalled();
+
+  checkAuthMock.mockResolvedValue({ user: { id: 'website-owner' } } as any);
+  const authorized = await getEventDataDetailRoute(request(), context);
+  expect(authorized.status).toBe(200);
+  await expect(authorized.json()).resolves.toEqual([]);
+  expect(getEventDataByIdMock).toHaveBeenCalledWith(WEBSITE_ID, eventId, undefined);
+});
+
+test('public event detail rejects oversized historical property sets', async () => {
+  const shareId = `event-detail-large-${crypto.randomUUID()}`;
+  const eventId = SESSION_ID;
+  const context = { params: Promise.resolve({ websiteId: WEBSITE_ID, eventId }) };
+  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  canViewWebsiteSectionMock.mockResolvedValue(true);
+  getEventDataByIdMock.mockResolvedValue(Array(501).fill({}) as any);
+
+  const response = await getEventDataDetailRoute(
+    new Request(`https://analytics.example/api/websites/${WEBSITE_ID}/event-data/${eventId}`),
+    context,
+  );
+
+  expect(response.status).toBe(400);
+  expect(getEventDataByIdMock).toHaveBeenCalledWith(WEBSITE_ID, eventId, 501);
+});
+
+test('public event detail preserves authorized properties and rejects disabled filters', async () => {
+  const shareId = `event-detail-control-${crypto.randomUUID()}`;
+  const eventId = SESSION_ID;
+  const context = { params: Promise.resolve({ websiteId: WEBSITE_ID, eventId }) };
+  const data = [{ dataKey: 'plan', stringValue: 'basic' }];
+  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  canViewWebsiteSectionMock.mockResolvedValue(true);
+  getEventDataByIdMock.mockResolvedValue(data as any);
+
+  const allowed = await getEventDataDetailRoute(
+    new Request(
+      `https://analytics.example/api/websites/${WEBSITE_ID}/event-data/${eventId}?startAt=1&endAt=2&browser=eq.Chrome`,
+    ),
+    context,
+  );
+  expect(allowed.status).toBe(200);
+  await expect(allowed.json()).resolves.toEqual(data);
+  expect(getEventDataByIdMock).toHaveBeenCalledWith(WEBSITE_ID, eventId, 501);
+
+  getEventDataByIdMock.mockClear();
+  checkAuthMock.mockResolvedValue({
+    shareToken: {
+      shareId: crypto.randomUUID(),
+      websiteId: WEBSITE_ID,
+      parameters: { allowFilter: false },
+    },
+  } as any);
+  const denied = await getEventDataDetailRoute(
+    new Request(
+      `https://analytics.example/api/websites/${WEBSITE_ID}/event-data/${eventId}?browser=eq.Chrome`,
+    ),
+    context,
+  );
+  expect(denied.status).toBe(403);
+  expect(getEventDataByIdMock).not.toHaveBeenCalled();
+});
+
+test('public event detail uses owner authority when a session also carries a share token', async () => {
+  const shareId = `event-detail-mixed-${crypto.randomUUID()}`;
+  const eventId = SESSION_ID;
+  const context = { params: Promise.resolve({ websiteId: WEBSITE_ID, eventId }) };
+  const request = () =>
+    new Request(`https://analytics.example/api/websites/${WEBSITE_ID}/event-data/${eventId}`);
+  checkAuthMock.mockResolvedValue({
+    user: { id: 'website-owner' },
+    shareToken: { shareId, websiteId: WEBSITE_ID },
+  } as any);
+  canViewWebsiteSectionMock.mockResolvedValue(true);
+  expect((await reserveShareQueryCost(shareId, 597)).blocked).toBe(false);
+
+  const ownerResponse = await getEventDataDetailRoute(request(), context);
+  expect(ownerResponse.status).toBe(200);
+  expect(getEventDataByIdMock).toHaveBeenCalledWith(WEBSITE_ID, eventId, undefined);
+
+  getEventDataByIdMock.mockClear();
+  canViewWebsiteMock.mockResolvedValue(false);
+  const shareResponse = await getEventDataDetailRoute(request(), context);
+  expect(shareResponse.status).toBe(429);
+  expect(getEventDataByIdMock).not.toHaveBeenCalled();
 });
 
 test.each([

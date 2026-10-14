@@ -196,9 +196,7 @@ export async function GET(
 
   const shareAdditionalCost =
     shareRequestedCost && shareActualCost
-      ? shareActualCost.charge -
-        shareRequestedCost.charge +
-        Math.ceil((sessionIds.length - 1) / DEFAULT_PAGE_SIZE)
+      ? shareActualCost.charge - shareRequestedCost.charge + sessionIds.length - 1
       : 0;
   const userAdditionalCost =
     userRequestedCost && userActualCost
