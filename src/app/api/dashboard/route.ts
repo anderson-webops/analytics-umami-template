@@ -58,16 +58,16 @@ export async function POST(request: Request) {
   const data = {
     name: body.name,
     description: body.description,
-    parameters: body.parameters ?? {},
+    ...(body.parameters !== undefined ? { parameters: body.parameters } : {}),
   };
 
-  if (!(await hasValidBoardReports(existing?.type ?? 'dashboard', data.parameters))) {
+  if (!(await hasValidBoardReports(existing?.type ?? 'dashboard', body.parameters ?? {}))) {
     return badRequest({ message: 'Board contains invalid saved reports.' });
   }
 
   try {
     if (existing) {
-      const result = await updateBoard(userId, data, userId);
+      const result = await updateBoard(userId, data, userId, auth.authType);
 
       return json(result);
     }
@@ -77,6 +77,7 @@ export async function POST(request: Request) {
         id: userId,
         type: BOARD_TYPES.dashboard,
         userId,
+        parameters: body.parameters ?? {},
         ...data,
       },
       userId,
@@ -88,6 +89,10 @@ export async function POST(request: Request) {
     switch (error?.message) {
       case 'ENTITY_ACTOR_NOT_AUTHORIZED':
         return unauthorized({ message: 'Your dashboard permission changed.' });
+      case 'SHARED_BOARD_REQUIRES_SESSION':
+        return unauthorized({
+          message: 'Updating a shared dashboard requires an interactive session.',
+        });
       case 'ENTITY_REFERENCE_NOT_AUTHORIZED':
         return badRequest({ message: 'Dashboard contains inaccessible entities.' });
       case 'ENTITY_ID_CONFLICT':

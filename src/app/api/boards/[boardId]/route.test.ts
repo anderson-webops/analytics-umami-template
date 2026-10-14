@@ -1,8 +1,13 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { parseRequest } from '@/lib/request';
-import { canViewBoard } from '@/permissions';
-import { getBoard } from '@/queries/prisma';
-import { GET } from './route';
+import {
+  canUpdateBoard,
+  canViewBoard,
+  canViewBoardEntities,
+  hasValidBoardReports,
+} from '@/permissions';
+import { getBoard, updateBoard } from '@/queries/prisma';
+import { GET, POST } from './route';
 
 const boardId = '508ad3c6-1993-41aa-a07c-44ff09a64686';
 const allowedWebsite = '7b2728e9-f4b2-4a2a-9827-697b24bbf78a';
@@ -83,4 +88,30 @@ test('an authenticated board owner retains the complete private board response',
   expect(response.status).toBe(200);
   expect(body.parameters.websiteId).toBe(deniedWebsite);
   expect(body.parameters.rows[0].columns).toHaveLength(2);
+});
+
+test('a board update passes API-key identity to the shared-board transaction', async () => {
+  vi.mocked(parseRequest).mockResolvedValue({
+    auth: { authType: 'api-key', user: { id: 'owner', role: 'user', isAdmin: false } },
+    body: { parameters: { websiteId: allowedWebsite } },
+  } as Awaited<ReturnType<typeof parseRequest>>);
+  vi.mocked(canUpdateBoard).mockResolvedValue(true);
+  vi.mocked(canViewBoardEntities).mockResolvedValue(true);
+  vi.mocked(hasValidBoardReports).mockResolvedValue(true);
+  vi.mocked(updateBoard).mockRejectedValue(new Error('SHARED_BOARD_REQUIRES_SESSION'));
+
+  const response = await POST(new Request(request.url, { method: 'POST' }), params);
+
+  expect(response.status).toBe(401);
+  expect(updateBoard).toHaveBeenCalledWith(
+    boardId,
+    {
+      type: undefined,
+      name: undefined,
+      description: undefined,
+      parameters: { websiteId: allowedWebsite },
+    },
+    'owner',
+    'api-key',
+  );
 });

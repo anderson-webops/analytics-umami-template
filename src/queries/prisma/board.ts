@@ -4,7 +4,7 @@ import { ENTITY_TYPE, PERMISSIONS } from '@/lib/constants';
 import { isUuid } from '@/lib/crypto';
 import prisma from '@/lib/prisma';
 import { sanitizeSortFilters } from '@/lib/sort';
-import type { BoardParameters, QueryFilters } from '@/lib/types';
+import type { AuthType, BoardParameters, QueryFilters } from '@/lib/types';
 import {
   assertActorCanAccessEntities,
   assertActorCanCreateOwnedEntity,
@@ -126,6 +126,7 @@ export async function updateBoard(
   boardId: string,
   data: Prisma.BoardUncheckedUpdateInput,
   actorUserId: string,
+  authType: AuthType,
 ) {
   return runSerializable(async transaction => {
     await assertActorCanMutateEntity(
@@ -162,6 +163,9 @@ export async function updateBoard(
         where: { entityId: boardId, shareType: ENTITY_TYPE.board },
         select: { id: true },
       }));
+    if (hasPublicShare && authType !== 'session') {
+      throw new Error('SHARED_BOARD_REQUIRES_SESSION');
+    }
     await assertActorCanAccessEntities(
       transaction,
       actorUserId,

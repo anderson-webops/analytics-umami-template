@@ -99,7 +99,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ boa
   }
 
   try {
-    const board = await updateBoard(boardId, { type, name, description, parameters }, auth.user.id);
+    const board = await updateBoard(
+      boardId,
+      { type, name, description, parameters },
+      auth.user.id,
+      auth.authType,
+    );
 
     return Response.json(board);
   } catch (error: any) {
@@ -109,6 +114,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ boa
 
     if (error?.message === 'ENTITY_ACTOR_NOT_AUTHORIZED') {
       return unauthorized({ message: 'Your board-update permission changed.' });
+    }
+
+    if (error?.message === 'SHARED_BOARD_REQUIRES_SESSION') {
+      return unauthorized({ message: 'Updating a shared board requires an interactive session.' });
     }
 
     if (error?.message === 'ENTITY_REFERENCE_NOT_AUTHORIZED') {
