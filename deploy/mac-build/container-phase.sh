@@ -74,7 +74,18 @@ if [[ "$phase" = build ]]; then
   UMAMI_USERNAME=admin UMAMI_PASSWORD=synthetic-admin-only-000000000000 \
     pnpm run change-password
   pnpm run test:postgres17-restore
-  pnpm run validate
+  env -u CLASSROOM_MODE -u CLIENT_IP_HEADER -u DISABLE_TELEMETRY \
+    -u MCP_ENABLED -u NEXT_TELEMETRY_DISABLED -u PRIVATE_MODE -u PUBLIC_URL \
+    DATABASE_URL=postgresql://user:pass@localhost:5432/dummy SKIP_DB_CHECK=1 \
+    bash -c '
+      set -euo pipefail
+      pnpm run validate
+      pnpm run openapi:generate
+      pnpm run openapi:check --explicit
+      pnpm run check:api:client
+      pnpm run build:packages
+      pnpm run test:packages
+    '
   pnpm run build:production
   pnpm run check:native-bindings
   node scripts/runtime-artifact.mjs verify .next/standalone --release \
