@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "site": "analytics.example.com",
+  "repository": "anderson-webops/analytics-umami-template",
+  "environment": {
+    "PUBLIC_URL": "https://analytics.example.com",
+    "CLIENT_IP_HEADER": "x-real-ip",
+    "DISABLE_TELEMETRY": "1",
+    "NEXT_TELEMETRY_DISABLED": "1",
+    "CLASSROOM_MODE": "0",
+    "PRIVATE_MODE": "1",
+    "MCP_ENABLED": "0"
+  }
+}

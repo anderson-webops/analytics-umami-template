@@ -58,7 +58,7 @@ function syntheticEnvironment(port) {
     NODE_ENV: 'production',
     DATABASE_URL: databaseUrl,
     APP_SECRET: 'artifact-acceptance-secret-000000000000',
-    PUBLIC_URL: 'https://analytics.example.com',
+    PUBLIC_URL: process.env.PUBLIC_URL || 'https://analytics.example.com',
     CLIENT_IP_HEADER: 'x-real-ip',
     DISABLE_TELEMETRY: '1',
     NEXT_TELEMETRY_DISABLED: '1',

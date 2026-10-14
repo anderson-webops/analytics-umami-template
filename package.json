@@ -1,6 +1,6 @@
 {
   "name": "umami",
-  "version": "4.2.149",
+  "version": "4.2.150",
   "private": true,
   "description": "A modern, privacy-focused alternative to Google Analytics.",
   "author": "Umami Software, Inc. <hello@umami.is>",
@@ -119,7 +119,7 @@
     "check": "biome check .",
     "test:migration-attempts": "node scripts/test-migration-attempt-paths.mjs",
     "test:postgres17-restore": "bash scripts/test-postgres17-restore.sh",
-    "test:packaging": "node --test scripts/test-runtime-artifact-manifest.mjs scripts/test-runtime-workspaces.mjs",
+    "test:packaging": "node --test scripts/test-runtime-artifact-manifest.mjs scripts/test-runtime-workspaces.mjs scripts/test-mac-artifact-transport.mjs",
     "test:braces": "node --test scripts/test-braces-compat.mjs",
     "test:selector-parser": "node --test scripts/test-selector-parser-compat.mjs",
     "test:source-map": "node --test scripts/test-source-map-js-compat.mjs"
