@@ -10,7 +10,7 @@ export PG17_BINDIR="$pg_bin"
 export HOME=/work/home
 export TMPDIR=/work/tmp
 export NODE_OPTIONS=--max-old-space-size=2304
-export DATABASE_URL='postgresql://umami:synthetic-only@127.0.0.1:5432/umami?schema=public'
+export DATABASE_URL='postgresql://umami:mac-release-test-password-0000000000000000@127.0.0.1:5432/umami?schema=public'
 export RUNTIME_ACCEPTANCE_DATABASE_URL="$DATABASE_URL"
 export APP_SECRET='synthetic-artifact-acceptance-only-000000000000'
 export UMAMI_BIND_ADDRESS=127.0.0.1
