@@ -4,7 +4,11 @@ import { isUuid, uuid } from '@/lib/crypto';
 import prisma from '@/lib/prisma';
 import type { QueryFilters } from '@/lib/types';
 import { hasMutableGlobalRole } from '@/permissions/mutation';
-import { lockActorRoleForMutation, runSerializable } from './authorization';
+import {
+  lockActorRoleForMutation,
+  lockActorTeamMembershipForMutation,
+  runSerializable,
+} from './authorization';
 
 import TeamUserFindManyArgs = Prisma.TeamUserFindManyArgs;
 
@@ -67,6 +71,7 @@ async function getActorState(
     return { isAdmin: true, rank: Number.POSITIVE_INFINITY };
   }
 
+  await lockActorTeamMembershipForMutation(transaction, teamId, actorUserId);
   const membership = await transaction.teamUser.findFirst({
     where: {
       teamId,

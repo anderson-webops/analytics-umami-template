@@ -11,6 +11,7 @@ import {
   assertActorCanMutateEntity,
   assertActorIsAdministrator,
   assertEntityIdAvailable,
+  lockActorRoleForMutation,
   runSerializable,
 } from './authorization';
 import { lockCollectionSources } from './collection';
@@ -110,6 +111,7 @@ export async function updateLink(
   actorUserId: string,
 ) {
   const { link, previousSlug } = await runSerializable(async transaction => {
+    await lockActorRoleForMutation(transaction, actorUserId);
     await lockCollectionSources(transaction, [linkId]);
 
     await assertActorCanMutateEntity(
@@ -145,6 +147,7 @@ export async function updateLink(
 export async function deleteLink(linkId: string, actorUserId: string) {
   const result = await runSerializable(
     async transaction => {
+      await lockActorRoleForMutation(transaction, actorUserId);
       await lockCollectionSources(transaction, [linkId]);
 
       await assertActorCanMutateEntity(

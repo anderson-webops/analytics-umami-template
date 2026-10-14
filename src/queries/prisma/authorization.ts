@@ -150,7 +150,21 @@ export async function lockActorRoleForMutation(
     SELECT user_id
     FROM "user"
     WHERE user_id = ${actorUserId}::uuid
-    FOR SHARE
+    FOR NO KEY UPDATE
+  `;
+}
+
+export async function lockActorTeamMembershipForMutation(
+  transaction: Prisma.TransactionClient,
+  teamId: string,
+  actorUserId: string,
+) {
+  await transaction.$queryRaw`
+    SELECT team_user_id
+    FROM team_user
+    WHERE team_id = ${teamId}::uuid
+      AND user_id = ${actorUserId}::uuid
+    FOR NO KEY UPDATE
   `;
 }
 
@@ -221,6 +235,7 @@ export async function assertActorCanMutateEntity(
   }
 
   if (entity.teamId) {
+    await lockActorTeamMembershipForMutation(transaction, entity.teamId, actorUserId);
     const membership = await transaction.teamUser.findFirst({
       where: {
         teamId: entity.teamId,
@@ -281,7 +296,10 @@ export async function assertActorCanAccessEntities(
     ...new Set(
       entities.map(entity => entity?.teamId).filter((teamId): teamId is string => !!teamId),
     ),
-  ];
+  ].sort();
+  for (const teamId of teamIds) {
+    await lockActorTeamMembershipForMutation(transaction, teamId, actorUserId);
+  }
   const memberships = teamIds.length
     ? await transaction.teamUser.findMany({
         where: {
@@ -380,6 +398,7 @@ export async function assertActorCanCreateOwnedEntity(
       id: true,
     },
   });
+  await lockActorTeamMembershipForMutation(transaction, owner.teamId, actorUserId);
   const membership = await transaction.teamUser.findFirst({
     where: {
       teamId: owner.teamId,

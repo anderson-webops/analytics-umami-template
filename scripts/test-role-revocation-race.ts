@@ -7,6 +7,7 @@ import {
   lockActorRoleForMutation,
   runSerializable,
 } from '@/queries/prisma/authorization';
+import { updateTeamUserRoleByActor } from '@/queries/prisma/teamUser';
 import { createUser, deleteUser, updateUser } from '@/queries/prisma/user';
 import { updateWebsite } from '@/queries/prisma/website';
 
@@ -49,6 +50,7 @@ const otherOwnerId = randomUUID();
 const createdUserId = randomUUID();
 const actorWebsiteId = randomUUID();
 const otherWebsiteId = randomUUID();
+const teamWebsiteId = randomUUID();
 const teamId = randomUUID();
 const memberId = randomUUID();
 const delegatedTeamId = randomUUID();
@@ -62,6 +64,12 @@ const releaseMemberRemoval = deferred();
 const memberRemovalReady = deferred();
 const releaseDelegatedCreation = deferred();
 const delegatedCreationReady = deferred();
+const releaseTeamMutation = deferred();
+const teamAuthorized = deferred();
+const releaseTeamDemotion = deferred();
+const teamDemotionReady = deferred();
+const releaseTeamRemoval = deferred();
+const teamRemovalReady = deferred();
 let actorMutation: Promise<unknown> | undefined;
 let demotion: Promise<unknown> | undefined;
 let contestedMutation: Promise<unknown> | undefined;
@@ -71,6 +79,10 @@ let memberRemoval: Promise<unknown> | undefined;
 let accountDeletion: Promise<unknown> | undefined;
 let delegatedCreation: Promise<unknown> | undefined;
 let delegatedDemotion: Promise<unknown> | undefined;
+let teamMutation: Promise<unknown> | undefined;
+let teamDemotion: Promise<unknown> | undefined;
+let contestedTeamMutation: Promise<unknown> | undefined;
+let teamRemoval: Promise<unknown> | undefined;
 
 async function mutateWebsite(websiteId: string, name: string) {
   return runSerializable(async transaction => {
@@ -159,7 +171,7 @@ try {
     () => 'allowed',
     error => error,
   );
-  await waitForLock('FOR SHARE', 'transactionid');
+  await waitForLock('FOR NO KEY UPDATE', 'transactionid');
   releaseDemotion.resolve();
   await demotion;
   const deniedOwnerMutation = await contestedMutation;
@@ -250,6 +262,99 @@ try {
       { id: memberId, teamId, userId: actorId, role: ROLES.teamMember },
     ],
   });
+  await prisma.client.website.create({
+    data: { id: teamWebsiteId, name: 'Team website', team: { connect: { id: teamId } } },
+  });
+  await prisma.client.teamUser.update({
+    where: { id: memberId },
+    data: { role: ROLES.teamManager },
+  });
+  teamMutation = runSerializable(async transaction => {
+    await assertActorCanMutateEntity(
+      transaction,
+      actorId,
+      'website',
+      teamWebsiteId,
+      PERMISSIONS.websiteUpdate,
+    );
+    teamAuthorized.resolve();
+    await releaseTeamMutation.promise;
+    return transaction.website.update({
+      where: { id: teamWebsiteId },
+      data: { name: 'Committed before membership demotion' },
+    });
+  });
+  await teamAuthorized.promise;
+  teamDemotion = updateTeamUserRoleByActor(teamId, actorId, ROLES.teamViewOnly, administratorId);
+  await waitForLock('UPDATE', 'transactionid');
+  releaseTeamMutation.resolve();
+  await teamMutation;
+  await teamDemotion;
+  assert.equal(
+    (await prisma.client.teamUser.findUniqueOrThrow({ where: { id: memberId } })).role,
+    ROLES.teamViewOnly,
+  );
+  assert.equal(
+    (await prisma.client.website.findUniqueOrThrow({ where: { id: teamWebsiteId } })).name,
+    'Committed before membership demotion',
+  );
+  await assert.rejects(
+    mutateWebsite(teamWebsiteId, 'Must not commit'),
+    /ENTITY_ACTOR_NOT_AUTHORIZED/,
+  );
+
+  await prisma.client.teamUser.update({
+    where: { id: memberId },
+    data: { role: ROLES.teamManager },
+  });
+  teamDemotion = runSerializable(async transaction => {
+    await transaction.teamUser.update({
+      where: { id: memberId },
+      data: { role: ROLES.teamViewOnly },
+    });
+    teamDemotionReady.resolve();
+    await releaseTeamDemotion.promise;
+  });
+  await teamDemotionReady.promise;
+  contestedTeamMutation = mutateWebsite(teamWebsiteId, 'Must not commit').then(
+    () => 'allowed',
+    error => error,
+  );
+  await waitForLock('FOR NO KEY UPDATE', 'transactionid');
+  releaseTeamDemotion.resolve();
+  await teamDemotion;
+  const deniedTeamMutation = await contestedTeamMutation;
+  assert.ok(deniedTeamMutation instanceof Error);
+  assert.equal(deniedTeamMutation.message, 'ENTITY_ACTOR_NOT_AUTHORIZED');
+  assert.equal(
+    (await prisma.client.website.findUniqueOrThrow({ where: { id: teamWebsiteId } })).name,
+    'Committed before membership demotion',
+  );
+
+  teamRemoval = runSerializable(async transaction => {
+    await transaction.teamUser.delete({ where: { id: memberId } });
+    teamRemovalReady.resolve();
+    await releaseTeamRemoval.promise;
+  });
+  await teamRemovalReady.promise;
+  contestedTeamMutation = mutateWebsite(teamWebsiteId, 'Must not commit after removal').then(
+    () => 'allowed',
+    error => error,
+  );
+  await waitForLock('FOR NO KEY UPDATE', 'transactionid');
+  releaseTeamRemoval.resolve();
+  await teamRemoval;
+  const deniedAfterRemoval = await contestedTeamMutation;
+  assert.ok(deniedAfterRemoval instanceof Error);
+  assert.equal(deniedAfterRemoval.message, 'ENTITY_ACTOR_NOT_AUTHORIZED');
+  assert.equal(
+    (await prisma.client.website.findUniqueOrThrow({ where: { id: teamWebsiteId } })).name,
+    'Committed before membership demotion',
+  );
+
+  await prisma.client.teamUser.create({
+    data: { id: memberId, teamId, userId: actorId, role: ROLES.teamViewOnly },
+  });
   memberRemoval = runSerializable(async transaction => {
     await lockActorRoleForMutation(transaction, actorId);
     memberRemovalReady.resolve();
@@ -266,12 +371,15 @@ try {
   assert.equal(await prisma.client.user.findUnique({ where: { id: actorId } }), null);
   assert.equal(await prisma.client.teamUser.findUnique({ where: { id: memberId } }), null);
 
-  console.log('PostgreSQL role-revocation ordering and stale-administrator writes passed.');
+  console.log('PostgreSQL role and membership revocation ordering passed.');
 } finally {
   releaseActorMutation.resolve();
   releaseDemotion.resolve();
   releaseAdminDemotion.resolve();
   releaseMemberRemoval.resolve();
+  releaseTeamMutation.resolve();
+  releaseTeamDemotion.resolve();
+  releaseTeamRemoval.resolve();
   await Promise.allSettled(
     [
       actorMutation,
@@ -283,13 +391,17 @@ try {
       accountDeletion,
       delegatedCreation,
       delegatedDemotion,
+      teamMutation,
+      teamDemotion,
+      contestedTeamMutation,
+      teamRemoval,
     ].filter((operation): operation is Promise<unknown> => operation !== undefined),
   );
+  await prisma.client.website.deleteMany({
+    where: { id: { in: [actorWebsiteId, otherWebsiteId, teamWebsiteId] } },
+  });
   await prisma.client.teamUser.deleteMany({ where: { teamId: { in: [teamId, delegatedTeamId] } } });
   await prisma.client.team.deleteMany({ where: { id: { in: [teamId, delegatedTeamId] } } });
-  await prisma.client.website.deleteMany({
-    where: { id: { in: [actorWebsiteId, otherWebsiteId] } },
-  });
   await prisma.client.user.deleteMany({
     where: { id: { in: [administratorId, actorId, otherOwnerId, createdUserId] } },
   });

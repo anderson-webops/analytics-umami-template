@@ -15,6 +15,7 @@ import {
   assertActorIsAdministrator,
   assertEntityIdAvailable,
   lockActorRoleForMutation,
+  lockActorTeamMembershipForMutation,
   runSerializable,
 } from './authorization';
 import { lockCollectionSources } from './collection';
@@ -389,6 +390,9 @@ export async function transferWebsiteByActor(
       }
 
       if (!isAdmin) {
+        if (currentWebsite.teamId) {
+          await lockActorTeamMembershipForMutation(transaction, currentWebsite.teamId, actorUserId);
+        }
         const membership = currentWebsite.teamId
           ? await transaction.teamUser.findFirst({
               where: {
@@ -408,6 +412,7 @@ export async function transferWebsiteByActor(
         }
       }
     } else {
+      await lockActorTeamMembershipForMutation(transaction, destination.teamId, actorUserId);
       const destinationTeam = await transaction.team.findFirst({
         where: {
           id: destination.teamId,

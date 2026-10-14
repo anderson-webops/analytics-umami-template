@@ -1,15 +1,17 @@
 import type { Prisma } from '@/generated/prisma/client';
 import { PERMISSIONS } from '@/lib/constants';
-import { assertActorCanMutateEntity, runSerializable } from './authorization';
+import {
+  assertActorCanMutateEntity,
+  lockActorRoleForMutation,
+  runSerializable,
+} from './authorization';
 
 async function lockSessionDeleteAuthorization(
   transaction: Prisma.TransactionClient,
   actorUserId: string,
   websiteId: string,
 ) {
-  await transaction.$queryRaw`
-    SELECT user_id FROM "user" WHERE user_id = ${actorUserId}::uuid FOR SHARE
-  `;
+  await lockActorRoleForMutation(transaction, actorUserId);
 
   const websites = await transaction.$queryRaw<{ team_id: string | null }[]>`
     SELECT team_id FROM website WHERE website_id = ${websiteId}::uuid FOR SHARE
@@ -19,10 +21,6 @@ async function lockSessionDeleteAuthorization(
   if (teamId) {
     await transaction.$queryRaw`
       SELECT team_id FROM team WHERE team_id = ${teamId}::uuid FOR SHARE
-    `;
-    await transaction.$queryRaw`
-      SELECT team_user_id FROM team_user
-      WHERE team_id = ${teamId}::uuid AND user_id = ${actorUserId}::uuid FOR SHARE
     `;
   }
 }

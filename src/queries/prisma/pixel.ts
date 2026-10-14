@@ -11,6 +11,7 @@ import {
   assertActorCanMutateEntity,
   assertActorIsAdministrator,
   assertEntityIdAvailable,
+  lockActorRoleForMutation,
   runSerializable,
 } from './authorization';
 import { lockCollectionSources } from './collection';
@@ -105,6 +106,7 @@ export async function updatePixel(
   actorUserId: string,
 ) {
   const { pixel, previousSlug } = await runSerializable(async transaction => {
+    await lockActorRoleForMutation(transaction, actorUserId);
     await lockCollectionSources(transaction, [pixelId]);
 
     await assertActorCanMutateEntity(
@@ -140,6 +142,7 @@ export async function updatePixel(
 export async function deletePixel(pixelId: string, actorUserId: string) {
   const result = await runSerializable(
     async transaction => {
+      await lockActorRoleForMutation(transaction, actorUserId);
       await lockCollectionSources(transaction, [pixelId]);
 
       await assertActorCanMutateEntity(

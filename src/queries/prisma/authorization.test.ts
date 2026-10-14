@@ -59,7 +59,7 @@ describe('transactional mutation authorization after role changes', () => {
     await expect(
       assertActorCanMutateEntity(client, actorId, 'website', entityId, PERMISSIONS.websiteUpdate),
     ).rejects.toThrow('ENTITY_ACTOR_NOT_AUTHORIZED');
-    expect(queryRaw.mock.calls[0][0].join('')).toContain('FOR SHARE');
+    expect(queryRaw.mock.calls[0][0].join('')).toContain('FOR NO KEY UPDATE');
     expect(queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
       userFindFirst.mock.invocationCallOrder[0],
     );
@@ -74,6 +74,11 @@ describe('transactional mutation authorization after role changes', () => {
     await expect(
       assertActorCanMutateEntity(client, actorId, 'website', entityId, PERMISSIONS.websiteUpdate),
     ).resolves.toMatchObject({ teamId });
+    expect(queryRaw.mock.calls[2][0].join('')).toContain('FROM team_user');
+    expect(queryRaw.mock.calls[2][0].join('')).toContain('FOR NO KEY UPDATE');
+    expect(queryRaw.mock.invocationCallOrder[2]).toBeLessThan(
+      teamUserFindFirst.mock.invocationCallOrder[0],
+    );
 
     userFindFirst.mockResolvedValue({ role: ROLES.admin });
     await expect(
@@ -216,7 +221,7 @@ test('actor role lock is scoped to the current user row', async () => {
 
   expect(queryRaw).toHaveBeenCalledOnce();
   expect(queryRaw.mock.calls[0][0].join('')).toContain('WHERE user_id = ');
-  expect(queryRaw.mock.calls[0][0].join('')).toContain('FOR SHARE');
+  expect(queryRaw.mock.calls[0][0].join('')).toContain('FOR NO KEY UPDATE');
   expect(queryRaw.mock.calls[0][1]).toBe('actor-1');
 });
 
