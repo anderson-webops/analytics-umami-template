@@ -29,13 +29,16 @@ verifier rejects a weakened or altered declaration. The object contains no
 listener port, service user, proxy route, environment value, or database address;
 those remain host policy.
 
-Schema version 2 binds the 30-day heatmap and replay retention releases to
-their required migrations and runtime pruners and to the respective
-`bounded-heatmap-retention-v1` and `bounded-replay-retention-v1` capabilities.
-Removing the files or downgrading only a capability fails source validation.
-Legacy schema version 1 contracts remain valid only without these retention
-files or capabilities; host adapters must reject an unsupported version before
-migration.
+Schema version 2 binds the 30-day heatmap retention files and
+`bounded-heatmap-retention-v1` capability. Historical version 2 releases may
+also declare the complete replay-retention files and capability together.
+Schema version 3 requires both complete retention file sets and both host
+capabilities; removing the replay files and capability together fails source
+validation. Legacy schema version 1 contracts remain valid only without these
+retention files or capabilities. Host adapters must verify the canonical
+release contract, reject a candidate's schema-version downgrade, and reject
+an unsupported version before migration. Retained releases are verified against
+their own version-specific contracts and policies.
 
 Before building or migrating a candidate, the privileged host adapter should
 independently fetch its canonical source identity and parse this contract as

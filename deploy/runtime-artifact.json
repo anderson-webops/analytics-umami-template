@@ -97,7 +97,7 @@
     "packageManager": "pnpm@11.18.0"
   },
   "deployment": {
-    "schemaVersion": 2,
+    "schemaVersion": 3,
     "applicationId": "analytics-umami-template",
     "requiredAdapterCapabilities": [
       "artifact-only-promotion-v1",

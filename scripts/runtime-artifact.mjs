@@ -247,7 +247,7 @@ function validateDeploymentContract(deployment) {
       database,
       hostControlled,
     }) ||
-    ![1, 2].includes(deployment.schemaVersion) ||
+    ![1, 2, 3].includes(deployment.schemaVersion) ||
     typeof deployment.applicationId !== 'string' ||
     !/^[a-z0-9][a-z0-9.-]{2,100}$/.test(deployment.applicationId) ||
     !Array.isArray(capabilities) ||
@@ -311,7 +311,7 @@ async function readContract(contractPath = defaultContractPath) {
   const retentionCapability =
     contract.deployment?.requiredAdapterCapabilities.includes('bounded-heatmap-retention-v1') ??
     false;
-  const retentionContract = contract.deployment?.schemaVersion === 2;
+  const retentionContract = [2, 3].includes(contract.deployment?.schemaVersion);
   if (
     retentionFilesDeclared !== retentionContract ||
     retentionCapability !== retentionContract ||
@@ -332,8 +332,11 @@ async function readContract(contractPath = defaultContractPath) {
   const replayRetentionCapability =
     contract.deployment?.requiredAdapterCapabilities.includes('bounded-replay-retention-v1') ??
     false;
+  const replayRetentionContract = contract.deployment?.schemaVersion === 3;
   if (
     replayRetentionFilesDeclared !== replayRetentionCapability ||
+    (contract.deployment?.schemaVersion === 1 && replayRetentionCapability) ||
+    (replayRetentionContract && !replayRetentionCapability) ||
     (replayRetentionCapability &&
       !replayRetentionFiles.every(file => contract.requiredFiles.includes(file)))
   ) {

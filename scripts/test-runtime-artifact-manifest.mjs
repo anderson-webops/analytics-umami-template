@@ -103,6 +103,7 @@ async function addHeatmapRetentionFixture(root, contractPath) {
 async function addReplayRetentionFixture(root, contractPath) {
   await addHeatmapRetentionFixture(root, contractPath);
   const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
+  contract.deployment.schemaVersion = 3;
   contract.deployment.requiredAdapterCapabilities.push('bounded-replay-retention-v1');
   for (const file of replayRetentionPaths) {
     const allowedRoot = file.split('/')[0];
@@ -319,7 +320,7 @@ test('heatmap retention files require complete packaging and host capability', a
     await fs.readFile(new URL('../deploy/runtime-artifact.json', import.meta.url), 'utf8'),
   );
   assert.ok(heatmapRetentionPaths.every(file => trustedContract.requiredFiles.includes(file)));
-  assert.equal(trustedContract.deployment.schemaVersion, 2);
+  assert.equal(trustedContract.deployment.schemaVersion, 3);
   assert.ok(
     trustedContract.deployment.requiredAdapterCapabilities.includes('bounded-heatmap-retention-v1'),
   );
@@ -365,6 +366,7 @@ test('replay retention files require complete packaging and host capability', as
     await fs.readFile(new URL('../deploy/runtime-artifact.json', import.meta.url), 'utf8'),
   );
   assert.ok(replayRetentionPaths.every(file => trustedContract.requiredFiles.includes(file)));
+  assert.equal(trustedContract.deployment.schemaVersion, 3);
   assert.ok(
     trustedContract.deployment.requiredAdapterCapabilities.includes('bounded-replay-retention-v1'),
   );
@@ -382,6 +384,16 @@ test('replay retention files require complete packaging and host capability', as
     /deployment compatibility contract/,
   );
 
+  contract.requiredFiles = contract.requiredFiles.filter(
+    file => !replayRetentionPaths.includes(file),
+  );
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await assert.rejects(
+    createRuntimeManifest(root, { contractPath, source }),
+    /deployment compatibility contract/,
+  );
+
+  contract.requiredFiles.push(...replayRetentionPaths);
   contract.deployment.requiredAdapterCapabilities.push('bounded-replay-retention-v1');
   contract.requiredFiles = contract.requiredFiles.filter(
     file => file !== replayRetentionPaths.at(-1),
@@ -396,6 +408,25 @@ test('replay retention files require complete packaging and host capability', as
   await fs.writeFile(contractPath, JSON.stringify(contract));
   await createRuntimeManifest(root, { contractPath, source });
   await verifyRuntimeArtifact(root, { contractPath });
+
+  contract.deployment.schemaVersion = 2;
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await createRuntimeManifest(root, { contractPath, source });
+  await verifyRuntimeArtifact(root, { contractPath });
+
+  contract.deployment.schemaVersion = 1;
+  contract.deployment.requiredAdapterCapabilities =
+    contract.deployment.requiredAdapterCapabilities.filter(
+      capability => capability !== 'bounded-heatmap-retention-v1',
+    );
+  contract.requiredFiles = contract.requiredFiles.filter(
+    file => !heatmapRetentionPaths.includes(file),
+  );
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await assert.rejects(
+    createRuntimeManifest(root, { contractPath, source }),
+    /deployment compatibility contract/,
+  );
 });
 
 test('database-aware recovery requires its exact host capability and policy', async () => {
