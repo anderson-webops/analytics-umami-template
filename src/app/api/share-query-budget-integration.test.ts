@@ -2,14 +2,20 @@ import { beforeEach, expect, test, vi } from 'vitest';
 import { checkAuth } from '@/lib/auth';
 import { ENTITY_TYPE } from '@/lib/constants';
 import { fetchWebsite } from '@/lib/load';
-import { reserveShareQueryCost } from '@/lib/share-query-budget';
+import {
+  reserveAuthenticatedQueryCost,
+  reserveShareQueryCost,
+  reserveTenantQueryCost,
+} from '@/lib/share-query-budget';
 import {
   canViewLink,
   canViewPixel,
   canViewSharedWebsite,
+  canViewWebsite,
   canViewWebsiteSection,
 } from '@/permissions';
 import { canViewBatchWebsites } from '@/permissions/website';
+import { getLink, getPixel, getWebsite } from '@/queries/prisma';
 import {
   getActiveVisitors,
   getChannelMetrics,
@@ -49,6 +55,7 @@ import { getRevenueMetrics } from '@/queries/sql/revenue/getRevenueMetrics';
 import { getRevenueSessions } from '@/queries/sql/revenue/getRevenueSessions';
 import { getRevenueStats } from '@/queries/sql/revenue/getRevenueStats';
 import { getSessionDataPivot } from '@/queries/sql/sessions/getSessionDataPivot';
+import { completeTestResponses } from '@/test/setup';
 import { POST as getAttributionReport } from '../(compat)/compat/api/reports/attribution/route';
 import { POST as getBreakdownReport } from '../(compat)/compat/api/reports/breakdown/route';
 import { POST as getFunnelReport } from '../(compat)/compat/api/reports/funnel/route';
@@ -90,10 +97,17 @@ vi.hoisted(() => {
 
 vi.mock('@/lib/auth', () => ({ checkAuth: vi.fn() }));
 vi.mock('@/lib/load', () => ({ fetchAccount: vi.fn(), fetchWebsite: vi.fn() }));
+vi.mock('@/queries/prisma', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/queries/prisma')>()),
+  getLink: vi.fn(),
+  getPixel: vi.fn(),
+  getWebsite: vi.fn(),
+}));
 vi.mock('@/permissions', () => ({
   canViewLink: vi.fn(),
   canViewPixel: vi.fn(),
   canViewSharedWebsite: vi.fn(),
+  canViewWebsite: vi.fn(),
   canViewWebsiteSection: vi.fn(),
 }));
 vi.mock('@/permissions/website', () => ({ canViewBatchWebsites: vi.fn() }));
@@ -141,9 +155,13 @@ vi.mock('@/queries/sql/revenue/getRevenueSessions', () => ({ getRevenueSessions:
 
 const checkAuthMock = vi.mocked(checkAuth);
 const fetchWebsiteMock = vi.mocked(fetchWebsite);
+const getWebsiteMock = vi.mocked(getWebsite);
+const getLinkMock = vi.mocked(getLink);
+const getPixelMock = vi.mocked(getPixel);
 const canViewLinkMock = vi.mocked(canViewLink);
 const canViewPixelMock = vi.mocked(canViewPixel);
 const canViewSharedWebsiteMock = vi.mocked(canViewSharedWebsite);
+const canViewWebsiteMock = vi.mocked(canViewWebsite);
 const canViewWebsiteSectionMock = vi.mocked(canViewWebsiteSection);
 const canViewBatchWebsitesMock = vi.mocked(canViewBatchWebsites);
 const getActiveVisitorsMock = vi.mocked(getActiveVisitors);
@@ -196,6 +214,8 @@ beforeEach(() => {
   canViewLinkMock.mockReset();
   canViewPixelMock.mockReset();
   canViewSharedWebsiteMock.mockReset();
+  canViewWebsiteMock.mockReset();
+  canViewWebsiteMock.mockResolvedValue(true);
   canViewWebsiteSectionMock.mockReset();
   canViewBatchWebsitesMock.mockReset();
   getActiveVisitorsMock.mockReset();
@@ -236,6 +256,15 @@ beforeEach(() => {
   getWebsiteSessionsMock.mockReset();
   getWebsiteSessionMock.mockReset();
   fetchWebsiteMock.mockResolvedValue({ id: WEBSITE_ID } as any);
+  getWebsiteMock.mockImplementation(
+    async websiteId => ({ id: websiteId, userId: websiteId, teamId: null }) as any,
+  );
+  getLinkMock.mockImplementation(
+    async linkId => ({ id: linkId, userId: linkId, teamId: null }) as any,
+  );
+  getPixelMock.mockImplementation(
+    async pixelId => ({ id: pixelId, userId: pixelId, teamId: null }) as any,
+  );
   getAttributionMock.mockResolvedValue({} as any);
   getBreakdownMock.mockResolvedValue([] as any);
   getFunnelMock.mockResolvedValue([] as any);
@@ -317,15 +346,17 @@ test('ordinary signed-in stats requests remain unaffected by share budgeting', a
 
 test('sessions and API keys share a historical breakdown budget before either SQL path', async () => {
   const userId = `breakdown-user-${crypto.randomUUID()}`;
-  const startAt = Date.UTC(2006, 0, 1);
+  const startAt = Date.UTC(2021, 0, 1);
   const endAt = Date.UTC(2025, 11, 31);
-  const fields = Array.from({ length: 20 }, () => 'path');
+  const fields = ['path', 'country'];
   const url = `https://analytics.example/api/websites/${WEBSITE_ID}/breakdown?startAt=${startAt}&endAt=${endAt}&fields=${encodeURIComponent(JSON.stringify(fields))}`;
   canViewWebsiteSectionMock.mockResolvedValue(true);
   checkAuthMock.mockResolvedValue({ user: { id: userId }, source: 'cookie' } as any);
+  expect((await reserveAuthenticatedQueryCost(userId, 19_300, 0)).blocked).toBe(false);
 
   expect((await getBreakdownRoute(new Request(url), pathParams)).status).toBe(200);
   expect(getBreakdownMock).toHaveBeenCalledTimes(1);
+  await completeTestResponses();
 
   checkAuthMock.mockResolvedValue({
     user: { id: userId },
@@ -348,6 +379,7 @@ test('sessions and API keys share a historical breakdown budget before either SQ
     });
 
   expect((await getBreakdownReport(compatRequest())).status).toBe(200);
+  await completeTestResponses();
   const rejected = await getBreakdownReport(compatRequest());
 
   expect(rejected.status).toBe(429);
@@ -363,13 +395,49 @@ test('sessions and API keys share a historical breakdown budget before either SQ
   expect(getBreakdownMock).toHaveBeenCalledTimes(2);
 });
 
+test('rejects 20-year, 20-dimension breakdowns before either SQL route', async () => {
+  const websiteId = WEBSITE_ID;
+  const startAt = Date.UTC(2006, 0, 1);
+  const endAt = Date.UTC(2025, 11, 31);
+  const fields = Array.from({ length: 20 }, () => 'path');
+  checkAuthMock.mockResolvedValue({ user: { id: crypto.randomUUID() } } as any);
+  canViewWebsiteSectionMock.mockResolvedValue(true);
+
+  const direct = await getBreakdownRoute(
+    new Request(
+      `https://analytics.example/api/websites/${websiteId}/breakdown?startAt=${startAt}&endAt=${endAt}&fields=${encodeURIComponent(JSON.stringify(fields))}`,
+    ),
+    pathParams,
+  );
+  const compatibility = await getBreakdownReport(
+    new Request('https://analytics.example/compat/api/reports/breakdown', {
+      method: 'POST',
+      body: JSON.stringify({
+        websiteId,
+        type: 'breakdown',
+        filters: {},
+        parameters: {
+          startDate: new Date(startAt).toISOString(),
+          endDate: new Date(endAt).toISOString(),
+          fields,
+        },
+      }),
+    }),
+  );
+
+  expect([direct.status, compatibility.status]).toEqual([400, 400]);
+  expect(getBreakdownMock).not.toHaveBeenCalled();
+  expect(getCompatBreakdownMock).not.toHaveBeenCalled();
+});
+
 test('prefixed compatibility reports consume the same authenticated budget', async () => {
   const previousBasePath = process.env.BASE_PATH;
   process.env.BASE_PATH = '/analytics';
   const userId = `prefixed-report-${crypto.randomUUID()}`;
-  const fields = Array.from({ length: 20 }, () => 'path');
+  const fields = ['path', 'country'];
   checkAuthMock.mockResolvedValue({ user: { id: userId } } as any);
   canViewWebsiteSectionMock.mockResolvedValue(true);
+  expect((await reserveAuthenticatedQueryCost(userId, 19_300, 0)).blocked).toBe(false);
   const request = () =>
     getBreakdownReport(
       new Request('https://analytics.example/analytics/compat/api/reports/breakdown', {
@@ -379,7 +447,7 @@ test('prefixed compatibility reports consume the same authenticated budget', asy
           type: 'breakdown',
           filters: {},
           parameters: {
-            startDate: '2006-01-01T00:00:00.000Z',
+            startDate: '2021-01-01T00:00:00.000Z',
             endDate: '2025-12-31T00:00:00.000Z',
             fields,
           },
@@ -456,6 +524,50 @@ test.each([
     );
     expect(oversized.status).toBe(400);
     expect(permission).not.toHaveBeenCalled();
+    expect(getWebsiteListChartsMock).not.toHaveBeenCalled();
+  },
+);
+
+test('website charts respect a shared team budget across authorized websites', async () => {
+  const teamId = crypto.randomUUID();
+  const otherWebsiteId = crypto.randomUUID();
+  getWebsiteMock.mockImplementation(
+    async websiteId => ({ id: websiteId, teamId, userId: null }) as any,
+  );
+  checkAuthMock.mockResolvedValue({ user: { id: crypto.randomUUID() } } as any);
+  canViewBatchWebsitesMock.mockResolvedValue([WEBSITE_ID, otherWebsiteId]);
+  expect((await reserveTenantQueryCost(`team:${teamId}`, 40_000, 0)).blocked).toBe(false);
+
+  const response = await getWebsiteChartsRoute(
+    new Request(
+      `https://analytics.example/api/websites/charts?ids=${WEBSITE_ID},${otherWebsiteId}&startAt=${Date.UTC(2025, 0, 1)}&endAt=${Date.UTC(2025, 0, 31)}`,
+    ),
+  );
+
+  expect(response.status).toBe(429);
+  expect(getWebsiteListChartsMock).not.toHaveBeenCalled();
+});
+
+test.each([
+  { name: 'link', route: getLinkChartsRoute, permission: canViewLinkMock, owner: getLinkMock },
+  { name: 'pixel', route: getPixelChartsRoute, permission: canViewPixelMock, owner: getPixelMock },
+])(
+  '$name charts respect a shared team budget across authorized entities',
+  async ({ name, route, permission, owner }) => {
+    const teamId = crypto.randomUUID();
+    const secondId = crypto.randomUUID();
+    owner.mockImplementation(async entityId => ({ id: entityId, teamId, userId: null }) as any);
+    checkAuthMock.mockResolvedValue({ user: { id: crypto.randomUUID() } } as any);
+    permission.mockResolvedValue(true);
+    expect((await reserveTenantQueryCost(`team:${teamId}`, 40_000, 0)).blocked).toBe(false);
+
+    const response = await route(
+      new Request(
+        `https://analytics.example/api/${name}s/charts?ids=${WEBSITE_ID},${secondId}&startAt=${Date.UTC(2025, 0, 1)}&endAt=${Date.UTC(2025, 0, 31)}`,
+      ),
+    );
+
+    expect(response.status).toBe(429);
     expect(getWebsiteListChartsMock).not.toHaveBeenCalled();
   },
 );
@@ -1167,13 +1279,28 @@ test('ordinary authenticated report requests retain access without a share budge
   canViewWebsiteSectionMock.mockResolvedValue(true);
   const report = compatibilityReports[0];
 
+  const first = await report.run(compatibilityRequest(report));
+  await completeTestResponses();
+  const second = await report.run(compatibilityRequest(report));
+
+  expect([first.status, second.status]).toEqual([200, 200]);
+  expect(analyticsCalls()).toBe(10);
+});
+
+test('parallel authenticated reports reserve their SQL fan-out before dispatch', async () => {
+  checkAuthMock.mockResolvedValue({
+    user: { id: `parallel-viewer-${crypto.randomUUID()}` },
+  } as any);
+  canViewWebsiteSectionMock.mockResolvedValue(true);
+  const report = compatibilityReports[1];
+
   const responses = await Promise.all([
     report.run(compatibilityRequest(report)),
     report.run(compatibilityRequest(report)),
   ]);
 
-  expect(responses.map(response => response.status)).toEqual([200, 200]);
-  expect(analyticsCalls()).toBe(10);
+  expect(responses.map(response => response.status).sort()).toEqual([200, 429]);
+  expect(analyticsCalls()).toBe(7);
 });
 
 test('denied report sections do not dispatch analytics', async () => {

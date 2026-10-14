@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getCanonicalApiPath } from '@/lib/api-key';
 import { checkAuth } from '@/lib/auth';
 import { DEFAULT_PAGE_SIZE, FILTER_COLUMNS, OPERATORS } from '@/lib/constants';
+import { isUuid } from '@/lib/crypto';
 import {
   getAllowedUnits,
   getCompareDate,
@@ -17,7 +18,10 @@ import {
   parseSessionPropertyFilters,
   parseUniversalEventPropertyFilters,
 } from '@/lib/params';
+import { getTenantQueryIdentity } from '@/lib/query-admission';
+import { reserveAuthenticatedQueryLease } from '@/lib/query-concurrency';
 import { getJsonBody, RequestBodyTooLargeError } from '@/lib/request-body';
+import { releaseAfterResponse } from '@/lib/request-lifecycle';
 import {
   badRequest,
   forbidden,
@@ -33,13 +37,15 @@ import {
   getAuthenticatedQueryCost,
   getShareQueryCost,
   getStepFilterCount,
+  isSavedSegmentWithinQueryBudget,
   MAX_SHARE_COUNT_RESULTS,
   reserveAuthenticatedQueryCost,
   reserveShareQueryCost,
+  reserveTenantQueryCost,
   type ShareQueryWorkMultiplier,
 } from '@/lib/share-query-budget';
 import type { QueryFilters, SessionPropertyFilter } from '@/lib/types';
-import { canViewWebsiteSection } from '@/permissions';
+import { canViewWebsite, canViewWebsiteSection } from '@/permissions';
 import { getWebsiteSegment } from '@/queries/prisma';
 
 const MAX_QUERY_DATE_RANGE_MS = 20 * 366 * 24 * 60 * 60 * 1000;
@@ -48,6 +54,66 @@ const MAX_API_QUERY_PARAMETERS = 200;
 const MAX_REPORT_FILTER_PARAMETERS = 100;
 const MAX_REPORT_FILTER_KEY_LENGTH = 128;
 const MAX_REPORT_FILTER_VALUE_LENGTH = 500;
+const SAVED_COHORT_SNAPSHOT = Symbol('saved-cohort-snapshot');
+
+async function getSavedCohortRange(
+  query: Record<string, any>,
+  body: unknown,
+  websiteId: string,
+): Promise<number | null> {
+  const reportFilters =
+    body && typeof body === 'object' && 'filters' in body && body.filters
+      ? (body.filters as Record<string, any>)
+      : null;
+  let duration = 0;
+
+  for (const values of [query, reportFilters]) {
+    if (!values || typeof values.cohort !== 'string') continue;
+
+    const cohort = await getWebsiteSegment(websiteId, values.cohort);
+    const parsed = savedSegmentSchema.safeParse(cohort);
+
+    if (!parsed.success || parsed.data.type !== 'cohort') return null;
+    if (!isSavedSegmentWithinQueryBudget(parsed.data.parameters.filters ?? [])) return null;
+
+    let range: ReturnType<typeof parseDateRange>;
+
+    try {
+      range = parseDateRange(parsed.data.parameters.dateRange);
+    } catch {
+      return null;
+    }
+
+    const rangeMs = range ? +range.endDate - +range.startDate : NaN;
+    if (!Number.isFinite(rangeMs) || rangeMs < 0 || rangeMs > MAX_QUERY_DATE_RANGE_MS) {
+      return null;
+    }
+
+    Object.defineProperty(values, SAVED_COHORT_SNAPSHOT, {
+      configurable: true,
+      enumerable: true,
+      value: { websiteId, cohortId: values.cohort, cohort: parsed.data },
+    });
+    duration = Math.max(duration, rangeMs);
+  }
+
+  return duration;
+}
+
+function getQueryWebsiteId(pathname: string, body: unknown, configuredWebsiteId?: string) {
+  const canonical = getCanonicalApiPath(pathname);
+  const routeWebsiteId = /^\/api\/(?:websites|realtime)\/([^/]+)(?:\/|$)/.exec(canonical)?.[1];
+  const bodyWebsiteId =
+    /^\/(?:compat\/)?api\/reports\/[^/]+\/?$/.test(canonical) &&
+    body &&
+    typeof body === 'object' &&
+    'websiteId' in body
+      ? body.websiteId
+      : undefined;
+  const websiteId = configuredWebsiteId ?? routeWebsiteId ?? bodyWebsiteId;
+
+  return typeof websiteId === 'string' && isUuid(websiteId) ? websiteId : null;
+}
 
 function hasBoundedReportFilters(body: unknown): boolean {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return true;
@@ -97,6 +163,7 @@ export async function parseRequest(
     shareQueryWorkMultiplier?:
       | ShareQueryWorkMultiplier
       | ((query: Record<string, any>, body: unknown) => ShareQueryWorkMultiplier | null);
+    authenticatedQueryFanout?: number;
     allowShareSearch?: boolean;
   },
 ): Promise<any> {
@@ -108,6 +175,7 @@ export async function parseRequest(
   let body: unknown;
   let error: () => undefined | undefined | Response;
   let auth = null;
+  let admittedMinimumRangeMs = 0;
 
   if (
     Buffer.byteLength(request.url, 'utf8') > MAX_API_URL_BYTES ||
@@ -328,7 +396,6 @@ export async function parseRequest(
   if (
     !error &&
     auth?.user?.id &&
-    !auth.shareToken &&
     schema &&
     (isAuthenticatedAnalyticsRead || isAuthenticatedReport)
   ) {
@@ -336,22 +403,92 @@ export async function parseRequest(
       typeof options?.shareQueryWorkMultiplier === 'function'
         ? options.shareQueryWorkMultiplier(query, body)
         : (options?.shareQueryWorkMultiplier ?? 1);
-    const budget = getAuthenticatedQueryCost(query, body, workMultiplier);
+    let budget = getAuthenticatedQueryCost(query, body, workMultiplier);
 
     if (budget === null) {
       error = () => badRequest({ message: 'The analytics query is too complex.' });
     } else {
-      const limit = await reserveAuthenticatedQueryCost(auth.user.id, budget.charge);
+      const websiteId = getQueryWebsiteId(
+        url.pathname,
+        body,
+        options?.shareQueryContext?.websiteId,
+      );
+      const authorizedWebsiteId =
+        websiteId && (await canViewWebsite({ user: auth.user }, websiteId)) ? websiteId : null;
+      let tenantId: string | null = null;
 
-      if (limit.unavailable) {
-        error = () => serviceUnavailable();
-      } else if (limit.blocked) {
-        error = () => tooManyRequests(limit.retryAfter);
+      if (authorizedWebsiteId) {
+        try {
+          tenantId = await getTenantQueryIdentity(authorizedWebsiteId);
+          const cohortRange = await getSavedCohortRange(query, body, authorizedWebsiteId);
+
+          if (cohortRange === null) {
+            error = () => badRequest({ message: 'The analytics query is too complex.' });
+          } else {
+            admittedMinimumRangeMs = cohortRange;
+            budget = getAuthenticatedQueryCost(query, body, workMultiplier, cohortRange);
+            if (budget === null) {
+              error = () => badRequest({ message: 'The analytics query is too complex.' });
+            }
+          }
+        } catch {
+          error = () => serviceUnavailable();
+        }
+
+        if (!tenantId) error = () => serviceUnavailable();
+      }
+
+      if (!error && budget) {
+        const limit = await reserveAuthenticatedQueryCost(auth.user.id, budget.charge);
+
+        if (limit.unavailable) {
+          error = () => serviceUnavailable();
+        } else if (limit.blocked) {
+          error = () => tooManyRequests(limit.retryAfter);
+        } else {
+          const lease = await reserveAuthenticatedQueryLease(
+            auth.user.id,
+            tenantId,
+            budget.charge,
+            options?.authenticatedQueryFanout,
+          );
+
+          if (lease && !('release' in lease)) {
+            error = lease.unavailable
+              ? () => serviceUnavailable()
+              : () => tooManyRequests(lease.retryAfter);
+          } else if (lease && 'release' in lease) {
+            let releaseScheduled = false;
+
+            try {
+              if (tenantId) {
+                const tenantLimit = await reserveTenantQueryCost(tenantId, budget.charge);
+
+                if (tenantLimit.unavailable) {
+                  error = () => serviceUnavailable();
+                } else if (tenantLimit.blocked) {
+                  error = () => tooManyRequests(tenantLimit.retryAfter);
+                }
+              }
+
+              if (!error) {
+                try {
+                  releaseAfterResponse(lease.release);
+                  releaseScheduled = true;
+                } catch {
+                  error = () => serviceUnavailable();
+                }
+              }
+            } finally {
+              if (!releaseScheduled) await lease.release();
+            }
+          }
+        }
       }
     }
   }
 
-  return { url, query, body, auth, error };
+  return { url, query, body, auth, error, admittedMinimumRangeMs };
 }
 
 export function getRequestDateRange(query: Record<string, string>) {
@@ -446,6 +583,15 @@ export async function getQueryFilters(
 
       const segmentParams = parsedSegment.data.parameters;
 
+      if (
+        !isSavedSegmentWithinQueryBudget(
+          segmentParams.filters ?? [],
+          segmentParams.sessionPropertyFilters ?? [],
+        )
+      ) {
+        throw new Error('INVALID_SAVED_SEGMENT');
+      }
+
       Object.assign(filters, filtersArrayToObject(segmentParams.filters ?? []));
       sessionPropertyFilters.push(
         ...((segmentParams.sessionPropertyFilters ?? []) as SessionPropertyFilter[]),
@@ -457,7 +603,11 @@ export async function getQueryFilters(
     }
 
     if (params.cohort) {
-      const cohort = await getWebsiteSegment(websiteId, params.cohort);
+      const snapshot = Reflect.get(params, SAVED_COHORT_SNAPSHOT);
+      const cohort =
+        snapshot?.websiteId === websiteId && snapshot.cohortId === params.cohort
+          ? snapshot.cohort
+          : await getWebsiteSegment(websiteId, params.cohort);
       const parsedCohort = savedSegmentSchema.safeParse(cohort);
 
       if (!parsedCohort.success || parsedCohort.data.type !== 'cohort') {
@@ -465,6 +615,10 @@ export async function getQueryFilters(
       }
 
       const cohortParams = parsedCohort.data.parameters;
+
+      if (!isSavedSegmentWithinQueryBudget(cohortParams.filters ?? [])) {
+        throw new Error('INVALID_SAVED_COHORT');
+      }
 
       const { startDate, endDate } = parseDateRange(cohortParams.dateRange);
 

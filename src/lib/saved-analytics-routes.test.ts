@@ -4,6 +4,7 @@ const state = vi.hoisted(() => ({
   report: null as any,
   sectionAllowed: true,
   definitionAllowed: true,
+  admittedMinimumRangeMs: 0,
   query: vi.fn(async (..._args: any[]) => ({ num: 1, total: 2 })),
   update: vi.fn(async (..._args: any[]) => ({})),
   remove: vi.fn(),
@@ -16,6 +17,7 @@ vi.mock('@/permissions', () => ({
 }));
 vi.mock('@/queries/prisma', () => ({
   getReport: async () => state.report,
+  getWebsite: async (websiteId: string) => ({ id: websiteId, userId: 'user-id', teamId: null }),
   updateReport: state.update,
   deleteReport: state.remove,
 }));
@@ -29,7 +31,12 @@ vi.mock('@/lib/request', () => ({
         : await request.json().catch(() => ({}));
     const result = schema?.safeParse(input) ?? { success: true, data: input };
     return result.success
-      ? { auth: { user: { id: 'user-id' } }, query: result.data, body: result.data }
+      ? {
+          auth: { user: { id: 'user-id' } },
+          query: result.data,
+          body: result.data,
+          admittedMinimumRangeMs: state.admittedMinimumRangeMs,
+        }
       : { error: () => new Response(null, { status: 400 }) };
   },
   getQueryFilters: async () => ({ startDate: new Date(1500), endDate: new Date(2000) }),
@@ -64,6 +71,7 @@ describe.each([
     state.report = { id: 'id', websiteId: 'website', type, parameters };
     state.sectionAllowed = true;
     state.definitionAllowed = true;
+    state.admittedMinimumRangeMs = 0;
   });
   test('calculates using saved criteria and normalized dates', async () => {
     expect((await stats(request(), context)).status).toBe(200);
@@ -72,6 +80,18 @@ describe.each([
       startDate: new Date(1500),
       endDate: new Date(2000),
     });
+  });
+  test('rejects saved work when the admitted cohort range makes it exceed the query ceiling', async () => {
+    state.admittedMinimumRangeMs = 24 * 31 * 24 * 60 * 60 * 1000;
+    if (type === 'goal') state.report.parameters = { ...parameters, value: '*saved' };
+    const cohortId = '00000000-0000-4000-8000-000000000001';
+    const response = await stats(
+      new Request(`https://example.org/api?startAt=1000&endAt=2000&cohort=${cohortId}`),
+      context,
+    );
+
+    expect(response.status).toBe(400);
+    expect(state.query).not.toHaveBeenCalled();
   });
   test.each(['websiteId', 'type'])(
     'rejects mismatched %s for reads, writes, deletion, and stats',

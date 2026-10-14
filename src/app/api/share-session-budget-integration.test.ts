@@ -6,7 +6,8 @@ import {
   MAX_SHARE_SESSION_ROWS,
   reserveShareQueryCost,
 } from '@/lib/share-query-budget';
-import { canDeleteWebsite, canViewWebsiteSection } from '@/permissions';
+import { canDeleteWebsite, canViewWebsite, canViewWebsiteSection } from '@/permissions';
+import { getWebsite } from '@/queries/prisma';
 import {
   getLinkedDistinctIds,
   getLinkedSessionIds,
@@ -24,8 +25,13 @@ vi.hoisted(() => {
 });
 
 vi.mock('@/lib/auth', () => ({ checkAuth: vi.fn() }));
+vi.mock('@/queries/prisma', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/queries/prisma')>()),
+  getWebsite: vi.fn(),
+}));
 vi.mock('@/permissions', () => ({
   canDeleteWebsite: vi.fn(),
+  canViewWebsite: vi.fn(),
   canViewWebsiteSection: vi.fn(),
 }));
 vi.mock('@/queries/sql', () => ({
@@ -37,7 +43,9 @@ vi.mock('@/queries/sql', () => ({
 }));
 
 const checkAuthMock = vi.mocked(checkAuth);
+const getWebsiteMock = vi.mocked(getWebsite);
 const canDeleteWebsiteMock = vi.mocked(canDeleteWebsite);
+const canViewWebsiteMock = vi.mocked(canViewWebsite);
 const canViewWebsiteSectionMock = vi.mocked(canViewWebsiteSection);
 const getLinkedDistinctIdsMock = vi.mocked(getLinkedDistinctIds);
 const getLinkedSessionIdsMock = vi.mocked(getLinkedSessionIds);
@@ -50,7 +58,12 @@ const params = { params: Promise.resolve({ websiteId: WEBSITE_ID, sessionId: SES
 
 beforeEach(() => {
   checkAuthMock.mockReset();
+  getWebsiteMock.mockImplementation(
+    async websiteId => ({ id: websiteId, userId: websiteId, teamId: null }) as any,
+  );
   canDeleteWebsiteMock.mockReset();
+  canViewWebsiteMock.mockReset();
+  canViewWebsiteMock.mockResolvedValue(true);
   canViewWebsiteSectionMock.mockReset();
   getLinkedDistinctIdsMock.mockReset();
   getLinkedSessionIdsMock.mockReset();

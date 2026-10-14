@@ -6,6 +6,7 @@ import {
   reserveShareQueryCost,
 } from '@/lib/share-query-budget';
 import { canViewWebsiteSection } from '@/permissions';
+import { getWebsite } from '@/queries/prisma';
 import {
   getLinkedDistinctIds,
   getLinkedSessionIds,
@@ -19,6 +20,7 @@ vi.mock('@/lib/request', () => ({
   parseRequest: vi.fn(),
 }));
 vi.mock('@/permissions', () => ({ canViewWebsiteSection: vi.fn() }));
+vi.mock('@/queries/prisma', () => ({ getWebsite: vi.fn() }));
 vi.mock('@/queries/sql', () => ({
   getLinkedDistinctIds: vi.fn(),
   getLinkedSessionIds: vi.fn(),
@@ -43,6 +45,7 @@ let shareId: string;
 
 beforeEach(() => {
   shareId = `activity-budget-${crypto.randomUUID()}`;
+  vi.mocked(getWebsite).mockResolvedValue({ id: WEBSITE_ID, userId: WEBSITE_ID } as any);
   getQueryFiltersMock.mockReset();
   parseRequestMock.mockReset();
   canViewWebsiteSectionMock.mockReset();
@@ -180,6 +183,21 @@ test('rejects insufficient authenticated lookup budget before reading linked ide
   expect(response.status).toBe(429);
   expect(getLinkedDistinctIdsMock).not.toHaveBeenCalled();
   expect(getLinkedSessionIdsMock).not.toHaveBeenCalled();
+  expect(getSessionActivityMock).not.toHaveBeenCalled();
+});
+
+test('charges linked-identity work to a signed-in user despite a share credential', async () => {
+  const userId = `mixed-activity-user-${crypto.randomUUID()}`;
+  parseRequestMock.mockResolvedValue({
+    auth: { user: { id: userId }, shareToken: { shareId, websiteId: WEBSITE_ID } },
+    query: { startAt, endAt },
+  });
+  expect((await reserveAuthenticatedQueryCost(userId, 20_000, 0)).blocked).toBe(false);
+
+  const response = await GET(new Request('http://localhost'), params);
+
+  expect(response.status).toBe(429);
+  expect(getLinkedDistinctIdsMock).not.toHaveBeenCalled();
   expect(getSessionActivityMock).not.toHaveBeenCalled();
 });
 

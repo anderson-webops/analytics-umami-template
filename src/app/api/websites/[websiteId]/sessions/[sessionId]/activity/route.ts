@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { isClickHouseReadLimitError } from '@/lib/clickhouse';
 import { DEFAULT_PAGE_SIZE, FIELD_LENGTH } from '@/lib/constants';
 import { isUuid } from '@/lib/crypto';
+import { reserveAdditionalAuthenticatedQueryWork } from '@/lib/query-admission';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import {
   badRequest,
@@ -18,7 +19,6 @@ import {
   LINKED_IDENTITY_LOOKUP_COST,
   MAX_AUTH_SESSION_ROWS,
   MAX_SHARE_SESSION_ROWS,
-  reserveAuthenticatedQueryCost,
   reserveShareQueryCost,
 } from '@/lib/share-query-budget';
 import type { SessionActivity } from '@/lib/types';
@@ -62,9 +62,7 @@ export async function GET(
     return notFound();
   }
 
-  const reserveActivityWork = async (cost: number) => {
-    let limit;
-
+  const reserveActivityWork = async (shareCost: number, userCost = shareCost) => {
     if (auth.shareToken) {
       const shareId =
         auth.shareToken.shareId ??
@@ -77,24 +75,25 @@ export async function GET(
         return unauthorized();
       }
 
-      limit = await reserveShareQueryCost(shareId, cost, 0);
-    } else {
-      if (!auth.user?.id) {
-        return unauthorized();
+      if (shareCost > 0) {
+        const limit = await reserveShareQueryCost(shareId, shareCost, 0);
+        if (limit.unavailable) return serviceUnavailable();
+        if (limit.blocked) return tooManyRequests(limit.retryAfter);
       }
-
-      limit = await reserveAuthenticatedQueryCost(auth.user.id, cost, 0);
     }
 
-    if (limit.unavailable) {
-      return serviceUnavailable();
+    if (auth.user?.id) {
+      if (userCost > 0) {
+        const limit = await reserveAdditionalAuthenticatedQueryWork(
+          auth.user.id,
+          websiteId,
+          userCost,
+        );
+        if (limit) return limit;
+      }
     }
 
-    if (limit.blocked) {
-      return tooManyRequests(limit.retryAfter);
-    }
-
-    return null;
+    return auth.shareToken || auth.user?.id ? null : unauthorized();
   };
 
   const tooLarge = () =>
@@ -177,11 +176,17 @@ export async function GET(
     }
   }
 
-  const getCost = auth.shareToken ? getShareQueryCost : getAuthenticatedQueryCost;
-  const requestedCost = getCost(query);
-  const actualCost = getCost({ ...query, startAt, endAt });
+  const shareRequestedCost = auth.shareToken ? getShareQueryCost(query) : null;
+  const shareActualCost = auth.shareToken ? getShareQueryCost({ ...query, startAt, endAt }) : null;
+  const userRequestedCost = auth.user?.id ? getAuthenticatedQueryCost(query) : null;
+  const userActualCost = auth.user?.id
+    ? getAuthenticatedQueryCost({ ...query, startAt, endAt })
+    : null;
 
-  if (!requestedCost || !actualCost) {
+  if (
+    (auth.shareToken && (!shareRequestedCost || !shareActualCost)) ||
+    (auth.user && (!userRequestedCost || !userActualCost))
+  ) {
     return badRequest({
       message: auth.shareToken
         ? 'The public-share query is too complex.'
@@ -189,15 +194,19 @@ export async function GET(
     });
   }
 
-  const additionalCost =
-    actualCost.charge -
-    requestedCost.charge +
-    (auth.shareToken
-      ? Math.ceil((sessionIds.length - 1) / DEFAULT_PAGE_SIZE)
-      : sessionIds.length - 1);
+  const shareAdditionalCost =
+    shareRequestedCost && shareActualCost
+      ? shareActualCost.charge -
+        shareRequestedCost.charge +
+        Math.ceil((sessionIds.length - 1) / DEFAULT_PAGE_SIZE)
+      : 0;
+  const userAdditionalCost =
+    userRequestedCost && userActualCost
+      ? userActualCost.charge - userRequestedCost.charge + sessionIds.length - 1
+      : 0;
 
-  if (additionalCost > 0) {
-    const expandedLimit = await reserveActivityWork(additionalCost);
+  if (shareAdditionalCost > 0 || userAdditionalCost > 0) {
+    const expandedLimit = await reserveActivityWork(shareAdditionalCost, userAdditionalCost);
 
     if (expandedLimit) {
       return expandedLimit;

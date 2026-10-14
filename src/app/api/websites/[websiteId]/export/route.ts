@@ -17,6 +17,7 @@ export async function GET(
 
   const { auth, query, error } = await parseRequest(request, schema, {
     shareQueryWorkMultiplier: 7,
+    authenticatedQueryFanout: 7,
   });
 
   if (error) {

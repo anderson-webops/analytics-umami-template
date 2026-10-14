@@ -2,6 +2,7 @@ import { DEFAULT_PAGE_SIZE, FILTER_COLUMNS, OPERATORS } from '@/lib/constants';
 import { hash } from '@/lib/crypto';
 import { getAllowedUnits, getMinimumUnit } from '@/lib/date';
 import {
+  filtersArrayToObject,
   parseFilterValue,
   parsePropertyFilters,
   parseSessionPropertyFilters,
@@ -10,6 +11,7 @@ import {
 import redis from '@/lib/redis';
 import { getConservativeSeriesBucketCount } from '@/lib/series-budget';
 import { excludeShareFilterParam } from '@/lib/share-filter';
+import type { Filter, SessionPropertyFilter } from '@/lib/types';
 
 const MONTH_MS = 31 * 24 * 60 * 60 * 1000;
 const MAX_QUERY_COST = 600;
@@ -17,9 +19,12 @@ const MAX_WORK_MULTIPLIER = 1024;
 const MAX_AUTH_QUERY_COST = 20_000;
 const MAX_AUTH_WINDOW_COST = 20_000;
 const MAX_AUTH_WINDOW_REQUESTS = 60;
+const MAX_TENANT_WINDOW_COST = 40_000;
+const MAX_TENANT_WINDOW_REQUESTS = 120;
 const MAX_SHARE_WINDOW_REQUESTS = 60;
 const MAX_FILTERS = 24;
 const MAX_PROPERTY_FILTERS = 16;
+const MAX_SAVED_FUNNEL_STEP_FILTERS = 8 * 20;
 const WINDOW_SECONDS = 60;
 const MAX_WINDOW_COST = 600;
 const MAX_MEMORY_COUNTERS = 20_000;
@@ -123,6 +128,23 @@ export function getStepFilterCount(value: unknown) {
   );
 }
 
+export function isSavedSegmentWithinQueryBudget(
+  filters: Filter[],
+  sessionPropertyFilters: Pick<SessionPropertyFilter, 'operator'>[] = [],
+) {
+  const values = filtersArrayToObject(filters);
+  const sessionWeight = sessionPropertyFilters.reduce(
+    (weight, filter) =>
+      weight +
+      (filter.operator === OPERATORS.regex || filter.operator === OPERATORS.notRegex
+        ? REGEX_FILTER_WEIGHT
+        : 4),
+    0,
+  );
+
+  return filterCost(values).weight + sessionWeight <= 400;
+}
+
 export function getFunnelShareWorkMultiplier(steps: unknown, window: unknown): number | null {
   if (
     !Array.isArray(steps) ||
@@ -172,6 +194,18 @@ export function getBreakdownShareWorkMultiplier(fields: unknown): number | null 
   }
 
   return fields.length * 2;
+}
+
+export function isBoundedBreakdownShape(fields: unknown, start: unknown, end: unknown) {
+  if (!Array.isArray(fields) || fields.length < 1 || fields.length > 20) return false;
+
+  const duration = +new Date(end as string) - +new Date(start as string);
+  if (!Number.isFinite(duration) || duration < 0) return false;
+
+  const dayMs = 24 * 60 * 60 * 1000;
+  if (fields.length > 8) return duration <= 31 * dayMs;
+  if (fields.length > 2) return duration <= 366 * dayMs;
+  return duration <= 5 * 366 * dayMs;
 }
 
 export function getPageviewShareWorkMultiplier(compare: unknown): number | null {
@@ -282,6 +316,8 @@ function getQueryCost(
   workMultiplier: ShareQueryWorkMultiplier | null,
   maxQueryCost: number,
   maxWindowCost: number,
+  maxStepFilters = MAX_PROPERTY_FILTERS,
+  minimumRangeMs = 0,
 ) {
   if (
     typeof workMultiplier !== 'number' ||
@@ -310,18 +346,29 @@ function getQueryCost(
   const filters = topLevel.filters + reportFilters.filters + stepFilters;
   const properties = topLevel.properties + reportFilters.properties + stepFilters;
 
-  if (filters > MAX_FILTERS || properties > MAX_PROPERTY_FILTERS) {
+  if (
+    topLevel.filters + reportFilters.filters > MAX_FILTERS ||
+    topLevel.properties + reportFilters.properties > MAX_PROPERTY_FILTERS ||
+    stepFilters > maxStepFilters ||
+    (maxStepFilters === MAX_PROPERTY_FILTERS &&
+      (filters > MAX_FILTERS || properties > MAX_PROPERTY_FILTERS))
+  ) {
     return null;
   }
 
   const range = getDateRange(query, body);
   const duration = range ? range[1] - range[0] : 0;
 
-  if (!Number.isFinite(duration) || duration < 0) {
+  if (
+    !Number.isFinite(duration) ||
+    duration < 0 ||
+    !Number.isFinite(minimumRangeMs) ||
+    minimumRangeMs < 0
+  ) {
     return null;
   }
 
-  const months = Math.max(1, Math.ceil(duration / MONTH_MS));
+  const months = Math.max(1, Math.ceil(Math.max(duration, minimumRangeMs) / MONTH_MS));
   const cost = months * (1 + topLevel.weight + reportFilters.weight + stepFilters * 4);
 
   const charge = cost * workMultiplier;
@@ -343,8 +390,34 @@ export function getAuthenticatedQueryCost(
   query: Record<string, unknown>,
   body?: unknown,
   workMultiplier: ShareQueryWorkMultiplier | null = 1,
+  minimumRangeMs = 0,
 ) {
-  return getQueryCost(query, body, workMultiplier, MAX_AUTH_QUERY_COST, MAX_AUTH_WINDOW_COST);
+  return getQueryCost(
+    query,
+    body,
+    workMultiplier,
+    MAX_AUTH_QUERY_COST,
+    MAX_AUTH_WINDOW_COST,
+    MAX_PROPERTY_FILTERS,
+    minimumRangeMs,
+  );
+}
+
+export function getAuthenticatedSavedFunnelQueryCost(
+  query: Record<string, unknown>,
+  steps: unknown,
+  workMultiplier: ShareQueryWorkMultiplier | null,
+  minimumRangeMs = 0,
+) {
+  return getQueryCost(
+    query,
+    { parameters: { steps } },
+    workMultiplier,
+    MAX_AUTH_QUERY_COST,
+    MAX_AUTH_WINDOW_COST,
+    MAX_SAVED_FUNNEL_STEP_FILTERS,
+    minimumRangeMs,
+  );
 }
 
 function memoryCounters(): Map<string, ShareCounter> {
@@ -389,7 +462,13 @@ function reserveLocal(key: string, cost: number, requestCount: 0 | 1) {
   return true;
 }
 
-function reserveLocalAuth(key: string, cost: number, requestCount: 0 | 1) {
+function reserveLocalAuth(
+  key: string,
+  cost: number,
+  requestCount: 0 | 1,
+  maxWindowCost: number,
+  maxWindowRequests: number,
+) {
   const counters = authMemoryCounters();
   const now = Date.now();
   const current = counters.get(key);
@@ -405,10 +484,7 @@ function reserveLocalAuth(key: string, cost: number, requestCount: 0 | 1) {
     return true;
   }
 
-  if (
-    current.cost + cost > MAX_AUTH_WINDOW_COST ||
-    current.requests + requestCount > MAX_AUTH_WINDOW_REQUESTS
-  ) {
+  if (current.cost + cost > maxWindowCost || current.requests + requestCount > maxWindowRequests) {
     return false;
   }
 
@@ -481,16 +557,25 @@ export async function reserveShareQueryCost(
   };
 }
 
-export async function reserveAuthenticatedQueryCost(
-  userId: string,
+async function reserveCumulativeQueryCost(
+  namespace: 'auth' | 'tenant',
+  identity: string,
   cost: number,
-  requestCount: 0 | 1 = 1,
+  requestCount: 0 | 1,
+  maxWindowCost: number,
+  maxWindowRequests: number,
 ) {
-  if (!userId || !Number.isSafeInteger(cost) || cost < 1 || cost > MAX_AUTH_WINDOW_COST) {
+  if (
+    !identity ||
+    !Number.isSafeInteger(cost) ||
+    cost < 1 ||
+    cost > maxWindowCost ||
+    (requestCount !== 0 && requestCount !== 1)
+  ) {
     return { blocked: true, retryAfter: WINDOW_SECONDS };
   }
 
-  const key = `auth-query-budget:${hash(userId).slice(0, 32)}`;
+  const key = `${namespace}-query-budget:${hash(identity).slice(0, 32)}`;
 
   if (redis.enabled) {
     try {
@@ -518,15 +603,14 @@ export async function reserveAuthenticatedQueryCost(
             String(cost),
             String(WINDOW_SECONDS),
             String(requestCount),
-            String(MAX_AUTH_WINDOW_COST),
-            String(MAX_AUTH_WINDOW_REQUESTS),
+            String(maxWindowCost),
+            String(maxWindowRequests),
           ],
         },
       );
       const reserved = Number(result);
       return {
-        blocked:
-          !Number.isSafeInteger(reserved) || reserved < cost || reserved > MAX_AUTH_WINDOW_COST,
+        blocked: !Number.isSafeInteger(reserved) || reserved < cost || reserved > maxWindowCost,
         retryAfter: WINDOW_SECONDS,
       };
     } catch {
@@ -535,7 +619,129 @@ export async function reserveAuthenticatedQueryCost(
   }
 
   return {
-    blocked: !reserveLocalAuth(key, cost, requestCount),
+    blocked: !reserveLocalAuth(key, cost, requestCount, maxWindowCost, maxWindowRequests),
     retryAfter: WINDOW_SECONDS,
   };
+}
+
+export async function reserveAuthenticatedQueryCost(
+  userId: string,
+  cost: number,
+  requestCount: 0 | 1 = 1,
+) {
+  return reserveCumulativeQueryCost(
+    'auth',
+    userId,
+    cost,
+    requestCount,
+    MAX_AUTH_WINDOW_COST,
+    MAX_AUTH_WINDOW_REQUESTS,
+  );
+}
+
+export async function reserveTenantQueryCost(
+  websiteId: string,
+  cost: number,
+  requestCount: 0 | 1 = 1,
+) {
+  return reserveCumulativeQueryCost(
+    'tenant',
+    websiteId,
+    cost,
+    requestCount,
+    MAX_TENANT_WINDOW_COST,
+    MAX_TENANT_WINDOW_REQUESTS,
+  );
+}
+
+export async function reserveTenantQueryCosts(tenantCosts: Map<string, number>) {
+  if (
+    tenantCosts.size > 20 ||
+    [...tenantCosts].some(
+      ([identity, cost]) =>
+        !identity || !Number.isSafeInteger(cost) || cost < 1 || cost > MAX_TENANT_WINDOW_COST,
+    )
+  ) {
+    return { blocked: true, retryAfter: WINDOW_SECONDS };
+  }
+
+  if (tenantCosts.size === 0) return { blocked: false, retryAfter: WINDOW_SECONDS };
+
+  const entries = [...tenantCosts].map(([identity, cost]) => ({
+    key: `tenant-query-budget:${hash(identity).slice(0, 32)}`,
+    cost,
+  }));
+
+  if (redis.enabled) {
+    try {
+      await redis.client.connect(1000);
+      const reserved = await redis.client.client.withAbortSignal(AbortSignal.timeout(1000)).eval(
+        `for index = 1, #KEYS, 2 do
+           local currentCost = tonumber(redis.call('GET', KEYS[index]) or '0')
+           local currentRequests = tonumber(redis.call('GET', KEYS[index + 1]) or '0')
+           local charge = tonumber(ARGV[(index + 1) / 2])
+           if not currentCost or not currentRequests or not charge or
+              currentCost < 0 or currentRequests < 0 or
+              currentCost + charge > tonumber(ARGV[#ARGV - 2]) or
+              currentRequests + 1 > tonumber(ARGV[#ARGV - 1]) then
+             return 0
+           end
+         end
+         for index = 1, #KEYS, 2 do
+           local charge = tonumber(ARGV[(index + 1) / 2])
+           local currentCost = tonumber(redis.call('INCRBY', KEYS[index], charge))
+           local currentRequests = tonumber(redis.call('INCRBY', KEYS[index + 1], 1))
+           if currentCost == charge then redis.call('EXPIRE', KEYS[index], ARGV[#ARGV]) end
+           if currentRequests == 1 then redis.call('EXPIRE', KEYS[index + 1], ARGV[#ARGV]) end
+         end
+         return 1`,
+        {
+          keys: entries.flatMap(({ key }) => [`${key}:cost`, `${key}:requests`]),
+          arguments: [
+            ...entries.map(({ cost }) => String(cost)),
+            String(MAX_TENANT_WINDOW_COST),
+            String(MAX_TENANT_WINDOW_REQUESTS),
+            String(WINDOW_SECONDS),
+          ],
+        },
+      );
+      return { blocked: reserved !== 1, retryAfter: WINDOW_SECONDS };
+    } catch {
+      return { blocked: true, unavailable: true, retryAfter: WINDOW_SECONDS };
+    }
+  }
+
+  const counters = authMemoryCounters();
+  const now = Date.now();
+  for (const [key, counter] of counters) {
+    if (counter.expiresAt <= now) counters.delete(key);
+  }
+  if (
+    counters.size + entries.filter(({ key }) => !counters.has(key)).length >
+    MAX_MEMORY_COUNTERS
+  ) {
+    return { blocked: true, retryAfter: WINDOW_SECONDS };
+  }
+  if (
+    entries.some(({ key, cost }) => {
+      const current = counters.get(key);
+      return (
+        current &&
+        (current.cost + cost > MAX_TENANT_WINDOW_COST ||
+          current.requests + 1 > MAX_TENANT_WINDOW_REQUESTS)
+      );
+    })
+  ) {
+    return { blocked: true, retryAfter: WINDOW_SECONDS };
+  }
+  for (const { key, cost } of entries) {
+    const current = counters.get(key);
+    if (current) {
+      current.cost += cost;
+      current.requests += 1;
+    } else {
+      counters.set(key, { cost, requests: 1, expiresAt: now + WINDOW_SECONDS * 1000 });
+    }
+  }
+  return { blocked: false, retryAfter: WINDOW_SECONDS };
 }

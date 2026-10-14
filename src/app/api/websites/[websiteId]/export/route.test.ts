@@ -2,7 +2,7 @@ import { beforeEach, expect, test, vi } from 'vitest';
 import { checkAuth } from '@/lib/auth';
 import { fetchWebsite } from '@/lib/load';
 import { reserveAuthenticatedQueryCost } from '@/lib/share-query-budget';
-import { canViewAuthenticatedWebsite } from '@/permissions';
+import { canViewAuthenticatedWebsite, canViewWebsite } from '@/permissions';
 import { getEventMetrics, getPageviewMetrics, getSessionMetrics } from '@/queries/sql';
 import { GET } from './route';
 
@@ -13,7 +13,10 @@ vi.hoisted(() => {
 
 vi.mock('@/lib/auth', () => ({ checkAuth: vi.fn() }));
 vi.mock('@/lib/load', () => ({ fetchWebsite: vi.fn(), fetchAccount: vi.fn() }));
-vi.mock('@/permissions', () => ({ canViewAuthenticatedWebsite: vi.fn() }));
+vi.mock('@/permissions', () => ({ canViewAuthenticatedWebsite: vi.fn(), canViewWebsite: vi.fn() }));
+vi.mock('@/queries/prisma', () => ({
+  getWebsite: vi.fn(async (id: string) => ({ id, userId: id, teamId: null })),
+}));
 vi.mock('@/queries/sql', () => ({
   getEventMetrics: vi.fn(),
   getPageviewMetrics: vi.fn(),
@@ -23,6 +26,7 @@ vi.mock('@/queries/sql', () => ({
 const checkAuthMock = vi.mocked(checkAuth);
 const fetchWebsiteMock = vi.mocked(fetchWebsite);
 const canViewAuthenticatedWebsiteMock = vi.mocked(canViewAuthenticatedWebsite);
+const canViewWebsiteMock = vi.mocked(canViewWebsite);
 const getEventMetricsMock = vi.mocked(getEventMetrics);
 const getPageviewMetricsMock = vi.mocked(getPageviewMetrics);
 const getSessionMetricsMock = vi.mocked(getSessionMetrics);
@@ -34,10 +38,12 @@ beforeEach(() => {
   fetchWebsiteMock.mockReset();
   fetchWebsiteMock.mockResolvedValue({ id: websiteId, resetAt: null } as any);
   canViewAuthenticatedWebsiteMock.mockReset();
+  canViewWebsiteMock.mockReset();
   getEventMetricsMock.mockReset();
   getPageviewMetricsMock.mockReset();
   getSessionMetricsMock.mockReset();
   canViewAuthenticatedWebsiteMock.mockResolvedValue(true);
+  canViewWebsiteMock.mockResolvedValue(true);
   getEventMetricsMock.mockResolvedValue([] as any);
   getPageviewMetricsMock.mockResolvedValue([] as any);
   getSessionMetricsMock.mockResolvedValue([] as any);

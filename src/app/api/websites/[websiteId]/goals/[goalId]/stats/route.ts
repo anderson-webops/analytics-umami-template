@@ -1,4 +1,5 @@
 import { goalParametersSchema, savedStatsQuerySchema } from '@/lib/analytics-schema';
+import { reserveAdditionalAuthenticatedQueryWork } from '@/lib/query-admission';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import {
   badRequest,
@@ -9,6 +10,7 @@ import {
   unauthorized,
 } from '@/lib/response';
 import {
+  getAuthenticatedQueryCost,
   getGoalShareWorkMultiplier,
   getShareQueryCost,
   reserveShareQueryCost,
@@ -21,7 +23,12 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ websiteId: string; goalId: string }> },
 ) {
-  const { auth, query, error } = await parseRequest(request, savedStatsQuerySchema);
+  const {
+    auth,
+    query,
+    error,
+    admittedMinimumRangeMs = 0,
+  } = await parseRequest(request, savedStatsQuerySchema);
   if (error) return error();
   const { websiteId, goalId } = await params;
   if (!(await canViewWebsiteSection(auth, websiteId, 'goals'))) return unauthorized();
@@ -30,25 +37,39 @@ export async function GET(
   if (!(await canViewReport(auth, report))) return unauthorized();
   const parsed = goalParametersSchema.safeParse(report.parameters);
   if (!parsed.success) return badRequest();
-  if (auth?.shareToken) {
-    const base = getShareQueryCost(query);
-    const combined = getShareQueryCost(
-      query,
-      undefined,
-      getGoalShareWorkMultiplier(parsed.data.value),
-    );
-    if (!base || !combined) {
-      return badRequest({ message: 'The public-share query is too complex.' });
-    }
-
+  const multiplier = getGoalShareWorkMultiplier(parsed.data.value);
+  const shareBase = auth?.shareToken ? getShareQueryCost(query) : null;
+  const shareCombined = auth?.shareToken ? getShareQueryCost(query, undefined, multiplier) : null;
+  const userBase = auth?.user?.id
+    ? getAuthenticatedQueryCost(query, undefined, 1, admittedMinimumRangeMs)
+    : null;
+  const userCombined = auth?.user?.id
+    ? getAuthenticatedQueryCost(query, undefined, multiplier, admittedMinimumRangeMs)
+    : null;
+  if (
+    (auth?.shareToken && (!shareBase || !shareCombined)) ||
+    (auth?.user && (!userBase || !userCombined))
+  ) {
+    return badRequest({
+      message: auth?.shareToken
+        ? 'The public-share query is too complex.'
+        : 'The analytics query is too complex.',
+    });
+  }
+  if (shareBase && shareCombined && shareCombined.charge > shareBase.charge) {
     const shareId = auth.shareToken.shareId ?? auth.shareToken.websiteId;
     if (!shareId) return unauthorized();
-    const extraCharge = combined.charge - base.charge;
-    if (extraCharge > 0) {
-      const limit = await reserveShareQueryCost(shareId, extraCharge, 0);
-      if (limit.unavailable) return serviceUnavailable();
-      if (limit.blocked) return tooManyRequests(limit.retryAfter);
-    }
+    const limit = await reserveShareQueryCost(shareId, shareCombined.charge - shareBase.charge, 0);
+    if (limit.unavailable) return serviceUnavailable();
+    if (limit.blocked) return tooManyRequests(limit.retryAfter);
+  }
+  if (userBase && userCombined && userCombined.charge > userBase.charge) {
+    const limit = await reserveAdditionalAuthenticatedQueryWork(
+      auth.user.id,
+      websiteId,
+      userCombined.charge - userBase.charge,
+    );
+    if (limit) return limit;
   }
   const filters = await getQueryFilters(query, websiteId);
   const parameters = { ...parsed.data, ...filters } as GoalParameters;

@@ -15,6 +15,7 @@ export async function GET(
 
   const { auth, query, error } = await parseRequest(request, schema, {
     shareQueryWorkMultiplier: query => getPageviewShareWorkMultiplier(query.compare),
+    authenticatedQueryFanout: 2,
   });
 
   if (error) {

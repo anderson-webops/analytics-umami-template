@@ -13,9 +13,52 @@ import {
   getPageviewShareWorkMultiplier,
   getShareQueryCost,
   getValuesShareWorkMultiplier,
+  isBoundedBreakdownShape,
   reserveAuthenticatedQueryCost,
   reserveShareQueryCost,
+  reserveTenantQueryCost,
+  reserveTenantQueryCosts,
 } from './share-query-budget';
+
+test('reserves a multi-owner budget in one distributed admission operation', async () => {
+  const enabled = redis.enabled;
+  const connect = vi.spyOn(redis.client, 'connect').mockResolvedValue();
+  const evalMock = vi.fn().mockResolvedValueOnce(0).mockResolvedValueOnce(1);
+  const withAbortSignal = vi
+    .spyOn(redis.client.client, 'withAbortSignal')
+    .mockImplementation(() => ({ eval: evalMock }) as any);
+  redis.enabled = true;
+
+  try {
+    const costs = new Map([
+      [`team:${crypto.randomUUID()}`, 10],
+      [`team:${crypto.randomUUID()}`, 20],
+    ]);
+    expect((await reserveTenantQueryCosts(costs)).blocked).toBe(true);
+    expect((await reserveTenantQueryCosts(costs)).blocked).toBe(false);
+    expect(evalMock).toHaveBeenCalledTimes(2);
+    for (const [, options] of evalMock.mock.calls) {
+      expect(options.keys).toHaveLength(4);
+      expect(options.arguments).toEqual(['10', '20', '40000', '120', '60']);
+    }
+  } finally {
+    redis.enabled = enabled;
+    connect.mockRestore();
+    withAbortSignal.mockRestore();
+  }
+});
+
+test('bounds breakdown dimensions by scanned time range', () => {
+  const start = Date.UTC(2025, 0, 1);
+  const days = (count: number) => start + count * 86_400_000;
+
+  expect(isBoundedBreakdownShape(Array(20).fill('path'), start, days(31))).toBe(true);
+  expect(isBoundedBreakdownShape(Array(20).fill('path'), start, days(32))).toBe(false);
+  expect(isBoundedBreakdownShape(Array(8).fill('path'), start, days(366))).toBe(true);
+  expect(isBoundedBreakdownShape(Array(8).fill('path'), start, days(367))).toBe(false);
+  expect(isBoundedBreakdownShape(['path', 'country'], start, days(5 * 366))).toBe(true);
+  expect(isBoundedBreakdownShape(['path', 'country'], start, days(5 * 366 + 1))).toBe(false);
+});
 
 test('rejects excessive GET and report property-filter fan-out', () => {
   const manyProperties = Object.fromEntries(
@@ -276,6 +319,28 @@ test('bounds parallel low-cost authenticated requests independently of cost', as
 
   expect(results.filter(result => !result.blocked)).toHaveLength(60);
   expect(results.filter(result => result.blocked)).toHaveLength(1);
+});
+
+test('tenant counters are independent and fail closed when the shared store is unavailable', async () => {
+  const firstWebsiteId = crypto.randomUUID();
+  const otherWebsiteId = crypto.randomUUID();
+  expect((await reserveTenantQueryCost(firstWebsiteId, 40_000, 0)).blocked).toBe(false);
+  expect((await reserveTenantQueryCost(firstWebsiteId, 1)).blocked).toBe(true);
+  expect((await reserveTenantQueryCost(otherWebsiteId, 1)).blocked).toBe(false);
+
+  const enabled = redis.enabled;
+  const connect = vi.spyOn(redis.client, 'connect').mockRejectedValue(new Error('unavailable'));
+  redis.enabled = true;
+
+  try {
+    expect(await reserveTenantQueryCost(crypto.randomUUID(), 1)).toMatchObject({
+      blocked: true,
+      unavailable: true,
+    });
+  } finally {
+    redis.enabled = enabled;
+    connect.mockRestore();
+  }
 });
 
 test('rejects a multi-query request larger than the complete window allowance', async () => {

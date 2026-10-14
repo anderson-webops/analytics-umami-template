@@ -278,14 +278,12 @@ export const getRevenue = defineTool({
       unit: input.unit,
       timezone: input.timezone,
     };
-    const [total, chart, country, region, referrer, channel] = await Promise.all([
-      client.getWebsiteRevenueStats(params),
-      client.getWebsiteRevenueChart(params),
-      client.getWebsiteRevenueMetrics({ ...params, type: 'country' }),
-      client.getWebsiteRevenueMetrics({ ...params, type: 'region' }),
-      client.getWebsiteRevenueMetrics({ ...params, type: 'referrer' }),
-      client.getWebsiteRevenueMetrics({ ...params, type: 'channel' }),
-    ]);
+    const total = await client.getWebsiteRevenueStats(params);
+    const chart = await client.getWebsiteRevenueChart(params);
+    const country = await client.getWebsiteRevenueMetrics({ ...params, type: 'country' });
+    const region = await client.getWebsiteRevenueMetrics({ ...params, type: 'region' });
+    const referrer = await client.getWebsiteRevenueMetrics({ ...params, type: 'referrer' });
+    const channel = await client.getWebsiteRevenueMetrics({ ...params, type: 'channel' });
     const result = { total, chart: chart.chart, country, region, referrer, channel };
 
     return {

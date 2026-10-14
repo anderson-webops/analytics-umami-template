@@ -3,6 +3,20 @@ import { cleanup, configure } from '@testing-library/react';
 import { afterEach, vi } from 'vitest';
 import { resetTestNavigation } from './navigation';
 
+const { responseCallbacks } = vi.hoisted(() => ({
+  responseCallbacks: [] as (() => Promise<void>)[],
+}));
+
+vi.mock('@/lib/request-lifecycle', () => ({
+  releaseAfterResponse: (callback: () => Promise<void>) => {
+    responseCallbacks.push(callback);
+  },
+}));
+
+export async function completeTestResponses() {
+  for (const callback of responseCallbacks.splice(0)) await callback();
+}
+
 configure({ testIdAttribute: 'data-test' });
 
 Object.defineProperty(window, 'matchMedia', {
@@ -52,7 +66,8 @@ class IntersectionObserver {
 window.ResizeObserver = ResizeObserver;
 window.IntersectionObserver = IntersectionObserver;
 
-afterEach(() => {
+afterEach(async () => {
+  await completeTestResponses();
   cleanup();
   resetTestNavigation();
   vi.restoreAllMocks();

@@ -2,7 +2,9 @@ import { beforeEach, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 import { checkAuth } from '@/lib/auth';
 import { fetchAccount, fetchWebsite } from '@/lib/load';
-import { getWebsiteSegment } from '@/queries/prisma';
+import { canViewWebsite } from '@/permissions';
+import { getWebsite, getWebsiteSegment } from '@/queries/prisma';
+import { reserveAuthenticatedQueryLease } from './query-concurrency';
 import { getBoundedCompareDate, getQueryFilters, parseRequest } from './request';
 import { readRequestBodyBytes } from './request-body';
 import {
@@ -12,7 +14,12 @@ import {
   searchParams,
   withDateRange,
 } from './schema';
-import { getPagedShareWorkMultiplier, reserveShareQueryCost } from './share-query-budget';
+import {
+  getPagedShareWorkMultiplier,
+  reserveAuthenticatedQueryCost,
+  reserveShareQueryCost,
+  reserveTenantQueryCost,
+} from './share-query-budget';
 
 vi.hoisted(() => {
   process.env.DATABASE_URL ??= 'postgresql://user:pass@localhost:5432/umami?schema=public';
@@ -29,20 +36,34 @@ vi.mock('@/lib/load', () => ({
 }));
 
 vi.mock('@/queries/prisma', () => ({
+  getWebsite: vi.fn(),
   getWebsiteSegment: vi.fn(),
+}));
+
+vi.mock('@/permissions', () => ({
+  canViewWebsite: vi.fn(),
+  canViewWebsiteSection: vi.fn(),
 }));
 
 const checkAuthMock = vi.mocked(checkAuth);
 const fetchAccountMock = vi.mocked(fetchAccount);
 const fetchWebsiteMock = vi.mocked(fetchWebsite);
+const getWebsiteMock = vi.mocked(getWebsite);
 const getWebsiteSegmentMock = vi.mocked(getWebsiteSegment);
+const canViewWebsiteMock = vi.mocked(canViewWebsite);
 
 beforeEach(() => {
   checkAuthMock.mockReset();
   fetchAccountMock.mockReset();
   fetchWebsiteMock.mockReset();
+  getWebsiteMock.mockReset();
   getWebsiteSegmentMock.mockReset();
+  canViewWebsiteMock.mockReset();
+  canViewWebsiteMock.mockResolvedValue(true);
   fetchWebsiteMock.mockResolvedValue({ id: 'website-1' } as any);
+  getWebsiteMock.mockImplementation(
+    async websiteId => ({ id: websiteId, userId: websiteId, teamId: null }) as any,
+  );
 });
 
 test.each([21, 10_000])('rejects %i decoded items before recursive validation', async count => {
@@ -510,6 +531,171 @@ test('rejects report filter objects when a public share disables filters', async
   expect(result.error?.().status).toBe(403);
 });
 
+test('charges the signed-in user even when a valid share credential is also present', async () => {
+  const userId = `mixed-credential-user-${crypto.randomUUID()}`;
+  const shareId = `mixed-credential-share-${crypto.randomUUID()}`;
+  checkAuthMock.mockResolvedValue({
+    user: { id: userId },
+    shareToken: { shareId, websiteId: 'website-1' },
+  } as any);
+  expect((await reserveAuthenticatedQueryCost(userId, 20_000, 0)).blocked).toBe(false);
+
+  const result = await parseRequest(
+    new Request(
+      `https://analytics.example/api/websites/website-1/stats?startAt=${Date.UTC(2025, 0, 1)}&endAt=${Date.UTC(2025, 0, 31)}`,
+    ),
+    z.object({ startAt: z.coerce.number().int(), endAt: z.coerce.number().int() }),
+  );
+
+  expect(result.error?.().status).toBe(429);
+});
+
+test('rejects excess authenticated in-flight work before the report reaches its query', async () => {
+  const userId = crypto.randomUUID();
+  const websiteId = crypto.randomUUID();
+  const leases = await Promise.all(
+    Array.from({ length: 8 }, () => reserveAuthenticatedQueryLease(userId, websiteId, 1)),
+  );
+  checkAuthMock.mockResolvedValue({ user: { id: userId } } as any);
+
+  try {
+    const result = await parseRequest(
+      new Request(
+        `https://analytics.example/api/websites/${websiteId}/stats?startAt=${Date.UTC(2025, 0, 1)}&endAt=${Date.UTC(2025, 0, 2)}`,
+      ),
+      z.object({ startAt: z.coerce.number(), endAt: z.coerce.number() }),
+    );
+
+    expect(result.error?.().status).toBe(429);
+  } finally {
+    for (const lease of leases) {
+      if ('release' in lease) await lease.release();
+    }
+  }
+});
+
+test('a tenant budget bounds aggregate work across different authorized viewers', async () => {
+  const websiteId = '00000000-0000-4000-8000-000000000001';
+  const otherWebsiteId = '00000000-0000-4000-8000-000000000002';
+  expect((await reserveTenantQueryCost(`user:${websiteId}`, 40_000, 0)).blocked).toBe(false);
+  const range = `startAt=${Date.UTC(2025, 0, 1)}&endAt=${Date.UTC(2025, 0, 31)}`;
+  const schema = z.object({ startAt: z.coerce.number().int(), endAt: z.coerce.number().int() });
+
+  checkAuthMock.mockResolvedValueOnce({ user: { id: crypto.randomUUID() } } as any);
+  const blocked = await parseRequest(
+    new Request(`https://analytics.example/api/websites/${websiteId}/stats?${range}`),
+    schema,
+  );
+  expect(blocked.error?.().status).toBe(429);
+
+  checkAuthMock.mockResolvedValueOnce({ user: { id: crypto.randomUUID() } } as any);
+  const independent = await parseRequest(
+    new Request(`https://analytics.example/api/websites/${otherWebsiteId}/stats?${range}`),
+    schema,
+  );
+  expect(independent.error).toBeUndefined();
+});
+
+test('does not let an unauthorized caller drain another website budget', async () => {
+  const websiteId = '00000000-0000-4000-8000-000000000003';
+  canViewWebsiteMock.mockResolvedValue(false);
+  checkAuthMock.mockResolvedValue({ user: { id: crypto.randomUUID() } } as any);
+  const schema = z.object({ startAt: z.coerce.number().int(), endAt: z.coerce.number().int() });
+  const request = new Request(
+    `https://analytics.example/api/websites/${websiteId}/stats?startAt=${Date.UTC(2025, 0, 1)}&endAt=${Date.UTC(2025, 0, 31)}`,
+  );
+
+  expect((await parseRequest(request, schema)).error).toBeUndefined();
+  expect((await reserveTenantQueryCost(`user:${websiteId}`, 40_000, 0)).blocked).toBe(false);
+});
+
+test('charges compatibility POST reports to the authorized website budget', async () => {
+  const websiteId = '00000000-0000-4000-8000-000000000004';
+  checkAuthMock.mockResolvedValue({ user: { id: crypto.randomUUID() } } as any);
+  expect((await reserveTenantQueryCost(`user:${websiteId}`, 40_000, 0)).blocked).toBe(false);
+
+  const result = await parseRequest(
+    new Request('https://analytics.example/compat/api/reports/goal', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        websiteId,
+        type: 'goal',
+        parameters: {
+          startDate: '2025-01-01',
+          endDate: '2025-01-31',
+          type: 'event',
+          value: 'signup',
+        },
+        filters: {},
+      }),
+    }),
+    reportResultSchema,
+  );
+
+  expect(result.error?.().status).toBe(429);
+});
+
+test('prices a stored historical cohort before admitting a short-range query', async () => {
+  const websiteId = crypto.randomUUID();
+  const cohortId = crypto.randomUUID();
+  const userId = crypto.randomUUID();
+  const startAt = Date.UTC(2025, 0, 1);
+  const endAt = Date.UTC(2025, 0, 2);
+  getWebsiteSegmentMock.mockResolvedValue({
+    name: 'Historical visitors',
+    type: 'cohort',
+    parameters: {
+      filters: [],
+      dateRange: `range:${Date.UTC(2006, 0, 1)}:${Date.UTC(2025, 11, 31)}`,
+      action: { type: 'event', value: 'signup' },
+    },
+  } as any);
+  checkAuthMock.mockResolvedValue({ user: { id: userId } } as any);
+
+  const result = await parseRequest(
+    new Request(
+      `https://analytics.example/api/websites/${websiteId}/stats?startAt=${startAt}&endAt=${endAt}&cohort=${cohortId}`,
+    ),
+    withDateRange({ cohort: z.uuid().optional() }),
+  );
+
+  expect(result.error?.().status).toBe(400);
+  expect(getWebsiteSegmentMock).toHaveBeenCalledWith(websiteId, cohortId);
+  expect((await reserveAuthenticatedQueryCost(userId, 20_000, 0)).blocked).toBe(false);
+});
+
+test('uses the cohort snapshot priced at admission when building SQL filters', async () => {
+  const websiteId = crypto.randomUUID();
+  const cohortId = crypto.randomUUID();
+  const cohortStartAt = Date.UTC(2025, 0, 1);
+  const cohortEndAt = Date.UTC(2025, 2, 1);
+  getWebsiteSegmentMock.mockResolvedValueOnce({
+    name: 'Recent visitors',
+    type: 'cohort',
+    parameters: {
+      filters: [],
+      dateRange: `range:${cohortStartAt}:${cohortEndAt}`,
+      action: { type: 'event', value: 'signup' },
+    },
+  } as any);
+  checkAuthMock.mockResolvedValue({ user: { id: crypto.randomUUID() } } as any);
+
+  const result = await parseRequest(
+    new Request(
+      `https://analytics.example/api/websites/${websiteId}/stats?startAt=${cohortStartAt}&endAt=${cohortStartAt + 86_400_000}&cohort=${cohortId}`,
+    ),
+    withDateRange({ cohort: z.uuid().optional() }),
+  );
+
+  expect(result.error).toBeUndefined();
+  getWebsiteSegmentMock.mockResolvedValue(null);
+  const filters = await getQueryFilters({ ...result.query }, websiteId);
+  expect(+Reflect.get(filters, 'cohort_startDate')).toBe(cohortStartAt);
+  expect(+Reflect.get(filters, 'cohort_endDate')).toBe(cohortEndAt);
+  expect(getWebsiteSegmentMock).toHaveBeenCalledTimes(1);
+});
+
 test('rejects untrusted SQL filter metadata in compatibility report requests', async () => {
   checkAuthMock.mockResolvedValue({ user: { id: 'user-1', role: 'user' } } as any);
 
@@ -723,4 +909,53 @@ test('applies an allowed saved segment filter without changing request controls'
   expect(filters.country).toBe('eq.US');
   expect(filters).not.toHaveProperty('metric');
   expect(filters).not.toHaveProperty('window');
+});
+
+test('rejects an expensive saved segment before applying its stored regex filters', async () => {
+  getWebsiteSegmentMock.mockResolvedValue({
+    type: 'segment',
+    name: 'Expensive segment',
+    parameters: {
+      filters: Array.from({ length: 3 }, () => ({
+        name: 'path',
+        operator: 're',
+        value: '^/private',
+      })),
+    },
+  } as any);
+
+  await expect(
+    getQueryFilters(
+      { startAt: '1788220800000', endAt: '1788307200000', segment: 'segment-1' },
+      'website-1',
+    ),
+  ).rejects.toThrow('INVALID_SAVED_SEGMENT');
+});
+
+test('preserves a schema-valid saved segment with ordinary stored filters', async () => {
+  getWebsiteSegmentMock.mockResolvedValue({
+    type: 'segment',
+    name: 'Ordinary segment',
+    parameters: {
+      filters: Array.from({ length: 50 }, () => ({
+        name: 'country',
+        operator: 'eq',
+        value: 'US',
+      })),
+      sessionPropertyFilters: Array.from({ length: 50 }, () => ({
+        propertyName: 'plan',
+        dataType: 1,
+        operator: 'eq',
+        value: 'pro',
+      })),
+    },
+  } as any);
+
+  const filters = await getQueryFilters(
+    { startAt: '1788220800000', endAt: '1788307200000', segment: 'segment-1' },
+    'website-1',
+  );
+
+  expect(filters.sessionPropertyFilters).toHaveLength(50);
+  expect(filters).toHaveProperty('country49', 'eq.US');
 });

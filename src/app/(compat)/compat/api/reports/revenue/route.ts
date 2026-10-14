@@ -19,6 +19,7 @@ export async function POST(request: Request) {
     budgetShareQuery: true,
     shareQueryContext: { section: 'revenue' },
     shareQueryWorkMultiplier: 8,
+    authenticatedQueryFanout: 7,
   });
 
   if (error) {

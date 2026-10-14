@@ -20,6 +20,14 @@ vi.mock('@/permissions', () => ({
   canViewWebsiteSection: vi.fn(),
 }));
 
+vi.mock('@/queries/prisma', () => ({
+  getWebsite: vi.fn(async (websiteId: string) => ({
+    id: websiteId,
+    userId: websiteId,
+    teamId: null,
+  })),
+}));
+
 vi.mock('@/queries/sql', () => ({
   getLinkedDistinctIds: vi.fn(),
   getLinkedSessionIds: vi.fn(),

@@ -27,6 +27,9 @@ including reset dates and account history limits. The report envelope and discri
 Use a single date range; do not send separate filter dates and calculation dates.
 
 `steps` on funnel previews and `fields` on breakdowns are JSON strings, URL-encoded normally.
+Breakdowns with one or two fields are limited to five years, three to eight fields to one year,
+and nine to twenty fields to 31 days. Wider requests return 400 before querying. Authenticated
+analytics reads also share bounded viewer and owner budgets; exhausted budgets return 429.
 Other criteria are individual query parameters. For example:
 
 ```ts

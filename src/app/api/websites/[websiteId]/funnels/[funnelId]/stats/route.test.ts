@@ -1,15 +1,15 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { ENTITY_TYPE } from '@/lib/constants';
 import { getQueryFilters, parseRequest } from '@/lib/request';
-import { reserveShareQueryCost } from '@/lib/share-query-budget';
+import { reserveAuthenticatedQueryCost, reserveShareQueryCost } from '@/lib/share-query-budget';
 import { canViewReport, canViewWebsiteSection } from '@/permissions';
-import { getReport } from '@/queries/prisma';
+import { getReport, getWebsite } from '@/queries/prisma';
 import { getFunnel } from '@/queries/sql/funnels/getFunnel';
 import { GET } from './route';
 
 vi.mock('@/lib/request', () => ({ parseRequest: vi.fn(), getQueryFilters: vi.fn() }));
 vi.mock('@/permissions', () => ({ canViewReport: vi.fn(), canViewWebsiteSection: vi.fn() }));
-vi.mock('@/queries/prisma', () => ({ getReport: vi.fn() }));
+vi.mock('@/queries/prisma', () => ({ getReport: vi.fn(), getWebsite: vi.fn() }));
 vi.mock('@/queries/sql/funnels/getFunnel', () => ({ getFunnel: vi.fn() }));
 
 const websiteId = '00000000-0000-4000-8000-000000000001';
@@ -44,6 +44,7 @@ beforeEach(() => {
   vi.mocked(canViewReport).mockReset();
   vi.mocked(canViewWebsiteSection).mockReset();
   vi.mocked(getReport).mockReset();
+  vi.mocked(getWebsite).mockResolvedValue({ id: websiteId, userId: websiteId } as any);
   vi.mocked(getFunnel).mockReset();
   vi.mocked(parseRequest).mockResolvedValue({
     auth: { shareToken: { shareId: 'saved-funnel-test', websiteId } },
@@ -92,6 +93,74 @@ test('reserves saved funnel join work before executing analytics', async () => {
   savedReport.parameters.window = 10080;
   vi.mocked(getReport).mockResolvedValue(savedReport as any);
   expect((await reserveShareQueryCost(shareId, 600)).blocked).toBe(false);
+
+  const response = await GET(
+    new Request('https://analytics.example/api/websites/site/funnels/report/stats'),
+    { params: Promise.resolve({ websiteId, funnelId: 'report' }) },
+  );
+
+  expect(response.status).toBe(429);
+  expect(getFunnel).not.toHaveBeenCalled();
+});
+
+test('reserves saved funnel join work for authenticated viewers before executing analytics', async () => {
+  const userId = `saved-funnel-user-${crypto.randomUUID()}`;
+  vi.mocked(parseRequest).mockResolvedValue({
+    auth: { user: { id: userId } },
+    query: { startAt, endAt },
+  } as any);
+  vi.mocked(getReport).mockResolvedValue(report(2) as any);
+  expect((await reserveAuthenticatedQueryCost(userId, 20_000, 0)).blocked).toBe(false);
+
+  const response = await GET(
+    new Request('https://analytics.example/api/websites/site/funnels/report/stats'),
+    { params: Promise.resolve({ websiteId, funnelId: 'report' }) },
+  );
+
+  expect(response.status).toBe(429);
+  expect(getFunnel).not.toHaveBeenCalled();
+});
+
+test('preserves ordinary saved funnel analytics for authenticated viewers', async () => {
+  vi.mocked(parseRequest).mockResolvedValue({
+    auth: { user: { id: `saved-funnel-user-${crypto.randomUUID()}` } },
+    query: { startAt, endAt },
+  } as any);
+  vi.mocked(getReport).mockResolvedValue(report(2) as any);
+
+  const response = await GET(
+    new Request('https://analytics.example/api/websites/site/funnels/report/stats'),
+    { params: Promise.resolve({ websiteId, funnelId: 'report' }) },
+  );
+
+  expect(response.status).toBe(200);
+  expect(getFunnel).toHaveBeenCalledTimes(1);
+});
+
+test('preserves schema-valid saved funnels with more than 16 stored filters for authenticated viewers', async () => {
+  vi.mocked(parseRequest).mockResolvedValue({
+    auth: { user: { id: `saved-funnel-user-${crypto.randomUUID()}` } },
+    query: { startAt, endAt },
+  } as any);
+  vi.mocked(getReport).mockResolvedValue(report(17) as any);
+
+  const response = await GET(
+    new Request('https://analytics.example/api/websites/site/funnels/report/stats'),
+    { params: Promise.resolve({ websiteId, funnelId: 'report' }) },
+  );
+
+  expect(response.status).toBe(200);
+  expect(getFunnel).toHaveBeenCalledTimes(1);
+});
+
+test('charges the user for saved funnel work even with a share credential', async () => {
+  const userId = `mixed-funnel-user-${crypto.randomUUID()}`;
+  vi.mocked(parseRequest).mockResolvedValue({
+    auth: { user: { id: userId }, shareToken: { shareId: crypto.randomUUID(), websiteId } },
+    query: { startAt, endAt },
+  } as any);
+  vi.mocked(getReport).mockResolvedValue(report(2) as any);
+  expect((await reserveAuthenticatedQueryCost(userId, 20_000, 0)).blocked).toBe(false);
 
   const response = await GET(
     new Request('https://analytics.example/api/websites/site/funnels/report/stats'),

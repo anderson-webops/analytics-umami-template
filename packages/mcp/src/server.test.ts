@@ -10,7 +10,10 @@ const SESSION_ID = '0b3b6c2e-1f4a-4d0c-9a5e-abcdefabcdef';
 const FUNNEL_ID = '1a2b3c4d-0000-4000-8000-000000000001';
 const GOAL_ID = '1a2b3c4d-0000-4000-8000-000000000002';
 
-type Handler = (url: URL, init?: RequestInit) => { status?: number; body: unknown };
+type Handler = (
+  url: URL,
+  init?: RequestInit,
+) => { status?: number; body: unknown } | Promise<{ status?: number; body: unknown }>;
 
 interface Call {
   url: URL;
@@ -26,7 +29,7 @@ function createHarness(handler: Handler) {
     fetch: async (input, init) => {
       const url = new URL(input.toString());
       calls.push({ url, init });
-      const { status = 200, body } = handler(url, init);
+      const { status = 200, body } = await handler(url, init);
 
       return new Response(JSON.stringify(body), {
         status,
@@ -1010,6 +1013,37 @@ describe('createUmamiMcpServer', () => {
       expect(url.pathname).toContain(`/websites/${WEBSITE_ID}/revenue/`);
       expect(url.searchParams.get('currency')).toBe('EUR');
       expect(url.searchParams.get('startAt')).toBe(String(Date.parse('2024-01-01')));
+    }
+  });
+
+  test('get_revenue does not overlap its six internal analytics reads', async () => {
+    let activeReads = 0;
+    let maximumActiveReads = 0;
+    const measured = createHarness(async (url, init) => {
+      activeReads += 1;
+      maximumActiveReads = Math.max(maximumActiveReads, activeReads);
+      await new Promise(resolve => setTimeout(resolve, 5));
+      activeReads -= 1;
+      return routes(url, init);
+    });
+    await connect(measured);
+
+    try {
+      const result = await measured.client.callTool({
+        name: 'get_revenue',
+        arguments: {
+          websiteId: WEBSITE_ID,
+          startAt: '2024-01-01',
+          endAt: '2024-01-31',
+        },
+      });
+
+      expect(result.isError).toBeFalsy();
+      expect(measured.calls).toHaveLength(6);
+      expect(maximumActiveReads).toBe(1);
+    } finally {
+      await measured.client.close();
+      await measured.server.close();
     }
   });
 

@@ -20,6 +20,7 @@ export async function GET(
     budgetShareQuery: true,
     shareQueryContext: { section: 'revenue', websiteId },
     shareQueryWorkMultiplier: 3,
+    authenticatedQueryFanout: 2,
   });
 
   if (error) {

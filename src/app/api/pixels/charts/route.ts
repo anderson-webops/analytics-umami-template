@@ -2,10 +2,12 @@ import { fromZonedTime } from 'date-fns-tz';
 import { z } from 'zod';
 import { EVENT_TYPE } from '@/lib/constants';
 import { parseDateRange } from '@/lib/date';
+import { reserveAuthorizedBatchTenantWork } from '@/lib/query-admission';
 import { parseRequest } from '@/lib/request';
-import { json } from '@/lib/response';
+import { badRequest, json } from '@/lib/response';
 import { timezoneParam } from '@/lib/schema';
 import { restrictShareAuthToSection } from '@/lib/share';
+import { getAuthenticatedQueryCost } from '@/lib/share-query-budget';
 import { canViewPixel } from '@/permissions';
 import { getWebsiteListCharts } from '@/queries/sql';
 
@@ -52,6 +54,13 @@ export async function GET(request: Request) {
       ),
     )
   ).filter(Boolean);
+
+  if (auth?.user?.id) {
+    const cost = getAuthenticatedQueryCost(query);
+    if (!cost) return badRequest({ message: 'The analytics query is too complex.' });
+    const admission = await reserveAuthorizedBatchTenantWork(pixelIds, cost.charge, 'pixel');
+    if (admission) return admission;
+  }
 
   const data = await getWebsiteListCharts(pixelIds, {
     startDate,

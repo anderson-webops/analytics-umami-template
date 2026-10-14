@@ -1,5 +1,6 @@
 import { funnelParametersSchema, savedStatsQuerySchema } from '@/lib/analytics-schema';
 import { ENTITY_TYPE } from '@/lib/constants';
+import { reserveAdditionalAuthenticatedQueryWork } from '@/lib/query-admission';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import {
   badRequest,
@@ -11,6 +12,8 @@ import {
   unauthorized,
 } from '@/lib/response';
 import {
+  getAuthenticatedQueryCost,
+  getAuthenticatedSavedFunnelQueryCost,
   getFunnelShareWorkMultiplier,
   getShareQueryCost,
   getStepFilterCount,
@@ -24,7 +27,12 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ websiteId: string; funnelId: string }> },
 ) {
-  const { auth, query, error } = await parseRequest(request, savedStatsQuerySchema);
+  const {
+    auth,
+    query,
+    error,
+    admittedMinimumRangeMs = 0,
+  } = await parseRequest(request, savedStatsQuerySchema);
   if (error) return error();
   const { websiteId, funnelId } = await params;
   if (!(await canViewWebsiteSection(auth, websiteId, 'funnels'))) return unauthorized();
@@ -46,25 +54,47 @@ export async function GET(
         code: 'share-filters-disabled',
       });
     }
-
-    const base = getShareQueryCost(query);
-    const combined = getShareQueryCost(
-      query,
-      { parameters: { steps: parsed.data.steps } },
-      getFunnelShareWorkMultiplier(parsed.data.steps, parsed.data.window),
-    );
-    if (!base || !combined) {
-      return badRequest({ message: 'The public-share query is too complex.' });
-    }
-
+  }
+  const multiplier = getFunnelShareWorkMultiplier(parsed.data.steps, parsed.data.window);
+  const shareBase = auth?.shareToken ? getShareQueryCost(query) : null;
+  const shareCombined = auth?.shareToken
+    ? getShareQueryCost(query, { parameters: { steps: parsed.data.steps } }, multiplier)
+    : null;
+  const userBase = auth?.user?.id
+    ? getAuthenticatedQueryCost(query, undefined, 1, admittedMinimumRangeMs)
+    : null;
+  const userCombined = auth?.user?.id
+    ? getAuthenticatedSavedFunnelQueryCost(
+        query,
+        parsed.data.steps,
+        multiplier,
+        admittedMinimumRangeMs,
+      )
+    : null;
+  if (
+    (auth?.shareToken && (!shareBase || !shareCombined)) ||
+    (auth?.user && (!userBase || !userCombined))
+  ) {
+    return badRequest({
+      message: auth?.shareToken
+        ? 'The public-share query is too complex.'
+        : 'The analytics query is too complex.',
+    });
+  }
+  if (shareBase && shareCombined && shareCombined.charge > shareBase.charge) {
     const shareId = auth.shareToken.shareId ?? auth.shareToken.websiteId;
     if (!shareId) return unauthorized();
-    const extraCharge = combined.charge - base.charge;
-    if (extraCharge > 0) {
-      const limit = await reserveShareQueryCost(shareId, extraCharge, 0);
-      if (limit.unavailable) return serviceUnavailable();
-      if (limit.blocked) return tooManyRequests(limit.retryAfter);
-    }
+    const limit = await reserveShareQueryCost(shareId, shareCombined.charge - shareBase.charge, 0);
+    if (limit.unavailable) return serviceUnavailable();
+    if (limit.blocked) return tooManyRequests(limit.retryAfter);
+  }
+  if (userBase && userCombined && userCombined.charge > userBase.charge) {
+    const limit = await reserveAdditionalAuthenticatedQueryWork(
+      auth.user.id,
+      websiteId,
+      userCombined.charge - userBase.charge,
+    );
+    if (limit) return limit;
   }
   const filters = await getQueryFilters(query, websiteId);
   const parameters = {

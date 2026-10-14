@@ -14,6 +14,7 @@ vi.mock('@/permissions', () => ({
   canViewPixel: vi.fn(),
 }));
 vi.mock('@/permissions/website', () => ({ canViewBatchWebsites: vi.fn() }));
+vi.mock('@/queries/prisma', () => ({ getWebsite: vi.fn(), getLink: vi.fn(), getPixel: vi.fn() }));
 vi.mock('@/queries/sql', () => ({
   getActiveVisitors: vi.fn(),
   getWebsiteDateRange: vi.fn(),
