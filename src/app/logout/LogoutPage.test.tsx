@@ -49,6 +49,22 @@ test('a failed logout leaves local sign-in state intact', async () => {
   expect(await screen.findByText('Something went wrong.')).toBeInTheDocument();
 });
 
+test('an expired session clears local sign-in state after logout is rejected', async () => {
+  mocks.post
+    .mockReset()
+    .mockRejectedValueOnce(Object.assign(new Error('Unauthorized'), { status: 401 }));
+  mocks.removeClientAuthToken.mockClear();
+  mocks.setUser.mockClear();
+  const { user } = render(<LogoutPage />, { route: '/logout' });
+  window.history.replaceState({}, '', '/login');
+
+  await user.click(screen.getByRole('button', { name: 'Logout' }));
+
+  expect(mocks.post).toHaveBeenCalledExactlyOnceWith('/auth/logout');
+  expect(mocks.removeClientAuthToken).toHaveBeenCalledOnce();
+  expect(mocks.setUser).toHaveBeenCalledExactlyOnceWith(null);
+});
+
 test('an explicit successful logout clears local sign-in state', async () => {
   mocks.post.mockReset().mockResolvedValueOnce({});
   mocks.removeClientAuthToken.mockClear();

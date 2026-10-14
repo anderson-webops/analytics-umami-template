@@ -12,9 +12,11 @@ export function useLogout() {
   return async () => {
     try {
       await post('/auth/logout');
-    } catch {
-      toast(t(messages.error));
-      return;
+    } catch (error) {
+      if ((error as { status?: number }).status !== 401) {
+        toast(t(messages.error));
+        return;
+      }
     }
 
     removeClientAuthToken();
