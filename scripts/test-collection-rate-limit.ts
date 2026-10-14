@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { reserveCollectionClientBudget } from '@/lib/collection-budget';
+import { getCollectionClientKeys } from '@/lib/collection-client-key';
 import {
   getCollectionIpLimit,
-  getCollectionSourceLimit,
   getCollectionSourceStatus,
+  reserveCollectionSourceLimit,
 } from '@/lib/collection-rate-limit';
 import prisma from '@/lib/prisma';
 
@@ -23,6 +25,10 @@ const sourceId = process.env.COLLECTION_RATE_TEST_SOURCE_ID ?? randomUUID();
 const ipParts = randomUUID().replaceAll('-', '').slice(0, 24).match(/.{4}/g);
 assert.ok(ipParts);
 const ip = `2001:db8:${ipParts.join(':')}`;
+
+function reserveSource(id: string) {
+  return prisma.transaction(transaction => reserveCollectionSourceLimit(transaction, id));
+}
 
 function runChild() {
   return new Promise<void>((resolve, reject) => {
@@ -53,13 +59,58 @@ function runChild() {
 try {
   if (process.env.COLLECTION_RATE_TEST_CHILD === '1') {
     for (let attempt = 0; attempt < 50; attempt += 1) {
-      assert.equal((await getCollectionSourceLimit(sourceId)).blocked, false);
+      await reserveSource(sourceId);
     }
   } else {
     assert.equal((await getCollectionSourceStatus(sourceId)).blocked, false);
+    const rolledBackSourceId = randomUUID();
+    await assert.rejects(
+      () =>
+        prisma.transaction(async transaction => {
+          await reserveCollectionSourceLimit(transaction, rolledBackSourceId);
+          throw new Error('synthetic client budget rejection');
+        }),
+      /synthetic client budget rejection/,
+    );
+    assert.equal((await getCollectionSourceStatus(rolledBackSourceId)).blocked, false);
     await Promise.all([runChild(), runChild()]);
     assert.equal((await getCollectionSourceStatus(sourceId)).blocked, true);
-    assert.equal((await getCollectionSourceLimit(sourceId)).blocked, true);
+    await assert.rejects(() => reserveSource(sourceId), { retryAfter: 60 });
+
+    const accountId = randomUUID();
+    const clientKeys = getCollectionClientKeys(
+      'website',
+      sourceId,
+      'user',
+      accountId,
+      '198.51.100.7',
+    );
+    await assert.rejects(
+      () =>
+        prisma.transaction(async transaction => {
+          await reserveCollectionClientBudget(
+            transaction,
+            { sourceType: 'website', sourceId, accountType: 'user', accountId, ...clientKeys },
+            'replay',
+            { bytes: 1024, rows: 1, requests: 1 },
+          );
+          await reserveCollectionSourceLimit(transaction, sourceId);
+        }),
+      { retryAfter: 60 },
+    );
+    assert.equal(
+      await prisma.client.collectionIngestBudget.count({
+        where: {
+          subjectKey: {
+            in: [
+              `client:replay:${clientKeys.sourceClientHash}`,
+              `client:account:${clientKeys.accountClientHash}`,
+            ],
+          },
+        },
+      }),
+      0,
+    );
 
     const admissions = await Promise.all(
       Array.from({ length: 20 }, () =>

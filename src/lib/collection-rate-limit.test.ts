@@ -3,8 +3,8 @@ import prisma from '@/lib/prisma';
 import redis from '@/lib/redis';
 import {
   getCollectionIpLimit,
-  getCollectionSourceLimit,
   getCollectionSourceStatus,
+  reserveCollectionSourceLimit,
   transferCollectionIpLimit,
 } from './collection-rate-limit';
 
@@ -115,8 +115,16 @@ function sharedKeys(prefix: string) {
   return [...state.sharedCounters.keys()].filter(key => key.startsWith(prefix));
 }
 
+function reserveSource(
+  id: string,
+  reserve: typeof reserveCollectionSourceLimit = reserveCollectionSourceLimit,
+) {
+  return prisma.transaction(transaction => reserve(transaction, id));
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(redis.client.get).mockImplementation(async key => state.redisCounters.get(key) ?? null);
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-10-11T01:02:03Z'));
   vi.stubEnv('CLIENT_IP_HEADER', 'x-real-ip');
@@ -184,45 +192,44 @@ test('two independent module instances share source enforcement', async () => {
   expect(state.sharedCounters.size).toBe(0);
 
   for (let attempt = 0; attempt < 50; attempt += 1) {
-    expect((await first.getCollectionSourceLimit(sourceId)).blocked).toBe(false);
-    expect((await second.getCollectionSourceLimit(sourceId.toUpperCase())).blocked).toBe(false);
+    await reserveSource(sourceId, first.reserveCollectionSourceLimit);
+    await reserveSource(sourceId.toUpperCase(), second.reserveCollectionSourceLimit);
   }
 
   expect(await second.getCollectionSourceStatus(sourceId)).toEqual({
     blocked: true,
     retryAfter: 60,
   });
-  expect((await first.getCollectionSourceLimit(sourceId)).blocked).toBe(true);
+  await expect(reserveSource(sourceId, first.reserveCollectionSourceLimit)).rejects.toMatchObject({
+    retryAfter: 60,
+  });
   expect(sharedKeys('rate:source:')).toHaveLength(1);
   expect(state.sharedCounters.get(sharedKeys('rate:source:')[0])).toBe(100n);
 });
 
 test('a full shared key pool rejects new keys without evicting active ones', async () => {
-  expect((await getCollectionSourceLimit(sourceId)).blocked).toBe(false);
+  await reserveSource(sourceId);
   expect((await getCollectionIpLimit(request())).blocked).toBe(false);
 
   const sourcePool = sharedKeys('rate:pool:source|')[0];
   state.sharedCounters.set(sourcePool, 20_000n);
   const originalSize = state.sharedCounters.size;
 
-  expect(await getCollectionSourceLimit(otherSourceId)).toEqual({
-    blocked: true,
-    retryAfter: 60,
-  });
+  await expect(reserveSource(otherSourceId)).rejects.toMatchObject({ retryAfter: 60 });
   expect(state.sharedCounters.size).toBe(originalSize);
-  expect((await getCollectionSourceLimit(sourceId)).blocked).toBe(false);
+  await reserveSource(sourceId);
   expect((await getCollectionIpLimit(request())).blocked).toBe(false);
   expect(state.sharedCounters.get(sourcePool)).toBe(20_000n);
 });
 
 test('a new fixed window permits fresh counts and bounded cleanup', async () => {
-  expect((await getCollectionSourceLimit(sourceId)).blocked).toBe(false);
+  await reserveSource(sourceId);
   vi.advanceTimersByTime(61_000);
   expect(await getCollectionSourceStatus(sourceId)).toEqual({
     blocked: false,
     retryAfter: 60,
   });
-  expect((await getCollectionSourceLimit(sourceId)).blocked).toBe(false);
+  await reserveSource(sourceId);
   expect(sharedKeys('rate:source:')).toHaveLength(2);
   expect(state.queries.some(query => query.includes('DELETE FROM collection_ingest_budget'))).toBe(
     true,
@@ -230,39 +237,72 @@ test('a new fixed window permits fresh counts and bounded cleanup', async () => 
   expect(vi.mocked(prisma.transaction)).toHaveBeenCalledTimes(2);
 });
 
-test('a configured Redis outage fails closed instead of using another store', async () => {
+test('a configured Redis outage blocks IP intake while source admission remains atomic in PostgreSQL', async () => {
   state.redisEnabled = true;
   vi.mocked(redis.client.incrementWithExpiry).mockRejectedValueOnce(new Error('unavailable'));
-  vi.mocked(redis.client.get).mockRejectedValueOnce(new Error('unavailable'));
 
-  expect(await getCollectionSourceLimit(sourceId)).toEqual({ blocked: true, retryAfter: 60 });
-  expect(await getCollectionSourceStatus(sourceId)).toEqual({
-    blocked: true,
-    retryAfter: 60,
-  });
-  expect(state.sharedCounters.size).toBe(0);
-  expect(prisma.transaction).not.toHaveBeenCalled();
+  expect(await getCollectionIpLimit(request())).toEqual({ blocked: true, retryAfter: 60 });
+  await reserveSource(sourceId);
+  expect(await getCollectionSourceStatus(sourceId)).toEqual({ blocked: false, retryAfter: 60 });
+  expect(sharedKeys('rate:source:')).toHaveLength(1);
+  expect(redis.client.get).toHaveBeenCalled();
+});
+
+test('an unexpired Redis source count reduces the new PostgreSQL source allowance', async () => {
+  state.redisEnabled = true;
+  await getCollectionSourceStatus(sourceId);
+  const legacyKey = vi.mocked(redis.client.get).mock.calls[0][0];
+  state.redisCounters.set(legacyKey, 99);
+
+  expect(await getCollectionSourceStatus(sourceId)).toEqual({ blocked: false, retryAfter: 60 });
+  await reserveSource(sourceId);
+  expect(await getCollectionSourceStatus(sourceId)).toEqual({ blocked: true, retryAfter: 60 });
+  await expect(reserveSource(sourceId)).rejects.toMatchObject({ retryAfter: 60 });
+  expect(state.sharedCounters.get(sharedKeys('rate:source:')[0])).toBe(1n);
+});
+
+test('an unavailable legacy Redis source counter fails closed', async () => {
+  state.redisEnabled = true;
+  vi.mocked(redis.client.get).mockRejectedValue(new Error('unavailable'));
+
+  expect(await getCollectionSourceStatus(sourceId)).toEqual({ blocked: true, retryAfter: 60 });
+  await expect(reserveSource(sourceId)).rejects.toMatchObject({ retryAfter: 60 });
+  expect(sharedKeys('rate:source:')).toHaveLength(0);
 });
 
 test('a database outage fails closed when Redis is not configured', async () => {
   state.failDatabase = true;
 
   expect(await getCollectionIpLimit(request())).toEqual({ blocked: true, retryAfter: 60 });
-  expect(await getCollectionSourceLimit(sourceId)).toEqual({ blocked: true, retryAfter: 60 });
+  await expect(reserveSource(sourceId)).rejects.toMatchObject({ retryAfter: 60 });
   expect(await getCollectionSourceStatus(sourceId)).toEqual({
     blocked: true,
     retryAfter: 60,
   });
 });
 
-test('configured Redis remains the shared fast path', async () => {
+test('configured Redis remains the IP fast path while source admissions use PostgreSQL', async () => {
   state.redisEnabled = true;
 
   expect(await getCollectionSourceStatus(sourceId)).toEqual({ blocked: false, retryAfter: 60 });
   expect(state.redisCounters.size).toBe(0);
-  expect((await getCollectionSourceLimit(sourceId)).blocked).toBe(false);
+  await reserveSource(sourceId);
   expect((await getCollectionIpLimit(request())).blocked).toBe(false);
-  expect(state.redisCounters.size).toBe(2);
-  expect(state.sharedCounters.size).toBe(0);
-  expect(prisma.transaction).not.toHaveBeenCalled();
+  expect(state.redisCounters.size).toBe(1);
+  expect(sharedKeys('rate:source:')).toHaveLength(1);
+  expect(prisma.transaction).toHaveBeenCalledOnce();
+});
+
+test('source admission rolls back when a later client budget denies the same request', async () => {
+  await expect(
+    prisma.transaction(async transaction => {
+      await reserveCollectionSourceLimit(transaction, sourceId);
+      throw new Error('client budget denied');
+    }),
+  ).rejects.toThrow('client budget denied');
+
+  expect(await getCollectionSourceStatus(sourceId)).toEqual({ blocked: false, retryAfter: 60 });
+  expect(sharedKeys('rate:source:')).toHaveLength(0);
+  await reserveSource(sourceId);
+  expect(sharedKeys('rate:source:')).toHaveLength(1);
 });

@@ -1,6 +1,7 @@
 import type { Prisma } from '@/generated/prisma/client';
 import { getCollectionCost, reserveCollectionBudget } from '@/lib/collection-budget';
 import { getCollectionClientKeys } from '@/lib/collection-client-key';
+import { reserveCollectionSourceLimit } from '@/lib/collection-rate-limit';
 import prisma from '@/lib/prisma';
 
 export type CollectionSourceType = 'website' | 'link' | 'pixel';
@@ -90,6 +91,7 @@ export async function reserveActiveCollectionBudget(
         },
         cost,
       );
+      await reserveCollectionSourceLimit(transaction, sourceId);
     },
     { timeout: 30_000 },
   );

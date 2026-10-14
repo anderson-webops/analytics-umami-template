@@ -4,11 +4,7 @@ import type { Prisma } from '@/generated/prisma/client';
 import { type CacheToken, createCacheToken, parseCacheToken } from '@/lib/cache-token';
 import clickhouse from '@/lib/clickhouse';
 import { CollectionBudgetExceededError } from '@/lib/collection-budget';
-import {
-  getCollectionIpLimit,
-  getCollectionSourceLimit,
-  getCollectionSourceStatus,
-} from '@/lib/collection-rate-limit';
+import { getCollectionIpLimit, getCollectionSourceStatus } from '@/lib/collection-rate-limit';
 import { CACHE_TOKEN_TYPE, COLLECTION_TYPE, EVENT_TYPE, FIELD_LENGTH } from '@/lib/constants';
 import { corsPreflight, withTrackingOrigin } from '@/lib/cors';
 import { getSalt, hash, secret, uuid } from '@/lib/crypto';
@@ -277,12 +273,6 @@ export async function POST(request: Request) {
     // IP block
     if (hasBlockedIp(ip)) {
       return new Response(null, { status: 204 });
-    }
-
-    const sourceLimit = await getCollectionSourceLimit(sourceId);
-
-    if (sourceLimit.blocked) {
-      return tooManyRequests(sourceLimit.retryAfter);
     }
 
     try {

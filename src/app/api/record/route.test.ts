@@ -7,8 +7,8 @@ import {
 import { getCollectionClientKeys } from '@/lib/collection-client-key';
 import {
   getCollectionIpLimit,
-  getCollectionSourceLimit,
   getCollectionSourceStatus,
+  reserveCollectionSourceLimit,
 } from '@/lib/collection-rate-limit';
 import { getClientInfo, hasBlockedIp } from '@/lib/detect';
 import { HeatmapBudgetExceededError, reserveHeatmapBudget } from '@/lib/heatmap-budget';
@@ -37,8 +37,8 @@ vi.mock('@/lib/collection-budget', async importOriginal => ({
 
 vi.mock('@/lib/collection-rate-limit', () => ({
   getCollectionIpLimit: vi.fn(),
-  getCollectionSourceLimit: vi.fn(),
   getCollectionSourceStatus: vi.fn(),
+  reserveCollectionSourceLimit: vi.fn(),
 }));
 
 vi.mock('@/lib/detect', () => ({
@@ -87,7 +87,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   clickhouseState.enabled = false;
   vi.mocked(getCollectionIpLimit).mockResolvedValue({ blocked: false, retryAfter: 60 });
-  vi.mocked(getCollectionSourceLimit).mockResolvedValue({ blocked: false, retryAfter: 60 });
+  vi.mocked(reserveCollectionSourceLimit).mockResolvedValue(undefined);
   vi.mocked(getCollectionSourceStatus).mockResolvedValue({ blocked: false, retryAfter: 60 });
 });
 
@@ -231,7 +231,7 @@ describe('heatmap intake budget', () => {
     expect(response.status).toBe(429);
     expect(parseToken).not.toHaveBeenCalled();
     expect(getCollectionSourceStatus).not.toHaveBeenCalled();
-    expect(getCollectionSourceLimit).not.toHaveBeenCalled();
+    expect(reserveCollectionSourceLimit).not.toHaveBeenCalled();
   });
 
   test('does not repeat a website lookup for an already throttled source', async () => {
@@ -247,7 +247,7 @@ describe('heatmap intake budget', () => {
 
     expect(response.status).toBe(429);
     expect(getWebsite).not.toHaveBeenCalled();
-    expect(getCollectionSourceLimit).not.toHaveBeenCalled();
+    expect(reserveCollectionSourceLimit).not.toHaveBeenCalled();
   });
 
   test('does not count a source without a matching session token', async () => {
@@ -263,7 +263,7 @@ describe('heatmap intake budget', () => {
 
     expect(response.status).toBe(400);
     expect(getCollectionSourceStatus).not.toHaveBeenCalled();
-    expect(getCollectionSourceLimit).not.toHaveBeenCalled();
+    expect(reserveCollectionSourceLimit).not.toHaveBeenCalled();
   });
 
   test('does not count a source after its website is deleted', async () => {
@@ -278,7 +278,7 @@ describe('heatmap intake budget', () => {
     );
 
     expect(response.status).toBe(400);
-    expect(getCollectionSourceLimit).not.toHaveBeenCalled();
+    expect(reserveCollectionSourceLimit).not.toHaveBeenCalled();
   });
 
   test('does not count a source when the client IP is blocked', async () => {
@@ -293,7 +293,7 @@ describe('heatmap intake budget', () => {
     );
 
     expect(response.status).toBe(204);
-    expect(getCollectionSourceLimit).not.toHaveBeenCalled();
+    expect(reserveCollectionSourceLimit).not.toHaveBeenCalled();
   });
 
   test('reserves capacity before a relational write', async () => {
@@ -327,13 +327,19 @@ describe('heatmap intake budget', () => {
       expect.objectContaining({ rows: 1, requests: 1 }),
     );
     expect(saveHeatmapEvents).toHaveBeenCalledOnce();
-    expect(getCollectionSourceLimit).toHaveBeenCalledWith(websiteId);
+    expect(reserveCollectionSourceLimit).toHaveBeenCalledWith(expect.anything(), websiteId);
     expect(getCollectionSourceStatus).toHaveBeenCalledWith(websiteId);
     expect(vi.mocked(getCollectionIpLimit).mock.invocationCallOrder[0]).toBeLessThan(
-      vi.mocked(getCollectionSourceLimit).mock.invocationCallOrder[0],
+      vi.mocked(reserveCollectionSourceLimit).mock.invocationCallOrder[0],
     );
     expect(vi.mocked(reserveHeatmapBudget).mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(reserveCollectionClientBudget).mock.invocationCallOrder[0],
+    );
+    expect(vi.mocked(reserveCollectionClientBudget).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(reserveCollectionSourceLimit).mock.invocationCallOrder[0],
+    );
+    expect(vi.mocked(reserveCollectionSourceLimit).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(saveHeatmapEvents).mock.invocationCallOrder[0],
     );
     expect(vi.mocked(reserveCollectionClientBudget).mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(saveHeatmapEvents).mock.invocationCallOrder[0],
@@ -416,7 +422,7 @@ describe('heatmap intake budget', () => {
     );
 
     expect(response.status).toBe(200);
-    expect(getCollectionSourceLimit).toHaveBeenCalledWith(websiteId);
+    expect(reserveCollectionSourceLimit).toHaveBeenCalledWith(expect.anything(), websiteId);
   });
 
   test('does not write when a visit or source budget is exhausted', async () => {
@@ -470,6 +476,7 @@ describe('heatmap intake budget', () => {
 
     expect(response.status).toBe(429);
     expect(response.headers.get('Retry-After')).toBe('60');
+    expect(reserveCollectionSourceLimit).not.toHaveBeenCalled();
     expect(saveHeatmapEvents).not.toHaveBeenCalled();
   });
 
@@ -624,6 +631,9 @@ describe('external replay budget commit', () => {
       }),
       'replay',
       expect.objectContaining({ rows: 1, requests: 1 }),
+    );
+    expect(vi.mocked(reserveCollectionClientBudget).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(reserveCollectionSourceLimit).mock.invocationCallOrder[0],
     );
     expect(withActiveCollectionSource).toHaveBeenCalledTimes(2);
     expect(saveRecording).toHaveBeenCalledWith(expect.objectContaining({ eventCount: 1 }));
@@ -866,7 +876,9 @@ describe('external replay budget commit', () => {
     vi.mocked(reserveReplayBudget).mockResolvedValueOnce(false);
 
     expect((await POST(request())).status).toBe(200);
+    expect(getCollectionIpLimit).toHaveBeenCalledOnce();
     expect(reserveCollectionClientBudget).not.toHaveBeenCalled();
+    expect(reserveCollectionSourceLimit).not.toHaveBeenCalled();
     expect(saveRecording).not.toHaveBeenCalled();
   });
 
@@ -881,6 +893,7 @@ describe('external replay budget commit', () => {
 
     expect(response.status).toBe(429);
     expect(response.headers.get('Retry-After')).toBe('86400');
+    expect(reserveCollectionSourceLimit).not.toHaveBeenCalled();
     expect(saveRecording).not.toHaveBeenCalled();
   });
 

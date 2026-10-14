@@ -8,8 +8,8 @@ import {
 import { getCollectionClientKeys } from '@/lib/collection-client-key';
 import {
   getCollectionIpLimit,
-  getCollectionSourceLimit,
   getCollectionSourceStatus,
+  reserveCollectionSourceLimit,
 } from '@/lib/collection-rate-limit';
 import { CACHE_TOKEN_TYPE, HEATMAP_EVENT_TYPE } from '@/lib/constants';
 import { corsPreflight, withCorsHeaders } from '@/lib/cors';
@@ -247,12 +247,6 @@ export async function POST(request: Request) {
       return withCorsHeaders(new Response(null, { status: 204 }));
     }
 
-    const sourceLimit = await getCollectionSourceLimit(websiteId);
-
-    if (sourceLimit.blocked) {
-      return tooManyRequests(sourceLimit.retryAfter);
-    }
-
     const clientIp = getIpAddress(request.headers) || 'unknown';
 
     try {
@@ -347,6 +341,7 @@ export async function POST(request: Request) {
                 requests: 1,
               },
             );
+            await reserveCollectionSourceLimit(transaction, websiteId);
 
             const recording = {
               websiteId,
@@ -425,6 +420,7 @@ export async function POST(request: Request) {
             'heatmap',
             { bytes: heatmapBytes + events.length * 512, rows: events.length, requests: 1 },
           );
+          await reserveCollectionSourceLimit(transaction, websiteId);
 
           if (clickhouse.enabled) {
             return { kind: 'heatmap' as const, heatmapRows, accountType, accountId };

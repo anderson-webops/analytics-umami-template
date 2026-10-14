@@ -68,6 +68,7 @@ ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null REDIS_URL='' CLO
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-session-data-bulk.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-heatmap-budget.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-recorder-budget-retention.ts
+ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm run test:collection-rate-limit
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-collection-budget.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm exec tsx scripts/test-two-factor-admission.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm exec tsx scripts/test-password-verification-admission.ts

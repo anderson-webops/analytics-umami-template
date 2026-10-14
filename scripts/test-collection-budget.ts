@@ -41,6 +41,15 @@ async function reserve(
   return reserveActiveCollectionBudget(sourceType, sourceId, body, clientIp);
 }
 
+async function sourceRateCount() {
+  const rows = await prisma.client.$queryRaw<Array<{ requests: bigint }>>`
+    SELECT coalesce(sum(requests), 0)::bigint AS requests
+    FROM collection_ingest_budget
+    WHERE subject_type = 'source' AND subject_key LIKE 'rate:source:%' AND scope = 'minute'
+  `;
+  return rows[0].requests;
+}
+
 try {
   await prisma.client.user.create({
     data: {
@@ -99,6 +108,7 @@ try {
   const beforeRejectedClient = await prisma.client.collectionIngestBudget.findFirstOrThrow({
     where: { subjectType: 'user', subjectKey: userId, scope: 'minute' },
   });
+  const beforeRejectedClientRate = await sourceRateCount();
   await assert.rejects(
     () => reserve('website', websiteId),
     error => error instanceof CollectionBudgetExceededError && error.retryAfter === 60,
@@ -107,7 +117,9 @@ try {
     where: { subjectType: 'user', subjectKey: userId, scope: 'minute' },
   });
   assert.equal(afterRejectedClient.rows, beforeRejectedClient.rows);
+  assert.equal(await sourceRateCount(), beforeRejectedClientRate);
   await reserve('website', websiteId, secondClientIp);
+  assert.equal(await sourceRateCount(), beforeRejectedClientRate + 1n);
 
   const sourceMinute = await prisma.client.collectionIngestBudget.findFirstOrThrow({
     where: { subjectType: 'source', subjectKey: `website:${websiteId}`, scope: 'minute' },
