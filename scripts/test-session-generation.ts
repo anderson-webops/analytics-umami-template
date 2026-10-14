@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { POST as logoutSession } from '@/app/api/auth/logout/route';
 import { MAX_API_KEYS_PER_USER } from '@/lib/api-key-limits';
 import { checkAuth } from '@/lib/auth';
 import { hash, secret } from '@/lib/crypto';
@@ -527,6 +528,39 @@ try {
     },
   });
   assert.equal(await getUserApiKeys(userId, foreignKeyId), null);
+
+  const logoutUser = await prisma.client.user.findUniqueOrThrow({ where: { id: userId } });
+  const sessionData = {
+    userId,
+    role: logoutUser.role,
+    pwd: hash(logoutUser.password),
+    sessionGeneration: logoutUser.sessionGeneration,
+  };
+  const copiedToken = await createSecureToken(sessionData, secret(), { expiresIn: '5m' });
+  const secondDeviceToken = await createSecureToken(sessionData, secret(), { expiresIn: '6m' });
+  assert.equal((await sessionRequest(copiedToken))?.user?.id, userId);
+  assert.equal((await sessionRequest(secondDeviceToken))?.user?.id, userId);
+
+  const logoutRequest = () =>
+    new Request('http://localhost/api/auth/logout', {
+      method: 'POST',
+      headers: { origin: 'http://localhost', authorization: `Bearer ${copiedToken}` },
+    });
+  assert.equal((await logoutSession(logoutRequest())).status, 200);
+  assert.equal(await sessionRequest(copiedToken), null);
+  assert.equal(await sessionRequest(secondDeviceToken), null);
+  assert.equal((await logoutSession(logoutRequest())).status, 401);
+  assert.equal(
+    (await prisma.client.user.findUniqueOrThrow({ where: { id: userId } })).sessionGeneration,
+    logoutUser.sessionGeneration + 1,
+  );
+
+  const renewedToken = await createSecureToken(
+    { ...sessionData, sessionGeneration: logoutUser.sessionGeneration + 1 },
+    secret(),
+    { expiresIn: '5m' },
+  );
+  assert.equal((await sessionRequest(renewedToken))?.user?.id, userId);
 
   console.log('PostgreSQL session revocation and stale credential issuance denial passed.');
 } finally {
