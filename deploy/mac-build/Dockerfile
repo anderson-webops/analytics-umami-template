@@ -18,4 +18,6 @@ RUN apt-get update \
     && /usr/lib/postgresql/17/bin/postgres --version | grep -q 'PostgreSQL) 17.' \
     && bwrap --version
 
+RUN useradd --uid 501 --gid 20 --no-create-home --shell /bin/bash artifact-builder
+
 ENV PG17_BINDIR=/usr/lib/postgresql/17/bin
