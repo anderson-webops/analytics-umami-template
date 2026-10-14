@@ -4,7 +4,7 @@ import { isUuid, uuid } from '@/lib/crypto';
 import prisma from '@/lib/prisma';
 import type { QueryFilters } from '@/lib/types';
 import { hasMutableGlobalRole } from '@/permissions/mutation';
-import { runSerializable } from './authorization';
+import { lockActorRoleForMutation, runSerializable } from './authorization';
 
 import TeamUserFindManyArgs = Prisma.TeamUserFindManyArgs;
 
@@ -53,6 +53,7 @@ async function getActorState(
   teamId: string,
   actorUserId: string,
 ) {
+  await lockActorRoleForMutation(transaction, actorUserId);
   const actor = await transaction.user.findUnique({
     where: { id: actorUserId },
     select: { role: true, deletedAt: true },

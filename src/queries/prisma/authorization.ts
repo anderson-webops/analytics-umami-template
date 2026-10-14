@@ -142,6 +142,18 @@ export async function runSerializable<T>(
   throw new Error('AUTHORIZATION_RETRY_EXHAUSTED');
 }
 
+export async function lockActorRoleForMutation(
+  transaction: Prisma.TransactionClient,
+  actorUserId: string,
+) {
+  await transaction.$queryRaw`
+    SELECT user_id
+    FROM "user"
+    WHERE user_id = ${actorUserId}::uuid
+    FOR SHARE
+  `;
+}
+
 export async function getOwnedEntityForUpdate(
   transaction: Prisma.TransactionClient,
   entityType: OwnedEntityType,
@@ -184,6 +196,7 @@ export async function assertActorCanMutateEntity(
   entityId: string,
   permission: EntityMutationPermission,
 ) {
+  await lockActorRoleForMutation(transaction, actorUserId);
   const actor = await transaction.user.findFirst({
     where: {
       id: actorUserId,
@@ -238,6 +251,7 @@ export async function assertActorCanAccessEntities(
     return;
   }
 
+  await lockActorRoleForMutation(transaction, actorUserId);
   const actor = await transaction.user.findFirst({
     where: {
       id: actorUserId,
@@ -316,6 +330,7 @@ export async function assertActorCanCreateOwnedEntity(
   options: { requireGlobalCreatePermission?: boolean } = {},
 ) {
   const { requireGlobalCreatePermission = true } = options;
+  await lockActorRoleForMutation(transaction, actorUserId);
   const actor = await transaction.user.findFirst({
     where: {
       id: actorUserId,
@@ -402,7 +417,7 @@ export async function assertActorIsAdministrator(
     WHERE user_id = ${actorUserId}::uuid
       AND role = ${ROLES.admin}
       AND deleted_at IS NULL
-    FOR UPDATE
+    FOR NO KEY UPDATE
   `;
 
   if (actor.length !== 1) {

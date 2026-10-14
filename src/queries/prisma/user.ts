@@ -19,6 +19,21 @@ import UserFindManyArgs = Prisma.UserFindManyArgs;
 
 const USER_SORT_FIELDS = ['username', 'role', 'createdAt'] as const;
 
+async function requireCurrentAdministrator(
+  transaction: Prisma.TransactionClient,
+  actorUserId: string,
+) {
+  try {
+    await assertActorIsAdministrator(transaction, actorUserId);
+  } catch (error) {
+    if (error instanceof Error && error.message === 'ENTITY_ADMIN_REQUIRED') {
+      throw new Error('ADMIN_AUTHORIZATION_CHANGED');
+    }
+
+    throw error;
+  }
+}
+
 export interface GetUserOptions {
   includePassword?: boolean;
   includeSessionGeneration?: boolean;
@@ -112,18 +127,7 @@ export async function createUser(
   actorUserId: string,
 ) {
   return runSerializedUserMutation(async transaction => {
-    const actor = await transaction.user.findFirst({
-      where: {
-        id: actorUserId,
-        role: ROLES.admin,
-        deletedAt: null,
-      },
-      select: { id: true },
-    });
-
-    if (!actor) {
-      throw new Error('ADMIN_AUTHORIZATION_CHANGED');
-    }
+    await requireCurrentAdministrator(transaction, actorUserId);
 
     return transaction.user.create({
       data,
@@ -153,15 +157,7 @@ export async function updateUser(
     : runSerializedUserMutation;
 
   return runMutation(async transaction => {
-    try {
-      await assertActorIsAdministrator(transaction, actorUserId);
-    } catch (error) {
-      if (error instanceof Error && error.message === 'ENTITY_ADMIN_REQUIRED') {
-        throw new Error('ADMIN_AUTHORIZATION_CHANGED');
-      }
-
-      throw error;
-    }
+    await requireCurrentAdministrator(transaction, actorUserId);
 
     const current = await transaction.user.findUnique({
       where: { id: userId },
@@ -303,23 +299,15 @@ export async function deleteUser(userId: string, actorUserId: string) {
 
   const result = await runSerializedUserMutation(
     async transaction => {
-      const actor = await transaction.user.findFirst({
-        where: {
-          id: actorUserId,
-          role: ROLES.admin,
-          deletedAt: null,
-        },
-        select: { id: true },
-      });
-
-      if (!actor) {
-        throw new Error('ADMIN_AUTHORIZATION_CHANGED');
-      }
+      await requireCurrentAdministrator(transaction, actorUserId);
 
       if (actorUserId === userId) {
         throw new Error('ADMIN_CANNOT_DELETE_SELF');
       }
 
+      await transaction.$queryRaw`
+        SELECT user_id FROM "user" WHERE user_id = ${userId}::uuid FOR UPDATE
+      `;
       const current = await transaction.user.findUnique({
         where: { id: userId },
         select: { role: true, deletedAt: true },

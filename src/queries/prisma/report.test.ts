@@ -1,6 +1,10 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { PERMISSIONS, ROLES } from '@/lib/constants';
-import { assertActorCanMutateEntity, runSerializable } from './authorization';
+import {
+  assertActorCanMutateEntity,
+  lockActorRoleForMutation,
+  runSerializable,
+} from './authorization';
 import { deleteReport } from './report';
 
 const transaction = vi.hoisted(() => ({
@@ -11,6 +15,7 @@ const transaction = vi.hoisted(() => ({
 vi.mock('@/lib/prisma', () => ({ default: { client: { report: {} } } }));
 vi.mock('./authorization', () => ({
   assertActorCanMutateEntity: vi.fn(),
+  lockActorRoleForMutation: vi.fn(),
   runSerializable: vi.fn(async operation => operation(transaction)),
 }));
 
@@ -39,6 +44,7 @@ test('deleteReport denies a report author whose website delete permission was re
     PERMISSIONS.websiteDelete,
   );
   expect(transaction.report.delete).not.toHaveBeenCalled();
+  expect(lockActorRoleForMutation).toHaveBeenCalledWith(transaction, 'author-1');
 });
 
 test('deleteReport permits an author with current website delete permission', async () => {

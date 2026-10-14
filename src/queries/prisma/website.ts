@@ -14,6 +14,7 @@ import {
   assertActorCanMutateEntity,
   assertActorIsAdministrator,
   assertEntityIdAvailable,
+  lockActorRoleForMutation,
   runSerializable,
 } from './authorization';
 import { lockCollectionSources } from './collection';
@@ -255,6 +256,7 @@ export async function updateWebsite(
 ) {
   const { removeShares, replayConfig } = options;
   const result = await runSerializable(async transaction => {
+    await lockActorRoleForMutation(transaction, actorUserId);
     await lockCollectionSources(transaction, [websiteId]);
 
     await assertActorCanMutateEntity(
@@ -334,8 +336,8 @@ export async function transferWebsiteByActor(
   actorUserId: string,
 ) {
   const website = await runSerializable(async transaction => {
+    await lockActorRoleForMutation(transaction, actorUserId);
     await lockCollectionSources(transaction, [websiteId]);
-
     const actor = await transaction.user.findFirst({
       where: {
         id: actorUserId,
@@ -470,6 +472,7 @@ export async function transferWebsiteByActor(
 export async function resetWebsite(websiteId: string, actorUserId: string) {
   return runSerializable(
     async tx => {
+      await lockActorRoleForMutation(tx, actorUserId);
       await lockCollectionSources(tx, [websiteId]);
 
       await assertActorCanMutateEntity(
@@ -509,6 +512,7 @@ export async function deleteWebsite(websiteId: string, actorUserId: string) {
 
   return runSerializable(
     async tx => {
+      await lockActorRoleForMutation(tx, actorUserId);
       await lockCollectionSources(tx, [websiteId]);
 
       await assertActorCanMutateEntity(

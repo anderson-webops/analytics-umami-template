@@ -56,7 +56,7 @@ test('sets global policy only after current administrator revalidation', async (
     timeout: 30_000,
   });
   expect(prismaMock.client.$queryRaw).toHaveBeenCalledTimes(2);
-  expect(prismaMock.client.$queryRaw.mock.calls[1][0].join('')).toContain('FOR UPDATE');
+  expect(prismaMock.client.$queryRaw.mock.calls[1][0].join('')).toContain('FOR NO KEY UPDATE');
   expect(prismaMock.client.appSetting.upsert).toHaveBeenCalledWith({
     where: { key: 'twoFactorRequiredGlobal' },
     update: { value: 'false' },

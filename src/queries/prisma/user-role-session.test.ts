@@ -1,11 +1,12 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { hasCurrentSessionGeneration } from '@/lib/session-generation';
-import { updateUser } from './user';
+import { createUser, deleteUser, updateUser } from './user';
 
 const { state, transaction, runSerialized, runRevocation, assertAdmin } = vi.hoisted(() => {
   const state = { role: 'user', sessionGeneration: 0 };
   const transaction = {
     user: {
+      create: vi.fn(),
       findUnique: vi.fn(),
       count: vi.fn(),
       update: vi.fn(),
@@ -36,6 +37,7 @@ beforeEach(() => {
     role: state.role,
     deletedAt: null,
   }));
+  transaction.user.create.mockReset();
   transaction.user.count.mockReset().mockResolvedValue(2);
   transaction.user.update.mockReset().mockImplementation(async ({ data }) => {
     if (data.role) {
@@ -100,5 +102,26 @@ test('the last active administrator cannot be demoted', async () => {
   await expect(updateUser('user-1', { role: 'user' }, 'admin-1')).rejects.toThrow(
     'LAST_ACTIVE_ADMIN',
   );
+  expect(transaction.user.update).not.toHaveBeenCalled();
+});
+
+test('user creation requires the locked current administrator check', async () => {
+  assertAdmin.mockRejectedValue(new Error('ENTITY_ADMIN_REQUIRED'));
+
+  await expect(
+    createUser(
+      { id: 'user-2', username: 'second', password: 'synthetic', role: 'user' },
+      'admin-1',
+    ),
+  ).rejects.toThrow('ADMIN_AUTHORIZATION_CHANGED');
+  expect(assertAdmin).toHaveBeenCalledWith(transaction, 'admin-1');
+  expect(transaction.user.create).not.toHaveBeenCalled();
+});
+
+test('user deletion requires the locked current administrator check', async () => {
+  assertAdmin.mockRejectedValue(new Error('ENTITY_ADMIN_REQUIRED'));
+
+  await expect(deleteUser('user-1', 'admin-1')).rejects.toThrow('ADMIN_AUTHORIZATION_CHANGED');
+  expect(assertAdmin).toHaveBeenCalledWith(transaction, 'admin-1');
   expect(transaction.user.update).not.toHaveBeenCalled();
 });

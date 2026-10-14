@@ -2,14 +2,21 @@ import { beforeEach, expect, test, vi } from 'vitest';
 import { ROLES } from '@/lib/constants';
 import { createTeam } from './team';
 
-const { transactionMock, userFindFirstMock, teamCountMock, teamCreateMock, teamUserCreateMock } =
-  vi.hoisted(() => ({
-    transactionMock: vi.fn(),
-    userFindFirstMock: vi.fn(),
-    teamCountMock: vi.fn(),
-    teamCreateMock: vi.fn(),
-    teamUserCreateMock: vi.fn(),
-  }));
+const {
+  transactionMock,
+  queryRawMock,
+  userFindFirstMock,
+  teamCountMock,
+  teamCreateMock,
+  teamUserCreateMock,
+} = vi.hoisted(() => ({
+  transactionMock: vi.fn(),
+  queryRawMock: vi.fn(),
+  userFindFirstMock: vi.fn(),
+  teamCountMock: vi.fn(),
+  teamCreateMock: vi.fn(),
+  teamUserCreateMock: vi.fn(),
+}));
 
 vi.mock('@/lib/prisma', () => ({
   default: { transaction: transactionMock },
@@ -21,12 +28,14 @@ const team = { id: teamId, name: 'Analytics' };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  queryRawMock.mockResolvedValue([]);
   userFindFirstMock.mockResolvedValue({ role: ROLES.user });
   teamCountMock.mockResolvedValue(9);
   teamCreateMock.mockResolvedValue(team);
   teamUserCreateMock.mockResolvedValue({ id: 'membership-1' });
   transactionMock.mockImplementation(async callback =>
     callback({
+      $queryRaw: queryRawMock,
       user: { findFirst: userFindFirstMock },
       team: { count: teamCountMock, create: teamCreateMock },
       teamUser: { create: teamUserCreateMock },
@@ -63,6 +72,7 @@ test('a serialization conflict rechecks the quota before retry insertion', async
   teamCountMock.mockResolvedValueOnce(9).mockResolvedValueOnce(10);
   transactionMock.mockImplementation(async callback => {
     const result = await callback({
+      $queryRaw: queryRawMock,
       user: { findFirst: userFindFirstMock },
       team: { count: teamCountMock, create: teamCreateMock },
       teamUser: { create: teamUserCreateMock },
@@ -88,4 +98,19 @@ test('unlimited and self-hosted team creation do not count owned teams', async (
 test('an invalid finite quota fails closed before starting a transaction', async () => {
   await expect(createTeam(team, ownerId, ownerId, -1)).rejects.toThrow('TEAM_LIMIT_INVALID');
   expect(transactionMock).not.toHaveBeenCalled();
+});
+
+test('delegated team creation locks only the acting administrator, not the owner', async () => {
+  const administratorId = '6983ec3f-799f-4be7-b536-a803879054af';
+  userFindFirstMock
+    .mockResolvedValueOnce({ role: ROLES.admin })
+    .mockResolvedValueOnce({ role: ROLES.user });
+
+  await expect(createTeam(team, ownerId, administratorId, null)).resolves.toEqual(team);
+
+  expect(queryRawMock).toHaveBeenCalledOnce();
+  expect(queryRawMock.mock.calls[0][1]).toBe(administratorId);
+  expect(queryRawMock.mock.invocationCallOrder[0]).toBeLessThan(
+    userFindFirstMock.mock.invocationCallOrder[0],
+  );
 });

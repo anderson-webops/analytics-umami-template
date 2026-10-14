@@ -3,7 +3,11 @@ import { PERMISSIONS, ROLES } from '@/lib/constants';
 import { isUuid } from '@/lib/crypto';
 import prisma from '@/lib/prisma';
 import type { QueryFilters } from '@/lib/types';
-import { assertActorCanMutateEntity, runSerializable } from './authorization';
+import {
+  assertActorCanMutateEntity,
+  lockActorRoleForMutation,
+  runSerializable,
+} from './authorization';
 
 import ReportFindManyArgs = Prisma.ReportFindManyArgs;
 
@@ -116,6 +120,7 @@ export async function updateReport(
   actorUserId: string,
 ) {
   return runSerializable(async transaction => {
+    await lockActorRoleForMutation(transaction, actorUserId);
     const actor = await transaction.user.findFirst({
       where: {
         id: actorUserId,
@@ -184,6 +189,7 @@ export async function updateReport(
 
 export async function deleteReport(reportId: string, actorUserId: string) {
   return runSerializable(async transaction => {
+    await lockActorRoleForMutation(transaction, actorUserId);
     const actor = await transaction.user.findFirst({
       where: {
         id: actorUserId,

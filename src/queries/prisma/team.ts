@@ -8,7 +8,7 @@ import { sanitizeSortFilters } from '@/lib/sort';
 import type { PageResult, QueryFilters } from '@/lib/types';
 import { hasMutableGlobalRole } from '@/permissions/mutation';
 import { deleteClickhouseCollectionSources } from '@/queries/sql/deleteCollectionSources';
-import { runSerializable } from './authorization';
+import { lockActorRoleForMutation, runSerializable } from './authorization';
 import { lockCollectionSources } from './collection';
 
 import TeamFindManyArgs = Prisma.TeamFindManyArgs;
@@ -215,6 +215,7 @@ export async function createTeam(
   }
 
   return runSerializable(async transaction => {
+    await lockActorRoleForMutation(transaction, actorUserId);
     const actor = await getActiveUserRole(transaction, actorUserId);
     const owner = await getActiveUserRole(transaction, ownerUserId);
 
@@ -265,6 +266,7 @@ export async function updateTeam(
   actorUserId: string,
 ): Promise<Team> {
   return runSerializable(async transaction => {
+    await lockActorRoleForMutation(transaction, actorUserId);
     const actor = await getActiveUserRole(transaction, actorUserId);
     const team = await transaction.team.findFirst({
       where: {
@@ -317,6 +319,7 @@ export async function deleteTeam(teamId: string, actorUserId: string) {
 
   const result = await runSerializable(
     async transaction => {
+      await lockActorRoleForMutation(transaction, actorUserId);
       const actor = await getActiveUserRole(transaction, actorUserId);
       const team = await transaction.team.findFirst({
         where: {

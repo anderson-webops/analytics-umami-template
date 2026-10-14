@@ -69,7 +69,7 @@ test('deletes a session only after checking the actor inside a serializable tran
   expect(client.user.findFirst.mock.invocationCallOrder[0]).toBeLessThan(
     client.session.findFirst.mock.invocationCallOrder[0],
   );
-  expect(client.$queryRaw).toHaveBeenCalledTimes(2);
+  expect(client.$queryRaw).toHaveBeenCalledTimes(3);
   expect(client.$queryRaw.mock.invocationCallOrder[1]).toBeLessThan(
     client.user.findFirst.mock.invocationCallOrder[0],
   );
@@ -101,7 +101,7 @@ test('preserves session deletion for a team member with website-delete permissio
     },
     select: { role: true },
   });
-  expect(client.$queryRaw).toHaveBeenCalledTimes(4);
+  expect(client.$queryRaw).toHaveBeenCalledTimes(5);
   expect(client.session.delete).toHaveBeenCalledOnce();
 });
 

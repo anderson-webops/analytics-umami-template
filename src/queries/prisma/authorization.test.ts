@@ -14,6 +14,7 @@ const {
   assertActorCanAccessEntities,
   assertActorCanCreateOwnedEntity,
   assertActorCanMutateEntity,
+  lockActorRoleForMutation,
   runAuthorizedAdministratorMutation,
   runSerializable,
   runSerializedUserMutation,
@@ -29,7 +30,9 @@ describe('transactional mutation authorization after role changes', () => {
   const teamUserFindFirst = vi.fn();
   const teamUserFindMany = vi.fn();
   const teamFindFirst = vi.fn();
+  const queryRaw = vi.fn();
   const client = {
+    $queryRaw: queryRaw,
     user: { findFirst: userFindFirst },
     website: { findFirst: websiteFindFirst },
     teamUser: { findFirst: teamUserFindFirst, findMany: teamUserFindMany },
@@ -38,6 +41,7 @@ describe('transactional mutation authorization after role changes', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    queryRaw.mockResolvedValue([{ user_id: actorId }]);
     userFindFirst.mockResolvedValue({ role: ROLES.user });
     websiteFindFirst.mockResolvedValue({ id: entityId, userId: actorId, teamId: null });
     teamUserFindFirst.mockResolvedValue({ role: ROLES.teamManager });
@@ -55,6 +59,10 @@ describe('transactional mutation authorization after role changes', () => {
     await expect(
       assertActorCanMutateEntity(client, actorId, 'website', entityId, PERMISSIONS.websiteUpdate),
     ).rejects.toThrow('ENTITY_ACTOR_NOT_AUTHORIZED');
+    expect(queryRaw.mock.calls[0][0].join('')).toContain('FOR SHARE');
+    expect(queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      userFindFirst.mock.invocationCallOrder[0],
+    );
   });
 
   test('retains owner, team-manager, and administrator mutations for mutable roles', async () => {
@@ -157,6 +165,7 @@ describe('share mutation after global role demotion', () => {
   const shareCreate = vi.fn();
   const userFindFirst = vi.fn();
   const client = {
+    $queryRaw: vi.fn().mockResolvedValue([{ user_id: actorId }]),
     user: { findFirst: userFindFirst },
     website: {
       findFirst: vi.fn().mockResolvedValue({ id: websiteId, userId: actorId, teamId: null }),
@@ -195,6 +204,20 @@ describe('share mutation after global role demotion', () => {
     await expect(createShare(shareData, actorId)).resolves.toMatchObject({ id: 'share-1' });
     expect(shareCreate).toHaveBeenCalledOnce();
   });
+});
+
+test('actor role lock is scoped to the current user row', async () => {
+  const queryRaw = vi.fn().mockResolvedValue([{ user_id: 'actor-1' }]);
+
+  await lockActorRoleForMutation(
+    { $queryRaw: queryRaw } as unknown as Prisma.TransactionClient,
+    'actor-1',
+  );
+
+  expect(queryRaw).toHaveBeenCalledOnce();
+  expect(queryRaw.mock.calls[0][0].join('')).toContain('WHERE user_id = ');
+  expect(queryRaw.mock.calls[0][0].join('')).toContain('FOR SHARE');
+  expect(queryRaw.mock.calls[0][1]).toBe('actor-1');
 });
 
 function serializationConflict() {
@@ -359,7 +382,7 @@ describe('runAuthorizedAdministratorMutation', () => {
 
     await expect(runAuthorizedAdministratorMutation('admin-1', operation)).resolves.toBe('updated');
     expect(queryRaw).toHaveBeenCalledTimes(2);
-    expect(queryRaw.mock.calls[1][0].join('')).toContain('FOR UPDATE');
+    expect(queryRaw.mock.calls[1][0].join('')).toContain('FOR NO KEY UPDATE');
     expect(queryRaw.mock.invocationCallOrder[0]).toBeLessThan(queryRaw.mock.invocationCallOrder[1]);
     expect(queryRaw.mock.invocationCallOrder[1]).toBeLessThan(
       operation.mock.invocationCallOrder[0],

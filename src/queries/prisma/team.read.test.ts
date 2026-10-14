@@ -52,6 +52,7 @@ beforeEach(() => {
   transactionMock.mockReset();
   transactionMock.mockImplementation(async callback =>
     callback({
+      $queryRaw: vi.fn().mockResolvedValue([]),
       user: { findFirst: userFindFirstMock },
       team: { findFirst: teamFindFirstMock, update: teamUpdateMock },
       teamUser: { findFirst: membershipFindFirstMock },
