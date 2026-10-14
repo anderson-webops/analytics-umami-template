@@ -64,6 +64,25 @@ if [[ "${1:-}" == --session-data-bulk ]]; then
   ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-session-data-bulk.ts
   exit 0
 fi
+if [[ "${1:-}" == --session-link-admission ]]; then
+  "$pg_bin/psql" -h 127.0.0.1 -p "$port" -U restore_test -d postgres \
+    -v ON_ERROR_STOP=1 -f prisma/migrations/21_add_session_link/migration.sql >/dev/null
+  ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null \
+    node --import tsx scripts/test-session-link-admission.ts
+  exit 0
+fi
+if [[ "${1:-}" == --session-link-cross-store ]]; then
+  if [[ -z "${CLICKHOUSE_TEST_URL:-}" ]]; then
+    echo 'CLICKHOUSE_TEST_URL is required for cross-store testing.' >&2
+    exit 1
+  fi
+  export CLICKHOUSE_URL="$CLICKHOUSE_TEST_URL"
+  "$pg_bin/psql" -h 127.0.0.1 -p "$port" -U restore_test -d postgres \
+    -v ON_ERROR_STOP=1 -f prisma/migrations/21_add_session_link/migration.sql >/dev/null
+  ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null \
+    node --import tsx scripts/test-session-link-cross-store.ts
+  exit 0
+fi
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node scripts/test-postgres-restore.mjs "$@"
 pnpm run db:migrate
 run_two_factor_state_races
@@ -72,6 +91,8 @@ ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null REDIS_URL='' CLO
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null REDIS_URL='' CLOUD_MODE='' \
   node --conditions=react-server --import tsx scripts/test-role-revocation-race.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-session-data-bulk.ts
+ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null \
+  node --import tsx scripts/test-session-link-admission.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-heatmap-budget.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-replay-retention.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-recorder-budget-retention.ts

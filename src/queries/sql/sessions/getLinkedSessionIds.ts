@@ -18,7 +18,7 @@ export async function getLinkedSessionIds(
 
   return runQuery({
     [PRISMA]: () => relationalQuery(...args),
-    [CLICKHOUSE]: () => clickhouseQuery(...args),
+    [CLICKHOUSE]: () => getLegacyLinkedSessionIds(...args),
   });
 }
 
@@ -42,7 +42,11 @@ async function relationalQuery(websiteId: string, distinctId: string, rowLimit: 
   );
 }
 
-async function clickhouseQuery(websiteId: string, distinctId: string, rowLimit: number) {
+export async function getLegacyLinkedSessionIds(
+  websiteId: string,
+  distinctId: string,
+  rowLimit: number,
+): Promise<{ sessionId: string; createdAt: string }[]> {
   const { rawQuery } = clickhouse;
 
   return rawQuery(

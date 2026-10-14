@@ -1,6 +1,7 @@
 import { endOfMonth, startOfMonth } from 'date-fns';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { getQueryFilters, parseRequest } from '@/lib/request';
+import { MAX_AUTH_SESSION_ROWS } from '@/lib/share-query-budget';
 import { canViewWebsiteSection } from '@/permissions';
 import {
   getLinkedDistinctIds,
@@ -191,6 +192,31 @@ test('uses the existing session identity when there are no link rows', async () 
 
   expect(response.status).toBe(200);
   expect(getLinkedSessionIdsMock).toHaveBeenCalledWith(WEBSITE_ID, 'bob@aol.com', 2001);
+  expect(getSessionActivityMock).toHaveBeenCalledWith(WEBSITE_ID, [SESSION_ID], {});
+});
+
+test('an unadmitted session at the identity cap reads only its own activity', async () => {
+  parseRequestMock.mockResolvedValue({
+    auth: { user: { id: `activity-user-${crypto.randomUUID()}` } },
+    query: { startAt: 1, endAt: 2, distinctId: 'bob@aol.com' },
+    error: undefined,
+  });
+  canViewWebsiteSectionMock.mockResolvedValue(true);
+  getLinkedDistinctIdsMock.mockResolvedValue([]);
+  getLinkedSessionIdsMock.mockResolvedValue(
+    Array.from({ length: MAX_AUTH_SESSION_ROWS }, (_, index) => ({
+      sessionId: `00000000-0000-4000-8000-${(index + 10).toString().padStart(12, '0')}`,
+      createdAt: '2026-01-01T00:00:00.000Z',
+    })),
+  );
+  getQueryFiltersMock.mockResolvedValue({});
+  getSessionActivityMock.mockResolvedValue([]);
+
+  const response = await GET(new Request('http://localhost'), {
+    params: Promise.resolve({ websiteId: WEBSITE_ID, sessionId: SESSION_ID }),
+  });
+
+  expect(response.status).toBe(200);
   expect(getSessionActivityMock).toHaveBeenCalledWith(WEBSITE_ID, [SESSION_ID], {});
 });
 

@@ -1,6 +1,7 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { isRelationalOnly } from '@/lib/db';
 import { parseRequest } from '@/lib/request';
+import { MAX_SHARE_SESSION_ROWS } from '@/lib/share-query-budget';
 import { canDeleteWebsite, canViewWebsiteSection } from '@/permissions';
 import { deleteSession } from '@/queries/prisma';
 import { getLinkedDistinctIds, getLinkedSessionIds, getWebsiteSession } from '@/queries/sql';
@@ -129,6 +130,41 @@ test('GET does not stitch a session with multiple linked identities', async () =
   expect(body).not.toHaveProperty('distinctId');
   expect(getLinkedSessionIdsMock).not.toHaveBeenCalled();
 });
+
+test.each([
+  [MAX_SHARE_SESSION_ROWS - 1, MAX_SHARE_SESSION_ROWS],
+  [MAX_SHARE_SESSION_ROWS, 1],
+])(
+  'GET keeps an unlinked public-share session readable with %i older identity links',
+  async (olderLinks, expectedCount) => {
+    parseRequestMock.mockResolvedValue({
+      auth: { shareToken: { shareId: 'share-1' } },
+      error: undefined,
+    });
+    canViewWebsiteSectionMock.mockResolvedValue(true);
+    isRelationalOnlyMock.mockReturnValue(false);
+    getWebsiteSessionMock.mockResolvedValue({ id: SESSION_ID, distinctId: 'distinct-1' });
+    getLinkedDistinctIdsMock.mockResolvedValue([]);
+    getLinkedSessionIdsMock.mockResolvedValue(
+      Array.from({ length: olderLinks }, (_, index) => ({
+        sessionId: `00000000-0000-4000-8000-${(index + 10).toString().padStart(12, '0')}`,
+        createdAt: '2026-01-01T00:00:00.000Z',
+      })),
+    );
+
+    const response = await GET(
+      new Request(`http://localhost/api/websites/${WEBSITE_ID}/sessions/${SESSION_ID}`),
+      { params: Promise.resolve({ websiteId: WEBSITE_ID, sessionId: SESSION_ID }) },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      id: SESSION_ID,
+      distinctId: 'distinct-1',
+      stitchedSessionCount: expectedCount,
+    });
+  },
+);
 
 test.each(['distinct identities', 'linked sessions'])(
   'GET rejects a ClickHouse read cap on %s without returning partial identity data',

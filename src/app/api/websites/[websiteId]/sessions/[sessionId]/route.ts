@@ -79,12 +79,18 @@ export async function GET(
       links = await getLinkedSessionIds(websiteId, distinctId, queryLimit);
     } catch (error) {
       if (isClickHouseReadLimitError(error)) {
-        return tooLarge();
+        if (linkedDistinctIds.length) {
+          return tooLarge();
+        }
+        links = [];
+      } else {
+        throw error;
       }
-      throw error;
     }
 
-    if (links.length >= queryLimit) {
+    if (linkedDistinctIds.length === 0 && links.length >= rowLimit) {
+      links = [];
+    } else if (links.length >= queryLimit) {
       return tooLarge();
     }
 

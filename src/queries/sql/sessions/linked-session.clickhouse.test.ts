@@ -1,8 +1,8 @@
 import { createClient } from '@clickhouse/client';
 import { expect, test } from 'vitest';
 import clickhouse from '@/lib/clickhouse';
-import { getLinkedDistinctIds } from './getLinkedDistinctIds';
-import { getLinkedSessionIds } from './getLinkedSessionIds';
+import { getLegacyLinkedDistinctIds } from './getLinkedDistinctIds';
+import { getLegacyLinkedSessionIds } from './getLinkedSessionIds';
 
 const integrationTest = process.env.CLICKHOUSE_TEST_URL ? test : test.skip;
 
@@ -45,8 +45,8 @@ integrationTest(
         ],
       });
 
-      expect(await getLinkedDistinctIds(websiteId, sessionId, 2)).toEqual(['visitor-1']);
-      const links = await getLinkedSessionIds(websiteId, 'visitor-1', 501);
+      expect(await getLegacyLinkedDistinctIds(websiteId, sessionId, 2)).toEqual(['visitor-1']);
+      const links = await getLegacyLinkedSessionIds(websiteId, 'visitor-1', 501);
       expect(new Set(links.map(link => link.sessionId))).toEqual(
         new Set([sessionId, linkedSessionId]),
       );

@@ -150,6 +150,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: umami_event_series_test
+          POSTGRES_USER: umami
+          POSTGRES_PASSWORD: umami
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U umami -d umami_event_series_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
       clickhouse:
         image: clickhouse/clickhouse-server:25.8
         env:
@@ -164,7 +177,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      DATABASE_URL: postgresql://umami:synthetic@127.0.0.1:5432/umami?schema=public
+      DATABASE_URL: postgresql://umami:umami@127.0.0.1:5432/umami_event_series_test
       CLICKHOUSE_URL: http://umami:umami@127.0.0.1:8123/umami_event_series_test
       CLICKHOUSE_TEST_URL: http://umami:umami@127.0.0.1:8123/umami_event_series_test
 
@@ -195,6 +208,9 @@ jobs:
           pnpm exec vitest run src/queries/sql/property-series.clickhouse.test.ts
           pnpm exec vitest run src/queries/sql/heatmap/retention.clickhouse.test.ts
           pnpm exec vitest run src/queries/sql/replays/retention.clickhouse.test.ts
+          pnpm run db:migrate
+          ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null KAFKA_URL='' \
+            node --import tsx scripts/test-session-link-cross-store.ts
 
   postgres-event-series:
     name: PostgreSQL event series

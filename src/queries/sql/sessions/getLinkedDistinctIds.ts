@@ -18,7 +18,7 @@ export async function getLinkedDistinctIds(
 
   return runQuery({
     [PRISMA]: () => relationalQuery(...args),
-    [CLICKHOUSE]: () => clickhouseQuery(...args),
+    [CLICKHOUSE]: () => getLegacyLinkedDistinctIds(...args),
   });
 }
 
@@ -43,7 +43,7 @@ async function relationalQuery(
   ).then(result => (result as { distinctId: string }[]).map(({ distinctId }) => distinctId));
 }
 
-async function clickhouseQuery(
+export async function getLegacyLinkedDistinctIds(
   websiteId: string,
   sessionId: string,
   rowLimit: number,

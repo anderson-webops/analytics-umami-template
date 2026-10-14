@@ -145,12 +145,18 @@ export async function GET(
       links = await getLinkedSessionIds(websiteId, distinctIds[0], rowLimit + 1);
     } catch (error) {
       if (isClickHouseReadLimitError(error)) {
-        return tooLarge();
+        if (linkedDistinctIds.length) {
+          return tooLarge();
+        }
+        links = [];
+      } else {
+        throw error;
       }
-      throw error;
     }
 
-    if (links.length > rowLimit) {
+    if (linkedDistinctIds.length === 0 && links.length >= rowLimit) {
+      links = [];
+    } else if (links.length > rowLimit) {
       return tooLarge();
     }
 

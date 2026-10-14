@@ -14,9 +14,10 @@ import { getClientInfo, hasBlockedIp } from '@/lib/detect';
 import { createToken, parseToken } from '@/lib/jwt';
 import { fetchWebsite } from '@/lib/load';
 import { parseRequest } from '@/lib/request';
-import { reserveActiveCollectionBudget } from '@/queries/prisma';
+import { reserveActiveCollectionBudget, withActiveCollectionSource } from '@/queries/prisma';
 import {
   createSession,
+  publishSessionLink,
   saveEvent,
   saveSessionData,
   saveSessionLink,
@@ -59,6 +60,7 @@ vi.mock('@/queries/prisma', () => ({
 
 vi.mock('@/queries/sql', () => ({
   createSession: vi.fn(),
+  publishSessionLink: vi.fn(),
   saveEvent: vi.fn(),
   saveSessionData: vi.fn(),
   saveSessionLink: vi.fn(),
@@ -73,8 +75,10 @@ const createSessionMock = vi.mocked(createSession);
 const saveEventMock = vi.mocked(saveEvent);
 const saveSessionDataMock = vi.mocked(saveSessionData);
 const saveSessionLinkMock = vi.mocked(saveSessionLink);
+const publishSessionLinkMock = vi.mocked(publishSessionLink);
 const updateSessionMock = vi.mocked(updateSession);
 const reserveActiveCollectionBudgetMock = vi.mocked(reserveActiveCollectionBudget);
+const withActiveCollectionSourceMock = vi.mocked(withActiveCollectionSource);
 
 const WEBSITE_ID = '11111111-1111-4111-8111-111111111111';
 const LINK_ID = '22222222-2222-4222-8222-222222222222';
@@ -158,7 +162,8 @@ beforeEach(() => {
   createSessionMock.mockResolvedValue(undefined as any);
   saveEventMock.mockResolvedValue(undefined as any);
   saveSessionDataMock.mockResolvedValue(undefined as any);
-  saveSessionLinkMock.mockResolvedValue(undefined as any);
+  saveSessionLinkMock.mockResolvedValue(true);
+  publishSessionLinkMock.mockResolvedValue(undefined);
   updateSessionMock.mockResolvedValue(undefined as any);
   reserveActiveCollectionBudgetMock.mockResolvedValue(undefined);
 });
@@ -1088,6 +1093,36 @@ describe('identify collection', () => {
     });
   });
 
+  test('keeps collection available without claiming a link after identity history reaches its cap', async () => {
+    saveSessionLinkMock.mockResolvedValue(false);
+
+    const response = await callPOST({
+      type: 'identify',
+      payload: { website: WEBSITE_ID, id: 'user-42', data: { plan: 'pro' } },
+    });
+    const cache = await readCache(response);
+
+    expect(response.status).toBe(200);
+    expect(saveSessionLinkMock).toHaveBeenCalledTimes(1);
+    expect(updateSessionMock).not.toHaveBeenCalled();
+    expect(saveSessionDataMock).toHaveBeenCalledTimes(1);
+    expect(cache.sessionLinkId).toBeUndefined();
+  });
+
+  test('uses the active source transaction for ClickHouse link admission', async () => {
+    (clickhouse as any).enabled = true;
+
+    const response = await callPOST({
+      type: 'identify',
+      payload: { website: WEBSITE_ID, id: 'user-42', data: { plan: 'pro' } },
+    });
+
+    expect(response.status).toBe(200);
+    expect(saveSessionLinkMock.mock.calls[0][1]).toBeDefined();
+    expect(saveSessionDataMock.mock.calls[0][1]).toBeUndefined();
+    expect(publishSessionLinkMock).toHaveBeenCalledTimes(1);
+  });
+
   test('saves session data when a data payload is present', async () => {
     await callPOST({
       type: 'identify',
@@ -1099,6 +1134,68 @@ describe('identify collection', () => {
       websiteId: WEBSITE_ID,
       sessionData: { plan: 'pro' },
     });
+  });
+
+  test('publishes a ClickHouse identity only after the source transaction commits', async () => {
+    (clickhouse as any).enabled = true;
+    let committed = false;
+    withActiveCollectionSourceMock.mockImplementationOnce(async (_type, _id, operation) => {
+      const result = await operation({
+        website: { findFirst: vi.fn(async () => ({ domain: 'example.com' })) },
+      } as any);
+      committed = true;
+      return result;
+    });
+    publishSessionLinkMock.mockImplementationOnce(async () => {
+      expect(committed).toBe(true);
+    });
+
+    const response = await callPOST({
+      type: 'identify',
+      payload: { website: WEBSITE_ID, id: 'user-42' },
+    });
+    const cache = await readCache(response);
+
+    expect(response.status).toBe(200);
+    expect(cache.sessionLinkId).toBeDefined();
+    expect(updateSessionMock).not.toHaveBeenCalled();
+  });
+
+  test('a failed ClickHouse delivery keeps collection available without claiming the link', async () => {
+    (clickhouse as any).enabled = true;
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    publishSessionLinkMock.mockRejectedValueOnce(new Error('synthetic delivery failure'));
+
+    const response = await callPOST({
+      type: 'identify',
+      payload: { website: WEBSITE_ID, id: 'user-42', data: { plan: 'pro' } },
+    });
+    const cache = await readCache(response);
+
+    expect(response.status).toBe(200);
+    expect(saveSessionDataMock).toHaveBeenCalledTimes(1);
+    expect(cache.sessionLinkId).toBeUndefined();
+    consoleError.mockRestore();
+  });
+
+  test('a rolled-back source transaction never publishes a ClickHouse link', async () => {
+    (clickhouse as any).enabled = true;
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    withActiveCollectionSourceMock.mockImplementationOnce(async (_type, _id, operation) => {
+      await operation({
+        website: { findFirst: vi.fn(async () => ({ domain: 'example.com' })) },
+      } as any);
+      throw new Error('synthetic transaction rollback');
+    });
+
+    const response = await callPOST({
+      type: 'identify',
+      payload: { website: WEBSITE_ID, id: 'user-42' },
+    });
+
+    expect(response.status).toBe(500);
+    expect(publishSessionLinkMock).not.toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 
   test('skips identity writes when the cached sessionLinkId already matches', async () => {

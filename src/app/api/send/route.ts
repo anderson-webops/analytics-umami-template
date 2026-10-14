@@ -28,6 +28,7 @@ import {
 } from '@/queries/prisma';
 import {
   createSession,
+  publishSessionLink,
   saveEvent,
   saveSessionData,
   saveSessionLink,
@@ -35,6 +36,15 @@ import {
 } from '@/queries/sql';
 
 const MAX_ATTRIBUTION_VALUE_LENGTH = 255;
+function logSessionLinkError(error: unknown) {
+  const name = error instanceof Error ? error.name : typeof error;
+  const rawCode = typeof error === 'object' && error && 'code' in error ? error.code : undefined;
+  const code =
+    typeof rawCode === 'string' && /^[A-Za-z0-9_-]{1,50}$/.test(rawCode) ? rawCode : undefined;
+
+  console.error('Failed to save session link', { name, ...(code ? { code } : {}) });
+}
+
 const truncateAttributionValue = (value?: string | null) =>
   value?.slice(0, MAX_ATTRIBUTION_VALUE_LENGTH);
 const safeStringParam = (maxLength: number) =>
@@ -324,7 +334,11 @@ export async function POST(request: Request) {
       iat = now;
     }
 
-    const persistCollection = async (transaction?: Prisma.TransactionClient) => {
+    let pendingClickhouseLink: Parameters<typeof saveSessionLink>[0] | undefined;
+    const persistCollection = async (
+      sourceTransaction: Prisma.TransactionClient,
+      transaction?: Prisma.TransactionClient,
+    ) => {
       // Create a session if not found.
       if ((!clickhouse.enabled && !cache?.sessionId) || shouldEnsureSession) {
         await createSession(
@@ -469,39 +483,33 @@ export async function POST(request: Request) {
 
           if (sessionLinkId !== newLinkId) {
             try {
-              await Promise.all([
-                saveSessionLink(
-                  {
-                    websiteId,
-                    sessionId,
-                    distinctId,
-                    createdAt,
-                  },
-                  transaction,
-                ),
-                updateSession(
-                  {
-                    websiteId,
-                    sessionId,
-                    distinctId,
-                  },
-                  transaction,
-                ),
-              ]);
-              sessionLinkId = newLinkId;
-            } catch (error) {
-              const name = error instanceof Error ? error.name : typeof error;
-              const rawCode =
-                typeof error === 'object' && error && 'code' in error ? error.code : undefined;
-              const code =
-                typeof rawCode === 'string' && /^[A-Za-z0-9_-]{1,50}$/.test(rawCode)
-                  ? rawCode
-                  : undefined;
+              const linked = await saveSessionLink(
+                {
+                  websiteId,
+                  sessionId,
+                  distinctId,
+                  createdAt,
+                },
+                sourceTransaction,
+              );
 
-              console.error('Failed to save session link', {
-                name,
-                ...(code ? { code } : {}),
-              });
+              if (linked) {
+                if (clickhouse.enabled) {
+                  pendingClickhouseLink = { websiteId, sessionId, distinctId, createdAt };
+                } else {
+                  await updateSession(
+                    {
+                      websiteId,
+                      sessionId,
+                      distinctId,
+                    },
+                    transaction,
+                  );
+                  sessionLinkId = newLinkId;
+                }
+              }
+            } catch (error) {
+              logSessionLinkError(error);
             }
           }
         }
@@ -569,7 +577,7 @@ export async function POST(request: Request) {
           }
         }
 
-        await persistCollection(clickhouse.enabled ? undefined : transaction);
+        await persistCollection(transaction, clickhouse.enabled ? undefined : transaction);
       });
     } catch (error: any) {
       if (error?.message === 'COLLECTION_SOURCE_NOT_FOUND') {
@@ -577,6 +585,15 @@ export async function POST(request: Request) {
       }
 
       throw error;
+    }
+
+    if (pendingClickhouseLink) {
+      try {
+        await publishSessionLink(pendingClickhouseLink);
+        sessionLinkId = hash(pendingClickhouseLink.sessionId, pendingClickhouseLink.distinctId);
+      } catch (error) {
+        logSessionLinkError(error);
+      }
     }
 
     const token = websiteId
