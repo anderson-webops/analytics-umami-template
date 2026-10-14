@@ -99,7 +99,7 @@ elif [[ "$phase" = accept ]]; then
   as_builder pnpm run db:migrate
   as_builder env NODE_ENV=production pnpm run check:env
   as_builder env NODE_ENV=production pnpm run check:db
-  node scripts/test-runtime-artifact.mjs --release --require-isolation \
+  as_builder node scripts/test-runtime-artifact.mjs --release --require-isolation \
     --expected-commit "$RELEASE_COMMIT"
   mkdir -m 0755 /opt/anderson-sealed
   node scripts/runtime-artifact.mjs copy .next/standalone /opt/anderson-sealed/runtime \
