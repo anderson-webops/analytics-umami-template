@@ -139,6 +139,7 @@ export async function checkAuth(request: Request) {
   let mfaId: string | undefined;
   let enrollmentOnly = false;
   let sessionGeneration: unknown;
+  let passwordFingerprint: string | undefined;
   const { userId, authKey } = payload || {};
 
   if (userId) {
@@ -250,11 +251,12 @@ export async function checkAuth(request: Request) {
       includePassword: true,
       includeSessionGeneration: true,
     });
+    const currentPasswordFingerprint = currentUser ? hash(currentUser.password) : undefined;
 
     if (
       !currentUser ||
       currentUser.role !== user.role ||
-      hash(currentUser.password) !== hash(user.password) ||
+      currentPasswordFingerprint !== hash(user.password) ||
       !hasCurrentSessionGeneration(sessionGeneration, currentUser.sessionGeneration)
     ) {
       log('Session changed during authorization');
@@ -262,6 +264,7 @@ export async function checkAuth(request: Request) {
     }
 
     sessionGeneration = currentUser.sessionGeneration;
+    passwordFingerprint = currentPasswordFingerprint;
     delete user.password;
     delete user.sessionGeneration;
     user.isAdmin = user.role === ROLES.admin;
@@ -279,6 +282,7 @@ export async function checkAuth(request: Request) {
     mfaId: mfaVerified ? mfaId : undefined,
     enrollmentOnly,
     sessionGeneration: user ? sessionGeneration : undefined,
+    passwordFingerprint,
   };
 }
 

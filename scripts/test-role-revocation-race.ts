@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { PERMISSIONS, ROLES } from '@/lib/constants';
+import { hash } from '@/lib/crypto';
 import prisma from '@/lib/prisma';
 import {
   assertActorCanMutateEntity,
@@ -60,6 +61,10 @@ const releaseDemotion = deferred();
 const demotionReady = deferred();
 const releaseAdminDemotion = deferred();
 const adminDemotionReady = deferred();
+const releaseSessionRevocation = deferred();
+const sessionRevocationReady = deferred();
+const releaseMfaRequirement = deferred();
+const mfaRequirementReady = deferred();
 const releaseMemberRemoval = deferred();
 const memberRemovalReady = deferred();
 const releaseDelegatedCreation = deferred();
@@ -75,6 +80,8 @@ let demotion: Promise<unknown> | undefined;
 let contestedMutation: Promise<unknown> | undefined;
 let adminDemotion: Promise<unknown> | undefined;
 let contestedCreate: Promise<unknown> | undefined;
+let sessionRevocation: Promise<unknown> | undefined;
+let mfaRequirement: Promise<unknown> | undefined;
 let memberRemoval: Promise<unknown> | undefined;
 let accountDeletion: Promise<unknown> | undefined;
 let delegatedCreation: Promise<unknown> | undefined;
@@ -195,6 +202,10 @@ try {
   );
 
   await updateUser(actorId, { role: ROLES.admin }, administratorId);
+  const actorCredentials = await prisma.client.user.findUniqueOrThrow({
+    where: { id: actorId },
+    select: { password: true, sessionGeneration: true },
+  });
   adminDemotion = prisma.transaction(
     async transaction => {
       await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${'umami:user-mutations'}))::text`;
@@ -213,6 +224,10 @@ try {
       role: ROLES.user,
     },
     actorId,
+    {
+      sessionGeneration: actorCredentials.sessionGeneration,
+      passwordFingerprint: hash(actorCredentials.password),
+    },
   ).then(
     () => 'allowed',
     error => error,
@@ -226,6 +241,104 @@ try {
   assert.equal(await prisma.client.user.findUnique({ where: { id: createdUserId } }), null);
 
   await updateUser(actorId, { role: ROLES.admin }, administratorId);
+  const staleCredentials = await prisma.client.user.findUniqueOrThrow({
+    where: { id: actorId },
+    select: { password: true, sessionGeneration: true },
+  });
+  sessionRevocation = prisma.transaction(
+    async transaction => {
+      await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${'umami:user-mutations'}))::text`;
+      await transaction.user.update({
+        where: { id: actorId },
+        data: { sessionGeneration: { increment: 1 } },
+      });
+      sessionRevocationReady.resolve();
+      await releaseSessionRevocation.promise;
+    },
+    { isolationLevel: 'ReadCommitted', timeout: 15_000 },
+  );
+  await sessionRevocationReady.promise;
+  contestedCreate = createUser(
+    {
+      id: createdUserId,
+      username: `role-created-${createdUserId}`,
+      password: 'x'.repeat(60),
+      role: ROLES.admin,
+    },
+    actorId,
+    {
+      sessionGeneration: staleCredentials.sessionGeneration,
+      passwordFingerprint: hash(staleCredentials.password),
+    },
+  ).then(
+    () => 'allowed',
+    error => error,
+  );
+  await waitForLock('pg_advisory_xact_lock', 'advisory');
+  releaseSessionRevocation.resolve();
+  await sessionRevocation;
+  const deniedAfterRevocation = await contestedCreate;
+  assert.ok(deniedAfterRevocation instanceof Error);
+  assert.equal(deniedAfterRevocation.message, 'ADMIN_AUTHORIZATION_CHANGED');
+  assert.equal(await prisma.client.user.findUnique({ where: { id: createdUserId } }), null);
+
+  const freshCredentials = await prisma.client.user.findUniqueOrThrow({
+    where: { id: actorId },
+    select: { password: true, sessionGeneration: true },
+  });
+  mfaRequirement = prisma.transaction(
+    async transaction => {
+      await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${'umami:user-mutations'}))::text`;
+      await transaction.user.update({
+        where: { id: actorId },
+        data: { twoFactorRequired: true },
+      });
+      mfaRequirementReady.resolve();
+      await releaseMfaRequirement.promise;
+    },
+    { isolationLevel: 'ReadCommitted', timeout: 15_000 },
+  );
+  await mfaRequirementReady.promise;
+  contestedCreate = createUser(
+    {
+      id: createdUserId,
+      username: `role-created-${createdUserId}`,
+      password: 'x'.repeat(60),
+      role: ROLES.admin,
+    },
+    actorId,
+    {
+      sessionGeneration: freshCredentials.sessionGeneration,
+      passwordFingerprint: hash(freshCredentials.password),
+    },
+  ).then(
+    () => 'allowed',
+    error => error,
+  );
+  await waitForLock('pg_advisory_xact_lock', 'advisory');
+  releaseMfaRequirement.resolve();
+  await mfaRequirement;
+  const deniedAfterMfaRequirement = await contestedCreate;
+  assert.ok(deniedAfterMfaRequirement instanceof Error);
+  assert.equal(deniedAfterMfaRequirement.message, 'ADMIN_AUTHORIZATION_CHANGED');
+  assert.equal(await prisma.client.user.findUnique({ where: { id: createdUserId } }), null);
+
+  await updateUser(actorId, { twoFactorRequired: false }, administratorId);
+  await createUser(
+    {
+      id: createdUserId,
+      username: `role-created-${createdUserId}`,
+      password: 'x'.repeat(60),
+      role: ROLES.user,
+    },
+    actorId,
+    {
+      sessionGeneration: freshCredentials.sessionGeneration,
+      passwordFingerprint: hash(freshCredentials.password),
+    },
+  );
+  assert.ok(await prisma.client.user.findUnique({ where: { id: createdUserId } }));
+
   delegatedCreation = runSerializable(async transaction => {
     await lockActorRoleForMutation(transaction, actorId);
     delegatedCreationReady.resolve();
@@ -376,6 +489,8 @@ try {
   releaseActorMutation.resolve();
   releaseDemotion.resolve();
   releaseAdminDemotion.resolve();
+  releaseSessionRevocation.resolve();
+  releaseMfaRequirement.resolve();
   releaseMemberRemoval.resolve();
   releaseTeamMutation.resolve();
   releaseTeamDemotion.resolve();
@@ -387,6 +502,8 @@ try {
       contestedMutation,
       adminDemotion,
       contestedCreate,
+      sessionRevocation,
+      mfaRequirement,
       memberRemoval,
       accountDeletion,
       delegatedCreation,

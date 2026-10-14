@@ -1,6 +1,7 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import redis from '@/lib/redis';
 import { parseRequest } from '@/lib/request';
+import { runCredentialRevocationMutation } from '@/queries/prisma/authorization';
 import { revokeStatelessSessions } from '@/queries/prisma/user';
 import { POST } from './route';
 
@@ -20,6 +21,9 @@ vi.mock('@/lib/request', () => ({
 vi.mock('@/queries/prisma/user', () => ({
   revokeStatelessSessions: vi.fn(),
 }));
+vi.mock('@/queries/prisma/authorization', () => ({
+  runCredentialRevocationMutation: vi.fn(),
+}));
 
 vi.mock('@/lib/response', () => ({
   ok: () => new Response(null, { status: 200 }),
@@ -34,12 +38,14 @@ const redisMock = redis as unknown as {
 };
 const parseRequestMock = vi.mocked(parseRequest);
 const revokeStatelessSessionsMock = vi.mocked(revokeStatelessSessions);
+const runRevocationMock = vi.mocked(runCredentialRevocationMutation);
 
 beforeEach(() => {
   redisMock.enabled = true;
   redisMock.client.del.mockReset();
   parseRequestMock.mockReset();
   revokeStatelessSessionsMock.mockReset();
+  runRevocationMock.mockReset().mockImplementation(callback => callback({} as never));
 });
 
 test('POST deletes the authenticated Redis auth key', async () => {
@@ -60,6 +66,7 @@ test('POST deletes the authenticated Redis auth key', async () => {
   expect(redisMock.client.del).toHaveBeenCalledTimes(1);
   expect(redisMock.client.del).toHaveBeenCalledWith('auth:session-key');
   expect(redisMock.client.del).not.toHaveBeenCalledWith('secure-token');
+  expect(runRevocationMock).toHaveBeenCalledOnce();
   expect(revokeStatelessSessionsMock).not.toHaveBeenCalled();
   expect(response.status).toBe(200);
   expect(response.headers.get('set-cookie')).toContain('Max-Age=0');

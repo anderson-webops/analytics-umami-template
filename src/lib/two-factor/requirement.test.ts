@@ -63,3 +63,21 @@ test('does not invent a requirement when no policy applies', async () => {
     globalRequired: false,
   });
 });
+
+test('checks an MFA requirement through the supplied mutation transaction', async () => {
+  const transaction = {
+    appSetting: { findUnique: vi.fn().mockResolvedValue(null) },
+    user: { findUnique: vi.fn().mockResolvedValue({ twoFactorRequired: true }) },
+    teamUser: { findMany: vi.fn() },
+    team: { findMany: vi.fn() },
+  };
+
+  expect(await getTwoFactorRequirement('user-1', transaction as never)).toMatchObject({
+    reason: 'user',
+  });
+  expect(transaction.user.findUnique).toHaveBeenCalledWith({
+    where: { id: 'user-1' },
+    select: { twoFactorRequired: true },
+  });
+  expect(mocks.primary).not.toHaveBeenCalled();
+});

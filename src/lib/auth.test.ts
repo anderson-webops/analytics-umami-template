@@ -630,6 +630,12 @@ describe('checkAuth password fingerprint', () => {
     const result = await checkAuth(authedRequest());
 
     expect(result?.user?.id).toBe('user-1');
+    expect(result?.authType).toBe('session');
+    if (result?.authType !== 'session') {
+      throw new Error('Expected a session');
+    }
+    expect(result?.passwordFingerprint).toBe(hash(PASSWORD_HASH));
+    expect(result?.sessionGeneration).toBe(0);
   });
 
   test('rejects a legacy stateless token that does not include a password fingerprint', async () => {

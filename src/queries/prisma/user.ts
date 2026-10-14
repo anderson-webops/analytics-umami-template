@@ -1,11 +1,13 @@
 import { Prisma } from '@/generated/prisma/client';
 import { ROLES } from '@/lib/constants';
-import { isUuid } from '@/lib/crypto';
+import { hash, isUuid } from '@/lib/crypto';
 import { isEnvEnabled } from '@/lib/env';
 import { getRandomChars } from '@/lib/generate';
 import prisma from '@/lib/prisma';
 import redis from '@/lib/redis';
+import { hasCurrentSessionGeneration } from '@/lib/session-generation';
 import { sanitizeSortFilters } from '@/lib/sort';
+import { getTwoFactorRequirement } from '@/lib/two-factor/requirement';
 import type { QueryFilters, Role } from '@/lib/types';
 import { deleteClickhouseCollectionSources } from '@/queries/sql/deleteCollectionSources';
 import {
@@ -125,9 +127,70 @@ export async function createUser(
     role: Role;
   },
   actorUserId: string,
+  session: {
+    sessionGeneration: number;
+    passwordFingerprint: string;
+    mfaId?: string;
+    authKey?: string;
+  },
 ) {
   return runSerializedUserMutation(async transaction => {
     await requireCurrentAdministrator(transaction, actorUserId);
+
+    if (
+      !session ||
+      !Number.isSafeInteger(session.sessionGeneration) ||
+      session.sessionGeneration < 0 ||
+      typeof session.passwordFingerprint !== 'string'
+    ) {
+      throw new Error('ADMIN_AUTHORIZATION_CHANGED');
+    }
+
+    const actor = await transaction.user.findUnique({
+      where: { id: actorUserId },
+      select: { password: true, sessionGeneration: true },
+    });
+    const enforceLocalMfa = !isEnvEnabled('CLOUD_MODE');
+    const factor = enforceLocalMfa
+      ? await transaction.twoFactorAuth.findUnique({
+          where: { userId: actorUserId },
+          select: { id: true, isEnabled: true },
+        })
+      : null;
+    const currentMfaId = factor?.isEnabled ? factor.id : undefined;
+    const enrollmentRequired =
+      enforceLocalMfa &&
+      !currentMfaId &&
+      (await getTwoFactorRequirement(actorUserId, transaction)).reason !== null;
+    const redisSession =
+      redis.enabled && session.authKey ? await redis.client.get(session.authKey) : null;
+
+    if (
+      !actor ||
+      actor.sessionGeneration !== session.sessionGeneration ||
+      hash(actor.password) !== session.passwordFingerprint ||
+      (enforceLocalMfa && (currentMfaId !== session.mfaId || enrollmentRequired)) ||
+      (redis.enabled &&
+        session.authKey &&
+        (redisSession?.userId !== actorUserId ||
+          redisSession.role !== ROLES.admin ||
+          redisSession.pwd !== session.passwordFingerprint ||
+          !hasCurrentSessionGeneration(redisSession.sessionGeneration, session.sessionGeneration) ||
+          (enforceLocalMfa &&
+            currentMfaId &&
+            (redisSession.mfa !== true || redisSession.mfaId !== currentMfaId))))
+    ) {
+      throw new Error('ADMIN_AUTHORIZATION_CHANGED');
+    }
+
+    const existingUser = await transaction.user.findUnique({
+      where: { username: data.username },
+      select: { id: true },
+    });
+
+    if (existingUser) {
+      throw new Error('USER_ALREADY_EXISTS');
+    }
 
     return transaction.user.create({
       data,

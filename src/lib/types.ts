@@ -27,6 +27,10 @@ export interface Auth {
   };
   /** How the request was authenticated. Undefined for legacy callers that build Auth manually. */
   authType?: AuthType;
+  authKey?: string;
+  sessionGeneration?: number;
+  passwordFingerprint?: string;
+  mfaId?: string;
   shareToken?: {
     shareId?: string;
     shareType?: number;

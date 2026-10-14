@@ -6,7 +6,7 @@ import { parseRequest } from '@/lib/request';
 import { badRequest, json, unauthorized } from '@/lib/response';
 import { passwordParam, userRoleParam } from '@/lib/schema';
 import { canCreateUser } from '@/permissions';
-import { createUser, getUserByUsername } from '@/queries/prisma';
+import { createUser } from '@/queries/prisma';
 
 export async function POST(request: Request) {
   const schema = z.object({
@@ -28,12 +28,6 @@ export async function POST(request: Request) {
 
   const { id, username, password, role } = body;
 
-  const existingUser = await getUserByUsername(username, { showDeleted: true });
-
-  if (existingUser) {
-    return badRequest({ message: 'User already exists' });
-  }
-
   let user;
 
   try {
@@ -45,13 +39,19 @@ export async function POST(request: Request) {
         role: role ?? ROLES.user,
       },
       auth.user.id,
+      {
+        sessionGeneration: auth.sessionGeneration,
+        passwordFingerprint: auth.passwordFingerprint,
+        mfaId: auth.mfaId,
+        authKey: auth.authKey,
+      },
     );
   } catch (error: any) {
     if (error?.message === 'ADMIN_AUTHORIZATION_CHANGED') {
       return unauthorized({ message: 'Your administrator permission changed.' });
     }
 
-    if (error?.code === 'P2002') {
+    if (error?.message === 'USER_ALREADY_EXISTS' || error?.code === 'P2002') {
       return badRequest({ message: 'User already exists' });
     }
 

@@ -1,7 +1,12 @@
+import type { Prisma } from '@/generated/prisma/client';
 import prisma from '@/lib/prisma';
 
-export async function getTwoFactorRequirement(userId: string) {
-  const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
+export async function getTwoFactorRequirement(
+  userId: string,
+  transaction?: Prisma.TransactionClient,
+) {
+  const client =
+    transaction ?? ('$primary' in prisma.client ? prisma.client.$primary() : prisma.client);
   const globalSetting = await client.appSetting.findUnique({
     where: { key: 'twoFactorRequiredGlobal' },
   });

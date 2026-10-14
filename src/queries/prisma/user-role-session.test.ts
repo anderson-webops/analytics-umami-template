@@ -1,9 +1,24 @@
-import { beforeEach, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { hash } from '@/lib/crypto';
 import { hasCurrentSessionGeneration } from '@/lib/session-generation';
 import { createUser, deleteUser, updateUser } from './user';
 
-const { state, transaction, runSerialized, runRevocation, assertAdmin } = vi.hoisted(() => {
+const {
+  state,
+  credentialState,
+  transaction,
+  runSerialized,
+  runRevocation,
+  assertAdmin,
+  getRequirement,
+  redisMock,
+} = vi.hoisted(() => {
   const state = { role: 'user', sessionGeneration: 0 };
+  const credentialState = {
+    password: 'synthetic-password',
+    mfaId: undefined as string | undefined,
+    existingUser: false,
+  };
   const transaction = {
     user: {
       create: vi.fn(),
@@ -11,32 +26,54 @@ const { state, transaction, runSerialized, runRevocation, assertAdmin } = vi.hoi
       count: vi.fn(),
       update: vi.fn(),
     },
+    twoFactorAuth: { findUnique: vi.fn() },
     apiKey: { deleteMany: vi.fn() },
   };
 
   return {
     state,
+    credentialState,
     transaction,
     runSerialized: vi.fn(),
     runRevocation: vi.fn(),
     assertAdmin: vi.fn(),
+    getRequirement: vi.fn(),
+    redisMock: { enabled: false, client: { get: vi.fn(), del: vi.fn() } },
   };
 });
 
 vi.mock('@/lib/prisma', () => ({ default: { client: {} } }));
+vi.mock('@/lib/redis', () => ({ default: redisMock }));
 vi.mock('./authorization', () => ({
   assertActorIsAdministrator: assertAdmin,
   runSerializedUserMutation: runSerialized,
   runCredentialRevocationMutation: runRevocation,
 }));
+vi.mock('@/lib/two-factor/requirement', () => ({ getTwoFactorRequirement: getRequirement }));
 
 beforeEach(() => {
   state.role = 'user';
   state.sessionGeneration = 0;
-  transaction.user.findUnique.mockReset().mockImplementation(async () => ({
-    role: state.role,
-    deletedAt: null,
-  }));
+  credentialState.password = 'synthetic-password';
+  credentialState.mfaId = undefined;
+  credentialState.existingUser = false;
+  transaction.user.findUnique.mockReset().mockImplementation(async ({ where }) =>
+    where.username
+      ? credentialState.existingUser
+        ? { id: 'existing-user' }
+        : null
+      : {
+          role: state.role,
+          deletedAt: null,
+          password: credentialState.password,
+          sessionGeneration: state.sessionGeneration,
+        },
+  );
+  transaction.twoFactorAuth.findUnique
+    .mockReset()
+    .mockImplementation(async () =>
+      credentialState.mfaId ? { id: credentialState.mfaId, isEnabled: true } : null,
+    );
   transaction.user.create.mockReset();
   transaction.user.count.mockReset().mockResolvedValue(2);
   transaction.user.update.mockReset().mockImplementation(async ({ data }) => {
@@ -50,6 +87,18 @@ beforeEach(() => {
   runSerialized.mockReset().mockImplementation(callback => callback(transaction));
   runRevocation.mockReset().mockImplementation(callback => callback(transaction));
   assertAdmin.mockReset();
+  getRequirement.mockReset().mockResolvedValue({ reason: null });
+  redisMock.enabled = false;
+  redisMock.client.get.mockReset();
+});
+
+afterEach(() => vi.unstubAllEnvs());
+
+const newUser = { id: 'user-2', username: 'second', password: 'synthetic', role: 'admin' } as const;
+const currentSession = () => ({
+  sessionGeneration: state.sessionGeneration,
+  passwordFingerprint: hash(credentialState.password),
+  mfaId: credentialState.mfaId,
 });
 
 test('a role round trip revokes sessions and API keys at each transition', async () => {
@@ -112,10 +161,146 @@ test('user creation requires the locked current administrator check', async () =
     createUser(
       { id: 'user-2', username: 'second', password: 'synthetic', role: 'user' },
       'admin-1',
+      { sessionGeneration: 0, passwordFingerprint: hash('synthetic-password') },
     ),
   ).rejects.toThrow('ADMIN_AUTHORIZATION_CHANGED');
   expect(assertAdmin).toHaveBeenCalledWith(transaction, 'admin-1');
   expect(transaction.user.create).not.toHaveBeenCalled();
+});
+
+test('user creation rejects a session revoked after request authentication', async () => {
+  const session = currentSession();
+  state.sessionGeneration = 1;
+
+  await expect(createUser(newUser, 'admin-1', session)).rejects.toThrow(
+    'ADMIN_AUTHORIZATION_CHANGED',
+  );
+  expect(transaction.user.create).not.toHaveBeenCalled();
+});
+
+test('user creation rejects a password changed after request authentication', async () => {
+  const session = currentSession();
+  credentialState.password = 'replacement-password';
+
+  await expect(createUser(newUser, 'admin-1', session)).rejects.toThrow(
+    'ADMIN_AUTHORIZATION_CHANGED',
+  );
+  expect(transaction.user.create).not.toHaveBeenCalled();
+});
+
+test('user creation rejects an MFA factor changed after request authentication', async () => {
+  credentialState.mfaId = 'factor-1';
+  const session = currentSession();
+  credentialState.mfaId = 'factor-2';
+
+  await expect(createUser(newUser, 'admin-1', session)).rejects.toThrow(
+    'ADMIN_AUTHORIZATION_CHANGED',
+  );
+  expect(transaction.user.create).not.toHaveBeenCalled();
+});
+
+test('user creation fails closed without the authenticated session generation', async () => {
+  await expect(
+    createUser(newUser, 'admin-1', { ...currentSession(), sessionGeneration: undefined as never }),
+  ).rejects.toThrow('ADMIN_AUTHORIZATION_CHANGED');
+  expect(transaction.user.create).not.toHaveBeenCalled();
+});
+
+test('current administrator sessions create users with and without local MFA', async () => {
+  transaction.user.create.mockResolvedValue({ id: newUser.id });
+
+  await expect(createUser(newUser, 'admin-1', currentSession())).resolves.toEqual({
+    id: newUser.id,
+  });
+  credentialState.mfaId = 'factor-1';
+  await expect(createUser(newUser, 'admin-1', currentSession())).resolves.toEqual({
+    id: newUser.id,
+  });
+  expect(transaction.user.create).toHaveBeenCalledTimes(2);
+});
+
+test('cloud administrator sessions do not require a local MFA factor', async () => {
+  vi.stubEnv('CLOUD_MODE', 'true');
+  credentialState.mfaId = 'factor-1';
+  transaction.user.create.mockResolvedValue({ id: newUser.id });
+
+  await expect(createUser(newUser, 'admin-1', currentSession())).resolves.toEqual({
+    id: newUser.id,
+  });
+  expect(transaction.twoFactorAuth.findUnique).not.toHaveBeenCalled();
+  expect(transaction.user.create).toHaveBeenCalledOnce();
+});
+
+test('revoked no-MFA sessions cannot create a user after MFA enrollment', async () => {
+  const session = currentSession();
+  credentialState.mfaId = 'factor-1';
+
+  await expect(createUser(newUser, 'admin-1', session)).rejects.toThrow(
+    'ADMIN_AUTHORIZATION_CHANGED',
+  );
+  expect(transaction.user.create).not.toHaveBeenCalled();
+});
+
+test.each(['user', 'team', 'global'])(
+  'user creation rejects a newly required %s MFA enrollment',
+  async reason => {
+    getRequirement.mockResolvedValue({ reason });
+
+    await expect(createUser(newUser, 'admin-1', currentSession())).rejects.toThrow(
+      'ADMIN_AUTHORIZATION_CHANGED',
+    );
+    expect(transaction.user.create).not.toHaveBeenCalled();
+  },
+);
+
+test('revoked sessions cannot probe whether a username already exists', async () => {
+  const session = currentSession();
+  state.sessionGeneration += 1;
+  credentialState.existingUser = true;
+
+  await expect(createUser(newUser, 'admin-1', session)).rejects.toThrow(
+    'ADMIN_AUTHORIZATION_CHANGED',
+  );
+  expect(transaction.user.findUnique).not.toHaveBeenCalledWith(
+    expect.objectContaining({ where: { username: newUser.username } }),
+  );
+});
+
+test('current sessions still reject duplicate usernames, including soft-deleted accounts', async () => {
+  credentialState.existingUser = true;
+
+  await expect(createUser(newUser, 'admin-1', currentSession())).rejects.toThrow(
+    'USER_ALREADY_EXISTS',
+  );
+  expect(transaction.user.create).not.toHaveBeenCalled();
+});
+
+test('a Redis logout completed after authentication denies pending user creation', async () => {
+  redisMock.enabled = true;
+  redisMock.client.get.mockResolvedValue(null);
+
+  await expect(
+    createUser(newUser, 'admin-1', { ...currentSession(), authKey: 'auth:old' }),
+  ).rejects.toThrow('ADMIN_AUTHORIZATION_CHANGED');
+  expect(redisMock.client.get).toHaveBeenCalledWith('auth:old');
+  expect(transaction.user.create).not.toHaveBeenCalled();
+});
+
+test('a current Redis administrator session still creates a user', async () => {
+  redisMock.enabled = true;
+  const session = currentSession();
+  redisMock.client.get.mockResolvedValue({
+    userId: 'admin-1',
+    role: 'admin',
+    pwd: session.passwordFingerprint,
+    sessionGeneration: session.sessionGeneration,
+  });
+  transaction.user.create.mockResolvedValue({ id: newUser.id });
+
+  await expect(
+    createUser(newUser, 'admin-1', { ...session, authKey: 'auth:current' }),
+  ).resolves.toEqual({ id: newUser.id });
+  expect(redisMock.client.get).toHaveBeenCalledWith('auth:current');
 });
 
 test('user deletion requires the locked current administrator check', async () => {
