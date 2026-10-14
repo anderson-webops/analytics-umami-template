@@ -11,6 +11,7 @@
     ".next/server/app/healthz/route.js",
     ".next/server/app/readyz/route.js",
     "db/clickhouse/migrations/15_expire_new_heatmap_events.sql",
+    "db/clickhouse/migrations/16_expire_new_session_replays.sql",
     "generated/prisma/client.js",
     "geo/GeoLite2-City.mmdb",
     "node_modules/@prisma/client",
@@ -27,6 +28,7 @@
     "prisma/migrations/32_expire_replay_visit_budgets/migration.sql",
     "prisma/migrations/33_expire_new_heatmap_events/migration.sql",
     "prisma/migrations/34_expire_api_keys/migration.sql",
+    "prisma/migrations/35_expire_new_session_replays/migration.sql",
     "prisma/migrations/migration_lock.toml",
     "prisma/schema.prisma",
     "public/openapi.json",
@@ -36,6 +38,7 @@
     "runtime-scripts/check-db.mjs",
     "runtime-scripts/check-env.mjs",
     "runtime-scripts/prune-expired-heatmap-events.mjs",
+    "runtime-scripts/prune-expired-session-replays.mjs",
     "runtime-scripts/start-production.mjs",
     "server.js"
   ],
@@ -103,6 +106,7 @@
       "retained-artifact-rollback-v1",
       "database-aware-recovery-v1",
       "bounded-heatmap-retention-v1",
+      "bounded-replay-retention-v1",
       "version-aware-readiness-v1"
     ],
     "probes": {
@@ -124,10 +128,12 @@
   },
   "modulesOutsideBuildDirectories": [
     "db/clickhouse/migrations/15_expire_new_heatmap_events.sql",
+    "db/clickhouse/migrations/16_expire_new_session_replays.sql",
     "generated/prisma",
     "geo",
     "prisma/migrations",
     "runtime-scripts/prune-expired-heatmap-events.mjs",
+    "runtime-scripts/prune-expired-session-replays.mjs",
     "runtime-scripts"
   ],
   "productionDependencies": [

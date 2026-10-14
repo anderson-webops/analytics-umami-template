@@ -121,7 +121,12 @@ describe('monitor probes', () => {
       format: 'JSONEachRow',
       abort_signal: expect.any(AbortSignal),
     });
-    expect(dependencyState.clickhouseReadResult).toHaveBeenCalledOnce();
+    expect(dependencyState.clickhouseQuery).toHaveBeenCalledWith({
+      query: 'SELECT retention_policy, ingested_at FROM session_replay LIMIT 0',
+      format: 'JSONEachRow',
+      abort_signal: expect.any(AbortSignal),
+    });
+    expect(dependencyState.clickhouseReadResult).toHaveBeenCalledTimes(2);
 
     resetReadinessStateForTests();
     dependencyState.redisPing.mockRejectedValueOnce(new Error('private redis host'));

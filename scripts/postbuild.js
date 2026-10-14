@@ -101,6 +101,10 @@ async function run() {
     path.resolve('db/clickhouse/migrations/15_expire_new_heatmap_events.sql'),
     path.join(appDir, 'db/clickhouse/migrations/15_expire_new_heatmap_events.sql'),
   );
+  await copyRuntimePath(
+    path.resolve('db/clickhouse/migrations/16_expire_new_session_replays.sql'),
+    path.join(appDir, 'db/clickhouse/migrations/16_expire_new_session_replays.sql'),
+  );
 
   await fs.rm(path.join(appDir, 'geo'), { force: true, recursive: true });
   await copyRuntimePath(
@@ -141,6 +145,10 @@ async function run() {
   await copyRuntimePath(
     path.resolve('scripts/prune-expired-heatmap-events.mjs'),
     path.join(runtimeScriptsDirectory, 'prune-expired-heatmap-events.mjs'),
+  );
+  await copyRuntimePath(
+    path.resolve('scripts/prune-expired-session-replays.mjs'),
+    path.join(runtimeScriptsDirectory, 'prune-expired-session-replays.mjs'),
   );
 
   await fs.rm(path.join(appDir, '.next', 'cache'), { recursive: true, force: true });

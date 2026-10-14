@@ -29,11 +29,13 @@ verifier rejects a weakened or altered declaration. The object contains no
 listener port, service user, proxy route, environment value, or database address;
 those remain host policy.
 
-Schema version 2 binds the 30-day heatmap-retention release to all three required
-runtime files and the `bounded-heatmap-retention-v1` capability. Removing every
-retention file or downgrading only the capability fails source validation. Legacy
-schema version 1 contracts remain valid only without the retention files or
-capability; host adapters must reject an unsupported version before migration.
+Schema version 2 binds the 30-day heatmap and replay retention releases to
+their required migrations and runtime pruners and to the respective
+`bounded-heatmap-retention-v1` and `bounded-replay-retention-v1` capabilities.
+Removing the files or downgrading only a capability fails source validation.
+Legacy schema version 1 contracts remain valid only without these retention
+files or capabilities; host adapters must reject an unsupported version before
+migration.
 
 Before building or migrating a candidate, the privileged host adapter should
 independently fetch its canonical source identity and parse this contract as
@@ -75,6 +77,14 @@ The capability names have narrow meanings:
   cleanup runs and remaining backlog. Rehearse old-data preservation and
   failed-activation recovery.
   Column presence or report filtering alone does not satisfy this capability.
+- `bounded-replay-retention-v1`: before activation, verify the immutable,
+  bounded PostgreSQL replay-payload and saved-bookmark pruner is scheduled and
+  monitored against the checked database and schema. If ClickHouse or Kafka is
+  configured, verify the conditional replay TTL, marker and trusted acceptance
+  time through the exact producer and consumer, and bounded topic retention.
+  Preserve historical unmarked rows and bookmarks, test delayed messages, and
+  rehearse protected migration and retained-runtime recovery. Read filtering
+  or schema presence alone does not satisfy this capability.
 
 These are requirements, not claims of current host support. A host adapter
 should advertise its implemented capabilities under root-controlled policy and

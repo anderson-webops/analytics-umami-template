@@ -23,6 +23,11 @@ const heatmapRetentionPaths = [
   'prisma/migrations/33_expire_new_heatmap_events/migration.sql',
   'runtime-scripts/prune-expired-heatmap-events.mjs',
 ];
+const replayRetentionPaths = [
+  'db/clickhouse/migrations/16_expire_new_session_replays.sql',
+  'prisma/migrations/35_expire_new_session_replays/migration.sql',
+  'runtime-scripts/prune-expired-session-replays.mjs',
+];
 
 test('generated API client version matches the application release', async () => {
   const packageJson = JSON.parse(
@@ -59,7 +64,9 @@ async function createFixture() {
       ...templateContract.deployment,
       schemaVersion: 1,
       requiredAdapterCapabilities: templateContract.deployment.requiredAdapterCapabilities.filter(
-        capability => capability !== 'bounded-heatmap-retention-v1',
+        capability =>
+          capability !== 'bounded-heatmap-retention-v1' &&
+          capability !== 'bounded-replay-retention-v1',
       ),
     },
   };
@@ -89,6 +96,23 @@ async function addHeatmapRetentionFixture(root, contractPath) {
     const fullPath = path.join(root, file);
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
     await fs.writeFile(fullPath, 'synthetic retention file\n');
+  }
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+}
+
+async function addReplayRetentionFixture(root, contractPath) {
+  await addHeatmapRetentionFixture(root, contractPath);
+  const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
+  contract.deployment.requiredAdapterCapabilities.push('bounded-replay-retention-v1');
+  for (const file of replayRetentionPaths) {
+    const allowedRoot = file.split('/')[0];
+    if (!contract.allowedRoots.includes(allowedRoot)) {
+      contract.allowedRoots.push(allowedRoot);
+    }
+    contract.requiredFiles.push(file);
+    const fullPath = path.join(root, file);
+    await fs.mkdir(path.dirname(fullPath), { recursive: true });
+    await fs.writeFile(fullPath, 'synthetic replay retention file\n');
   }
   await fs.writeFile(contractPath, JSON.stringify(contract));
 }
@@ -336,6 +360,44 @@ test('heatmap retention files require complete packaging and host capability', a
   await verifyRuntimeArtifact(root, { contractPath });
 });
 
+test('replay retention files require complete packaging and host capability', async () => {
+  const trustedContract = JSON.parse(
+    await fs.readFile(new URL('../deploy/runtime-artifact.json', import.meta.url), 'utf8'),
+  );
+  assert.ok(replayRetentionPaths.every(file => trustedContract.requiredFiles.includes(file)));
+  assert.ok(
+    trustedContract.deployment.requiredAdapterCapabilities.includes('bounded-replay-retention-v1'),
+  );
+
+  const { root, contractPath } = await createFixture();
+  await addReplayRetentionFixture(root, contractPath);
+  const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
+  contract.deployment.requiredAdapterCapabilities =
+    contract.deployment.requiredAdapterCapabilities.filter(
+      capability => capability !== 'bounded-replay-retention-v1',
+    );
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await assert.rejects(
+    createRuntimeManifest(root, { contractPath, source }),
+    /deployment compatibility contract/,
+  );
+
+  contract.deployment.requiredAdapterCapabilities.push('bounded-replay-retention-v1');
+  contract.requiredFiles = contract.requiredFiles.filter(
+    file => file !== replayRetentionPaths.at(-1),
+  );
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await assert.rejects(
+    createRuntimeManifest(root, { contractPath, source }),
+    /deployment compatibility contract/,
+  );
+
+  contract.requiredFiles.push(replayRetentionPaths.at(-1));
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await createRuntimeManifest(root, { contractPath, source });
+  await verifyRuntimeArtifact(root, { contractPath });
+});
+
 test('database-aware recovery requires its exact host capability and policy', async () => {
   const { root, contractPath } = await createFixture();
   const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
@@ -442,12 +504,32 @@ test('requires the bounded heatmap cleanup command in every runtime artifact', a
   await assert.rejects(createRuntimeManifest(root, { contractPath, source }), missingCommand);
 });
 
+test('requires the bounded replay cleanup command in every runtime artifact', async () => {
+  const requiredPath = 'runtime-scripts/prune-expired-session-replays.mjs';
+  const trustedContract = JSON.parse(
+    await fs.readFile(new URL('../deploy/runtime-artifact.json', import.meta.url), 'utf8'),
+  );
+  assert.ok(trustedContract.requiredFiles.includes(requiredPath));
+
+  const { root, contractPath } = await createFixture();
+  await addReplayRetentionFixture(root, contractPath);
+  await createRuntimeManifest(root, { contractPath, source });
+  await fs.rm(path.join(root, requiredPath));
+
+  const missingCommand = error =>
+    error instanceof Error && error.message.includes(`missing required file: ${requiredPath}`);
+  await assert.rejects(verifyRuntimeArtifact(root, { contractPath }), missingCommand);
+  await assert.rejects(createRuntimeManifest(root, { contractPath, source }), missingCommand);
+});
+
 for (const migrationPath of [
   'db/clickhouse/migrations/15_expire_new_heatmap_events.sql',
+  'db/clickhouse/migrations/16_expire_new_session_replays.sql',
   'prisma/migrations/30_revoke_sessions_on_factor_reset/migration.sql',
   'prisma/migrations/31_bound_event_ingestion/migration.sql',
   'prisma/migrations/32_expire_replay_visit_budgets/migration.sql',
   'prisma/migrations/33_expire_new_heatmap_events/migration.sql',
+  'prisma/migrations/35_expire_new_session_replays/migration.sql',
 ]) {
   test(`requires ${migrationPath} in every runtime artifact`, async () => {
     const trustedContract = JSON.parse(
@@ -458,6 +540,8 @@ for (const migrationPath of [
     const { root, contractPath } = await createFixture();
     if (heatmapRetentionPaths.includes(migrationPath)) {
       await addHeatmapRetentionFixture(root, contractPath);
+    } else if (replayRetentionPaths.includes(migrationPath)) {
+      await addReplayRetentionFixture(root, contractPath);
     } else {
       const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
       contract.allowedRoots.push(migrationPath.split('/')[0]);
@@ -465,7 +549,10 @@ for (const migrationPath of [
       await fs.writeFile(contractPath, JSON.stringify(contract));
     }
     const fullPath = path.join(root, migrationPath);
-    if (!heatmapRetentionPaths.includes(migrationPath)) {
+    if (
+      !heatmapRetentionPaths.includes(migrationPath) &&
+      !replayRetentionPaths.includes(migrationPath)
+    ) {
       await fs.mkdir(path.dirname(fullPath), { recursive: true });
       await fs.writeFile(fullPath, 'synthetic migration\n');
     }

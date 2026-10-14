@@ -10,7 +10,7 @@ vi.mock('@/lib/prisma', () => ({ default: { client: {} } }));
 vi.mock('@/lib/clickhouse', () => ({
   default: {
     enabled: true,
-    getUTCString: () => '1970-01-01 00:00:00',
+    getUTCString: vi.fn((date: Date) => date.toISOString()),
     insert: vi.fn(async () => ({})),
   },
 }));
@@ -332,6 +332,13 @@ test('sends only sanitized fragment values to the external Kafka sink', async ()
   expect(JSON.stringify(messages)).not.toContain('kafka-secret');
   expect(messages.map(message => message.chunk_index)).toEqual([10, 11]);
   expect(messages.map(message => message.event_count)).toEqual([1, 0]);
+  expect(messages.every(message => message.retention_policy === 1)).toBe(true);
+  expect(
+    messages.every(
+      message => new Date(String(message.ingested_at)).getTime() > Date.now() - 60_000,
+    ),
+  ).toBe(true);
+  expect(messages.every(message => message.ingested_at !== message.started_at)).toBe(true);
   expect(
     restoreReplayEventFragments(messages.flatMap(message => JSON.parse(String(message.events)))),
   ).toHaveLength(1);
@@ -402,6 +409,9 @@ test('sends only sanitized ordinary and reassembled events to direct ClickHouse'
 
   const rows = vi.mocked(clickhouse.insert).mock.calls.flatMap(([, values]) => values);
   expect(rows).toHaveLength(3);
+  expect(rows.every(row => row.retention_policy === 1)).toBe(true);
+  expect(rows.every(row => new Date(row.ingested_at).getTime() > Date.now() - 60_000)).toBe(true);
+  expect(rows.every(row => row.ingested_at !== row.started_at)).toBe(true);
   expect(JSON.stringify(rows)).not.toContain('clickhouse-secret');
   expect(
     restoreReplayEventFragments(rows.slice(0, 2).flatMap(row => JSON.parse(row.events))),

@@ -20,6 +20,7 @@ export async function getReplayChunks(websiteId: string, visitId: string) {
     where: {
       websiteId,
       visitId,
+      OR: [{ retentionExpiresAt: null }, { retentionExpiresAt: { gt: new Date() } }],
     },
     orderBy: {
       chunkIndex: 'asc',
@@ -67,8 +68,12 @@ export async function deleteReplaysByWebsite(websiteId: string) {
 }
 
 export async function getReplaySaved(websiteId: string, visitId: string): Promise<boolean> {
-  const record = await prisma.client.sessionReplaySaved.findUnique({
-    where: { websiteId_visitId: { websiteId, visitId } },
+  const record = await prisma.client.sessionReplaySaved.findFirst({
+    where: {
+      websiteId,
+      visitId,
+      OR: [{ retentionExpiresAt: null }, { retentionExpiresAt: { gt: new Date() } }],
+    },
     select: { id: true },
   });
   return record !== null;
@@ -102,10 +107,13 @@ export async function setReplaySavedByActor(
       where: {
         websiteId,
         visitId,
+        OR: [{ retentionExpiresAt: null }, { retentionExpiresAt: { gt: new Date() } }],
       },
       select: {
         id: true,
+        retentionExpiresAt: true,
       },
+      orderBy: { retentionExpiresAt: { sort: 'asc', nulls: 'first' } },
     });
 
     if (!replayExists) {
@@ -124,9 +132,11 @@ export async function setReplaySavedByActor(
         websiteId,
         visitId,
         name,
+        retentionExpiresAt: replayExists.retentionExpiresAt,
       },
       update: {
         name,
+        retentionExpiresAt: replayExists.retentionExpiresAt,
       },
     });
 
@@ -140,6 +150,7 @@ export async function getSavedReplays(websiteId: string, filters: QueryFilters) 
 
   const where = {
     websiteId,
+    OR: [{ retentionExpiresAt: null }, { retentionExpiresAt: { gt: new Date() } }],
     ...getSearchParameters(search, [{ name: 'contains' }]),
   };
 

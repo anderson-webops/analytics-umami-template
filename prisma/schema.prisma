@@ -435,6 +435,7 @@ model SessionReplay {
   startedAt  DateTime  @map("started_at") @db.Timestamptz(6)
   endedAt    DateTime  @map("ended_at") @db.Timestamptz(6)
   createdAt  DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  retentionExpiresAt DateTime? @default(dbgenerated("CURRENT_TIMESTAMP + INTERVAL '30 days'")) @map("retention_expires_at") @db.Timestamptz(6)
 
   website Website @relation(fields: [websiteId], references: [id])
 
@@ -455,6 +456,7 @@ model SessionReplaySaved {
   visitId   String    @map("visit_id") @db.Uuid
   createdAt DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime? @updatedAt @map("updated_at") @db.Timestamptz(6)
+  retentionExpiresAt DateTime? @map("retention_expires_at") @db.Timestamptz(6)
 
   website Website @relation(fields: [websiteId], references: [id])
 

@@ -80,6 +80,7 @@ async function relationalQuery(
       from session_replay
       where website_id = {{websiteId::uuid}}
         and visit_id = {{visitId::uuid}}
+        and (retention_expires_at is null or retention_expires_at > CURRENT_TIMESTAMP)
         ${endAtFilter}
         ${endChunkFilter}
       order by chunk_index asc
@@ -216,6 +217,7 @@ async function clickhouseQuery(
         from session_replay
         prewhere website_id = {websiteId:UUID}
           and visit_id = {visitId:UUID}
+          and (retention_policy = 0 or ingested_at + INTERVAL 30 DAY > now('UTC'))
           ${endAtFilter}
           ${endChunkFilter}
         order by chunk_index asc

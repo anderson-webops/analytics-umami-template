@@ -334,11 +334,14 @@ CREATE TABLE umami.session_replay
     event_count UInt32,
     started_at DateTime64(6),
     ended_at DateTime64(6),
-    created_at DateTime64(6) DEFAULT now64(6)
+    created_at DateTime64(6) DEFAULT now64(6),
+    retention_policy UInt8 DEFAULT 0,
+    ingested_at DateTime('UTC') DEFAULT now('UTC')
 )
 ENGINE = MergeTree()
 PARTITION BY toYYYYMM(created_at)
 ORDER BY (replay_id, website_id, session_id, visit_id, chunk_index)
+TTL ingested_at + INTERVAL 30 DAY DELETE WHERE retention_policy = 1
 SETTINGS index_granularity = 8192;
 
 -- Create event_data_pivot

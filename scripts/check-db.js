@@ -358,6 +358,60 @@ async function checkSchemaCompatibility() {
       ) AS session_replay_saved,
       EXISTS (
         SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'session_replay'
+          AND column_name = 'retention_expires_at'
+          AND data_type = 'timestamp with time zone'
+          AND is_nullable = 'YES'
+          AND column_default = '(CURRENT_TIMESTAMP + ''30 days''::interval)'
+      ) AS replay_retention,
+      EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'session_replay_saved'
+          AND column_name = 'retention_expires_at'
+          AND data_type = 'timestamp with time zone'
+          AND is_nullable = 'YES'
+          AND column_default IS NULL
+      ) AS saved_replay_retention,
+      EXISTS (
+        SELECT 1
+        FROM pg_index index_definition
+        WHERE index_definition.indexrelid = to_regclass(
+            format('%I.%I', current_schema(), 'session_replay_retention_expires_at_idx')
+          )
+          AND index_definition.indrelid = to_regclass(
+            format('%I.%I', current_schema(), 'session_replay')
+          )
+          AND index_definition.indisvalid
+          AND index_definition.indisready
+          AND index_definition.indnkeyatts = 1
+          AND index_definition.indexprs IS NULL
+          AND pg_get_indexdef(index_definition.indexrelid, 1, true) = 'retention_expires_at'
+          AND pg_get_expr(index_definition.indpred, index_definition.indrelid)
+            = '(retention_expires_at IS NOT NULL)'
+      ) AS replay_retention_index,
+      EXISTS (
+        SELECT 1
+        FROM pg_index index_definition
+        WHERE index_definition.indexrelid = to_regclass(
+            format('%I.%I', current_schema(), 'session_replay_saved_retention_expires_at_idx')
+          )
+          AND index_definition.indrelid = to_regclass(
+            format('%I.%I', current_schema(), 'session_replay_saved')
+          )
+          AND index_definition.indisvalid
+          AND index_definition.indisready
+          AND index_definition.indnkeyatts = 1
+          AND index_definition.indexprs IS NULL
+          AND pg_get_indexdef(index_definition.indexrelid, 1, true) = 'retention_expires_at'
+          AND pg_get_expr(index_definition.indpred, index_definition.indrelid)
+            = '(retention_expires_at IS NOT NULL)'
+      ) AS saved_replay_retention_index,
+      EXISTS (
+        SELECT 1
         FROM pg_index index_definition
         WHERE index_definition.indexrelid = to_regclass(
             format('%I.%I', current_schema(), 'replay_ingest_budget_pkey')
@@ -558,6 +612,10 @@ async function checkSchemaCompatibility() {
     !schema?.replay_config ||
     !schema?.session_replay ||
     !schema?.session_replay_saved ||
+    !schema?.replay_retention ||
+    !schema?.saved_replay_retention ||
+    !schema?.replay_retention_index ||
+    !schema?.saved_replay_retention_index ||
     !schema?.replay_ingest_budget ||
     !schema?.collection_ingest_budget ||
     !schema?.heatmap_event ||

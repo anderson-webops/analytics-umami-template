@@ -217,6 +217,7 @@ function validateDeploymentContract(deployment) {
     'classroom-2fa-privacy-acceptance-v1',
     'database-aware-recovery-v1',
     'bounded-heatmap-retention-v1',
+    'bounded-replay-retention-v1',
   ]);
   const knownHostControls = new Set([
     'service-user',
@@ -316,6 +317,25 @@ async function readContract(contractPath = defaultContractPath) {
     retentionCapability !== retentionContract ||
     (retentionContract &&
       !heatmapRetentionFiles.every(file => contract.requiredFiles.includes(file)))
+  ) {
+    throw new Error('Unsupported or incomplete deployment compatibility contract.');
+  }
+
+  const replayRetentionFiles = [
+    'db/clickhouse/migrations/16_expire_new_session_replays.sql',
+    'prisma/migrations/35_expire_new_session_replays/migration.sql',
+    'runtime-scripts/prune-expired-session-replays.mjs',
+  ];
+  const replayRetentionFilesDeclared = replayRetentionFiles.some(file =>
+    contract.requiredFiles.includes(file),
+  );
+  const replayRetentionCapability =
+    contract.deployment?.requiredAdapterCapabilities.includes('bounded-replay-retention-v1') ??
+    false;
+  if (
+    replayRetentionFilesDeclared !== replayRetentionCapability ||
+    (replayRetentionCapability &&
+      !replayRetentionFiles.every(file => contract.requiredFiles.includes(file)))
   ) {
     throw new Error('Unsupported or incomplete deployment compatibility contract.');
   }

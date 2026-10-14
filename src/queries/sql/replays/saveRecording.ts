@@ -218,6 +218,7 @@ async function clickhouseQuery({
 }: SaveRecordingArgs) {
   const { insert, getUTCString } = clickhouse;
   const { sendMessage } = kafka;
+  const acceptedAt = getUTCString(new Date());
 
   const message = {
     replay_id: uuid(),
@@ -229,6 +230,8 @@ async function clickhouseQuery({
     event_count: eventCount,
     started_at: getUTCString(startedAt),
     ended_at: getUTCString(endedAt),
+    retention_policy: 1,
+    ingested_at: acceptedAt,
   };
 
   if (kafka.enabled) {

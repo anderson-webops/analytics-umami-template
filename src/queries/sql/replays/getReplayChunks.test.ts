@@ -51,6 +51,9 @@ test('relational replay reads guard stored bytes before returning payloads', asy
   );
   expect(prismaQuery.mock.calls[0][0]).toContain('then replay.events else null');
   expect(prismaQuery.mock.calls[0][0]).toContain(`limit ${MAX_REPLAY_CHUNKS + 1}`);
+  expect(prismaQuery.mock.calls[0][0]).toContain(
+    'retention_expires_at is null or retention_expires_at > CURRENT_TIMESTAMP',
+  );
 });
 
 test('relational replay reads reject decompression beyond the aggregate budget', async () => {
@@ -153,6 +156,11 @@ test.each(['prisma', 'clickhouse'])('rejects dense stored replay nodes on %s', a
   await expect(getReplayChunks(websiteId, visitId)).rejects.toBeInstanceOf(
     ReplayBudgetExceededError,
   );
+  if (backend === 'clickhouse') {
+    expect(clickhouseQuery.mock.calls[0][0]).toContain(
+      "retention_policy = 0 or ingested_at + INTERVAL 30 DAY > now('UTC')",
+    );
+  }
 });
 
 test.each(['prisma', 'clickhouse'])('reads depth-256 replay events on %s', async backend => {

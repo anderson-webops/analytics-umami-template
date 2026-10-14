@@ -75,6 +75,7 @@ async function relationalQuery(websiteId: string, filters: QueryFilters, session
     ${joinQuery}
     where sr.website_id = {{websiteId::uuid}}
       and sr.created_at between {{startDate}} and {{endDate}}
+      and (sr.retention_expires_at is null or sr.retention_expires_at > CURRENT_TIMESTAMP)
     ${sessionFilter}
     ${searchQuery}
     group by sr.visit_id,
@@ -149,6 +150,7 @@ async function clickhouseQuery(websiteId: string, filters: QueryFilters, session
       and website_event.visit_id = session_replay.visit_id
     where session_replay.website_id = {websiteId:UUID}
         and session_replay.created_at between {startDate:DateTime64} and {endDate:DateTime64}
+        and (session_replay.retention_policy = 0 or session_replay.ingested_at + INTERVAL 30 DAY > now('UTC'))
     ${sessionFilter}
     group by session_replay.visit_id, session_replay.session_id, session_replay.website_id, website_event.browser, website_event.os, website_event.device, website_event.country, website_event.city
     ${havingQuery}

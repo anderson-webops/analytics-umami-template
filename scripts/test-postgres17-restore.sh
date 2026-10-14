@@ -47,6 +47,12 @@ if [[ "${1:-}" == --role-revocation ]]; then
     node --conditions=react-server --import tsx scripts/test-role-revocation-race.ts
   exit 0
 fi
+if [[ "${1:-}" == --replay-retention ]]; then
+  DOTENV_CONFIG_PATH=/dev/null pnpm run db:migrate
+  ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null REDIS_URL='' CLOUD_MODE='' \
+    node --conditions=react-server --import tsx scripts/test-replay-retention.ts
+  exit 0
+fi
 if [[ "${1:-}" == --login-admission ]]; then
   "$pg_bin/psql" -h 127.0.0.1 -p "$port" -U restore_test -d postgres \
     -v ON_ERROR_STOP=1 -c 'CREATE TABLE "app_setting" ("key" TEXT PRIMARY KEY, "value" TEXT NOT NULL)' \
@@ -67,6 +73,7 @@ ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null REDIS_URL='' CLO
   node --conditions=react-server --import tsx scripts/test-role-revocation-race.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-session-data-bulk.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-heatmap-budget.ts
+ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-replay-retention.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-recorder-budget-retention.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm run test:collection-rate-limit
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-collection-budget.ts
