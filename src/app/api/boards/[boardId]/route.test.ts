@@ -53,6 +53,14 @@ beforeEach(() => {
           columns: [
             { id: allowedWebsite, component: { type: 'WebsiteChart', websiteId: allowedWebsite } },
             { id: deniedWebsite, component: { type: 'WebsiteChart', websiteId: deniedWebsite } },
+            {
+              id: '41bd03bd-3aaf-46ea-ae95-1f60567b3680',
+              component: {
+                type: 'MetricsTable',
+                websiteId: allowedWebsite,
+                props: { type: 'country', params: { websiteId: deniedWebsite } },
+              },
+            },
           ],
         },
       ],
@@ -87,7 +95,8 @@ test('an authenticated board owner retains the complete private board response',
 
   expect(response.status).toBe(200);
   expect(body.parameters.websiteId).toBe(deniedWebsite);
-  expect(body.parameters.rows[0].columns).toHaveLength(2);
+  expect(body.parameters.rows[0].columns).toHaveLength(3);
+  expect(body.parameters.rows[0].columns[2].component.props.params.websiteId).toBe(deniedWebsite);
 });
 
 test('a board update passes API-key identity to the shared-board transaction', async () => {
