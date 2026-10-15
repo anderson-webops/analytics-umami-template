@@ -24,6 +24,9 @@ so the small private signing key lives instead in the Mac's FileVault-protected
 VM, source, and exchange. The signer checks volume encryption, owner, and modes.
 Never place the key in a container, repository, build log, or release asset.
 The large VM, images, caches, dependencies, and artifacts remain on Storage.
+Use an 8 GiB Colima VM for the 7 GiB build-container limit. Next.js can run
+compilation and TypeScript workers concurrently; the smaller 5 GiB limit has
+terminated a valid build during type checking. Keep production limits unchanged.
 
 Run `bash deploy/mac-build/key-setup.sh` once. This refuses to replace an existing
 key and prints only the public-key path. Give the public PEM and a reviewed

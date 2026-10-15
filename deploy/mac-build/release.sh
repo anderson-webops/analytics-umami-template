@@ -70,7 +70,7 @@ common=(
   --mount "type=volume,src=$volume,dst=/work"
   --mount "type=volume,src=$store_volume,dst=/pnpm-store"
   --mount "type=bind,src=$ANDERSON_BUILDER_EXCHANGE,dst=/exchange"
-  --cpus 4 --memory 5g
+  --cpus 4 --memory 7g
   --env "RELEASE_TAG=$tag"
   --env "RELEASE_COMMIT=$commit"
   --env "RELEASE_REPOSITORY=$repository"
