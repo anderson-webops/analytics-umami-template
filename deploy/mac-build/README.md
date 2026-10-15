@@ -44,7 +44,8 @@ build uses a Git bundle of the exact tag, never Mac `node_modules`; a pinned
 Linux ARM64 image and a synthetic local PostgreSQL 17 instance run all locked
 installation, signature, audit, application, migration, native-binding, build,
 copy, isolation, and missing-module checks. A second network-disabled container
-packages the sealed checked runtime. Only the completed unsigned assets cross
+tests and packages the sealed read-only runtime, so its sandbox reads the exact
+permissions delivered in the archive. Only the completed unsigned assets cross
 back to the Mac, which signs exact manifest bytes and verifies the result using
 its public key. The disposable container volume is removed, while the shared
 pnpm store and nonsecret run evidence stay on Storage.

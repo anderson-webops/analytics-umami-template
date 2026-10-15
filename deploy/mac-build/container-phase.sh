@@ -99,8 +99,6 @@ elif [[ "$phase" = accept ]]; then
   as_builder pnpm run db:migrate
   as_builder env NODE_ENV=production pnpm run check:env
   as_builder env NODE_ENV=production pnpm run check:db
-  as_builder node scripts/test-runtime-artifact.mjs --release --require-isolation \
-    --expected-commit "$RELEASE_COMMIT"
   mkdir -m 0755 /opt/anderson-sealed
   node scripts/runtime-artifact.mjs copy .next/standalone /opt/anderson-sealed/runtime \
     --release --expected-commit "$RELEASE_COMMIT" \
@@ -111,6 +109,9 @@ elif [[ "$phase" = accept ]]; then
   node scripts/runtime-artifact.mjs verify /opt/anderson-sealed/runtime \
     --release --expected-commit "$RELEASE_COMMIT" \
     --expected-application "${RELEASE_REPOSITORY#*/}"
+  node scripts/test-runtime-artifact.mjs --release --require-isolation \
+    --expected-commit "$RELEASE_COMMIT" \
+    --source-runtime /opt/anderson-sealed/runtime
   node --input-type=module -e '
     import fs from "node:fs";
     const receipt = {

@@ -8,8 +8,13 @@ import { fileURLToPath } from 'node:url';
 import { copyRuntimeArtifact, verifyRuntimeArtifact } from './runtime-artifact.mjs';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const sourceRuntime = path.join(repositoryRoot, '.next', 'standalone');
 const args = process.argv.slice(2);
+const runtimeIndex = args.indexOf('--source-runtime');
+const suppliedRuntime = runtimeIndex >= 0 ? args[runtimeIndex + 1] : undefined;
+if (runtimeIndex >= 0 && (!suppliedRuntime || !path.isAbsolute(suppliedRuntime))) {
+  throw new Error('--source-runtime requires an absolute artifact path.');
+}
+const sourceRuntime = suppliedRuntime ?? path.join(repositoryRoot, '.next', 'standalone');
 const release = args.includes('--release');
 const requireIsolation = args.includes('--require-isolation');
 const expectedIndex = args.indexOf('--expected-commit');
