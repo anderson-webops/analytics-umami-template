@@ -231,6 +231,36 @@ test('public session properties refuses oversized result sets', async () => {
   );
 });
 
+test('public session properties reject a capped ClickHouse read', async () => {
+  checkAuthMock.mockResolvedValue({ shareToken: { shareId: crypto.randomUUID() } } as any);
+  getSessionDataMock.mockRejectedValue({ code: '158', type: 'TOO_MANY_ROWS' });
+
+  const response = await getSessionProperties(
+    new Request(`https://analytics.example/api/websites/${WEBSITE_ID}/sessions/${SESSION_ID}`),
+    params,
+  );
+
+  expect(response.status).toBe(400);
+  expect(getSessionDataMock).toHaveBeenCalledWith(
+    WEBSITE_ID,
+    SESSION_ID,
+    MAX_SHARE_SESSION_ROWS + 1,
+  );
+});
+
+test('signed-in session properties preserve ClickHouse read failures', async () => {
+  checkAuthMock.mockResolvedValue({ user: { id: 'owner-1' } } as any);
+  getSessionDataMock.mockRejectedValue({ code: '158', type: 'TOO_MANY_ROWS' });
+
+  await expect(
+    getSessionProperties(
+      new Request(`https://analytics.example/api/websites/${WEBSITE_ID}/sessions/${SESSION_ID}`),
+      params,
+    ),
+  ).rejects.toMatchObject({ code: '158', type: 'TOO_MANY_ROWS' });
+  expect(getSessionDataMock).toHaveBeenCalledWith(WEBSITE_ID, SESSION_ID, undefined);
+});
+
 test('signed-in session detail bounds linked reads while preserving ordinary access', async () => {
   checkAuthMock.mockResolvedValue({ user: { id: 'owner-1' } } as any);
 

@@ -4,6 +4,7 @@ import prisma from '@/lib/prisma';
 import type { SessionDataValue } from '@/lib/types';
 
 const FUNCTION_NAME = 'getSessionData';
+const MAX_SESSION_DATA_READ_ROWS = 262_144;
 
 export async function getSessionData(
   ...args: [websiteId: string, sessionId: string, rowLimit?: number]
@@ -61,5 +62,12 @@ async function clickhouseQuery(websiteId: string, sessionId: string, rowLimit?: 
     `,
     { websiteId, sessionId, rowLimit },
     FUNCTION_NAME,
+    rowLimit === undefined
+      ? undefined
+      : {
+          maxExecutionTimeSeconds: 5,
+          maxResultRows: rowLimit,
+          maxRowsToRead: MAX_SESSION_DATA_READ_ROWS,
+        },
   );
 }

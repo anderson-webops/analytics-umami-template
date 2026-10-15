@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isClickHouseReadLimitError } from '@/lib/clickhouse';
 import { isUuid } from '@/lib/crypto';
 import { parseRequest } from '@/lib/request';
 import { badRequest, json, unauthorized } from '@/lib/response';
@@ -30,7 +31,16 @@ export async function GET(
   }
 
   const shareRowLimit = auth.shareToken ? MAX_SHARE_SESSION_ROWS + 1 : undefined;
-  const data = await getSessionData(websiteId, sessionId, shareRowLimit);
+  let data: Awaited<ReturnType<typeof getSessionData>>;
+
+  try {
+    data = await getSessionData(websiteId, sessionId, shareRowLimit);
+  } catch (error) {
+    if (shareRowLimit && isClickHouseReadLimitError(error)) {
+      return badRequest({ message: 'Public-share session is too large.' });
+    }
+    throw error;
+  }
 
   if (shareRowLimit && data.length >= shareRowLimit) {
     return badRequest({ message: 'Public-share session is too large.' });

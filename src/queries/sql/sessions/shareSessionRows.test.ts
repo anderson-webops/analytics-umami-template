@@ -107,3 +107,17 @@ test.each(['prisma', 'clickhouse'] as const)(
     }
   },
 );
+
+test('limited ClickHouse session-property reads cap backend work without changing owner reads', async () => {
+  const { getSessionData, rawQuery } = await loadQueries('clickhouse');
+
+  await getSessionData('website', 'session', 501);
+  expect(rawQuery.mock.lastCall?.[3]).toEqual({
+    maxExecutionTimeSeconds: 5,
+    maxResultRows: 501,
+    maxRowsToRead: 262_144,
+  });
+
+  await getSessionData('website', 'session');
+  expect(rawQuery.mock.lastCall?.[3]).toBeUndefined();
+});
