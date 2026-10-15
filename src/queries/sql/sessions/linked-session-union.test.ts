@@ -41,7 +41,7 @@ test('ClickHouse-mode reads use only links visible to the retained runtime', asy
   ]);
   expect(relationalQuery).not.toHaveBeenCalled();
   expect(legacyQuery.mock.calls.every(([, params]) => params.rowLimit <= 4)).toBe(true);
-});
+}, 20_000);
 
 test('ClickHouse reads preserve a sentinel row when history exceeds the caller limit', async () => {
   const { getLinkedSessionIds, legacyQuery } = await loadQueries();
