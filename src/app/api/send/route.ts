@@ -34,6 +34,7 @@ import {
   saveSessionLink,
   updateSession,
 } from '@/queries/sql';
+import { sanitizeTrackingUrl } from '@/tracker/url-privacy';
 
 const MAX_ATTRIBUTION_VALUE_LENGTH = 255;
 function logSessionLinkError(error: unknown) {
@@ -365,10 +366,9 @@ export async function POST(request: Request) {
 
       if (type === COLLECTION_TYPE.event) {
         const base = hostname ? `https://${hostname}` : 'https://localhost';
-        const currentUrl = new URL(url, base);
+        const currentUrl = sanitizeTrackingUrl(new URL(url, base));
 
-        let urlPath =
-          currentUrl.pathname === '/undefined' ? '' : currentUrl.pathname + currentUrl.hash;
+        let urlPath = currentUrl.pathname === '/undefined' ? '' : currentUrl.pathname;
         const urlQuery = currentUrl.search.substring(1);
         const urlDomain = currentUrl.hostname.replace(/^www\./, '');
 
@@ -405,7 +405,10 @@ export async function POST(request: Request) {
               eventDomain = hostname.replace(/^www\./, '');
             }
           }
-          const referrerUrl = new URL(referrer, eventDomain ? `https://${eventDomain}` : base);
+          const referrerUrl = sanitizeTrackingUrl(
+            new URL(referrer, eventDomain ? `https://${eventDomain}` : base),
+            false,
+          );
 
           referrerPath = referrerUrl.pathname;
           referrerQuery = referrerUrl.search.substring(1);

@@ -84,7 +84,7 @@ const fieldDescriptions: Record<string, string> = {
   city: 'City of the visitor.',
   distinctId: 'Custom identifier assigned to the visitor.',
   urlPath: 'Path portion of the page URL.',
-  urlQuery: 'Query string portion of the page URL.',
+  urlQuery: 'Bounded, allowlisted attribution query parameters from the page URL.',
   referrerDomain: 'Domain of the referring page.',
   referrer: 'URL of the referring page.',
   title: 'Title of the page.',

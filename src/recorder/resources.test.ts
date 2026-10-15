@@ -17,6 +17,8 @@ test('removes resource URLs before snapshots and mutations leave the browser', (
             tagName: 'img',
             attributes: {
               alt: 'Photo? #1',
+              title: 'Reset at https://example.com/reset?token=attribute-secret#part',
+              'aria-label': '/reset?token=aria-secret',
               class: 'preview',
               src: 'https://assets.example/photo?token=snapshot-secret',
               srcset: '/photo?token=srcset-secret 2x',
@@ -63,6 +65,7 @@ test('removes resource URLs before snapshots and mutations leave the browser', (
   const serialized = JSON.stringify([safeSnapshot, safeMutation]);
 
   expect(serialized).not.toMatch(/snapshot-secret|srcset-secret|data-secret|style-secret/);
+  expect(serialized).not.toMatch(/attribute-secret|aria-secret/);
   expect(serialized).not.toMatch(/css-secret|mutation-secret|text-secret/);
   expect(safeSnapshot.data.node.childNodes[0].attributes).toMatchObject({
     alt: 'Photo? #1',

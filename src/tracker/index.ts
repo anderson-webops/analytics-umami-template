@@ -1,3 +1,5 @@
+import { sanitizeTrackingUrl } from './url-privacy';
+
 /** Public types for the browser tracker. */
 export type TrackedProperties = {
   /**
@@ -246,7 +248,6 @@ type MetricEntry = PerformanceEntry & {
   const autoTrack = config('auto-track') !== _false;
   const dnt = config('do-not-track') === _true;
   const excludeSearch = config('exclude-search') === _true;
-  const excludeHash = config('exclude-hash') === _true;
   const domain = config('domains') || '';
   const credentials = (config('fetch-credentials') || 'omit') as RequestCredentials;
   const perf = config('performance') === _true;
@@ -265,15 +266,12 @@ type MetricEntry = PerformanceEntry & {
 
   /* Helper functions */
 
-  const normalize = (raw: string | URL): string => {
+  const normalize = (raw: string | URL, includeAttribution = !excludeSearch): string => {
     if (!raw) return raw as string;
     try {
-      const u = new URL(raw, location.href);
-      if (excludeSearch) u.search = '';
-      if (excludeHash) u.hash = '';
-      return u.toString();
+      return sanitizeTrackingUrl(new URL(raw, location.href), includeAttribution).toString();
     } catch {
-      return raw as string;
+      return '';
     }
   };
 
@@ -289,7 +287,7 @@ type MetricEntry = PerformanceEntry & {
     title: document.title,
     hostname,
     url: currentUrl,
-    referrer: stripOrigin(currentRef),
+    referrer: stripOrigin(normalize(currentRef, false)),
     tag,
     id: identity ? identity : undefined,
   });
@@ -308,10 +306,13 @@ type MetricEntry = PerformanceEntry & {
       flushPerformance();
     }
 
+    const nextRawUrl = location.href;
+    const changed = nextRawUrl !== currentRawUrl;
+    currentRawUrl = nextRawUrl;
     currentRef = currentUrl;
     currentUrl = normalize(url);
 
-    if (currentUrl !== currentRef && autoPageview) {
+    if (changed && currentUrl && autoPageview) {
       setTimeout(track, delayDuration);
     }
   };
@@ -395,6 +396,31 @@ type MetricEntry = PerformanceEntry & {
     }
 
     if (!payload) return;
+
+    if (
+      (payload.url !== undefined &&
+        typeof payload.url !== 'string' &&
+        !(payload.url instanceof URL)) ||
+      (payload.referrer !== undefined &&
+        typeof payload.referrer !== 'string' &&
+        !(payload.referrer instanceof URL))
+    ) {
+      return;
+    }
+
+    const normalizedUrl =
+      typeof payload.url === 'string' || payload.url instanceof URL
+        ? normalize(payload.url)
+        : undefined;
+    if (payload.url && !normalizedUrl) return;
+
+    payload = {
+      ...payload,
+      ...(normalizedUrl !== undefined && { url: normalizedUrl }),
+      ...((typeof payload.referrer === 'string' || payload.referrer instanceof URL) && {
+        referrer: stripOrigin(normalize(payload.referrer, false)),
+      }),
+    };
 
     try {
       const res = await fetch(endpoint, {
@@ -638,8 +664,9 @@ type MetricEntry = PerformanceEntry & {
     } as UmamiTracker;
   }
 
+  let currentRawUrl = href;
   let currentUrl = normalize(href);
-  let currentRef = normalize(referrer);
+  let currentRef = normalize(referrer, false);
 
   let initialized = false;
   let disabled = false;

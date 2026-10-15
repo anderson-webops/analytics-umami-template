@@ -3102,7 +3102,7 @@ export interface components {
       sessionId: string;
       /** @description Path portion of the page URL. */
       urlPath?: string | null;
-      /** @description Query string portion of the page URL. */
+      /** @description Bounded, allowlisted attribution query parameters from the page URL. */
       urlQuery?: string | null;
       /**
        * Format: uuid

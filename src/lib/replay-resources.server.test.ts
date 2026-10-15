@@ -62,6 +62,8 @@ const snapshot = {
                     src: 'https://attacker.invalid/beacon',
                     srcset: 'https://attacker.invalid/large 2x',
                     alt: 'Recorded image',
+                    title: 'Reset at https://example.com/reset?token=attribute-secret#part',
+                    'aria-label': '/reset?token=aria-secret',
                     width: 100,
                   },
                   childNodes: [],
@@ -111,6 +113,8 @@ test('removes resource loads from a full snapshot while retaining safe layout', 
   expect(body.attributes.style).toContain('color: #00f');
   expect(body.attributes.style).not.toContain('/private');
   expect(body.childNodes[0].attributes).toMatchObject({ alt: 'Recorded image', width: 100 });
+  expect(body.childNodes[0].attributes.title).toBeUndefined();
+  expect(body.childNodes[0].attributes['aria-label']).toBeUndefined();
   expect(body.childNodes[0].attributes.src).toBeUndefined();
   expect(body.childNodes[0].attributes.srcset).toBeUndefined();
   expect(body.childNodes[1].attributes.srcdoc).toBeUndefined();

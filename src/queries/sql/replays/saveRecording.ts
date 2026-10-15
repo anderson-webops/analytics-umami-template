@@ -161,9 +161,11 @@ export async function saveRecording(
     throw new Error('Raw replay fragments require pre-persistence reconstruction.');
   }
 
+  const safeEvents = sanitizeReplayResourceEvents(redactReplayNavigationEvents(args.events));
   const safeArgs = {
     ...args,
-    events: sanitizeReplayResourceEvents(redactReplayNavigationEvents(args.events)),
+    events: safeEvents,
+    eventCount: safeEvents.length,
   };
 
   if (transaction) {

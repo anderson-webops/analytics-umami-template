@@ -1,3 +1,5 @@
+import { isUrlBearingReplayAttribute } from './url.js';
+
 const SAFE_IMAGE = /^data:image\/(?:png|jpeg|gif|webp|avif);base64,[a-z0-9+/=]+$/i;
 const SAFE_PAINT =
   /^(?:#[a-f\d]{3,8}|[a-z]+|url\(#[a-z\d_-]+\)|rgba?\([\d.,%\s]+\)|hsla?\([\d.,%\s]+\))$/i;
@@ -148,6 +150,7 @@ function sanitizeAttributes(value) {
       normalized.startsWith('aria-') ||
       normalized.startsWith('data-')
     ) {
+      if (isUrlBearingReplayAttribute(raw)) continue;
       if (
         (typeof raw === 'string' &&
           (!normalized.startsWith('data-') || /^[a-z\d _.-]{0,128}$/i.test(raw))) ||

@@ -1,4 +1,5 @@
 import { transform, transformStyleAttribute } from 'lightningcss';
+import { isUrlBearingReplayAttribute, redactReplayNavigationEvent } from '@/recorder/url';
 
 const MAX_CSS_BYTES = 256 * 1024;
 const EMPTY_IMAGE = 'data:,';
@@ -217,6 +218,7 @@ function sanitizeAttributes(value: unknown) {
       (SAFE_ATTRIBUTES.has(normalized) ||
         normalized.startsWith('aria-') ||
         normalized.startsWith('data-')) &&
+      !isUrlBearingReplayAttribute(raw) &&
       isSafePlainAttribute(normalized, raw)
     ) {
       safe[name] = raw;
@@ -403,7 +405,10 @@ export function sanitizeReplayResourceEvents(events: any[]): any[] {
       continue;
     }
 
-    if ([0, 1, 4, 5].includes(event.type)) {
+    if (event.type === 4 || event.type === 5) {
+      const safeEvent = redactReplayNavigationEvent(event);
+      if (safeEvent) safeEvents.push(safeEvent);
+    } else if ([0, 1].includes(event.type)) {
       safeEvents.push(event);
     }
   }

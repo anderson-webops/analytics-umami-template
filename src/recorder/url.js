@@ -16,32 +16,63 @@ export function getReplaySafeUrl(value) {
   }
 }
 
+export function isUrlBearingReplayAttribute(value) {
+  return (
+    typeof value === 'string' &&
+    /(?:https?:\/\/|(?:^|\s)\/[^\s]+|\?[^\s=]+=[^\s]+|%3a%2f%2f|%3f[^\s]*%3d)/i.test(value)
+  );
+}
+
 export function redactReplayNavigationEvent(event) {
   if (!event || typeof event !== 'object') {
-    return event;
+    return null;
   }
 
-  if (event.type === 4 && typeof event.data?.href === 'string') {
-    return { ...event, data: { ...event.data, href: getReplaySafeUrl(event.data.href) } };
+  if (event.type === 4) {
+    const { href, width, height } = event.data || {};
+    return {
+      type: 4,
+      timestamp: event.timestamp,
+      data: {
+        ...(typeof href === 'string' && { href: getReplaySafeUrl(href) }),
+        ...(Number.isFinite(width) && { width }),
+        ...(Number.isFinite(height) && { height }),
+      },
+    };
   }
 
-  if (event.type === 5 && event.data?.tag === 'url-change') {
-    const payload = event.data.payload;
+  if (event.type === 5) {
+    const payload = event.data?.payload;
 
-    if (typeof payload?.url === 'string') {
+    if (event.data?.tag === 'url-change' && typeof payload?.url === 'string') {
       return {
-        ...event,
-        data: {
-          ...event.data,
-          payload: { ...payload, url: getReplaySafeUrl(payload.url) },
-        },
+        type: 5,
+        timestamp: event.timestamp,
+        data: { tag: 'url-change', payload: { url: getReplaySafeUrl(payload.url) } },
       };
     }
+
+    if (event.data?.tag === 'scroll-progress' && payload && typeof payload === 'object') {
+      const safePayload = {};
+      for (const key of ['scrollPct', 'pageW', 'pageH', 'viewportW', 'viewportH']) {
+        if (Number.isFinite(payload[key]) && payload[key] >= 0 && payload[key] <= 10_000_000) {
+          safePayload[key] = payload[key];
+        }
+      }
+      if (typeof payload.url === 'string') safePayload.url = getReplaySafeUrl(payload.url);
+      return {
+        type: 5,
+        timestamp: event.timestamp,
+        data: { tag: 'scroll-progress', payload: safePayload },
+      };
+    }
+
+    return null;
   }
 
   return event;
 }
 
 export function redactReplayNavigationEvents(events) {
-  return events.map(redactReplayNavigationEvent);
+  return events.map(redactReplayNavigationEvent).filter(Boolean);
 }

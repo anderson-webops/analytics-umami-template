@@ -1,5 +1,6 @@
 import { record } from 'rrweb';
 import { expect, test } from 'vitest';
+import { createReplayResourceRedactor } from './resources';
 
 test('blocks credential-bearing text and image attributes in snapshots and mutations', async () => {
   const container = document.createElement('section');
@@ -48,5 +49,31 @@ test('blocks credential-bearing text and image attributes in snapshots and mutat
   } finally {
     stop?.();
     container.remove();
+  }
+});
+
+test('strict replay drops URL-bearing labels emitted by rrweb', () => {
+  const element = document.createElement('button');
+  element.title = 'Open https://example.com/reset?token=SYNTHETIC-TITLE#private';
+  element.setAttribute('aria-label', '/reset?token=SYNTHETIC-ARIA');
+  element.textContent = 'Open';
+  document.body.append(element);
+
+  const events: unknown[] = [];
+  const stop = record({
+    emit: event => events.push(event),
+    maskAllInputs: true,
+    maskTextSelector: '*',
+  });
+
+  try {
+    expect(JSON.stringify(events)).toContain('SYNTHETIC-TITLE');
+    const redact = createReplayResourceRedactor();
+    const safeEvents = events.map(redact).filter(Boolean);
+    expect(JSON.stringify(safeEvents)).not.toContain('SYNTHETIC-TITLE');
+    expect(JSON.stringify(safeEvents)).not.toContain('SYNTHETIC-ARIA');
+  } finally {
+    stop?.();
+    element.remove();
   }
 });

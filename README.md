@@ -39,6 +39,7 @@ database, while the application listens only on loopback behind Nginx.
 - `env.sample` - production environment template
 - `DEPLOYMENT.md` - non-container deployment and rollback procedure
 - `HEALTHCHECKS.md` - monitor endpoints and expected status codes
+- `docs/tracking-url-privacy.md` - page/referrer URL collection policy and attribution compatibility
 
 ## Common Commands
 

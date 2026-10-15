@@ -65,6 +65,38 @@ test('stores redacted navigation URLs without changing replay event counts', asy
   expect(events[0].data.href).toContain('token=secret');
 });
 
+test('does not persist unrecognized custom replay URLs', async () => {
+  const create = vi.fn(async (_input: { data: { events: Buffer; eventCount: number } }) => ({}));
+  const events = [
+    { type: 5, timestamp: 1, data: { tag: 'custom', payload: { url: '/reset?token=secret' } } },
+    {
+      type: 5,
+      timestamp: 2,
+      data: { tag: 'url-change', payload: { url: '/next?token=secret', extra: 'secret' } },
+    },
+  ];
+
+  await saveRecording(
+    {
+      websiteId: '11111111-1111-4111-8111-111111111111',
+      sessionId: '22222222-2222-4222-8222-222222222222',
+      visitId: '33333333-3333-4333-8333-333333333333',
+      chunkIndex: 1,
+      events,
+      eventCount: events.length,
+      startedAt: new Date(1),
+      endedAt: new Date(2),
+    },
+    { sessionReplay: { create } } as unknown as Prisma.TransactionClient,
+  );
+
+  const stored = create.mock.lastCall?.[0]?.data;
+  expect(stored?.eventCount).toBe(1);
+  expect(JSON.parse(gunzipSync(stored.events).toString('utf8'))).toEqual([
+    { type: 5, timestamp: 2, data: { tag: 'url-change', payload: { url: '/next' } } },
+  ]);
+});
+
 test('does not persist resource URLs from snapshots or attribute mutations', async () => {
   const create = vi.fn(async (_input: { data: { events: Buffer } }) => ({}));
   const events = [

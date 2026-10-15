@@ -36,7 +36,33 @@ test('redacts replay metadata and navigation events without changing other data'
     height: 600,
   });
   expect(sanitized[1].data.payload.url).toBe('https://example.com/next');
-  expect(sanitized[2]).toBe(events[2]);
+  expect(sanitized[2].data).toEqual({ tag: 'scroll-progress', payload: { scrollPct: 50 } });
   expect(events[0].data.href).toContain('reset=secret');
   expect(JSON.stringify(sanitized)).not.toContain('secret');
+});
+
+test('drops unrecognized replay custom events and unapproved metadata fields', () => {
+  const events = [
+    { type: 5, timestamp: 1, data: { tag: 'custom', payload: { url: '/reset?token=secret' } } },
+    {
+      type: 5,
+      timestamp: 2,
+      data: {
+        tag: 'url-change',
+        payload: { url: '/next?token=secret', extra: '/reset?token=secret' },
+      },
+    },
+    {
+      type: 4,
+      timestamp: 3,
+      data: { href: '/page?token=secret', width: 800, extra: '/reset?token=secret' },
+    },
+  ];
+
+  const safe = redactReplayNavigationEvents(events);
+
+  expect(safe).toHaveLength(2);
+  expect(safe[0].data).toEqual({ tag: 'url-change', payload: { url: '/next' } });
+  expect(safe[1].data).toEqual({ href: '/page', width: 800 });
+  expect(JSON.stringify(safe)).not.toContain('secret');
 });

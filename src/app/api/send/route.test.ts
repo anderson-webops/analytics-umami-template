@@ -553,9 +553,48 @@ describe('event url and referrer parsing', () => {
       utmSource: 'news',
       gclid: 'abc',
       referrerPath: '/search',
-      referrerQuery: 'q=umami',
+      referrerQuery: '',
       referrerDomain: 'google.com',
     });
+  });
+
+  test('does not persist private page or referrer query values and fragments', async () => {
+    await callPOST({
+      type: 'event',
+      payload: {
+        website: WEBSITE_ID,
+        hostname: 'example.com',
+        url: '/reset?token=SYNTHETIC-SECRET&utm_source=news#private-fragment',
+        referrer: 'https://search.example/results?q=SYNTHETIC-REFERRER#private-referrer',
+      },
+    });
+
+    const saved = saveEventMock.mock.calls[0][0] as Record<string, any>;
+    expect(saved).toMatchObject({
+      urlPath: '/reset',
+      urlQuery: 'utm_source=news',
+      utmSource: 'news',
+      referrerPath: '/results',
+      referrerQuery: '',
+      referrerDomain: 'search.example',
+    });
+    expect(JSON.stringify(saved)).not.toContain('SYNTHETIC-SECRET');
+    expect(JSON.stringify(saved)).not.toContain('SYNTHETIC-REFERRER');
+    expect(JSON.stringify(saved)).not.toContain('private-fragment');
+  });
+
+  test('retains a paid click identifier without storing unrelated query data', async () => {
+    await callPOST({
+      type: 'event',
+      payload: {
+        website: WEBSITE_ID,
+        url: '/landing?dclid=click-1&token=SYNTHETIC-SECRET',
+      },
+    });
+
+    const saved = saveEventMock.mock.calls[0][0] as Record<string, any>;
+    expect(saved.urlQuery).toBe('dclid=click-1');
+    expect(JSON.stringify(saved)).not.toContain('SYNTHETIC-SECRET');
   });
 
   test('does not save referrer domain when it matches the hostname', async () => {
@@ -572,7 +611,7 @@ describe('event url and referrer parsing', () => {
     const arg = saveEventMock.mock.calls[0][0] as Record<string, any>;
     expect(arg).toMatchObject({
       referrerPath: '/prev',
-      referrerQuery: 'a=1',
+      referrerQuery: '',
     });
     expect(arg.referrerDomain).toBeUndefined();
   });
@@ -591,7 +630,7 @@ describe('event url and referrer parsing', () => {
     const arg = saveEventMock.mock.calls[0][0] as Record<string, any>;
     expect(arg).toMatchObject({
       referrerPath: '/prev',
-      referrerQuery: 'a=1',
+      referrerQuery: '',
     });
     expect(arg.referrerDomain).toBeUndefined();
   });
@@ -682,7 +721,7 @@ describe('event url and referrer parsing', () => {
     expect(saveEventMock.mock.calls[0][0]).toMatchObject({ urlPath: '/' });
   });
 
-  test('REMOVE_TRAILING_SLASH keeps the root path when the url has a hash', async () => {
+  test('REMOVE_TRAILING_SLASH keeps the root path after removing a hash', async () => {
     process.env.REMOVE_TRAILING_SLASH = '1';
 
     await callPOST({
@@ -690,10 +729,10 @@ describe('event url and referrer parsing', () => {
       payload: { website: WEBSITE_ID, hostname: 'example.com', url: '/#hero' },
     });
 
-    expect(saveEventMock.mock.calls[0][0]).toMatchObject({ urlPath: '/#hero' });
+    expect(saveEventMock.mock.calls[0][0]).toMatchObject({ urlPath: '/' });
   });
 
-  test('REMOVE_TRAILING_SLASH strips a trailing slash before the hash', async () => {
+  test('REMOVE_TRAILING_SLASH strips a trailing slash after removing a hash', async () => {
     process.env.REMOVE_TRAILING_SLASH = '1';
 
     await callPOST({
@@ -701,7 +740,7 @@ describe('event url and referrer parsing', () => {
       payload: { website: WEBSITE_ID, hostname: 'example.com', url: '/blog/#hero' },
     });
 
-    expect(saveEventMock.mock.calls[0][0]).toMatchObject({ urlPath: '/blog#hero' });
+    expect(saveEventMock.mock.calls[0][0]).toMatchObject({ urlPath: '/blog' });
   });
 
   test('maps a "/undefined" pathname to an empty url path', async () => {
