@@ -41,6 +41,7 @@ const publicEnvironmentNames = new Set([
   'PRIVATE_MODE',
   'PUBLIC_URL',
   'TRACKER_SCRIPT_NAME',
+  'TRACKER_SCRIPT_SHA256',
   'TRACKER_SCRIPT_URL',
   'TRUST_CLIENT_INFO_PAYLOAD',
   'UMAMI_SELF_RECORD',
@@ -134,6 +135,15 @@ export function validatePublicConfiguration(configuration, site, repository) {
     if (environment[name] !== undefined && !['0', '1'].includes(environment[name])) {
       throw new Error(`The ${name} build flag must be 0 or 1.`);
     }
+  }
+
+  if (
+    (environment.TRACKER_SCRIPT_SHA256 &&
+      !/^[a-f0-9]{64}$/.test(environment.TRACKER_SCRIPT_SHA256)) ||
+    ((environment.TRACKER_SCRIPT_URL || environment.CLOUD_MODE === '1') &&
+      !environment.TRACKER_SCRIPT_SHA256)
+  ) {
+    throw new Error('External tracker build configuration requires an approved SHA-256 digest.');
   }
 
   for (const [name, value] of Object.entries(environment)) {

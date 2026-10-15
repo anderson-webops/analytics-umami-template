@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { getAllowedFrameAncestors, getContentSecurityPolicy } from '@/lib/csp';
 import { matchesConfiguredPath } from '@/lib/match-configured-path';
+import { getExternalTrackerUrl, VERIFIED_TRACKER_PATH } from '@/lib/tracker-script';
 
 export const config = {
   matcher: '/:path*',
@@ -20,32 +21,18 @@ const apiHeaders = {
   'Cache-Control': 'no-store',
 };
 
-const trackerHeaders = {
+const trackerCorsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Cross-Origin-Resource-Policy': 'cross-origin',
+};
+
+const trackerHeaders = {
+  ...trackerCorsHeaders,
   'Cache-Control': 'public, max-age=86400, must-revalidate',
 };
 
 function isEnabled(value?: string) {
   return ['1', 'true', 'yes', 'on'].includes(value?.trim().toLowerCase() ?? '');
-}
-
-function getSafeTrackerUrl(value?: string) {
-  if (!value) {
-    return null;
-  }
-
-  try {
-    const url = new URL(value);
-
-    if (url.protocol !== 'https:' || url.username || url.password) {
-      return null;
-    }
-
-    return url;
-  } catch {
-    return null;
-  }
 }
 
 // Resolved once at startup — env vars don't change after the process starts.
@@ -77,10 +64,8 @@ function customScriptName(request: NextRequest) {
     const names = scriptName.split(',').map(name => name.trim().replace(/^\/+/, ''));
 
     if (names.find(name => matchesConfiguredPath(url.pathname, name, BASE_PATH))) {
-      const scriptUrl = getExternalTrackerUrl();
-
-      if (scriptUrl) {
-        return rewriteExternalTracker(scriptUrl);
+      if (getExternalTrackerUrl()) {
+        return rewriteVerifiedTracker(url);
       }
 
       url.pathname = TRACKER_PATH;
@@ -89,34 +74,32 @@ function customScriptName(request: NextRequest) {
   }
 }
 
-function getExternalTrackerUrl() {
-  const configuredUrl = getSafeTrackerUrl(process.env.TRACKER_SCRIPT_URL);
-
-  if (configuredUrl) {
-    return configuredUrl;
-  }
-
-  return process.env.NODE_ENV === 'production' && isEnabled(process.env.CLOUD_MODE)
-    ? new URL('https://cloud.umami.is/script.js')
-    : null;
-}
-
-function rewriteExternalTracker(scriptUrl: URL) {
-  return NextResponse.rewrite(scriptUrl, {
-    headers: trackerHeaders,
-    request: { headers: new Headers({ Accept: '*/*' }) },
+function rewriteVerifiedTracker(url: URL) {
+  url.pathname = VERIFIED_TRACKER_PATH;
+  url.search = '';
+  return NextResponse.rewrite(url, {
+    headers: trackerCorsHeaders,
+    request: { headers: new Headers({ Accept: 'text/javascript' }) },
   });
 }
 
 function customScriptUrl(request: NextRequest) {
-  const scriptUrl = getExternalTrackerUrl();
-
-  if (scriptUrl && matchesConfiguredPath(request.nextUrl.pathname, TRACKER_PATH, BASE_PATH)) {
-    return rewriteExternalTracker(scriptUrl);
+  if (
+    getExternalTrackerUrl() &&
+    matchesConfiguredPath(request.nextUrl.pathname, TRACKER_PATH, BASE_PATH)
+  ) {
+    return rewriteVerifiedTracker(request.nextUrl.clone());
   }
 }
 
 function applyStaticScriptHeaders(request: NextRequest, response: NextResponse) {
+  if (
+    response.headers.get('x-middleware-rewrite') ===
+    new URL(VERIFIED_TRACKER_PATH, request.url).href
+  ) {
+    return;
+  }
+
   if (
     matchesConfiguredPath(request.nextUrl.pathname, TRACKER_PATH, BASE_PATH) ||
     matchesConfiguredPath(request.nextUrl.pathname, RECORDER_PATH, BASE_PATH)

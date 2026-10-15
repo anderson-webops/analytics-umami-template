@@ -94,10 +94,6 @@ const trackerHeaders = [
     key: 'Cross-Origin-Resource-Policy',
     value: 'cross-origin',
   },
-  {
-    key: 'Cache-Control',
-    value: 'public, max-age=86400, must-revalidate',
-  },
 ];
 
 const apiHeaders = [

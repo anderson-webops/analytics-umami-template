@@ -72,6 +72,54 @@ test('public build configuration is canonical and rejects private or changed val
   );
 });
 
+test('external tracker build configuration binds an approved script digest', () => {
+  const digest = 'a'.repeat(64);
+  const external = {
+    ...configuration,
+    environment: {
+      ...configuration.environment,
+      TRACKER_SCRIPT_URL: 'https://tracker.example.test/script.js',
+      TRACKER_SCRIPT_SHA256: digest,
+    },
+  };
+
+  assert.equal(
+    JSON.parse(validatePublicConfiguration(external, site, repository)).environment
+      .TRACKER_SCRIPT_SHA256,
+    digest,
+  );
+  assert.throws(
+    () =>
+      validatePublicConfiguration(
+        { ...external, environment: { ...external.environment, TRACKER_SCRIPT_SHA256: '' } },
+        site,
+        repository,
+      ),
+    /approved SHA-256 digest/,
+  );
+  assert.throws(
+    () =>
+      validatePublicConfiguration(
+        {
+          ...external,
+          environment: { ...external.environment, TRACKER_SCRIPT_SHA256: 'A'.repeat(64) },
+        },
+        site,
+        repository,
+      ),
+    /approved SHA-256 digest/,
+  );
+  assert.throws(
+    () =>
+      validatePublicConfiguration(
+        { ...configuration, environment: { ...configuration.environment, CLOUD_MODE: '1' } },
+        site,
+        repository,
+      ),
+    /approved SHA-256 digest/,
+  );
+});
+
 test('USTAR header keeps exact names, metadata and checksum without extensions', () => {
   const longName = `runtime/node_modules/.pnpm/${'a'.repeat(120)}/node_modules/next/dist/server/index.js`;
   const record = {

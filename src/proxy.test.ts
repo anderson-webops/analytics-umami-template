@@ -18,35 +18,62 @@ function requestTracker(path = '/script.js') {
   });
 }
 
-test.each(['/script.js', '/custom.js'])(
-  'external tracker rewrite clears all incoming request headers for %s',
+test.each(['/script.js', '/custom.js', '/alternate.js'])(
+  'external tracker passes through the local verifier without incoming request headers for %s',
   path => {
     vi.stubEnv('TRACKER_SCRIPT_URL', 'https://tracker.example.com/script.js');
-    vi.stubEnv('TRACKER_SCRIPT_NAME', 'custom.js');
+    vi.stubEnv('TRACKER_SCRIPT_NAME', 'custom.js,alternate.js');
 
     const response = middleware(requestTracker(path));
 
     expect(response.headers.get('x-middleware-rewrite')).toBe(
-      'https://tracker.example.com/script.js',
+      'https://analytics.example.com/verified-tracker-script',
     );
     expect(response.headers.get('x-middleware-override-headers')).toBe('accept');
     expect(
       [...response.headers.entries()].filter(([name]) => name.startsWith('x-middleware-request-')),
-    ).toEqual([['x-middleware-request-accept', '*/*']]);
-    expect(response.headers.get('Cache-Control')).toBe('public, max-age=86400, must-revalidate');
+    ).toEqual([['x-middleware-request-accept', 'text/javascript']]);
+    expect(response.headers.get('Cache-Control')).toBeNull();
     expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
   },
 );
 
-test('cloud tracker rewrite also clears incoming request headers', () => {
+test('cloud tracker also passes through the local verifier', () => {
   vi.stubEnv('TRACKER_SCRIPT_URL', '');
   vi.stubEnv('CLOUD_MODE', '1');
   vi.stubEnv('NODE_ENV', 'production');
 
   const response = middleware(requestTracker());
 
-  expect(response.headers.get('x-middleware-rewrite')).toBe('https://cloud.umami.is/script.js');
+  expect(response.headers.get('x-middleware-rewrite')).toBe(
+    'https://analytics.example.com/verified-tracker-script',
+  );
   expect(response.headers.get('x-middleware-override-headers')).toBe('accept');
+  expect(response.headers.get('Cache-Control')).toBeNull();
+});
+
+test('tracker query strings are not forwarded to the verifier', () => {
+  vi.stubEnv('TRACKER_SCRIPT_URL', 'https://tracker.example.com/script.js');
+
+  const response = middleware(requestTracker('/script.js?visitor=synthetic'));
+
+  expect(response.headers.get('x-middleware-rewrite')).toBe(
+    'https://analytics.example.com/verified-tracker-script',
+  );
+});
+
+test('a configured base-path tracker alias uses the same verifier', async () => {
+  vi.stubEnv('BASE_PATH', '/analytics');
+  vi.stubEnv('TRACKER_SCRIPT_URL', 'https://tracker.example.com/script.js');
+  vi.stubEnv('TRACKER_SCRIPT_NAME', 'custom.js');
+  vi.resetModules();
+  const { default: configuredMiddleware } = await import('./proxy');
+
+  const response = configuredMiddleware(requestTracker('/analytics/custom.js'));
+
+  expect(response.headers.get('x-middleware-rewrite')).toBe(
+    'https://analytics.example.com/verified-tracker-script',
+  );
 });
 
 test('local tracker does not receive an unnecessary request-header override', () => {
@@ -58,6 +85,20 @@ test('local tracker does not receive an unnecessary request-header override', ()
   expect(response.headers.get('x-middleware-rewrite')).toBeNull();
   expect(response.headers.get('x-middleware-override-headers')).toBeNull();
   expect(response.headers.get('Cross-Origin-Resource-Policy')).toBe('cross-origin');
+  expect(response.headers.get('Cache-Control')).toBe('public, max-age=86400, must-revalidate');
+});
+
+test('build-time tracker headers cannot cache a verifier failure', async () => {
+  vi.stubEnv('NODE_ENV', 'production');
+  vi.stubEnv('TRACKER_SCRIPT_NAME', 'custom.js');
+  vi.resetModules();
+  const { default: nextConfig } = await import('../next.config');
+  const headers = await nextConfig.headers?.();
+
+  for (const path of ['/script.js', '/custom.js']) {
+    const configured = headers?.find(item => item.source === path)?.headers ?? [];
+    expect(configured.find(header => header.key.toLowerCase() === 'cache-control')).toBeUndefined();
+  }
 });
 
 test('custom collection rewrite does not grant wildcard response access', () => {

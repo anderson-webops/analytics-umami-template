@@ -10,6 +10,7 @@
     ".next/required-server-files.json",
     ".next/server/app/healthz/route.js",
     ".next/server/app/readyz/route.js",
+    ".next/server/app/verified-tracker-script/route.js",
     "db/clickhouse/migrations/15_expire_new_heatmap_events.sql",
     "db/clickhouse/migrations/16_expire_new_session_replays.sql",
     "generated/prisma/client.js",

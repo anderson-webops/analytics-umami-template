@@ -213,6 +213,30 @@ successful production ledgers while keeping fresh database creation valid.
 Required security constraints and unique indexes are verified independently
 after migration.
 
+## External tracker script approval
+
+The bundled `public/script.js` remains the default tracker. If protected runtime
+configuration selects `TRACKER_SCRIPT_URL`, or enables `CLOUD_MODE` in production,
+the operator must independently approve the exact remote JavaScript bytes and set
+their lowercase SHA-256 as `TRACKER_SCRIPT_SHA256` before startup. The source
+environment gate rejects missing or malformed approval; the runtime route also
+fails closed. The proxy sends both `/script.js` and configured aliases to the
+local verifier, not directly to the remote host. That verifier fetches only the
+configured HTTPS URL without incoming request credentials, rejects redirects and
+oversized responses, and serves only bytes matching the approved digest. A
+verified response may be cached in the service process. A changed or unavailable
+remote script returns 503 until the operator reviews and approves a new digest;
+there is no unpinned fallback. The direct cloud-host script named in cloud-mode
+tracking snippets is a separate trust path and is not validated by this route.
+
+`TRACKER_SCRIPT_SHA256` is nonsecret but host-controlled. Review this change to
+the bundled `check-env.js` checksum, the runtime contract, the selected site's
+external-script use, its signed public build configuration and digest, and its
+protected environment before activation. Keep the
+previous release and configuration for rollback. Do not set the new digest from
+an unreviewed live fetch, relax startup or artifact checks, or treat a source
+release as authorization to change protected configuration.
+
 Tracker endpoint customization occurs before the manifest is written. Runtime
 startup does not rewrite `public/script.js`, so the service needs no writable
 public-assets exception.

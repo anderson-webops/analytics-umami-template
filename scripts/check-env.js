@@ -345,7 +345,19 @@ function checkServiceConfiguration({ production = false } = {}) {
   checkHttpsUrl('FAVICON_URL');
   checkHttpsUrl('LINKS_URL');
   checkHttpsUrl('PIXELS_URL');
-  checkHttpsUrl('TRACKER_SCRIPT_URL');
+  const trackerScriptUrl = checkHttpsUrl('TRACKER_SCRIPT_URL');
+  const trackerScriptDigest = getValue('TRACKER_SCRIPT_SHA256');
+
+  if (trackerScriptDigest && !/^[a-f0-9]{64}$/.test(trackerScriptDigest)) {
+    fail('TRACKER_SCRIPT_SHA256 must be a lowercase SHA-256 digest.');
+  }
+
+  if (
+    (trackerScriptUrl || (production && isEnabled(process.env.CLOUD_MODE))) &&
+    !trackerScriptDigest
+  ) {
+    fail('External tracker scripts require TRACKER_SCRIPT_SHA256.');
+  }
   checkHttpsUrl('GEO_DATABASE_URL');
   checkAbsoluteUrl('CLICKHOUSE_URL', ['http:', 'https:'], {
     requireTlsForPublicHost: production,
