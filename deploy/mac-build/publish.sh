@@ -10,6 +10,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 source "$script_dir/storage-env.sh"
 source_root="$(cd "$script_dir/../.." && pwd -P)"
 tag="$1"
+[[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
 asset_dir="$(realpath "$2")"
 public_key="$ANDERSON_BUILDER_SIGNING_DIR/public-key.pem"
 test -f "$public_key"
@@ -28,7 +29,11 @@ test "$(jq -r '.commit' "$manifest")" = "$commit"
 test "$(git -C "$source_root" remote get-url origin)" = \
   "git@github.com:$repository.git"
 gh auth status >/dev/null
-if gh release view "$tag" -R "$repository" >/dev/null 2>&1; then
+find_release() {
+  gh api "repos/$repository/releases?per_page=100" \
+    --jq ".[] | select(.tag_name == \"$tag\")"
+}
+if [[ -n "$(find_release)" ]]; then
   printf 'Release already exists; refusing to replace or append assets.\n' >&2
   exit 1
 fi
@@ -45,7 +50,8 @@ gh release create "$tag" -R "$repository" --verify-tag --draft \
   "$asset_dir/public-build-configuration.json" \
   "$asset_dir/acceptance-receipt.json"
 
-release_json="$(gh api "repos/$repository/releases/tags/$tag")"
+release_json="$(find_release)"
+test -n "$release_json"
 RELEASE_JSON="$release_json" node --input-type=module - "$asset_dir" <<'NODE'
 import crypto from 'node:crypto';
 import fs from 'node:fs';
