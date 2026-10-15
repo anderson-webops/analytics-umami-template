@@ -102,18 +102,42 @@ test('USTAR header keeps exact names, metadata and checksum without extensions',
 
 test('transport archive preserves checked files and links without a runtime root member', async () => {
   const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'mac-transport-test-'));
+  const routeDirectories = [
+    '.next',
+    '.next/server',
+    '.next/server/app',
+    '.next/server/app/(main)',
+    '.next/server/app/(main)/websites',
+    '.next/server/app/(main)/websites/[websiteId]',
+  ];
+  const routePath = `${routeDirectories.at(-1)}/page.js`;
+  const routeBytes = Buffer.from('synthetic Next route\n');
   try {
     const root = path.join(temporary, 'runtime');
     await fs.mkdir(root, { mode: 0o755 });
     await fs.mkdir(path.join(root, 'modules'), { recursive: true, mode: 0o755 });
+    await fs.mkdir(path.join(root, routeDirectories.at(-1)), { recursive: true, mode: 0o755 });
     await fs.writeFile(path.join(root, 'server.js'), 'synthetic runtime\n', { mode: 0o444 });
     await fs.writeFile(path.join(root, 'runtime-manifest.json'), '{}\n', { mode: 0o444 });
+    await fs.writeFile(path.join(root, routePath), routeBytes, { mode: 0o444 });
     await fs.symlink('../server.js', path.join(root, 'modules', 'entry.js'));
     await fs.chmod(path.join(root, 'modules'), 0o555);
+    for (const directory of routeDirectories) {
+      await fs.chmod(path.join(root, directory), 0o555);
+    }
     await fs.chmod(root, 0o555);
     const bytes = await fs.readFile(path.join(root, 'server.js'));
     const manifest = {
       entries: {
+        ...Object.fromEntries(
+          routeDirectories.map(directory => [directory, { type: 'directory', mode: '0555' }]),
+        ),
+        [routePath]: {
+          type: 'file',
+          mode: '0444',
+          size: routeBytes.length,
+          sha256: crypto.createHash('sha256').update(routeBytes).digest('hex'),
+        },
         modules: { type: 'directory', mode: '0555' },
         'modules/entry.js': { type: 'symlink', target: '../server.js' },
         'server.js': {
@@ -125,6 +149,16 @@ test('transport archive preserves checked files and links without a runtime root
       },
     };
     const records = await collectTransportRecords(root, manifest);
+    assert.equal(
+      records.find(record => record.path === `runtime/${routePath}`)?.sha256,
+      manifest.entries[routePath].sha256,
+    );
+    const linkRecord = records.find(record => record.path === 'runtime/modules/entry.js');
+    assert.equal(
+      linkRecord?.mode,
+      (await fs.lstat(path.join(root, 'modules', 'entry.js'))).mode & 0o7777,
+    );
+    if (process.platform === 'linux') assert.equal(linkRecord?.mode, 0o777);
     const archivePath = path.join(temporary, 'runtime.tar.gz');
     await writeTransportArchive(root, records, archivePath);
     assert.deepEqual(await verifyTransportArchive(archivePath, records), {});
@@ -139,6 +173,7 @@ test('transport archive preserves checked files and links without a runtime root
         header.toString('ascii', 156, 157),
         record.type === 'file' ? '0' : record.type === 'directory' ? '5' : '2',
       );
+      assert.equal(Number.parseInt(header.toString('ascii', 100, 108).trim(), 8), record.mode);
       offset += 512;
       if (record.type === 'file') {
         const payload = tar.subarray(offset, offset + record.size);
@@ -188,6 +223,9 @@ test('transport archive preserves checked files and links without a runtime root
       /Unsafe or repeated/,
     );
   } finally {
+    for (const directory of routeDirectories) {
+      await fs.chmod(path.join(temporary, 'runtime', directory), 0o755).catch(() => {});
+    }
     await fs.chmod(path.join(temporary, 'runtime', 'modules'), 0o755).catch(() => {});
     await fs.chmod(path.join(temporary, 'runtime'), 0o755).catch(() => {});
     await fs.rm(temporary, { recursive: true, force: true });
