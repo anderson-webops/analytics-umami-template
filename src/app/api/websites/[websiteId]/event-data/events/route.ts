@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import { getQueryFilters, parseRequest } from '@/lib/request';
-import { json, unauthorized } from '@/lib/response';
+import { badRequest, json, unauthorized } from '@/lib/response';
 import { filterParams } from '@/lib/schema';
 import { canViewWebsiteSection } from '@/permissions';
+import { DiscoveryRangeTooBroadError } from '@/queries/sql/events/discoveryError';
 import { getEventDataEvents } from '@/queries/sql/events/getEventDataEvents';
 
 export async function GET(
@@ -29,9 +30,13 @@ export async function GET(
 
   const filters = await getQueryFilters(query, websiteId);
 
-  const data = await getEventDataEvents(websiteId, {
-    ...filters,
-  });
+  try {
+    return json(await getEventDataEvents(websiteId, { ...filters }));
+  } catch (caught) {
+    if (caught instanceof DiscoveryRangeTooBroadError) {
+      return badRequest({ message: caught.message });
+    }
 
-  return json(data);
+    throw caught;
+  }
 }

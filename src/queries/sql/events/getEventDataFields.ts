@@ -2,6 +2,7 @@ import clickhouse from '@/lib/clickhouse';
 import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
 import prisma from '@/lib/prisma';
 import type { PropertyMetric, QueryFilters } from '@/lib/types';
+import { boundedClickhouseDiscovery, boundedPostgresDiscovery } from './discoveryBudget';
 
 const FUNCTION_NAME = 'getEventDataFields';
 
@@ -19,19 +20,16 @@ async function relationalQuery(
   eventName: string | undefined,
   filters: QueryFilters,
 ) {
-  const { rawQuery, parseFilters } = prisma;
+  const { parseFilters } = prisma;
   const { filterQuery, cohortQuery, joinSessionQuery, queryParams } = parseFilters({
     ...filters,
     websiteId,
   });
   const eventNameFilter = eventName ? 'and website_event.event_name = {{eventName}}' : '';
 
-  return rawQuery(
+  return boundedPostgresDiscovery<PropertyMetric>(
     `
-    select
-      data_key as "propertyName",
-      data_type as "dataType",
-      count(*) as "total"
+    select event_data.data_key, event_data.data_type
     from event_data
     join website_event on website_event.event_id = event_data.website_event_id
       and website_event.website_id = {{websiteId::uuid}}
@@ -42,10 +40,17 @@ async function relationalQuery(
     where event_data.website_id = {{websiteId::uuid}}
       and event_data.created_at between {{startDate}} and {{endDate}}
     ${filterQuery}
+    `,
+    `
+    select
+      data_key as "propertyName",
+      data_type as "dataType",
+      count(*) as "total"
+    from admitted
     group by data_key, data_type
     order by "total" desc, "propertyName" asc
-    limit 500
     `,
+    'result."total" desc, result."propertyName" asc',
     { ...queryParams, eventName },
     FUNCTION_NAME,
   );
@@ -56,12 +61,16 @@ async function clickhouseQuery(
   eventName: string | undefined,
   filters: QueryFilters,
 ): Promise<{ propertyName: string; dataType: number; total: number }[]> {
-  const { rawQuery, parseFilters } = clickhouse;
+  const { parseFilters } = clickhouse;
   const { filterQuery, cohortQuery, queryParams } = parseFilters({ ...filters, websiteId });
   const eventNameFilter = eventName ? 'and event_name = {eventName:String}' : '';
   const eventDataNameFilter = eventName ? 'and event_data.event_name = {eventName:String}' : '';
 
-  return rawQuery(
+  return boundedClickhouseDiscovery<{
+    propertyName: string;
+    dataType: number;
+    total: number;
+  }>(
     `
     select
       data_key as propertyName,

@@ -2,6 +2,7 @@ import clickhouse from '@/lib/clickhouse';
 import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
 import prisma from '@/lib/prisma';
 import type { QueryFilters } from '@/lib/types';
+import { boundedClickhouseDiscovery, boundedPostgresDiscovery } from './discoveryBudget';
 
 const FUNCTION_NAME = 'getEventDataEvents';
 
@@ -23,7 +24,7 @@ export async function getEventDataEvents(
 }
 
 async function relationalQuery(websiteId: string, filters: QueryFilters) {
-  const { rawQuery, parseFilters } = prisma;
+  const { parseFilters } = prisma;
   const { event } = filters;
   const { filterQuery, cohortQuery, joinSessionQuery, queryParams } = parseFilters({
     ...filters,
@@ -31,14 +32,10 @@ async function relationalQuery(websiteId: string, filters: QueryFilters) {
   });
 
   if (event) {
-    return rawQuery(
+    return boundedPostgresDiscovery<WebsiteEventData>(
       `
-      select
-        website_event.event_name as "eventName",
-        event_data.data_key as "propertyName",
-        event_data.data_type as "dataType",
-        event_data.string_value as "propertyValue",
-        count(*) as "total"
+      select website_event.event_name, event_data.data_key,
+        event_data.data_type, event_data.string_value
       from event_data
       inner join website_event
         on website_event.event_id = event_data.website_event_id
@@ -47,22 +44,23 @@ async function relationalQuery(websiteId: string, filters: QueryFilters) {
       where event_data.website_id = {{websiteId::uuid}}
         and event_data.created_at between {{startDate}} and {{endDate}}
       ${filterQuery}
-      group by website_event.event_name, event_data.data_key, event_data.data_type, event_data.string_value
-      order by 1 asc, 2 asc, 3 asc, 5 desc
-      limit 500
       `,
+      `
+      select event_name as "eventName", data_key as "propertyName",
+        data_type as "dataType", string_value as "propertyValue", count(*) as "total"
+      from admitted
+      group by event_name, data_key, data_type, string_value
+      order by 1 asc, 2 asc, 3 asc, 5 desc
+      `,
+      'result."eventName" asc, result."propertyName" asc, result."dataType" asc, result."total" desc',
       queryParams,
       FUNCTION_NAME,
     );
   }
 
-  return rawQuery(
+  return boundedPostgresDiscovery<WebsiteEventData>(
     `
-    select
-      website_event.event_name as "eventName",
-      event_data.data_key as "propertyName",
-      event_data.data_type as "dataType",
-      count(*) as "total"
+    select website_event.event_name, event_data.data_key, event_data.data_type
     from event_data
     inner join website_event
       on website_event.event_id = event_data.website_event_id
@@ -71,10 +69,15 @@ async function relationalQuery(websiteId: string, filters: QueryFilters) {
     where event_data.website_id = {{websiteId::uuid}}
       and event_data.created_at between {{startDate}} and {{endDate}}
     ${filterQuery}
-    group by website_event.event_name, event_data.data_key, event_data.data_type
-    order by 1 asc, 2 asc
-    limit 500
     `,
+    `
+    select event_name as "eventName", data_key as "propertyName",
+      data_type as "dataType", count(*) as "total"
+    from admitted
+    group by event_name, data_key, data_type
+    order by 1 asc, 2 asc
+    `,
+    'result."eventName" asc, result."propertyName" asc, result."dataType" asc',
     queryParams,
     FUNCTION_NAME,
   );
@@ -83,8 +86,8 @@ async function relationalQuery(websiteId: string, filters: QueryFilters) {
 async function clickhouseQuery(
   websiteId: string,
   filters: QueryFilters,
-): Promise<{ eventName: string; propertyName: string; dataType: number; total: number }[]> {
-  const { rawQuery, parseFilters } = clickhouse;
+): Promise<WebsiteEventData[]> {
+  const { parseFilters } = clickhouse;
   const { event } = filters;
   const { filterQuery, cohortQuery, queryParams } = parseFilters({
     ...filters,
@@ -92,7 +95,7 @@ async function clickhouseQuery(
   });
 
   if (event) {
-    return rawQuery(
+    return boundedClickhouseDiscovery<WebsiteEventData>(
       `
       select
         event_data.event_name as eventName,
@@ -127,7 +130,7 @@ async function clickhouseQuery(
     );
   }
 
-  return rawQuery(
+  return boundedClickhouseDiscovery<WebsiteEventData>(
     `
     select
       event_data.event_name as eventName,

@@ -158,20 +158,21 @@ function mapFilter(
   }
 
   const table = SESSION_COLUMNS.includes(name) ? 'session' : 'website_event';
+  const field = column.includes('.') ? column : `${table}.${column}`;
 
   switch (operator) {
     case OPERATORS.equals:
-      return `${table}.${column} = ANY(${value})`;
+      return `${field} = ANY(${value})`;
     case OPERATORS.notEquals:
-      return `${table}.${column} != ALL(${value})`;
+      return `${field} != ALL(${value})`;
     case OPERATORS.contains:
-      return `${table}.${column} ilike ${value}`;
+      return `${field} ilike ${value}`;
     case OPERATORS.doesNotContain:
-      return `${table}.${column} not ilike ${value}`;
+      return `${field} not ilike ${value}`;
     case OPERATORS.regex:
-      return `${table}.${column} ~* ${value}`;
+      return `${field} ~* ${value}`;
     case OPERATORS.notRegex:
-      return `${table}.${column} !~* ${value}`;
+      return `${field} !~* ${value}`;
     default:
       return '';
   }
@@ -279,27 +280,30 @@ function getDateQuery(filters: Record<string, any>) {
   return '';
 }
 
-function getQueryParams(filters: Record<string, any>) {
+function getQueryParams(filters: Record<string, any>, options?: QueryOptions) {
   return {
     ...filters,
-    ...filtersObjectToArray(filters).reduce((obj, { name, column, operator, value, paramName }) => {
-      const resolvedColumn =
-        column || (name?.startsWith('cohort_') && FILTER_COLUMNS[name.slice('cohort_'.length)]);
+    ...filtersObjectToArray(filters, options).reduce(
+      (obj, { name, column, operator, value, paramName }) => {
+        const resolvedColumn =
+          column || (name?.startsWith('cohort_') && FILTER_COLUMNS[name.slice('cohort_'.length)]);
 
-      if (!resolvedColumn) return obj;
+        if (!resolvedColumn) return obj;
 
-      const key = paramName ?? name;
+        const key = paramName ?? name;
 
-      if (SEARCH_OPERATORS.includes(operator)) {
-        obj[key] = `%${value}%`;
-      } else if (EQUALITY_OPERATORS.includes(operator)) {
-        obj[key] = Array.isArray(value) ? value : [value];
-      } else {
-        obj[key] = value;
-      }
+        if (SEARCH_OPERATORS.includes(operator)) {
+          obj[key] = `%${value}%`;
+        } else if (EQUALITY_OPERATORS.includes(operator)) {
+          obj[key] = Array.isArray(value) ? value : [value];
+        } else {
+          obj[key] = value;
+        }
 
-      return obj;
-    }, {}),
+        return obj;
+      },
+      {},
+    ),
   };
 }
 
@@ -334,7 +338,7 @@ function parseFilters(filters: Record<string, any>, options?: QueryOptions) {
       .filter(Boolean)
       .join('\n'),
     queryParams: {
-      ...getQueryParams(filters),
+      ...getQueryParams(filters, options),
       ...eventPropertyFilterParams,
       ...sessionPropertyFilterParams,
     },

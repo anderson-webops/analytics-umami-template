@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import clickhouse, { CLICKHOUSE_DATE_FORMATS } from './clickhouse';
+import clickhouse, { CLICKHOUSE_DATE_FORMATS, isClickHouseDiscoveryLimitError } from './clickhouse';
 
 afterEach(() => {
   vi.doUnmock('@clickhouse/client');
@@ -8,6 +8,43 @@ afterEach(() => {
 });
 
 describe('bounded queries', () => {
+  test('applies exact grouping and join limits for metadata discovery', async () => {
+    const query = vi.fn().mockResolvedValue({ json: vi.fn().mockResolvedValue([]) });
+    vi.stubEnv('CLICKHOUSE_URL', 'http://umami:synthetic@127.0.0.1:8123/umami');
+    vi.doMock('@clickhouse/client', () => ({ createClient: () => ({ query }) }));
+    vi.resetModules();
+
+    const { default: client } = await import('./clickhouse');
+    await client.rawQuery('select key, count() from t group by key', {}, 'discovery', {
+      maxRowsToGroupBy: 50_000,
+      maxRowsInJoin: 50_000,
+      maxThreads: 1,
+    });
+
+    expect(query).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clickhouse_settings: expect.objectContaining({
+          max_rows_to_group_by: '50000',
+          group_by_overflow_mode: 'throw',
+          max_rows_in_join: '50000',
+          join_overflow_mode: 'throw',
+          max_threads: 1,
+        }),
+      }),
+    );
+  });
+
+  test('recognizes only explicit discovery limit failures', () => {
+    expect(isClickHouseDiscoveryLimitError({ code: '158', type: 'TOO_MANY_ROWS' })).toBe(true);
+    expect(isClickHouseDiscoveryLimitError({ code: '191', type: 'SET_SIZE_LIMIT_EXCEEDED' })).toBe(
+      true,
+    );
+    expect(isClickHouseDiscoveryLimitError({ code: '241', type: 'MEMORY_LIMIT_EXCEEDED' })).toBe(
+      false,
+    );
+    expect(isClickHouseDiscoveryLimitError(new Error('TOO_MANY_ROWS'))).toBe(false);
+  });
+
   test('passes a linked-identity scan cap to ClickHouse', async () => {
     const query = vi.fn().mockResolvedValue({ json: vi.fn().mockResolvedValue([]) });
     vi.stubEnv('CLICKHOUSE_URL', 'http://umami:synthetic@127.0.0.1:8123/umami');

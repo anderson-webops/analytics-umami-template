@@ -204,6 +204,7 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm run build:db
           pnpm exec vitest run src/queries/sql/events/getEventStats.clickhouse.test.ts
+          pnpm exec vitest run src/queries/sql/events/getEventDataDiscovery.clickhouse.test.ts
           pnpm exec vitest run src/queries/sql/sessions/linked-session.clickhouse.test.ts
           pnpm exec vitest run src/queries/sql/sessions/session-data.clickhouse.test.ts
           pnpm exec vitest run src/queries/sql/property-series.clickhouse.test.ts
@@ -235,6 +236,7 @@ jobs:
     env:
       DATABASE_URL: postgresql://umami:umami@127.0.0.1:5432/umami_event_series_test
       POSTGRES_EVENT_SERIES_TEST_URL: postgresql://umami:umami@127.0.0.1:5432/umami_event_series_test
+      POSTGRES_DISCOVERY_TEST_URL: postgresql://umami:umami@127.0.0.1:5432/umami_event_series_test
 
     steps:
       - name: Check out source
@@ -259,4 +261,5 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm run generate:db:client
           pnpm exec vitest run src/queries/sql/events/getEventStats.postgres.test.ts
+          pnpm exec vitest run src/queries/sql/events/getEventDataDiscovery.postgres.test.ts
           pnpm exec vitest run src/queries/sql/property-series.postgres.test.ts

@@ -1,10 +1,11 @@
 import { z } from 'zod';
 import { parsePropertyFilters } from '@/lib/params';
 import { getQueryFilters, parseRequest } from '@/lib/request';
-import { json, unauthorized } from '@/lib/response';
+import { badRequest, json, unauthorized } from '@/lib/response';
 import { filterParams } from '@/lib/schema';
 import { canViewWebsiteSection } from '@/permissions';
 import { getSessionDataProperties } from '@/queries/sql';
+import { DiscoveryRangeTooBroadError } from '@/queries/sql/events/discoveryError';
 
 export async function GET(
   request: Request,
@@ -33,7 +34,15 @@ export async function GET(
   const filters = await getQueryFilters(rest, websiteId);
   const propertyFilters = parsePropertyFilters(query);
 
-  const data = await getSessionDataProperties(websiteId, filters, propertyFilters, propertyName);
+  try {
+    const data = await getSessionDataProperties(websiteId, filters, propertyFilters, propertyName);
 
-  return json(data);
+    return json(data);
+  } catch (caught) {
+    if (caught instanceof DiscoveryRangeTooBroadError) {
+      return badRequest({ message: caught.message });
+    }
+
+    throw caught;
+  }
 }

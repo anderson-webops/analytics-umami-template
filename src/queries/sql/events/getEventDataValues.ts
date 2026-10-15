@@ -3,6 +3,7 @@ import { DATA_TYPE } from '@/lib/constants';
 import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
 import prisma from '@/lib/prisma';
 import type { QueryFilters } from '@/lib/types';
+import { boundedClickhouseDiscovery, boundedPostgresDiscovery } from './discoveryBudget';
 
 const FUNCTION_NAME = 'getEventDataValues';
 
@@ -29,7 +30,7 @@ async function relationalQuery(
   eventName: string | undefined,
   filters: QueryFilters & { propertyName?: string; dataType?: number },
 ) {
-  const { rawQuery, parseFilters, getDateSQL } = prisma;
+  const { parseFilters, getDateSQL } = prisma;
   const { dataType } = filters;
   const { filterQuery, joinSessionQuery, cohortQuery, queryParams } = parseFilters({
     ...filters,
@@ -38,11 +39,9 @@ async function relationalQuery(
   const eventNameFilter = eventName ? 'and website_event.event_name = {{eventName}}' : '';
 
   if (dataType === DATA_TYPE.array) {
-    return rawQuery(
+    return boundedPostgresDiscovery<WebsiteEventData>(
       `
-      select
-        array_item.value as "value",
-        count(*) as "total"
+      select array_item.value
       from event_data
       join website_event on website_event.event_id = event_data.website_event_id
         and website_event.website_id = {{websiteId::uuid}}
@@ -57,24 +56,22 @@ async function relationalQuery(
         and event_data.data_key = {{propertyName}}
         and event_data.data_type = ${DATA_TYPE.array}
       ${filterQuery}
-      group by array_item.value
-      order by 2 desc
-      limit 100
       `,
+      `select value, count(*) as "total" from admitted group by value order by 2 desc`,
+      'result."total" desc',
       { ...queryParams, eventName },
       FUNCTION_NAME,
+      100,
     );
   }
 
-  return rawQuery(
+  return boundedPostgresDiscovery<WebsiteEventData>(
     `
-    select
-      case
+    select case
         when data_type = 2 then replace(string_value, '.0000', '')
         when data_type = 4 then ${getDateSQL('date_value', 'hour')}
         else string_value
-      end as "value",
-      count(*) as "total"
+      end as value
     from event_data
     join website_event on website_event.event_id = event_data.website_event_id
       and website_event.website_id = {{websiteId::uuid}}
@@ -88,12 +85,12 @@ async function relationalQuery(
       and event_data.data_key = {{propertyName}}
       ${dataType ? `and event_data.data_type = ${dataType}` : ''}
     ${filterQuery}
-    group by value
-    order by 2 desc
-    limit 100
     `,
+    `select value, count(*) as "total" from admitted group by value order by 2 desc`,
+    'result."total" desc',
     { ...queryParams, eventName },
     FUNCTION_NAME,
+    100,
   );
 }
 
@@ -102,14 +99,14 @@ async function clickhouseQuery(
   eventName: string | undefined,
   filters: QueryFilters & { propertyName?: string; dataType?: number },
 ): Promise<{ value: string; total: number }[]> {
-  const { rawQuery, parseFilters } = clickhouse;
+  const { parseFilters } = clickhouse;
   const { dataType } = filters;
   const { filterQuery, cohortQuery, queryParams } = parseFilters({ ...filters, websiteId });
   const eventNameFilter = eventName ? 'and event_name = {eventName:String}' : '';
   const eventDataNameFilter = eventName ? 'and event_data.event_name = {eventName:String}' : '';
 
   if (dataType === DATA_TYPE.array) {
-    return rawQuery(
+    return boundedClickhouseDiscovery<WebsiteEventData>(
       `
       select
         arrayJoin(JSONExtract(ifNull(event_data.string_value, '[]'), 'Array(String)')) as "value",
@@ -141,7 +138,7 @@ async function clickhouseQuery(
     );
   }
 
-  return rawQuery(
+  return boundedClickhouseDiscovery<WebsiteEventData>(
     `
     select
       multiIf(data_type = 2, replaceAll(string_value, '.0000', ''),
