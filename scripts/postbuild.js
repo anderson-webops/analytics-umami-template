@@ -5,6 +5,7 @@ import { build } from 'esbuild';
 import { rollup } from 'rollup';
 import trackerConfig from '../rollup.tracker.config.js';
 import { getGeoSource, verifyGeoDatabase } from './geo-build.mjs';
+import { pruneForeignRuntimePackages } from './prune-foreign-runtime-packages.mjs';
 import { repairStandaloneRuntime } from './repair-standalone.js';
 import { createRuntimeManifest } from './runtime-artifact.mjs';
 
@@ -154,6 +155,21 @@ async function run() {
   await fs.rm(path.join(appDir, '.next', 'cache'), { recursive: true, force: true });
   await fs.mkdir(path.join(appDir, '.next', 'cache'), { recursive: true, mode: 0o750 });
   await configureTracker(appDir);
+
+  if (
+    process.platform === 'linux' &&
+    process.arch === 'arm64' &&
+    process.report.getReport().header.glibcVersionRuntime
+  ) {
+    const pruned = await pruneForeignRuntimePackages(appDir, {
+      os: 'linux',
+      cpu: 'arm64',
+      libc: 'glibc',
+    });
+    console.log(
+      `Excluded ${pruned.packages.length} foreign-platform runtime packages and ${pruned.links.length} aliases.`,
+    );
+  }
 
   const manifest = await createRuntimeManifest(appDir);
 

@@ -210,7 +210,7 @@ export function createUstarHeader(record) {
   return header;
 }
 
-async function readNativeIdentity(filePath) {
+async function readNativeIdentity(filePath, relativePath) {
   const file = await fs.open(filePath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
   try {
     const bytes = Buffer.alloc(20);
@@ -222,7 +222,7 @@ async function readNativeIdentity(filePath) {
       bytes[5] !== 1 ||
       bytes.readUInt16LE(18) !== 183
     ) {
-      throw new Error('A native binding is not Linux ARM64 ELF64 little-endian.');
+      throw new Error(`A native binding is not Linux ARM64 ELF64 little-endian: ${relativePath}`);
     }
   } finally {
     await file.close();
@@ -269,7 +269,7 @@ export async function collectTransportRecords(root, manifest) {
       ) {
         throw new Error(`Transport symlink escapes its runtime: ${name}`);
       }
-      if (nativeFileName.test(name)) await readNativeIdentity(await fs.realpath(fullPath));
+      if (nativeFileName.test(name)) await readNativeIdentity(await fs.realpath(fullPath), name);
       record = { path: `runtime/${name}`, type: 'symlink', mode, target };
     } else if (metadata.isFile() && metadata.nlink === 1) {
       expandedBytes += metadata.size;
@@ -284,7 +284,7 @@ export async function collectTransportRecords(root, manifest) {
       ) {
         throw new Error(`Transport source changed after runtime verification: ${name}`);
       }
-      if (nativeFileName.test(name)) await readNativeIdentity(fullPath);
+      if (nativeFileName.test(name)) await readNativeIdentity(fullPath, name);
       record = { path: `runtime/${name}`, type: 'file', mode, ...digest };
     } else {
       throw new Error(`Unsupported transport member: ${name}`);
@@ -487,7 +487,9 @@ export async function verifyTransportArchive(archivePath, records) {
         nativeHead[5] !== 1 ||
         nativeHead.readUInt16LE(18) !== 183)
     ) {
-      throw new Error('Transport native binding is not Linux ARM64 ELF64 little-endian.');
+      throw new Error(
+        `Transport native binding is not Linux ARM64 ELF64 little-endian: ${expected.path}`,
+      );
     }
     if (manifestChunks.length) embeddedManifestBytes = Buffer.concat(manifestChunks);
     const padding = (512 - (expected.size % 512)) % 512;

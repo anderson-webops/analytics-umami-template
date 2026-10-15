@@ -55,6 +55,10 @@ The release builder runs the complete Vitest suite with one worker and a
 20-second per-test limit so parallel cold imports and browser interactions do
 not contend for the bounded VM's CPU and disk. Ordinary local and CI test
 settings are unchanged.
+Linux ARM64 postbuild excludes traced dependency packages whose declared
+OS, CPU, or libc is incompatible with the server, plus aliases to those
+packages, before hashing the runtime. The lockfile still retains optional
+packages needed for other development platforms.
 
 If publication is deferred, run
 `bash deploy/mac-build/publish.sh vX.Y.Z /absolute/path/to/assets` after the
