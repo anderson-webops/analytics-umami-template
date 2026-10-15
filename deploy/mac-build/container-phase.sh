@@ -62,7 +62,7 @@ start_database() {
 
 if [[ "$phase" = build ]]; then
   test "$(id -u)" = 501
-  pnpm install --frozen-lockfile --config.store-dir=/exchange/pnpm-store
+  pnpm install --frozen-lockfile --prefer-offline --config.store-dir=/pnpm-store
   pnpm audit signatures
   pnpm run audit:all
   pnpm run audit:prod

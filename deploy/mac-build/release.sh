@@ -50,6 +50,12 @@ docker --context colima build --platform linux/arm64 --pull=false \
 test "$(docker --context colima image inspect "$image" --format '{{.Os}}/{{.Architecture}}')" = \
   linux/arm64
 
+store_volume=analytics-arm64-pnpm-store
+docker --context colima volume create "$store_volume" >/dev/null
+docker --context colima run --rm --network none --user 0:0 \
+  --mount "type=volume,src=$store_volume,dst=/pnpm-store" "$image" \
+  sh -c 'chown 501:20 /pnpm-store && chmod 0755 /pnpm-store'
+
 volume="anderson-mac-build-${commit:0:12}-$$"
 docker --context colima volume create "$volume" >/dev/null
 remove_volume() {
@@ -62,6 +68,7 @@ docker --context colima run --rm --network none --user 0:0 \
 
 common=(
   --mount "type=volume,src=$volume,dst=/work"
+  --mount "type=volume,src=$store_volume,dst=/pnpm-store"
   --mount "type=bind,src=$ANDERSON_BUILDER_EXCHANGE,dst=/exchange"
   --cpus 4 --memory 5g
   --env "RELEASE_TAG=$tag"

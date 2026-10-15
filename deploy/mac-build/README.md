@@ -48,7 +48,9 @@ tests and packages the sealed read-only runtime, so its sandbox reads the exact
 permissions delivered in the archive. Only the completed unsigned assets cross
 back to the Mac, which signs exact manifest bytes and verifies the result using
 its public key. The disposable container volume is removed, while the shared
-pnpm store and nonsecret run evidence stay on Storage.
+pnpm store remains in a persistent Storage-backed VM volume and nonsecret run
+evidence stays on Storage. Installs use frozen lockfiles and verify package
+signatures and full/production audits regardless of cache hits.
 
 If publication is deferred, run
 `bash deploy/mac-build/publish.sh vX.Y.Z /absolute/path/to/assets` after the
