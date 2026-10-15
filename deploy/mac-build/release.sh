@@ -45,8 +45,9 @@ git -C "$source_root" bundle create "$run_root/source.bundle" HEAD "refs/tags/$t
 git -C "$source_root" bundle verify "$run_root/source.bundle" >/dev/null
 
 image="anderson-analytics-builder:${commit:0:12}"
-docker --context colima build --platform linux/arm64 --pull=false \
-  --tag "$image" --file "$script_dir/Dockerfile" "$script_dir"
+node "$script_dir/run-bounded.mjs" "$run_root/image-build.log" 1800 8388608 \
+  docker --context colima build --platform linux/arm64 --pull=false \
+    --tag "$image" --file "$script_dir/Dockerfile" "$script_dir"
 test "$(docker --context colima image inspect "$image" --format '{{.Os}}/{{.Architecture}}')" = \
   linux/arm64
 
@@ -58,7 +59,11 @@ docker --context colima run --rm --network none --user 0:0 \
 
 volume="anderson-mac-build-${commit:0:12}-$$"
 docker --context colima volume create "$volume" >/dev/null
+active_container=""
 remove_volume() {
+  if [[ -n "$active_container" ]]; then
+    docker --context colima container rm -f "$active_container" >/dev/null 2>&1 || true
+  fi
   docker --context colima volume rm "$volume" >/dev/null || true
 }
 trap remove_volume EXIT
@@ -70,7 +75,7 @@ common=(
   --mount "type=volume,src=$volume,dst=/work"
   --mount "type=volume,src=$store_volume,dst=/pnpm-store"
   --mount "type=bind,src=$ANDERSON_BUILDER_EXCHANGE,dst=/exchange"
-  --cpus 4 --memory 7g
+  --cpus 4 --memory 7g --memory-swap 7g --pids-limit 1024
   --env "RELEASE_TAG=$tag"
   --env "RELEASE_COMMIT=$commit"
   --env "RELEASE_REPOSITORY=$repository"
@@ -80,7 +85,19 @@ common=(
   --env HOME=/work/home
 )
 
-docker --context colima run --rm --user 501:20 --network bridge \
+run_phase() {
+  local phase="$1" seconds="$2"
+  shift 2
+  active_container="$volume-$phase"
+  node "$script_dir/run-bounded.mjs" "$run_root/$phase.log" "$seconds" 8388608 \
+    docker --context colima run --rm --name "$active_container" --init \
+      --log-driver local --log-opt max-size=8m --log-opt max-file=1 \
+      --log-opt compress=false \
+      "$@"
+  active_container=""
+}
+
+run_phase build 7200 --user 501:20 --network bridge \
   "${common[@]}" "$image" bash -lc '
     set -euo pipefail
     mkdir -p /work/home /work/tmp
@@ -89,14 +106,14 @@ docker --context colima run --rm --user 501:20 --network bridge \
     git -C /work/source checkout --quiet --detach "$RELEASE_TAG^{commit}"
     node /work/source/deploy/mac-build/public-environment.mjs "$RELEASE_CONFIG" run \
       bash /work/source/deploy/mac-build/container-phase.sh build
-  ' 2>&1 | tee "$run_root/build.log"
+  '
 
-docker --context colima run --rm --user 0:0 --network none --privileged \
+run_phase accept 3600 --user 0:0 --network none --privileged \
   "${common[@]}" "$image" bash -lc '
     set -euo pipefail
     node /work/source/deploy/mac-build/public-environment.mjs "$RELEASE_CONFIG" run \
       bash /work/source/deploy/mac-build/container-phase.sh accept
-  ' 2>&1 | tee "$run_root/acceptance.log"
+  '
 
 node "$source_root/scripts/mac-artifact-transport.mjs" sign \
   --output "$run_root/assets" --key "$key_path"

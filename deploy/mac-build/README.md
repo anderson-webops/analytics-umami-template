@@ -64,6 +64,14 @@ The release builder runs the complete Vitest suite with one worker and a
 20-second per-test limit so parallel cold imports and browser interactions do
 not contend for the bounded VM's CPU and disk. Ordinary local and CI test
 settings are unchanged.
+The Mac supervisor caps each retained phase log at 8 MiB and stops the phase
+if it exceeds that cap. It also gives image construction 30 minutes, the build
+phase two hours, and isolated acceptance one hour. Release-phase containers
+have a 1,024-PID limit and cannot swap beyond their 7 GiB memory cap. A timeout,
+output overflow, or failed command leaves no signed release and removes its
+active container.
+The transport writer rejects compressed output before the 1 GiB archive bound
+is crossed and removes a partial failed archive; it never signs truncated data.
 Linux ARM64 postbuild excludes traced dependency packages whose declared
 OS, CPU, or libc is incompatible with the server, plus aliases to those
 packages, before hashing the runtime. The lockfile still retains optional

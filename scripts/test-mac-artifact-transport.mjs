@@ -193,3 +193,36 @@ test('transport archive preserves checked files and links without a runtime root
     await fs.rm(temporary, { recursive: true, force: true });
   }
 });
+
+test('transport archive refuses oversized compressed output before retaining a partial file', async () => {
+  const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'mac-transport-limit-'));
+  try {
+    const root = path.join(temporary, 'runtime');
+    await fs.mkdir(root);
+    const payload = crypto.randomBytes(4096);
+    await fs.writeFile(path.join(root, 'server.js'), payload, { mode: 0o444 });
+    await fs.writeFile(path.join(root, 'runtime-manifest.json'), '{}\n', { mode: 0o444 });
+    const records = await collectTransportRecords(root, {
+      entries: {
+        'server.js': {
+          type: 'file',
+          mode: '0444',
+          size: payload.length,
+          sha256: crypto.createHash('sha256').update(payload).digest('hex'),
+        },
+      },
+    });
+    const archivePath = path.join(temporary, 'runtime.tar.gz');
+    await assert.rejects(writeTransportArchive(root, records, archivePath, 256), /reviewed limit/);
+    await assert.rejects(fs.stat(archivePath), { code: 'ENOENT' });
+    await assert.rejects(writeTransportArchive(root, records, archivePath, 0), /Invalid transport/);
+    await assert.rejects(fs.stat(archivePath), { code: 'ENOENT' });
+    await fs.writeFile(archivePath, 'existing archive');
+    await assert.rejects(writeTransportArchive(root, records, archivePath, 256), {
+      code: 'EEXIST',
+    });
+    assert.equal(await fs.readFile(archivePath, 'utf8'), 'existing archive');
+  } finally {
+    await fs.rm(temporary, { recursive: true, force: true });
+  }
+});

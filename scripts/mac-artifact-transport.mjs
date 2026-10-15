@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
+import { once } from 'node:events';
 import { createReadStream, createWriteStream, constants as fsConstants } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { Readable } from 'node:stream';
+import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import { createGunzip, createGzip } from 'node:zlib';
@@ -336,16 +337,38 @@ async function* archiveBlocks(root, records) {
   yield Buffer.alloc(1024);
 }
 
-export async function writeTransportArchive(root, records, archivePath) {
-  await pipeline(
-    Readable.from(archiveBlocks(root, records)),
-    createGzip({ level: 9, mtime: 0 }),
-    createWriteStream(archivePath, { flags: 'wx', mode: 0o600 }),
-  );
-  const archive = await digestFile(archivePath);
-  if (archive.size > maxArchiveBytes)
-    throw new Error('Transport archive exceeds the reviewed limit.');
-  return archive;
+export async function writeTransportArchive(
+  root,
+  records,
+  archivePath,
+  maxBytes = maxArchiveBytes,
+) {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > maxArchiveBytes) {
+    throw new Error('Invalid transport archive limit.');
+  }
+  let written = 0;
+  const output = createWriteStream(archivePath, { flags: 'wx', mode: 0o600 });
+  await once(output, 'open');
+  try {
+    await pipeline(
+      Readable.from(archiveBlocks(root, records)),
+      createGzip({ level: 9, mtime: 0 }),
+      new Transform({
+        transform(chunk, _encoding, callback) {
+          written += chunk.length;
+          callback(
+            written > maxBytes ? new Error('Transport archive exceeds the reviewed limit.') : null,
+            chunk,
+          );
+        },
+      }),
+      output,
+    );
+    return await digestFile(archivePath);
+  } catch (error) {
+    await fs.rm(archivePath, { force: true });
+    throw error;
+  }
 }
 
 function parseOctal(bytes) {
