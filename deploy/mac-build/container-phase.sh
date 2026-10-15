@@ -10,6 +10,7 @@ export PG17_BINDIR="$pg_bin"
 export HOME=/work/home
 export TMPDIR=/work/tmp
 export NODE_OPTIONS=--max-old-space-size=2304
+export PNPM_CONFIG_VIRTUAL_STORE_DIR_MAX_LENGTH=60
 export DATABASE_URL='postgresql://umami:mac-release-test-password-0000000000000000@127.0.0.1:5432/umami?schema=public'
 export RUNTIME_ACCEPTANCE_DATABASE_URL="$DATABASE_URL"
 export APP_SECRET='synthetic-artifact-acceptance-only-000000000000'
@@ -23,6 +24,7 @@ test "$(uname -m)" = aarch64
 test "$(node --version)" = v24.18.1
 test "$(npm --version)" = 12.0.2
 test "$(pnpm --version)" = 11.18.0
+test "$(pnpm config get virtual-store-dir-max-length)" = 60
 test "$(git rev-parse HEAD)" = "$RELEASE_COMMIT"
 test "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag
 test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$RELEASE_COMMIT"
