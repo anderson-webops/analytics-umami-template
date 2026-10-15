@@ -34,8 +34,9 @@ try {
   const candidates = Array.from({ length: 8 }, () => randomUUID());
   const outcomes = await Promise.all(
     candidates.map(sessionId =>
-      prisma.transaction(transaction =>
-        saveSessionLink({ websiteId, distinctId, sessionId }, transaction),
+      prisma.transaction(
+        transaction => saveSessionLink({ websiteId, distinctId, sessionId }, transaction),
+        { maxWait: 30_000, timeout: 30_000 },
       ),
     ),
   );
