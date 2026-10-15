@@ -23,6 +23,7 @@ describe('deleteClickhouseCollectionSources', () => {
   test('waits for deletion from every raw and derived collection table', async () => {
     await deleteClickhouseCollectionSources(['source-1', 'source-1', 'source-2']);
 
+    expect(CLICKHOUSE_COLLECTION_TABLES).toContain('session_link');
     expect(command).toHaveBeenCalledTimes(CLICKHOUSE_COLLECTION_TABLES.length);
 
     for (const [index, table] of CLICKHOUSE_COLLECTION_TABLES.entries()) {
@@ -34,6 +35,27 @@ describe('deleteClickhouseCollectionSources', () => {
         },
       );
     }
+
+    expect(command).toHaveBeenCalledWith(
+      'ALTER TABLE session_link DELETE WHERE website_id IN {sourceIds:Array(UUID)}',
+      { sourceIds: ['source-1', 'source-2'] },
+    );
+  });
+
+  test('fails closed when identity-link deletion fails', async () => {
+    command.mockImplementation(async query => {
+      if (query.startsWith('ALTER TABLE session_link DELETE')) {
+        throw new Error('identity-link deletion failed');
+      }
+    });
+
+    await expect(deleteClickhouseCollectionSources(['source-1'])).rejects.toThrow(
+      'identity-link deletion failed',
+    );
+    expect(command).not.toHaveBeenCalledWith(
+      'ALTER TABLE website_event DELETE WHERE website_id IN {sourceIds:Array(UUID)}',
+      { sourceIds: ['source-1'] },
+    );
   });
 
   test('does nothing when ClickHouse is disabled or no sources are present', async () => {
