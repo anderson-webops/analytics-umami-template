@@ -54,6 +54,9 @@ signatures and full/production audits regardless of cache hits.
 The builder scopes pnpm's virtual-store directory-name limit to 60 bytes, so
 verified standalone dependencies fit the server's portable USTAR transport
 without changing normal development installs or the committed lockfile.
+Every phase uses the same persistent pnpm store. Later browser and sealed-runtime
+acceptance invoke already-installed executables directly, so neither phase can
+silently reinstall or mutate the exact tested dependency tree.
 The release builder runs the complete Vitest suite with one worker and a
 20-second per-test limit so parallel cold imports and browser interactions do
 not contend for the bounded VM's CPU and disk. Ordinary local and CI test

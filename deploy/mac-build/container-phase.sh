@@ -11,6 +11,7 @@ export HOME=/work/home
 export TMPDIR=/work/tmp
 export NODE_OPTIONS=--max-old-space-size=2304
 export PNPM_CONFIG_VIRTUAL_STORE_DIR_MAX_LENGTH=60
+export PNPM_CONFIG_STORE_DIR=/pnpm-store
 export DATABASE_URL='postgresql://umami:mac-release-test-password-0000000000000000@127.0.0.1:5432/umami?schema=public'
 export RUNTIME_ACCEPTANCE_DATABASE_URL="$DATABASE_URL"
 export APP_SECRET='synthetic-artifact-acceptance-only-000000000000'
@@ -25,6 +26,7 @@ test "$(node --version)" = v24.18.1
 test "$(npm --version)" = 12.0.2
 test "$(pnpm --version)" = 11.18.0
 test "$(pnpm config get virtual-store-dir-max-length)" = 60
+test "$(pnpm config get store-dir)" = /pnpm-store
 test "$(git rev-parse HEAD)" = "$RELEASE_COMMIT"
 test "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag
 test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$RELEASE_COMMIT"
@@ -117,9 +119,9 @@ elif [[ "$phase" = accept ]]; then
   export TMPDIR=/tmp
   test -f .next/standalone/runtime-manifest.json
   start_database
-  as_builder pnpm run db:migrate
-  as_builder env NODE_ENV=production pnpm run check:env
-  as_builder env NODE_ENV=production pnpm run check:db
+  as_builder node scripts/check-db.js --migrate-only
+  as_builder env NODE_ENV=production node scripts/check-env.js
+  as_builder env NODE_ENV=production node scripts/check-db.js
   mkdir -m 0755 /opt/anderson-sealed
   node scripts/runtime-artifact.mjs copy .next/standalone /opt/anderson-sealed/runtime \
     --release --expected-commit "$RELEASE_COMMIT" \
