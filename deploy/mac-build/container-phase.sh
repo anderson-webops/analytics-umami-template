@@ -60,10 +60,29 @@ start_database() {
   fi
 }
 
+verify_package_signatures() {
+  local attempt output
+  output="$TMPDIR/package-signatures.log"
+  for attempt in 1 2 3; do
+    if pnpm audit signatures >"$output" 2>&1; then
+      cat "$output"
+      return 0
+    fi
+    cat "$output" >&2
+    if ! grep -Eq 'The operation was aborted due to timeout|ERR_PNPM_FETCH|ETIMEDOUT|ECONNRESET|EAI_AGAIN' "$output"; then
+      return 1
+    fi
+    if [[ "$attempt" -lt 3 ]]; then
+      sleep "$((attempt * 5))"
+    fi
+  done
+  return 1
+}
+
 if [[ "$phase" = build ]]; then
   test "$(id -u)" = 501
   pnpm install --frozen-lockfile --prefer-offline --config.store-dir=/pnpm-store
-  pnpm audit signatures
+  verify_package_signatures
   pnpm run audit:all
   pnpm run audit:prod
   start_database
