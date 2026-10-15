@@ -51,6 +51,10 @@ its public key. The disposable container volume is removed, while the shared
 pnpm store remains in a persistent Storage-backed VM volume and nonsecret run
 evidence stays on Storage. Installs use frozen lockfiles and verify package
 signatures and full/production audits regardless of cache hits.
+The release builder runs the complete Vitest suite with one worker and a
+20-second per-test limit so parallel cold imports and browser interactions do
+not contend for the bounded VM's CPU and disk. Ordinary local and CI test
+settings are unchanged.
 
 If publication is deferred, run
 `bash deploy/mac-build/publish.sh vX.Y.Z /absolute/path/to/assets` after the

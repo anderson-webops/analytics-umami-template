@@ -79,7 +79,7 @@ if [[ "$phase" = build ]]; then
     DATABASE_URL=postgresql://user:pass@localhost:5432/dummy SKIP_DB_CHECK=1 \
     bash -c '
       set -euo pipefail
-      pnpm run validate
+    ANALYTICS_RELEASE_SINGLE_WORKER=1 pnpm run validate
       pnpm run openapi:generate
       pnpm run openapi:check --explicit
       pnpm run check:api:client
