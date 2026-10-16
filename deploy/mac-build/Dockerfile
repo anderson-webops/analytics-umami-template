@@ -4,7 +4,8 @@ FROM postgres@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b
 
 COPY --from=node-toolchain /usr/local/ /usr/local/
 
-RUN apt-get update \
+RUN --mount=type=cache,id=anderson-analytics-arm64-toolchain-npm12,target=/root/.npm,sharing=locked \
+    apt-get update \
     && apt-get install --no-install-recommends -y \
       git=1:2.39.5-0+deb12u3 \
       build-essential=12.9 \

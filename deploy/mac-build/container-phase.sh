@@ -2,6 +2,7 @@
 set -euo pipefail
 
 phase="${1:?Expected build or accept phase}"
+network_receive_start="$(cat /sys/class/net/eth0/statistics/rx_bytes 2>/dev/null || printf 0)"
 source_root=/work/source
 pg_bin=/usr/lib/postgresql/17/bin
 pg_data=/work/postgres-data
@@ -114,6 +115,9 @@ if [[ "$phase" = build ]]; then
   node scripts/runtime-artifact.mjs verify .next/standalone --release \
     --expected-commit "$RELEASE_COMMIT" --expected-application "${RELEASE_REPOSITORY#*/}"
   test -z "$(git status --porcelain)"
+  touch /pnpm-store/.anderson-last-used .next/cache/.anderson-last-used
+  printf 'Build cache KiB: pnpm=%s compiler=%s\n' \
+    "$(du -sk /pnpm-store | cut -f1)" "$(du -sk .next/cache | cut -f1)"
 elif [[ "$phase" = accept ]]; then
   test "$(id -u)" = 0
   export TMPDIR=/tmp
@@ -162,4 +166,12 @@ elif [[ "$phase" = accept ]]; then
 else
   printf 'Unknown builder phase: %s\n' "$phase" >&2
   exit 64
+fi
+
+if [[ -r /sys/fs/cgroup/memory.peak ]]; then
+  printf 'Phase cgroup peak memory bytes: %s\n' "$(cat /sys/fs/cgroup/memory.peak)"
+fi
+network_receive_end="$(cat /sys/class/net/eth0/statistics/rx_bytes 2>/dev/null || printf 0)"
+if [[ "$network_receive_start" =~ ^[0-9]+$ && "$network_receive_end" =~ ^[0-9]+$ ]]; then
+  printf 'Phase network receive bytes: %s\n' "$((network_receive_end - network_receive_start))"
 fi

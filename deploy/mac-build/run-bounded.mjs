@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { closeSync, constants, openSync, writeSync } from 'node:fs';
+import { closeSync, constants, openSync, writeFileSync, writeSync } from 'node:fs';
 import path from 'node:path';
 
 const [logPath, secondsText, bytesText, command, ...arguments_] = process.argv.slice(2);
@@ -25,9 +25,28 @@ if (
     0o600,
   );
   const child = spawn(command, arguments_, { detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  const startedAt = new Date().toISOString();
+  const started = process.hrtime.bigint();
   let bytesWritten = 0;
   let failure;
   let killTimer;
+  let metricsWritten = false;
+
+  function recordMetrics(exitCode) {
+    if (metricsWritten) return;
+    metricsWritten = true;
+    writeFileSync(
+      `${logPath}.metrics.json`,
+      `${JSON.stringify({
+        schema_version: 1,
+        started_at_utc: startedAt,
+        wall_seconds: Number(process.hrtime.bigint() - started) / 1e9,
+        output_bytes: bytesWritten,
+        exit_code: exitCode,
+      })}\n`,
+      { flag: 'wx', mode: 0o600 },
+    );
+  }
 
   function stop(reason) {
     if (failure) return;
@@ -46,6 +65,7 @@ if (
       child.stdout.destroy();
       child.stderr.destroy();
       closeSync(log);
+      recordMetrics(1);
       process.stderr.write(`${failure}\n`);
       process.exit(1);
     }, 5_000);
@@ -81,6 +101,13 @@ if (
     clearTimeout(timer);
     clearTimeout(killTimer);
     closeSync(log);
+    try {
+      recordMetrics(failure ? 1 : code === 0 ? 0 : code || 1);
+    } catch {
+      process.stderr.write('Build phase metrics could not be stored.\n');
+      process.exitCode = 1;
+      return;
+    }
     if (failure) process.stderr.write(`${failure}\n`);
     process.exitCode = failure ? 1 : code === 0 ? 0 : code || 1;
   });

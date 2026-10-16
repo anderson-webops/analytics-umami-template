@@ -5,7 +5,8 @@ server-side system alone may install or activate a release. The server's Mac
 artifact intake is disabled until its operator separately reviews and enables
 the exact builder key, site scope, runtime contract, and artifact-only adapter.
 
-Before every Colima, Docker, Homebrew, or signing command in this workflow, run:
+Before every Colima, Docker, Homebrew, or signing command in this workflow, open
+Bash and run:
 
 ```sh
 source deploy/mac-build/storage-env.sh
@@ -24,6 +25,10 @@ so the small private signing key lives instead in the Mac's FileVault-protected
 VM, source, and exchange. The signer checks volume encryption, owner, and modes.
 Never place the key in a container, repository, build log, or release asset.
 The large VM, images, caches, dependencies, and artifacts remain on Storage.
+This version uses the Docker Buildx plugin from the Storage-backed Docker
+configuration for the fixed-toolchain BuildKit cache mount. Verify
+`docker --context colima buildx version` before a release; do not fall back to
+the legacy Docker builder, which cannot interpret the cache mount.
 Use an 8 GiB Colima VM for the 7 GiB build-container limit. Next.js can run
 compilation and TypeScript workers concurrently; the smaller 5 GiB limit has
 terminated a valid build during type checking. Keep production limits unchanged.
@@ -50,16 +55,57 @@ copy, isolation, and missing-module checks. A second network-disabled container
 tests and packages the sealed read-only runtime, so its sandbox reads the exact
 permissions delivered in the archive. Only the completed unsigned assets cross
 back to the Mac, which signs exact manifest bytes and verifies the result using
-its public key. The disposable container volume is removed, while the shared
+its public key. The disposable container volume is removed, while a repository-scoped
 pnpm store remains in a persistent Storage-backed VM volume and nonsecret run
 evidence stays on Storage. Installs use frozen lockfiles and verify package
 signatures and full/production audits regardless of cache hits.
 The builder scopes pnpm's virtual-store directory-name limit to 60 bytes, so
 verified standalone dependencies fit the server's portable USTAR transport
 without changing normal development installs or the committed lockfile.
-Every phase uses the same persistent pnpm store. Later browser and sealed-runtime
-acceptance invoke already-installed executables directly, so neither phase can
-silently reinstall or mutate the exact tested dependency tree.
+Only the build phase mounts the pnpm store and a separate Next compiler cache.
+The store scope binds the repository and exact Linux toolchain image. The
+compiler scope also binds the tracked lockfile, workspace/package settings,
+patches, build scripts, runtime contract, and public build configuration.
+Source-only edits can reuse compatible compiler work, but a different site,
+dependency graph, toolchain, or public flag cannot. The offline checkout and
+isolated acceptance phases cannot write either cache. Only checkout mounts the
+per-run exchange directory, read-only and unprivileged. Privileged,
+network-disabled acceptance sees only its disposable Docker volume. A separate
+read-only inventory phase limits and checks the four unsigned asset files; a
+stopped copy container then exports them before Mac-side signing. Acceptance
+invokes already-installed executables directly and never silently reinstalls
+packages.
+The stopped copy container is removed with its inherited anonymous PostgreSQL
+volume, while the selected pnpm and compiler cache volumes remain intact.
+The root application's version string does not invalidate the dependency store,
+but it does invalidate the compiler cache because `next.config.ts` embeds that
+version in the build. The versioned runtime is rebuilt from the exact tag and
+still passes the complete audits, tests, native checks, and copied-runtime
+acceptance. This builder is
+for reviewed clean release tags, not untrusted pull requests.
+
+Docker BuildKit retains only fixed toolchain npm downloads in its own cache.
+It does not cache a complete signed output or place macOS modules in the Linux
+runtime. Each site keeps its own lockfile and can deliver a passing security
+update independently. Start shared corrections in the owned template, then
+merge into compatible forks without combining their users, databases, or
+public configuration.
+
+`bash deploy/mac-build/cache-maintenance.sh` reports only labeled builder
+cache volumes. It proposes removal after 30 idle days or 512 MiB for a compiler
+cache, and 90 idle days or 2 GiB for a pnpm store. Review the report, then use
+`--volume NAME --apply` for deliberate targeted garbage collection; active containers and
+signed assets are never selected. An evicted cache costs time, not correctness.
+The release and maintenance commands share a fail-fast Mac-side lock so a cache
+cannot be removed during a build and two 7 GiB builds cannot run at once.
+Per-phase wall time, result, and bounded output bytes are saved beside each
+run log as `.metrics.json` on Storage, not in the fixed six-asset release bundle.
+Each successful container phase also reports its cgroup peak memory and network
+receive bytes; the build reports both cache sizes. Network receive includes
+protocol and non-package traffic, so do not label it exact package downloads.
+Compare measured cold and warm builds of the same code/configuration before
+claiming a speedup. Archive and expanded runtime sizes come from the verified
+transport manifest. Do not treat store growth as network traffic.
 The release builder runs the complete Vitest suite with one worker and a
 20-second per-test limit so parallel cold imports and browser interactions do
 not contend for the bounded VM's CPU and disk. Ordinary local and CI test
@@ -97,9 +143,12 @@ secrets or databases belong in the builder.
 
 The existing release acceptance uses Bubblewrap. A disposable container with
 default Docker permissions cannot create its nested namespaces. A diagnostic
-probe did succeed with `--privileged` inside the dedicated Colima VM while
-Docker networking was disabled and no host directories were mounted into that
-container. The existing non-release copied-runtime acceptance also passed for
+probe did succeed with `--privileged` inside the dedicated Colima VM with Docker
+networking disabled and no host directories mounted. The release acceptance
+phase now likewise has no host bind mount. Privilege remains inside the isolated
+VM to support nested Bubblewrap; this is not proof against a VM escape and still
+requires a reviewed release gate.
+The existing non-release copied-runtime acceptance also passed for
 the already-built template v4.2.132 artifact with a read-only exchange mount,
 disabled networking, bounded container resources, a disposable filesystem, and
 the missing-module regression. This is not a clean tagged release build, a
@@ -112,3 +161,33 @@ because the Mac has published a signed asset. The host operator still owns
 public-key registration, scope approval, independent source/asset checks,
 artifact-only promotion, database compatibility, rollback rehearsal, and the
 pilot activation.
+
+## Protected server-operator handoff
+
+The persistent pnpm, compiler, and toolchain caches exist only in the Mac's
+Storage-backed Linux builder. They are never release assets or production
+runtime dependencies. This source change does not request a new server cache,
+container runtime, credential, port, database migration, or service limit.
+Existing signed release assets and tags must remain unchanged.
+
+Before considering a new efficiency-pilot release, obtain its exact clean
+annotated tag and commit, six immutable signed assets, existing `jacob-m3`
+public-key identity, reviewed public configuration and runtime-contract
+digests, full acceptance receipts, and measured cold/warm build evidence for
+the same source and configuration. The independent no-cache build must pass
+the same tests and copied-runtime acceptance. Include archive and unpacked
+sizes plus synthetic staging runtime-memory measurements; a cache hit alone
+does not demonstrate a memory or size improvement. Keep raw phase logs and
+metrics outside the six-asset transport bundle, and do not infer successful
+CI or production activation from a local result.
+
+For an accepted pilot, retain the current signed runtime and exact recovery
+configuration. Independently verify the Git tag, source, signature, every
+asset and payload hash, public configuration, platform/native bindings,
+artifact contract, migrations and retained-runtime recovery before any
+promotion. Use only the reviewed artifact-only adapter, with no production
+compilation fallback. Rehearse missing or altered assets, failed readiness,
+and actual rollback against the retained runtime and policy. Enable one
+approved site scope first, observe its service and memory behavior, and only
+then consider other isolated sites. A pending source candidate or an unsigned
+benchmark is not permission to change the server's existing review hold.

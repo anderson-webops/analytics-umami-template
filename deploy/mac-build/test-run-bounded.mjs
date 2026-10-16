@@ -28,7 +28,15 @@ test('keeps successful output and child exit status', () => {
     assert.equal(result.stdout, 'ok\n');
     assert.equal(fs.readFileSync(logPath, 'utf8'), 'ok\n');
     assert.equal(fs.statSync(logPath).mode & 0o777, 0o600);
-    assert.equal(run(path.join(directory, 'failed.log'), 5, 256, 'process.exit(17)').status, 17);
+    const metrics = JSON.parse(fs.readFileSync(`${logPath}.metrics.json`, 'utf8'));
+    assert.equal(metrics.schema_version, 1);
+    assert.equal(metrics.exit_code, 0);
+    assert.equal(metrics.output_bytes, 3);
+    assert.ok(metrics.wall_seconds >= 0);
+    assert.equal(fs.statSync(`${logPath}.metrics.json`).mode & 0o777, 0o600);
+    const failedLog = path.join(directory, 'failed.log');
+    assert.equal(run(failedLog, 5, 256, 'process.exit(17)').status, 17);
+    assert.equal(JSON.parse(fs.readFileSync(`${failedLog}.metrics.json`, 'utf8')).exit_code, 17);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
