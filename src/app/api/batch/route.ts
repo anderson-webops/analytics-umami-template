@@ -8,6 +8,7 @@ import { anyObjectParam } from '@/lib/schema';
 
 const MAX_BATCH_SIZE = 20;
 const schema = z.array(anyObjectParam).min(1).max(MAX_BATCH_SIZE);
+const sessionSeedParam = z.uuid();
 
 export function OPTIONS() {
   return corsPreflight({
@@ -41,6 +42,7 @@ export async function POST(request: Request) {
     let index = 0;
     let cache = null;
     let cacheOrigin: string | null = null;
+    const websiteCaches = new Map<string, string>();
     const linkOrPixelOnly = body.every(data => {
       const payload = data.payload;
 
@@ -70,6 +72,18 @@ export async function POST(request: Request) {
       const headers = new Headers(request.headers);
       headers.set('content-type', 'application/json');
       headers.delete('content-length');
+      const websiteId =
+        typeof data.payload?.website === 'string' ? data.payload.website.toLowerCase() : null;
+      const sessionSeed = data.payload?.sessionSeed;
+      const cacheKey =
+        websiteId && sessionSeedParam.safeParse(sessionSeed).success
+          ? JSON.stringify([websiteId, sessionSeed, data.payload?.id ?? null])
+          : null;
+      const websiteCache = cacheKey ? websiteCaches.get(cacheKey) : undefined;
+
+      if (websiteCache) {
+        headers.set('x-umami-cache', websiteCache);
+      }
 
       const newRequest = new Request(request.url, {
         method: 'POST',
@@ -89,6 +103,10 @@ export async function POST(request: Request) {
           break;
         }
       } else {
+        if (cacheKey && typeof responseJson.cache === 'string') {
+          websiteCaches.set(cacheKey, responseJson.cache);
+        }
+
         if (!cache && responseJson.cache) {
           cache = responseJson.cache;
           cacheOrigin = response.headers.get('Access-Control-Allow-Origin');

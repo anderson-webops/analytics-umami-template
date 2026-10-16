@@ -4,12 +4,12 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 // helpers used by the route and by the test produce matching tokens.
 process.env.APP_SECRET = 'route-send-test-secret-0123456789abcdef';
 
-import { parseCacheToken } from '@/lib/cache-token';
+import { createCacheToken, parseCacheToken } from '@/lib/cache-token';
 import clickhouse from '@/lib/clickhouse';
 import { CollectionBudgetExceededError } from '@/lib/collection-budget';
 import { getCollectionIpLimit, getCollectionSourceStatus } from '@/lib/collection-rate-limit';
 import { CACHE_TOKEN_TYPE, EVENT_TYPE } from '@/lib/constants';
-import { getSalt, secret, uuid } from '@/lib/crypto';
+import { getSalt, hash, secret } from '@/lib/crypto';
 import { getClientInfo, hasBlockedIp } from '@/lib/detect';
 import { createToken, parseToken } from '@/lib/jwt';
 import { fetchWebsite } from '@/lib/load';
@@ -83,6 +83,7 @@ const withActiveCollectionSourceMock = vi.mocked(withActiveCollectionSource);
 const WEBSITE_ID = '11111111-1111-4111-8111-111111111111';
 const LINK_ID = '22222222-2222-4222-8222-222222222222';
 const PIXEL_ID = '33333333-3333-4333-8333-333333333333';
+const SESSION_SEED = '44444444-4444-4444-8444-444444444444';
 
 const defaultClientInfo = {
   ip: '203.0.113.5',
@@ -133,20 +134,19 @@ async function readCache(response: Response) {
   return cache;
 }
 
-function makeComputedSessionId(
-  sourceId: string,
-  timestamp = Math.floor(Date.now() / 1000),
-  distinctId?: string,
-) {
-  const createdAt = new Date(timestamp * 1000);
-  const sessionSalt = getSalt(process.env.SALT_ROTATION || 'month', createdAt);
-
-  return uuid(
-    sourceId,
-    defaultClientInfo.ip,
-    defaultClientInfo.userAgent,
-    sessionSalt,
-    distinctId ?? '',
+function makeCacheToken(overrides: Record<string, any> = {}, ttlSeconds = 3600) {
+  return createCacheToken(
+    {
+      websiteId: WEBSITE_ID,
+      sessionId: 'cached-session',
+      visitId: 'cached-visit',
+      iat: Math.floor(Date.now() / 1000),
+      identityHash: hash(''),
+      sessionSalt: getSalt(process.env.SALT_ROTATION || 'month', new Date()),
+      ...overrides,
+    },
+    secret(),
+    ttlSeconds,
   );
 }
 
@@ -356,6 +356,21 @@ describe('schema validation', () => {
         payload: { website: WEBSITE_ID, hostname: 'example.com', lcp: 2500 },
       }).success,
     ).toBe(true);
+  });
+
+  test('accepts only a bounded UUID session seed', async () => {
+    const schema = await getSchema();
+    const payload = { website: WEBSITE_ID, hostname: 'example.com', sessionSeed: SESSION_SEED };
+
+    expect(schema.safeParse({ type: 'event', payload }).success).toBe(true);
+    expect(
+      schema.safeParse({ type: 'event', payload: { ...payload, sessionSeed: 'shared-device' } })
+        .success,
+    ).toBe(false);
+    expect(
+      schema.safeParse({ type: 'event', payload: { ...payload, sessionSeed: 'x'.repeat(1024) } })
+        .success,
+    ).toBe(false);
   });
 });
 
@@ -754,23 +769,11 @@ describe('event url and referrer parsing', () => {
 });
 
 describe('cache token handling', () => {
-  function makeCacheToken(overrides: Record<string, any> = {}) {
-    return createToken(
-      {
-        type: CACHE_TOKEN_TYPE,
-        websiteId: WEBSITE_ID,
-        sessionId: 'cached-session',
-        visitId: 'cached-visit',
-        iat: Math.floor(Date.now() / 1000),
-        ...overrides,
-      },
-      secret(),
-    );
-  }
-
   test('a valid cache token revalidates the website without recreating the matching session', async () => {
     const timestamp = 1704067200;
-    const token = makeCacheToken({ sessionId: makeComputedSessionId(WEBSITE_ID, timestamp) });
+    const token = makeCacheToken({
+      sessionSalt: getSalt(process.env.SALT_ROTATION || 'month', new Date(timestamp * 1000)),
+    });
 
     const response = await callPOST(
       { type: 'event', payload: { website: WEBSITE_ID, url: '/', timestamp } },
@@ -803,7 +806,7 @@ describe('cache token handling', () => {
     const token = makeCacheToken({ sessionId: 'cached-session' });
 
     const response = await callPOST(
-      { type: 'event', payload: { website: WEBSITE_ID, url: '/' } },
+      { type: 'event', payload: { website: WEBSITE_ID, url: '/', sessionSeed: SESSION_SEED } },
       { headers: { 'x-umami-cache': token } },
     );
 
@@ -847,7 +850,7 @@ describe('cache token handling', () => {
     const token = makeCacheToken({ sessionId: 'cached-session' });
 
     const response = await callPOST(
-      { type: 'event', payload: { website: WEBSITE_ID, url: '/' } },
+      { type: 'event', payload: { website: WEBSITE_ID, url: '/', sessionSeed: SESSION_SEED } },
       { headers: { 'x-umami-cache': token } },
     );
 
@@ -867,6 +870,106 @@ describe('cache token handling', () => {
     );
 
     expect(fetchWebsiteMock).toHaveBeenCalledTimes(1);
+  });
+
+  test.each([false, true])(
+    'separates browsers with the same IP and User-Agent without tracker storage in ClickHouse mode %s',
+    async enabled => {
+      (clickhouse as any).enabled = enabled;
+      const first = await callPOST({ type: 'event', payload: { website: WEBSITE_ID, url: '/' } });
+      const second = await callPOST({ type: 'event', payload: { website: WEBSITE_ID, url: '/' } });
+      const firstCache = await readCache(first);
+      const secondCache = await readCache(second);
+
+      expect(firstCache.sessionId).not.toBe(secondCache.sessionId);
+      expect(firstCache.visitId).not.toBe(secondCache.visitId);
+      expect(createSessionMock).toHaveBeenCalledTimes(enabled ? 0 : 2);
+      expect(saveEventMock).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  test('separates two tracker tabs behind the same IP and User-Agent', async () => {
+    const first = await callPOST({
+      type: 'event',
+      payload: { website: WEBSITE_ID, url: '/', sessionSeed: SESSION_SEED },
+    });
+    const second = await callPOST({
+      type: 'event',
+      payload: {
+        website: WEBSITE_ID,
+        url: '/',
+        sessionSeed: '55555555-5555-4555-8555-555555555555',
+      },
+    });
+    const firstCache = await readCache(first);
+    const secondCache = await readCache(second);
+
+    expect(firstCache.sessionId).not.toBe(secondCache.sessionId);
+    expect(firstCache.visitId).not.toBe(secondCache.visitId);
+  });
+
+  test('rotates the cached session when explicit identity changes without a tracker seed', async () => {
+    const token = makeCacheToken();
+    const response = await callPOST(
+      { type: 'identify', payload: { website: WEBSITE_ID, id: 'new-visitor' } },
+      { headers: { 'x-umami-cache': token } },
+    );
+    const cache = await readCache(response);
+
+    expect(cache.sessionId).not.toBe('cached-session');
+    expect(cache.visitId).not.toBe('cached-visit');
+    expect(cache.identityHash).toBe(hash('new-visitor'));
+  });
+
+  test('keeps one browser session across requests using its tracker seed', async () => {
+    const first = await callPOST({
+      type: 'event',
+      payload: { website: WEBSITE_ID, url: '/', sessionSeed: SESSION_SEED },
+    });
+    const firstCache = await readCache(first.clone());
+    const second = await callPOST(
+      { type: 'event', payload: { website: WEBSITE_ID, url: '/', sessionSeed: SESSION_SEED } },
+      { headers: { 'x-umami-cache': ((await first.json()) as { cache: string }).cache } },
+    );
+    const secondCache = await readCache(second);
+
+    expect(secondCache.sessionId).toBe(firstCache.sessionId);
+    expect(secondCache.visitId).toBe(firstCache.visitId);
+    expect(createSessionMock).toHaveBeenCalledTimes(1);
+    expect(saveEventMock.mock.calls[0][0]).not.toHaveProperty('sessionSeed');
+    expect(firstCache).not.toHaveProperty('sessionSeed');
+  });
+
+  test('preserves established link-event identity without issuing replay tokens', async () => {
+    const first = await callPOST({ type: 'event', payload: { link: LINK_ID, url: '/' } });
+    const second = await callPOST({ type: 'event', payload: { link: LINK_ID, url: '/' } });
+
+    expect(await first.json()).toEqual({ cache: null });
+    expect(await second.json()).toEqual({ cache: null });
+    expect(saveEventMock.mock.calls[0][0].sessionId).toBe(saveEventMock.mock.calls[1][0].sessionId);
+  });
+
+  test('rejects pre-fix cache identities and creates a fresh session', async () => {
+    const legacy = createToken(
+      {
+        type: CACHE_TOKEN_TYPE,
+        websiteId: WEBSITE_ID,
+        sessionId: 'old-shared-session',
+        visitId: 'old-visit',
+        iat: Math.floor(Date.now() / 1000),
+      },
+      secret(),
+      { expiresIn: 3600 },
+    );
+    const response = await callPOST(
+      { type: 'event', payload: { website: WEBSITE_ID, url: '/' } },
+      { headers: { 'x-umami-cache': legacy } },
+    );
+    const newCache = await readCache(response);
+
+    expect(newCache.sessionId).not.toBe('old-shared-session');
+    expect(newCache.visitId).not.toBe('old-visit');
+    expect(createSessionMock).toHaveBeenCalledTimes(1);
   });
 
   test('a token with a non-cache type is ignored', async () => {
@@ -1008,16 +1111,7 @@ describe('collector response privacy', () => {
 describe('30-minute visit expiry', () => {
   test('regenerates the visit when the cached iat is older than 30 minutes', async () => {
     const oldIat = Math.floor(Date.now() / 1000) - 2000;
-    const token = createToken(
-      {
-        type: CACHE_TOKEN_TYPE,
-        websiteId: WEBSITE_ID,
-        sessionId: 'cached-session',
-        visitId: 'cached-visit',
-        iat: oldIat,
-      },
-      secret(),
-    );
+    const token = makeCacheToken({ iat: oldIat });
 
     const response = await callPOST(
       { type: 'event', payload: { website: WEBSITE_ID, url: '/' } },
@@ -1029,16 +1123,7 @@ describe('30-minute visit expiry', () => {
 
   test('keeps the cached visit when within the 30-minute window', async () => {
     const recentIat = Math.floor(Date.now() / 1000) - 100;
-    const token = createToken(
-      {
-        type: CACHE_TOKEN_TYPE,
-        websiteId: WEBSITE_ID,
-        sessionId: makeComputedSessionId(WEBSITE_ID),
-        visitId: 'cached-visit',
-        iat: recentIat,
-      },
-      secret(),
-    );
+    const token = makeCacheToken({ iat: recentIat });
 
     const response = await callPOST(
       { type: 'event', payload: { website: WEBSITE_ID, url: '/' } },
@@ -1051,15 +1136,12 @@ describe('30-minute visit expiry', () => {
   test('does not expire the visit when an explicit timestamp is supplied', async () => {
     const timestamp = 1000000000;
     const oldIat = Math.floor(Date.now() / 1000) - 5000;
-    const token = createToken(
+    const token = makeCacheToken(
       {
-        type: CACHE_TOKEN_TYPE,
-        websiteId: WEBSITE_ID,
-        sessionId: makeComputedSessionId(WEBSITE_ID, timestamp),
-        visitId: 'cached-visit',
         iat: oldIat,
+        sessionSalt: getSalt(process.env.SALT_ROTATION || 'month', new Date(timestamp * 1000)),
       },
-      secret(),
+      7200,
     );
 
     const response = await callPOST(
@@ -1103,11 +1185,11 @@ describe('identify collection', () => {
     const prefix = 'a'.repeat(50);
     const first = await callPOST({
       type: 'identify',
-      payload: { website: WEBSITE_ID, id: `${prefix}-first` },
+      payload: { website: WEBSITE_ID, id: `${prefix}-first`, sessionSeed: SESSION_SEED },
     });
     const second = await callPOST({
       type: 'identify',
-      payload: { website: WEBSITE_ID, id: `${prefix}-second` },
+      payload: { website: WEBSITE_ID, id: `${prefix}-second`, sessionSeed: SESSION_SEED },
     });
 
     const firstCache = await readCache(first);

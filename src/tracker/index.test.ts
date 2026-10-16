@@ -11,6 +11,7 @@ afterEach(() => {
   delete (document as Document & { readyState?: DocumentReadyState }).readyState;
   vi.unstubAllGlobals();
   vi.resetModules();
+  window.sessionStorage.clear();
 });
 
 test('identifies data-distinct-id before the initial page view', async () => {
@@ -40,6 +41,145 @@ test('identifies data-distinct-id before the initial page view', async () => {
     type: 'event',
     payload: { id: 'visitor-id', website: 'website-id' },
   });
+  expect(requests[0].payload.sessionSeed).toMatch(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+  );
+  expect(requests[1].payload.sessionSeed).toBe(requests[0].payload.sessionSeed);
+});
+
+test('keeps a browsing-session seed across reloads but separates independent tabs', async () => {
+  const script = document.createElement('script');
+  script.src = 'https://analytics.example.com/script.js';
+  script.dataset.websiteId = 'website-id';
+  script.dataset.autoTrack = 'false';
+  Object.defineProperty(document, 'currentScript', { configurable: true, value: script });
+
+  const fetchMock = vi.fn().mockResolvedValue({ json: vi.fn().mockResolvedValue({}) });
+  vi.stubGlobal('fetch', fetchMock);
+
+  const collectSeed = async () => {
+    await import('./index');
+    await (window.umami?.track() ?? Promise.resolve());
+    const body = JSON.parse(fetchMock.mock.lastCall?.[1].body);
+    return body.payload.sessionSeed as string;
+  };
+
+  const first = await collectSeed();
+  delete (window as Window & { umami?: unknown }).umami;
+  vi.resetModules();
+  const reloaded = await collectSeed();
+  window.sessionStorage.clear();
+  delete (window as Window & { umami?: unknown }).umami;
+  vi.resetModules();
+  const freshTab = await collectSeed();
+
+  expect(reloaded).toBe(first);
+  expect(freshTab).not.toBe(first);
+});
+
+test('rotates an opener-copied session seed without rotating it again on reload', async () => {
+  const script = document.createElement('script');
+  script.src = 'https://analytics.example.com/script.js';
+  script.dataset.websiteId = 'website-id';
+  script.dataset.autoTrack = 'false';
+  Object.defineProperty(document, 'currentScript', { configurable: true, value: script });
+  const copiedSeed = '44444444-4444-4444-8444-444444444444';
+  const storageKey = 'umami.session:https://analytics.example.com/api/send:website-id';
+  window.sessionStorage.setItem(storageKey, copiedSeed);
+  vi.stubGlobal('opener', {
+    location: { origin: location.origin },
+    sessionStorage: { getItem: () => copiedSeed },
+  });
+  const fetchMock = vi.fn().mockResolvedValue({ json: vi.fn().mockResolvedValue({}) });
+  vi.stubGlobal('fetch', fetchMock);
+
+  await import('./index');
+  await window.umami?.track();
+  const rotated = JSON.parse(fetchMock.mock.lastCall?.[1].body).payload.sessionSeed;
+  expect(rotated).not.toBe(copiedSeed);
+
+  delete (window as Window & { umami?: unknown }).umami;
+  vi.resetModules();
+  await import('./index');
+  await window.umami?.track();
+  const reloaded = JSON.parse(fetchMock.mock.lastCall?.[1].body).payload.sessionSeed;
+
+  expect(reloaded).toBe(rotated);
+});
+
+test('does not create session state when tracking is disabled', async () => {
+  const script = document.createElement('script');
+  script.src = 'https://analytics.example.com/script.js';
+  script.dataset.websiteId = 'website-id';
+  Object.defineProperty(document, 'currentScript', { configurable: true, value: script });
+  window.localStorage.setItem('umami.disabled', '1');
+  const fetchMock = vi.fn();
+  vi.stubGlobal('fetch', fetchMock);
+
+  try {
+    await import('./index');
+    await (window.umami?.track() ?? Promise.resolve());
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(window.sessionStorage.length).toBe(0);
+  } finally {
+    window.localStorage.removeItem('umami.disabled');
+  }
+});
+
+test('withdrawn tracking permission clears the browser session seed', async () => {
+  const script = document.createElement('script');
+  script.src = 'https://analytics.example.com/script.js';
+  script.dataset.websiteId = 'website-id';
+  script.dataset.autoTrack = 'false';
+  Object.defineProperty(document, 'currentScript', { configurable: true, value: script });
+  const fetchMock = vi.fn().mockResolvedValue({ json: vi.fn().mockResolvedValue({}) });
+  vi.stubGlobal('fetch', fetchMock);
+
+  try {
+    await import('./index');
+    await window.umami?.track();
+    expect(window.sessionStorage.length).toBe(1);
+
+    window.localStorage.setItem('umami.disabled', '1');
+    await window.umami?.track();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(window.sessionStorage.length).toBe(0);
+  } finally {
+    window.localStorage.removeItem('umami.disabled');
+  }
+});
+
+test('keeps same-page continuity without browser storage', async () => {
+  const script = document.createElement('script');
+  script.src = 'https://analytics.example.com/script.js';
+  script.dataset.websiteId = 'website-id';
+  script.dataset.autoTrack = 'false';
+  Object.defineProperty(document, 'currentScript', { configurable: true, value: script });
+  const storageDescriptor = Object.getOwnPropertyDescriptor(window, 'sessionStorage');
+  Object.defineProperty(window, 'sessionStorage', {
+    configurable: true,
+    get: () => {
+      throw new Error('storage unavailable');
+    },
+  });
+  const fetchMock = vi.fn().mockResolvedValue({ json: vi.fn().mockResolvedValue({}) });
+  vi.stubGlobal('fetch', fetchMock);
+
+  try {
+    await import('./index');
+    await window.umami?.track();
+    await window.umami?.track();
+
+    const seeds = fetchMock.mock.calls.map(([, init]) => JSON.parse(init.body).payload.sessionSeed);
+    expect(seeds[0]).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+    expect(seeds[1]).toBe(seeds[0]);
+  } finally {
+    if (storageDescriptor) Object.defineProperty(window, 'sessionStorage', storageDescriptor);
+  }
 });
 
 test('manual mode defers identification and preserves explicit tracking', async () => {

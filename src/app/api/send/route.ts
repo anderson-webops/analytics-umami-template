@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { startOfHour } from 'date-fns';
 import { z } from 'zod';
 import type { Prisma } from '@/generated/prisma/client';
@@ -98,6 +99,7 @@ const schema = z
         userAgent: z.string().max(512).optional(),
         timestamp: timestampParam.optional(),
         id: z.string().max(50).optional(),
+        sessionSeed: z.uuid().optional(),
         browser: z.string().max(20).optional(),
         os: z.string().max(20).optional(),
         device: z.string().max(20).optional(),
@@ -200,6 +202,7 @@ export async function POST(request: Request) {
       tag,
       timestamp,
       id,
+      sessionSeed,
       lcp,
       inp,
       cls,
@@ -313,11 +316,20 @@ export async function POST(request: Request) {
     const sessionSalt = getSalt(saltRotation, createdAt);
     const visitSalt = hash(startOfHour(createdAt).toUTCString());
 
-    // Keep explicitly identified visitors separate from anonymous visitors who
-    // happen to share network and user-agent attributes.
-    const sessionId = uuid(sourceId, ip, userAgent, sessionSalt, distinctId ?? '');
+    const identityHash = hash(distinctId ?? '');
+    const sessionId = !websiteId
+      ? uuid(sourceId, ip, userAgent, sessionSalt, distinctId ?? '')
+      : sessionSeed
+        ? uuid(sourceId, sessionSeed, sessionSalt, distinctId ?? '')
+        : cache?.identityHash === identityHash && cache.sessionSalt === sessionSalt
+          ? cache.sessionId
+          : randomUUID();
     const sessionDrift = !!websiteId && !!cache?.sessionId && cache.sessionId !== sessionId;
     const shouldEnsureSession = !clickhouse.enabled && sessionDrift;
+
+    if (sessionDrift) {
+      sessionLinkId = undefined;
+    }
 
     // Visit info
     let visitId = cache?.visitId || uuid(sessionId, visitSalt);
@@ -601,7 +613,7 @@ export async function POST(request: Request) {
 
     const token = websiteId
       ? createCacheToken(
-          { websiteId, sessionId, visitId, iat, sessionLinkId },
+          { websiteId, sessionId, visitId, iat, identityHash, sessionSalt, sessionLinkId },
           secret(),
           getCacheTokenTtlSeconds(),
         )

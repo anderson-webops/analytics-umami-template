@@ -377,12 +377,68 @@ type MetricEntry = PerformanceEntry & {
 
   /* Tracking functions */
 
-  const trackingDisabled = () =>
-    disabled ||
-    !website ||
-    localStorage?.getItem('umami.disabled') ||
-    (domain && !domains.includes(hostname)) ||
-    (dnt && hasDoNotTrack());
+  let sessionSeed: string | undefined;
+  const sessionSeedKey = `umami.session:${endpoint}:${website}`;
+  const trackingDisabled = () => {
+    const isDisabled =
+      disabled ||
+      !website ||
+      localStorage?.getItem('umami.disabled') ||
+      (domain && !domains.includes(hostname)) ||
+      (dnt && hasDoNotTrack());
+
+    if (isDisabled) {
+      sessionSeed = undefined;
+      try {
+        window.sessionStorage.removeItem(sessionSeedKey);
+      } catch {}
+    }
+
+    return isDisabled;
+  };
+
+  const getSessionSeed = (): string | undefined => {
+    if (sessionSeed) return sessionSeed;
+
+    try {
+      const stored = window.sessionStorage.getItem(sessionSeedKey);
+      let copiedFromOpener = false;
+
+      if (stored && window.opener) {
+        try {
+          copiedFromOpener =
+            window.opener.location.origin === origin &&
+            window.opener.sessionStorage.getItem(sessionSeedKey) === stored;
+        } catch {}
+      }
+
+      if (
+        stored &&
+        !copiedFromOpener &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(stored)
+      ) {
+        sessionSeed = stored;
+        return sessionSeed;
+      }
+    } catch {}
+
+    try {
+      const bytes = new Uint8Array(16);
+      window.crypto.getRandomValues(bytes);
+      bytes[6] = (bytes[6] & 0x0f) | 0x40;
+      bytes[8] = (bytes[8] & 0x3f) | 0x80;
+      const value = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+      sessionSeed = `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`;
+
+      try {
+        window.sessionStorage.setItem(sessionSeedKey, sessionSeed);
+      } catch {}
+
+      return sessionSeed;
+    } catch {
+      return undefined;
+    }
+  };
 
   const send = async (payload: Payload | null | undefined, type = 'event'): Promise<void> => {
     if (trackingDisabled()) return;
@@ -416,6 +472,7 @@ type MetricEntry = PerformanceEntry & {
 
     payload = {
       ...payload,
+      sessionSeed: getSessionSeed(),
       ...(normalizedUrl !== undefined && { url: normalizedUrl }),
       ...((typeof payload.referrer === 'string' || payload.referrer instanceof URL) && {
         referrer: stripOrigin(normalize(payload.referrer, false)),

@@ -10,6 +10,7 @@ import {
   getCollectionSourceStatus,
   reserveCollectionSourceLimit,
 } from '@/lib/collection-rate-limit';
+import { hash } from '@/lib/crypto';
 import { getClientInfo, hasBlockedIp } from '@/lib/detect';
 import { HeatmapBudgetExceededError, reserveHeatmapBudget } from '@/lib/heatmap-budget';
 import { parseToken } from '@/lib/jwt';
@@ -175,10 +176,13 @@ function prepareHeatmapRequest() {
   vi.mocked(hasBlockedIp).mockReturnValue(false);
   vi.mocked(parseToken).mockReturnValue({
     type: 'cache',
+    version: 2,
     websiteId,
     sessionId,
     visitId,
     iat: Math.floor(Date.now() / 1000),
+    identityHash: hash(''),
+    sessionSalt: hash('synthetic-month'),
   } as any);
   vi.mocked(getWebsite).mockResolvedValue({ recorderEnabled: true } as any);
   vi.mocked(withActiveCollectionSource).mockImplementation((_, __, operation) =>
@@ -264,6 +268,29 @@ describe('heatmap intake budget', () => {
     expect(response.status).toBe(400);
     expect(getCollectionSourceStatus).not.toHaveBeenCalled();
     expect(reserveCollectionSourceLimit).not.toHaveBeenCalled();
+  });
+
+  test('rejects a pre-fix cache token before replay or heatmap persistence', async () => {
+    prepareHeatmapRequest();
+    vi.mocked(parseToken).mockReturnValueOnce({
+      type: 'cache',
+      websiteId: '11111111-1111-4111-8111-111111111111',
+      sessionId: 'old-shared-session',
+      visitId: 'old-visit',
+      iat: Math.floor(Date.now() / 1000),
+    } as any);
+
+    const response = await POST(
+      new Request('http://localhost/api/record', {
+        method: 'POST',
+        headers: { 'x-umami-cache': 'signed-token' },
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(getWebsite).not.toHaveBeenCalled();
+    expect(saveHeatmapEvents).not.toHaveBeenCalled();
+    expect(saveRecording).not.toHaveBeenCalled();
   });
 
   test('does not count a source after its website is deleted', async () => {
@@ -408,10 +435,13 @@ describe('heatmap intake budget', () => {
     const { websiteId } = prepareHeatmapRequest();
     vi.mocked(parseToken).mockReturnValueOnce({
       type: 'cache',
+      version: 2,
       websiteId: websiteId.toUpperCase(),
       sessionId: '22222222-2222-4222-8222-222222222222',
       visitId: '33333333-3333-4333-8333-333333333333',
       iat: Math.floor(Date.now() / 1000),
+      identityHash: hash(''),
+      sessionSalt: hash('synthetic-month'),
     } as any);
 
     const response = await POST(

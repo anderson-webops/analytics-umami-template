@@ -7,14 +7,18 @@ const CONTEXT = 'umami-collector-cache-v1';
 const IV_LENGTH = 12;
 const TAG_LENGTH = 16;
 const MAX_TOKEN_LENGTH = 4096;
+const CACHE_TOKEN_VERSION = 2;
 
 export interface CacheToken {
   websiteId: string;
   sessionId: string;
   visitId: string;
   iat: number;
+  identityHash: string;
+  sessionSalt: string;
   sessionLinkId?: string;
   type: typeof CACHE_TOKEN_TYPE;
+  version: typeof CACHE_TOKEN_VERSION;
 }
 
 function getKey(secret: string) {
@@ -22,13 +26,17 @@ function getKey(secret: string) {
 }
 
 export function createCacheToken(
-  payload: Omit<CacheToken, 'type'>,
+  payload: Omit<CacheToken, 'type' | 'version'>,
   secret: string,
   ttlSeconds: number,
 ) {
-  const signed = createToken({ ...payload, type: CACHE_TOKEN_TYPE }, secret, {
-    expiresIn: ttlSeconds,
-  });
+  const signed = createToken(
+    { ...payload, type: CACHE_TOKEN_TYPE, version: CACHE_TOKEN_VERSION },
+    secret,
+    {
+      expiresIn: ttlSeconds,
+    },
+  );
   const iv = randomBytes(IV_LENGTH);
   const cipher = createCipheriv('aes-256-gcm', getKey(secret), iv);
   cipher.setAAD(Buffer.from(CONTEXT));
@@ -83,10 +91,15 @@ export function parseCacheToken(
     !payload ||
     typeof payload !== 'object' ||
     payload.type !== CACHE_TOKEN_TYPE ||
+    payload.version !== CACHE_TOKEN_VERSION ||
     typeof payload.websiteId !== 'string' ||
     typeof payload.sessionId !== 'string' ||
     typeof payload.visitId !== 'string' ||
     typeof payload.iat !== 'number' ||
+    typeof payload.identityHash !== 'string' ||
+    !/^[0-9a-f]{128}$/.test(payload.identityHash) ||
+    typeof payload.sessionSalt !== 'string' ||
+    !/^[0-9a-f]{128}$/.test(payload.sessionSalt) ||
     (payload.sessionLinkId !== undefined && typeof payload.sessionLinkId !== 'string')
   ) {
     return null;

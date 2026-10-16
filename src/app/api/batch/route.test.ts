@@ -83,6 +83,58 @@ test('a valid batch charges once per child, including the outer admission', asyn
   expect(ipCounts).toEqual([3n]);
 });
 
+test('batch reuses session state only for later items from the same website', async () => {
+  const firstWebsite = '11111111-1111-4111-8111-111111111111';
+  const secondWebsite = '22222222-2222-4222-8222-222222222222';
+  const sessionSeed = '44444444-4444-4444-8444-444444444444';
+  vi.mocked(parseRequest).mockResolvedValue({
+    body: [
+      { type: 'event', payload: { website: firstWebsite, sessionSeed } },
+      { type: 'event', payload: { website: secondWebsite, sessionSeed } },
+      { type: 'event', payload: { website: firstWebsite, sessionSeed } },
+    ],
+    error: undefined,
+  } as any);
+  const received: { website: string; cache: string | null }[] = [];
+  sendPost.mockImplementation(async request => {
+    await getCollectionIpLimit(request);
+    const body = await request.json();
+    received.push({ website: body.payload.website, cache: request.headers.get('x-umami-cache') });
+    return Response.json({ cache: `token-${body.payload.website}` });
+  });
+
+  const response = await POST(batchRequest());
+
+  expect(response.status).toBe(200);
+  expect(received).toEqual([
+    { website: firstWebsite, cache: null },
+    { website: secondWebsite, cache: null },
+    { website: firstWebsite, cache: `token-${firstWebsite}` },
+  ]);
+});
+
+test('batch does not join separate anonymous visitors without a seed', async () => {
+  const website = '11111111-1111-4111-8111-111111111111';
+  vi.mocked(parseRequest).mockResolvedValue({
+    body: [
+      { type: 'event', payload: { website } },
+      { type: 'event', payload: { website } },
+    ],
+    error: undefined,
+  } as any);
+  const received: (string | null)[] = [];
+  sendPost.mockImplementation(async request => {
+    await getCollectionIpLimit(request);
+    received.push(request.headers.get('x-umami-cache'));
+    return Response.json({ cache: 'first-visitor-token' });
+  });
+
+  const response = await POST(batchRequest());
+
+  expect(response.status).toBe(200);
+  expect(received).toEqual([null, null]);
+});
+
 test('batch stops before dispatching more children when the caller IP limit is reached', async () => {
   vi.mocked(parseRequest).mockResolvedValue({
     body: Array.from({ length: 12 }, () => ({ type: 'event' })),
