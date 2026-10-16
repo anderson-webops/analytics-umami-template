@@ -52,6 +52,14 @@ if [[ "${1:-}" == --team-join-role ]]; then
     node --conditions=react-server --import tsx scripts/test-team-join-role.ts
   exit 0
 fi
+if [[ "${1:-}" == --team-join-mfa-race ]]; then
+  DOTENV_CONFIG_PATH=/dev/null pnpm run db:migrate
+  ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 \
+    APP_SECRET=synthetic-team-join-mfa-secret-0000000000000000 \
+    DOTENV_CONFIG_PATH=/dev/null REDIS_URL='' CLOUD_MODE='' \
+    node --conditions=react-server --import tsx scripts/test-team-join-mfa-race.ts
+  exit 0
+fi
 if [[ "${1:-}" == --role-revocation ]]; then
   DOTENV_CONFIG_PATH=/dev/null pnpm run db:migrate
   ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null REDIS_URL='' CLOUD_MODE='' \
@@ -99,6 +107,10 @@ pnpm run db:migrate
 run_two_factor_state_races
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null REDIS_URL='' CLOUD_MODE='' \
   node --conditions=react-server --import tsx scripts/test-team-join-role.ts
+ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 \
+  APP_SECRET=synthetic-team-join-mfa-secret-0000000000000000 \
+  DOTENV_CONFIG_PATH=/dev/null REDIS_URL='' CLOUD_MODE='' \
+  node --conditions=react-server --import tsx scripts/test-team-join-mfa-race.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null REDIS_URL='' CLOUD_MODE='' \
   node --conditions=react-server --import tsx scripts/test-role-revocation-race.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-session-data-bulk.ts

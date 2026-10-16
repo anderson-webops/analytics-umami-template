@@ -8,6 +8,7 @@ import { hash, secret } from '@/lib/crypto';
 import { createSecureToken } from '@/lib/jwt';
 import { hashPassword } from '@/lib/password';
 import prisma from '@/lib/prisma';
+import type { Auth } from '@/lib/types';
 import { ApiKeyLimitReachedError, createApiKey, getUserApiKeys } from '@/queries/prisma/apiKey';
 import {
   rehashPasswordIfCurrent,
@@ -37,6 +38,26 @@ async function sessionRequest(token: string) {
       headers: { authorization: `Bearer ${token}` },
     }),
   );
+}
+
+async function currentAdministratorAuth(): Promise<Auth> {
+  const administrator = await prisma.client.user.findUniqueOrThrow({
+    where: { id: adminId },
+    select: { username: true, role: true, password: true, sessionGeneration: true },
+  });
+
+  return {
+    authType: 'session',
+    user: {
+      id: adminId,
+      username: administrator.username,
+      role: administrator.role,
+      isAdmin: administrator.role === 'admin',
+    },
+    passwordFingerprint: hash(administrator.password),
+    sessionGeneration: administrator.sessionGeneration,
+    mfaVerified: false,
+  };
 }
 
 try {
@@ -140,7 +161,7 @@ try {
       role: 'admin',
     },
   });
-  await updateUser(userId, { password: 'w'.repeat(60) }, adminId);
+  await updateUser(userId, { password: 'w'.repeat(60) }, adminId, await currentAdministratorAuth());
   assert.equal(
     (await prisma.client.user.findUniqueOrThrow({ where: { id: userId } })).sessionGeneration,
     3,
@@ -248,6 +269,7 @@ try {
     protectedKeyId,
   );
 
+  const preDemotionAdministratorAuth = await currentAdministratorAuth();
   let releaseDemotion: () => void = () => {};
   let signalDemotionReady: () => void = () => {};
   const demotionGate = new Promise<void>(resolve => {
@@ -269,7 +291,12 @@ try {
   );
 
   await demotionReady;
-  const staleAdminReset = updateUser(userId, { password: 's'.repeat(60) }, adminId).then(
+  const staleAdminReset = updateUser(
+    userId,
+    { password: 's'.repeat(60) },
+    adminId,
+    preDemotionAdministratorAuth,
+  ).then(
     () => null,
     error => error,
   );
@@ -398,7 +425,7 @@ try {
   assert.equal(await prisma.client.apiKey.findUnique({ where: { id: reusedAdminKeyId } }), null);
 
   assert.notEqual(await prisma.client.apiKey.findUnique({ where: { id: protectedKeyId } }), null);
-  await updateUser(userId, { role: 'admin' }, adminId);
+  await updateUser(userId, { role: 'admin' }, adminId, await currentAdministratorAuth());
   assert.equal(await prisma.client.apiKey.findUnique({ where: { id: protectedKeyId } }), null);
   assert.equal(
     (await prisma.client.user.findUniqueOrThrow({ where: { id: userId } })).sessionGeneration,
@@ -415,7 +442,7 @@ try {
     )?.id,
     preDemotionKeyId,
   );
-  await updateUser(userId, { role: 'user' }, adminId);
+  await updateUser(userId, { role: 'user' }, adminId, await currentAdministratorAuth());
   assert.equal(await prisma.client.apiKey.findUnique({ where: { id: preDemotionKeyId } }), null);
   assert.equal(
     (await prisma.client.user.findUniqueOrThrow({ where: { id: userId } })).sessionGeneration,
@@ -444,7 +471,12 @@ try {
   );
 
   await promotionReady;
-  const sameRoleEdit = updateUser(userId, { role: 'user' }, adminId);
+  const sameRoleEdit = updateUser(
+    userId,
+    { role: 'user' },
+    adminId,
+    await currentAdministratorAuth(),
+  );
   try {
     let blocked = false;
 

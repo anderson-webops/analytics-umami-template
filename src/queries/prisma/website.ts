@@ -6,15 +6,15 @@ import prisma, { getSchema } from '@/lib/prisma';
 import { getRecorderConfig, getRecorderEnabled } from '@/lib/recorder';
 import redis from '@/lib/redis';
 import { sanitizeSortFilters } from '@/lib/sort';
-import type { QueryFilters } from '@/lib/types';
+import type { Auth, QueryFilters } from '@/lib/types';
 import { hasMutableGlobalRole } from '@/permissions/mutation';
 import { deleteClickhouseCollectionSources } from '@/queries/sql/deleteCollectionSources';
 import {
   assertActorCanCreateOwnedEntity,
   assertActorCanMutateEntity,
   assertActorIsAdministrator,
+  assertCurrentActorAuth,
   assertEntityIdAvailable,
-  lockActorRoleForMutation,
   lockActorTeamMembershipForMutation,
   runSerializable,
 } from './authorization';
@@ -194,9 +194,10 @@ export async function createWebsite(
   data: Prisma.WebsiteUncheckedCreateInput,
   actorUserId: string,
   options: {
+    auth: Auth;
     activeOwnerWebsiteLimit?: number;
     customEntityId?: boolean;
-  } = {},
+  },
 ) {
   const { activeOwnerWebsiteLimit, customEntityId = false } = options;
 
@@ -213,13 +214,19 @@ export async function createWebsite(
     }
 
     if (data.teamId) {
-      await assertActorCanCreateOwnedEntity(transaction, actorUserId, {
-        teamId: data.teamId,
-      });
+      await assertActorCanCreateOwnedEntity(
+        transaction,
+        actorUserId,
+        { teamId: data.teamId },
+        { auth: options.auth },
+      );
     } else if (data.userId) {
-      await assertActorCanCreateOwnedEntity(transaction, actorUserId, {
-        userId: data.userId,
-      });
+      await assertActorCanCreateOwnedEntity(
+        transaction,
+        actorUserId,
+        { userId: data.userId },
+        { auth: options.auth },
+      );
     } else {
       throw new Error('ENTITY_OWNER_NOT_FOUND');
     }
@@ -251,13 +258,14 @@ export async function updateWebsite(
   data: Prisma.WebsiteUncheckedUpdateInput,
   actorUserId: string,
   options: {
+    auth: Auth;
     removeShares?: boolean;
     replayConfig?: unknown;
-  } = {},
+  },
 ) {
   const { removeShares, replayConfig } = options;
   const result = await runSerializable(async transaction => {
-    await lockActorRoleForMutation(transaction, actorUserId);
+    await assertCurrentActorAuth(transaction, actorUserId, options.auth);
     await lockCollectionSources(transaction, [websiteId]);
 
     await assertActorCanMutateEntity(
@@ -335,9 +343,10 @@ export async function transferWebsiteByActor(
   websiteId: string,
   destination: { userId: string } | { teamId: string },
   actorUserId: string,
+  auth: Auth,
 ) {
   const website = await runSerializable(async transaction => {
-    await lockActorRoleForMutation(transaction, actorUserId);
+    await assertCurrentActorAuth(transaction, actorUserId, auth, 'WEBSITE_TRANSFER_NOT_AUTHORIZED');
     await lockCollectionSources(transaction, [websiteId]);
     const actor = await transaction.user.findFirst({
       where: {
@@ -474,10 +483,10 @@ export async function transferWebsiteByActor(
   return website;
 }
 
-export async function resetWebsite(websiteId: string, actorUserId: string) {
+export async function resetWebsite(websiteId: string, actorUserId: string, auth: Auth) {
   return runSerializable(
     async tx => {
-      await lockActorRoleForMutation(tx, actorUserId);
+      await assertCurrentActorAuth(tx, actorUserId, auth);
       await lockCollectionSources(tx, [websiteId]);
 
       await assertActorCanMutateEntity(
@@ -512,12 +521,12 @@ export async function resetWebsite(websiteId: string, actorUserId: string) {
   });
 }
 
-export async function deleteWebsite(websiteId: string, actorUserId: string) {
+export async function deleteWebsite(websiteId: string, actorUserId: string, auth: Auth) {
   const cloudMode = isEnvEnabled('CLOUD_MODE');
 
   return runSerializable(
     async tx => {
-      await lockActorRoleForMutation(tx, actorUserId);
+      await assertCurrentActorAuth(tx, actorUserId, auth);
       await lockCollectionSources(tx, [websiteId]);
 
       await assertActorCanMutateEntity(

@@ -56,7 +56,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ tea
   let team;
 
   try {
-    team = await updateTeam(teamId, body, auth.user.id);
+    team = await updateTeam(teamId, body, auth.user.id, auth);
   } catch (error: any) {
     switch (error?.message) {
       case 'TEAM_NOT_FOUND':
@@ -88,7 +88,7 @@ export async function DELETE(
   }
 
   try {
-    await deleteTeam(teamId, auth.user.id);
+    await deleteTeam(teamId, auth.user.id, auth);
   } catch (error: any) {
     switch (error?.message) {
       case 'TEAM_NOT_FOUND':

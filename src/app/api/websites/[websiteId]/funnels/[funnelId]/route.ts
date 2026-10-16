@@ -38,6 +38,7 @@ export async function POST(
           parameters: body.parameters,
         },
         auth.user.id,
+        auth,
       ),
     );
   } catch (error) {
@@ -56,7 +57,7 @@ export async function DELETE(
   if (!report || report.websiteId !== websiteId || report.type !== 'funnel') return notFound();
   if (!(await canDeleteReport(auth, report))) return unauthorized();
   try {
-    await deleteReport(report.id, auth.user.id);
+    await deleteReport(report.id, auth.user.id, auth);
     return ok();
   } catch (error) {
     return handleReportMutationError(error);

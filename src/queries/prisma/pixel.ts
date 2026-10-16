@@ -4,14 +4,14 @@ import { isUuid } from '@/lib/crypto';
 import prisma from '@/lib/prisma';
 import redis from '@/lib/redis';
 import { sanitizeSortFilters } from '@/lib/sort';
-import type { QueryFilters } from '@/lib/types';
+import type { Auth, QueryFilters } from '@/lib/types';
 import { deleteClickhouseCollectionSources } from '@/queries/sql/deleteCollectionSources';
 import {
   assertActorCanCreateOwnedEntity,
   assertActorCanMutateEntity,
   assertActorIsAdministrator,
+  assertCurrentActorAuth,
   assertEntityIdAvailable,
-  lockActorRoleForMutation,
   runSerializable,
 } from './authorization';
 import { lockCollectionSources } from './collection';
@@ -75,7 +75,7 @@ export async function getTeamPixels(teamId: string, filters?: QueryFilters) {
 export async function createPixel(
   data: Prisma.PixelUncheckedCreateInput,
   actorUserId: string,
-  options: { customEntityId?: boolean } = {},
+  options: { auth: Auth; customEntityId?: boolean },
 ) {
   return runSerializable(async transaction => {
     if (options.customEntityId) {
@@ -83,13 +83,19 @@ export async function createPixel(
     }
 
     if (data.teamId) {
-      await assertActorCanCreateOwnedEntity(transaction, actorUserId, {
-        teamId: data.teamId,
-      });
+      await assertActorCanCreateOwnedEntity(
+        transaction,
+        actorUserId,
+        { teamId: data.teamId },
+        { auth: options.auth },
+      );
     } else if (data.userId) {
-      await assertActorCanCreateOwnedEntity(transaction, actorUserId, {
-        userId: data.userId,
-      });
+      await assertActorCanCreateOwnedEntity(
+        transaction,
+        actorUserId,
+        { userId: data.userId },
+        { auth: options.auth },
+      );
     } else {
       throw new Error('ENTITY_OWNER_NOT_FOUND');
     }
@@ -104,9 +110,10 @@ export async function updatePixel(
   pixelId: string,
   data: Prisma.PixelUncheckedUpdateInput,
   actorUserId: string,
+  auth: Auth,
 ) {
   const { pixel, previousSlug } = await runSerializable(async transaction => {
-    await lockActorRoleForMutation(transaction, actorUserId);
+    await assertCurrentActorAuth(transaction, actorUserId, auth);
     await lockCollectionSources(transaction, [pixelId]);
 
     await assertActorCanMutateEntity(
@@ -139,10 +146,10 @@ export async function updatePixel(
   return pixel;
 }
 
-export async function deletePixel(pixelId: string, actorUserId: string) {
+export async function deletePixel(pixelId: string, actorUserId: string, auth: Auth) {
   const result = await runSerializable(
     async transaction => {
-      await lockActorRoleForMutation(transaction, actorUserId);
+      await assertCurrentActorAuth(transaction, actorUserId, auth);
       await lockCollectionSources(transaction, [pixelId]);
 
       await assertActorCanMutateEntity(

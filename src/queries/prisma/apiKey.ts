@@ -1,6 +1,7 @@
 import { API_KEY_PAGE_SIZE, MAX_API_KEYS_PER_USER } from '@/lib/api-key-limits';
 import prisma from '@/lib/prisma';
 import { consumeOtp } from '@/lib/two-factor/replay-prevention';
+import { lockActorRoleForMutation } from './authorization';
 
 export class ApiKeyCodeUsedError extends Error {}
 export class ApiKeyLimitReachedError extends Error {}
@@ -37,6 +38,7 @@ export async function createApiKey(
       return null;
     }
 
+    await lockActorRoleForMutation(transaction, data.userId, 'API_KEY_AUTHORIZATION_CHANGED');
     const keyCount = await transaction.apiKey.count({ where: { userId: data.userId } });
 
     if (keyCount >= MAX_API_KEYS_PER_USER) {

@@ -103,7 +103,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ boa
       boardId,
       { type, name, description, parameters },
       auth.user.id,
-      auth.authType,
+      auth,
     );
 
     return Response.json(board);
@@ -145,7 +145,7 @@ export async function DELETE(
   }
 
   try {
-    await deleteBoard(boardId, auth.user.id);
+    await deleteBoard(boardId, auth.user.id, auth);
   } catch (error: any) {
     switch (error?.message) {
       case 'ENTITY_NOT_FOUND':

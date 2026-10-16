@@ -43,6 +43,7 @@ test('cloud creation passes the authoritative quota to the insertion transaction
     ownerId,
     ownerId,
     10,
+    expect.objectContaining({ user: expect.objectContaining({ id: ownerId }) }),
   );
 });
 
@@ -62,11 +63,23 @@ test('unlimited cloud and self-hosted creation keep unrestricted behavior', asyn
 
   const unlimited = await POST(new Request('http://localhost/api/teams', { method: 'POST' }));
   expect(unlimited.status).toBe(200);
-  expect(createTeamMock).toHaveBeenLastCalledWith(expect.anything(), ownerId, ownerId, null);
+  expect(createTeamMock).toHaveBeenLastCalledWith(
+    expect.anything(),
+    ownerId,
+    ownerId,
+    null,
+    expect.objectContaining({ user: expect.objectContaining({ id: ownerId }) }),
+  );
 
   vi.stubEnv('CLOUD_MODE', '');
   const selfHosted = await POST(new Request('http://localhost/api/teams', { method: 'POST' }));
   expect(selfHosted.status).toBe(200);
   expect(fetchAccountMock).toHaveBeenCalledTimes(1);
-  expect(createTeamMock).toHaveBeenLastCalledWith(expect.anything(), ownerId, ownerId, null);
+  expect(createTeamMock).toHaveBeenLastCalledWith(
+    expect.anything(),
+    ownerId,
+    ownerId,
+    null,
+    expect.objectContaining({ user: expect.objectContaining({ id: ownerId }) }),
+  );
 });

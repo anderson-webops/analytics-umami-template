@@ -7,6 +7,7 @@ import { getTwoFactorConfigurationError, isTwoFactorConfigured } from '@/lib/two
 import { canEnforceTwoFactorAuthForUser } from '@/permissions';
 import {
   assertActorIsAdministrator,
+  assertCurrentActorAuth,
   runCredentialRevocationMutation,
 } from '@/queries/prisma/authorization';
 import { updateUser } from '@/queries/prisma/user';
@@ -57,7 +58,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ use
     return serviceUnavailable(getTwoFactorConfigurationError());
   }
 
-  const user = await updateUser(userId, { twoFactorRequired: required }, auth.user.id);
+  let user;
+
+  try {
+    user = await updateUser(userId, { twoFactorRequired: required }, auth.user.id, auth);
+  } catch (error) {
+    if (error instanceof Error && error.message === 'ADMIN_AUTHORIZATION_CHANGED') {
+      return unauthorized({ message: 'Your administrator permission changed.' });
+    }
+
+    throw error;
+  }
 
   return json({ ok: true, userId: user.id, twoFactorRequired: required });
 }
@@ -86,6 +97,7 @@ export async function DELETE(
 
   try {
     reset = await runCredentialRevocationMutation(async transaction => {
+      await assertCurrentActorAuth(transaction, auth.user.id, auth, 'ENTITY_ADMIN_REQUIRED');
       await assertActorIsAdministrator(transaction, auth.user.id);
       const target = await transaction.user.findFirst({
         where: { id: userId, deletedAt: null },

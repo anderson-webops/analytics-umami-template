@@ -64,7 +64,7 @@ export async function POST(request: Request) {
   let result;
 
   try {
-    result = await createPixel(data, auth.user.id, { customEntityId: !!id });
+    result = await createPixel(data, auth.user.id, { auth, customEntityId: !!id });
   } catch (error: any) {
     switch (error?.message) {
       case 'ENTITY_ID_CONFLICT':

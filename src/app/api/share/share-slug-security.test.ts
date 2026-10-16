@@ -118,6 +118,7 @@ test('share creation returns a server-generated bearer slug', async () => {
   expect(createShare).toHaveBeenCalledWith(
     expect.objectContaining({ slug: expect.stringMatching(/^[A-Za-z0-9_-]{24}$/) }),
     'manager',
+    expect.objectContaining({ user: expect.objectContaining({ id: 'manager' }) }),
   );
 });
 
@@ -136,6 +137,7 @@ test('editing a share preserves its existing URL', async () => {
     shareId,
     { name: 'Renamed', slug: existingSlug, rotate: undefined, parameters: { events: true } },
     'manager',
+    expect.objectContaining({ user: expect.objectContaining({ id: 'manager' }) }),
   );
 });
 
@@ -169,6 +171,7 @@ test('explicit rotation generates a new bearer slug', async () => {
     shareId,
     { name: 'Renamed', slug: existingSlug, rotate: true, parameters: {} },
     'manager',
+    expect.objectContaining({ user: expect.objectContaining({ id: 'manager' }) }),
   );
 });
 
@@ -225,6 +228,10 @@ test('website owners can still revoke existing public links', async () => {
     entityId,
     { name: undefined, domain: undefined },
     'manager',
-    { removeShares: true, replayConfig: undefined },
+    {
+      removeShares: true,
+      replayConfig: undefined,
+      auth: expect.objectContaining({ user: expect.objectContaining({ id: 'manager' }) }),
+    },
   );
 });

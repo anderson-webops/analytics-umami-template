@@ -36,7 +36,7 @@ export async function POST(
     }
 
     try {
-      const website = await transferWebsiteByActor(websiteId, { userId }, auth.user.id);
+      const website = await transferWebsiteByActor(websiteId, { userId }, auth.user.id, auth);
 
       return json(website);
     } catch (error: any) {
@@ -61,7 +61,7 @@ export async function POST(
     }
 
     try {
-      const website = await transferWebsiteByActor(websiteId, { teamId }, auth.user.id);
+      const website = await transferWebsiteByActor(websiteId, { teamId }, auth.user.id, auth);
 
       return json(website);
     } catch (error: any) {

@@ -24,7 +24,7 @@ export async function POST(request: Request) {
   let user;
 
   try {
-    user = await joinTeamByAccessCode(auth.user.id, accessCode);
+    user = await joinTeamByAccessCode(auth.user.id, accessCode, auth);
   } catch (error: any) {
     switch (error?.message) {
       case 'TEAM_NOT_FOUND':

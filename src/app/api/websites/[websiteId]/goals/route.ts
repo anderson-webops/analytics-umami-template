@@ -45,6 +45,7 @@ export async function POST(
           parameters: body.parameters,
         },
         auth.user.id,
+        auth,
       ),
     );
   } catch (error) {

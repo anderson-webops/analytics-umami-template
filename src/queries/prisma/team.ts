@@ -5,11 +5,11 @@ import { isEnvEnabled } from '@/lib/env';
 import prisma from '@/lib/prisma';
 import redis from '@/lib/redis';
 import { sanitizeSortFilters } from '@/lib/sort';
-import type { PageResult, QueryFilters } from '@/lib/types';
+import type { Auth, PageResult, QueryFilters } from '@/lib/types';
 import { hasMutableGlobalRole } from '@/permissions/mutation';
 import { deleteClickhouseCollectionSources } from '@/queries/sql/deleteCollectionSources';
 import {
-  lockActorRoleForMutation,
+  assertCurrentActorAuth,
   lockActorTeamMembershipForMutation,
   runSerializable,
 } from './authorization';
@@ -212,14 +212,15 @@ export async function createTeam(
   },
   ownerUserId: string,
   actorUserId: string,
-  teamLimit: number | null = null,
+  teamLimit: number | null,
+  auth: Auth,
 ): Promise<Team> {
   if (teamLimit !== null && (!Number.isSafeInteger(teamLimit) || teamLimit < 0)) {
     throw new Error('TEAM_LIMIT_INVALID');
   }
 
   return runSerializable(async transaction => {
-    await lockActorRoleForMutation(transaction, actorUserId);
+    await assertCurrentActorAuth(transaction, actorUserId, auth, 'TEAM_ACTOR_NOT_AUTHORIZED');
     const actor = await getActiveUserRole(transaction, actorUserId);
     const owner = await getActiveUserRole(transaction, ownerUserId);
 
@@ -268,9 +269,10 @@ export async function updateTeam(
   teamId: string,
   data: Prisma.TeamUpdateInput,
   actorUserId: string,
+  auth: Auth,
 ): Promise<Team> {
   return runSerializable(async transaction => {
-    await lockActorRoleForMutation(transaction, actorUserId);
+    await assertCurrentActorAuth(transaction, actorUserId, auth, 'TEAM_ACTOR_NOT_AUTHORIZED');
     await lockActorTeamMembershipForMutation(transaction, teamId, actorUserId);
     const actor = await getActiveUserRole(transaction, actorUserId);
     const team = await transaction.team.findFirst({
@@ -319,12 +321,12 @@ export async function updateTeam(
   });
 }
 
-export async function deleteTeam(teamId: string, actorUserId: string) {
+export async function deleteTeam(teamId: string, actorUserId: string, auth: Auth) {
   const cloudMode = isEnvEnabled('CLOUD_MODE');
 
   const result = await runSerializable(
     async transaction => {
-      await lockActorRoleForMutation(transaction, actorUserId);
+      await assertCurrentActorAuth(transaction, actorUserId, auth, 'TEAM_ACTOR_NOT_AUTHORIZED');
       await lockActorTeamMembershipForMutation(transaction, teamId, actorUserId);
       const actor = await getActiveUserRole(transaction, actorUserId);
       const team = await transaction.team.findFirst({

@@ -55,5 +55,9 @@ test.each([
   const response = await POST(new Request('http://localhost/api/teams/join', { method: 'POST' }));
 
   expect(response.status).toBe(200);
-  expect(joinTeamMock).toHaveBeenCalledWith('user-1', accessCode);
+  expect(joinTeamMock).toHaveBeenCalledWith(
+    'user-1',
+    accessCode,
+    expect.objectContaining({ user: expect.objectContaining({ id: 'user-1', role }) }),
+  );
 });

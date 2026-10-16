@@ -97,5 +97,10 @@ test('an administrator can still reset another account password', async () => {
 
   expect(response.status).toBe(200);
   expect(mocks.hashPassword).toHaveBeenCalledWith('Replacement-password-123!');
-  expect(mocks.updateUser).toHaveBeenCalledWith(otherId, { password: 'replacement-hash' }, adminId);
+  expect(mocks.updateUser).toHaveBeenCalledWith(
+    otherId,
+    { password: 'replacement-hash' },
+    adminId,
+    expect.objectContaining({ user: expect.objectContaining({ id: adminId }) }),
+  );
 });

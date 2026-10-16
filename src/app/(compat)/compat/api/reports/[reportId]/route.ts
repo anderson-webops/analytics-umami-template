@@ -63,6 +63,7 @@ export async function POST(
           parameters,
         } as any,
         auth.user.id,
+        auth,
       ),
     );
   } catch (error) {
@@ -92,7 +93,7 @@ export async function DELETE(
   }
 
   try {
-    await deleteReport(reportId, auth.user.id);
+    await deleteReport(reportId, auth.user.id, auth);
     return ok();
   } catch (error) {
     return handleReportMutationError(error);

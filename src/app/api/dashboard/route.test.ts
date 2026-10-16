@@ -67,7 +67,10 @@ test('dashboard writes still allow an ordinary user to update their own board', 
     'user-1',
     { name: 'Changed', description: undefined },
     'user-1',
-    'session',
+    expect.objectContaining({
+      authType: 'session',
+      user: expect.objectContaining({ id: 'user-1' }),
+    }),
   );
 });
 
@@ -93,7 +96,10 @@ test('a name-only API-key dashboard edit preserves shared-board references', asy
     'user-1',
     { name: 'Changed', description: undefined },
     'user-1',
-    'api-key',
+    expect.objectContaining({
+      authType: 'api-key',
+      user: expect.objectContaining({ id: 'user-1' }),
+    }),
   );
 });
 
@@ -121,7 +127,13 @@ test('a new dashboard still starts with empty parameters when none are supplied'
       description: undefined,
     },
     'user-1',
-    { isPersonalDashboard: true },
+    {
+      isPersonalDashboard: true,
+      auth: expect.objectContaining({
+        authType: 'session',
+        user: expect.objectContaining({ id: 'user-1' }),
+      }),
+    },
   );
 });
 
@@ -148,6 +160,9 @@ test('dashboard writes pass API-key identity to the shared-board transaction', a
     'user-1',
     { name: undefined, description: undefined, parameters: { websiteId: 'site-1' } },
     'user-1',
-    'api-key',
+    expect.objectContaining({
+      authType: 'api-key',
+      user: expect.objectContaining({ id: 'user-1' }),
+    }),
   );
 });

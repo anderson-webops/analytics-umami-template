@@ -63,7 +63,10 @@ test('POST requires pixel slugs to be at least 8 characters so create matches ed
       userId: 'user-1',
     },
     'user-1',
-    { customEntityId: false },
+    {
+      customEntityId: false,
+      auth: expect.objectContaining({ user: expect.objectContaining({ id: 'user-1' }) }),
+    },
   );
   expect(response.status).toBe(200);
 });

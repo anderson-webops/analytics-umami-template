@@ -1,6 +1,7 @@
 import type { Prisma } from '@/generated/prisma/client';
 import { PERMISSIONS, ROLE_PERMISSIONS, ROLES } from '@/lib/constants';
 import { hash } from '@/lib/crypto';
+import { isEnvEnabled } from '@/lib/env';
 import prisma from '@/lib/prisma';
 import redis from '@/lib/redis';
 import type { Auth } from '@/lib/types';
@@ -202,13 +203,124 @@ export async function runSerializable<T>(
 export async function lockActorRoleForMutation(
   transaction: Prisma.TransactionClient,
   actorUserId: string,
+  notAuthorizedError = 'ENTITY_ACTOR_NOT_AUTHORIZED',
 ) {
-  await transaction.$queryRaw`
-    SELECT user_id
-    FROM "user"
-    WHERE user_id = ${actorUserId}::uuid
-    FOR NO KEY UPDATE
+  const actors = await transaction.$queryRaw<
+    Array<{ user_id: string; enrollmentRequired: boolean; enrolled: boolean }>
+  >`
+    SELECT u.user_id,
+      (
+        u.two_factor_required
+        OR COALESCE(
+          (SELECT value = 'true' FROM app_setting WHERE key = 'twoFactorRequiredGlobal'),
+          false
+        )
+        OR EXISTS (
+          SELECT 1 FROM team_user tu
+          JOIN team t ON t.team_id = tu.team_id
+          WHERE tu.user_id = u.user_id AND t.two_factor_required
+        )
+      ) AS "enrollmentRequired",
+      EXISTS (
+        SELECT 1 FROM two_factor_auth factor
+        WHERE factor.user_id = u.user_id AND factor.is_enabled
+      ) AS enrolled
+    FROM "user" u
+    WHERE u.user_id = ${actorUserId}::uuid
+    FOR NO KEY UPDATE OF u
   `;
+
+  if (!isEnvEnabled('CLOUD_MODE') && actors[0]?.enrollmentRequired && !actors[0].enrolled) {
+    throw new Error(notAuthorizedError);
+  }
+}
+
+export async function assertCurrentMutationAuth(
+  transaction: Prisma.TransactionClient,
+  auth: Auth,
+  notAuthorizedError = 'ENTITY_ACTOR_NOT_AUTHORIZED',
+) {
+  const actorUserId = auth.user?.id;
+
+  if (!actorUserId || (auth.authType !== 'session' && auth.authType !== 'api-key')) {
+    throw new Error(notAuthorizedError);
+  }
+
+  await lockActorRoleForMutation(transaction, actorUserId, notAuthorizedError);
+  const actor = await transaction.user.findUnique({
+    where: { id: actorUserId },
+    select: { role: true, password: true, sessionGeneration: true, deletedAt: true },
+  });
+
+  if (!actor || actor.deletedAt || actor.role !== auth.user.role) {
+    throw new Error(notAuthorizedError);
+  }
+
+  if (auth.authType === 'api-key') {
+    const key = auth.apiKey?.id
+      ? await transaction.apiKey.findUnique({
+          where: { id: auth.apiKey.id },
+          select: { userId: true, expiresAt: true },
+        })
+      : null;
+
+    if (!key || key.userId !== actorUserId || key.expiresAt.getTime() <= Date.now()) {
+      throw new Error(notAuthorizedError);
+    }
+
+    return;
+  }
+
+  if (
+    typeof auth.sessionGeneration !== 'number' ||
+    !Number.isSafeInteger(auth.sessionGeneration) ||
+    auth.sessionGeneration < 0 ||
+    actor.sessionGeneration !== auth.sessionGeneration ||
+    !auth.passwordFingerprint ||
+    hash(actor.password) !== auth.passwordFingerprint
+  ) {
+    throw new Error(notAuthorizedError);
+  }
+
+  if (!isEnvEnabled('CLOUD_MODE')) {
+    const factor = await transaction.twoFactorAuth.findUnique({
+      where: { userId: actorUserId },
+      select: { id: true, isEnabled: true },
+    });
+
+    if (factor?.isEnabled && (!auth.mfaVerified || auth.mfaId !== factor.id)) {
+      throw new Error(notAuthorizedError);
+    }
+  }
+
+  if (redis.enabled && auth.authKey) {
+    const session = await redis.client.get(auth.authKey);
+
+    if (
+      session?.userId !== actorUserId ||
+      session.role !== auth.user.role ||
+      session.pwd !== auth.passwordFingerprint ||
+      session.sessionGeneration !== auth.sessionGeneration ||
+      (!isEnvEnabled('CLOUD_MODE') &&
+        auth.mfaVerified &&
+        (session.mfa !== true || session.mfaId !== auth.mfaId))
+    ) {
+      throw new Error(notAuthorizedError);
+    }
+  }
+}
+
+export async function assertCurrentActorAuth(
+  transaction: Prisma.TransactionClient,
+  actorUserId: string,
+  auth: Auth,
+  notAuthorizedError = 'ENTITY_ACTOR_NOT_AUTHORIZED',
+) {
+  if (auth.user?.id !== actorUserId) {
+    throw new Error(notAuthorizedError);
+  }
+
+  await assertCurrentMutationAuth(transaction, auth, notAuthorizedError);
 }
 
 export async function lockActorTeamMembershipForMutation(
@@ -323,7 +435,7 @@ export async function assertActorCanAccessEntities(
     return;
   }
 
-  await lockActorRoleForMutation(transaction, actorUserId);
+  await lockActorRoleForMutation(transaction, actorUserId, 'ENTITY_REFERENCE_NOT_AUTHORIZED');
   const actor = await transaction.user.findFirst({
     where: {
       id: actorUserId,
@@ -402,10 +514,10 @@ export async function assertActorCanCreateOwnedEntity(
   transaction: Prisma.TransactionClient,
   actorUserId: string,
   owner: { userId: string; teamId?: never } | { teamId: string; userId?: never },
-  options: { requireGlobalCreatePermission?: boolean } = {},
+  options: { auth: Auth; requireGlobalCreatePermission?: boolean },
 ) {
-  const { requireGlobalCreatePermission = true } = options;
-  await lockActorRoleForMutation(transaction, actorUserId);
+  const { requireGlobalCreatePermission = true, auth } = options;
+  await assertCurrentActorAuth(transaction, actorUserId, auth);
   const actor = await transaction.user.findFirst({
     where: {
       id: actorUserId,
@@ -488,6 +600,8 @@ export async function assertActorIsAdministrator(
     throw new Error('ENTITY_ADMIN_REQUIRED');
   }
 
+  await lockActorRoleForMutation(transaction, actorUserId, 'ENTITY_ADMIN_REQUIRED');
+
   const actor = await transaction.$queryRaw<Array<{ allowed: number }>>`
     SELECT 1 AS allowed FROM "user"
     WHERE user_id = ${actorUserId}::uuid
@@ -503,9 +617,11 @@ export async function assertActorIsAdministrator(
 
 export async function runAuthorizedAdministratorMutation<T>(
   actorUserId: string,
+  auth: Auth,
   operation: (transaction: Prisma.TransactionClient) => Promise<T>,
 ): Promise<T> {
   return runSerializedUserMutation(async transaction => {
+    await assertCurrentActorAuth(transaction, actorUserId, auth, 'ENTITY_ADMIN_REQUIRED');
     await assertActorIsAdministrator(transaction, actorUserId);
     return operation(transaction);
   });

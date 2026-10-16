@@ -64,6 +64,7 @@ export async function POST(
         parameters,
       } as any,
       auth.user.id,
+      auth,
     );
   } catch (error: any) {
     switch (error?.message) {
@@ -103,7 +104,7 @@ export async function DELETE(
   }
 
   try {
-    await deleteSegment(websiteId, segmentId, auth.user.id);
+    await deleteSegment(websiteId, segmentId, auth.user.id, auth);
   } catch (error: any) {
     switch (error?.message) {
       case 'SEGMENT_NOT_FOUND':

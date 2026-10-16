@@ -30,6 +30,7 @@ export interface Auth {
   authKey?: string;
   sessionGeneration?: number;
   passwordFingerprint?: string;
+  mfaVerified?: boolean;
   mfaId?: string;
   shareToken?: {
     shareId?: string;

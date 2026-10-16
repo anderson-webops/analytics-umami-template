@@ -271,7 +271,12 @@ test('DELETE removes the session when the request is valid', async () => {
 
   expect(response.status).toBe(200);
   await expect(response.json()).resolves.toEqual({ ok: true });
-  expect(deleteSessionMock).toHaveBeenCalledWith(WEBSITE_ID, SESSION_ID, 'user-1');
+  expect(deleteSessionMock).toHaveBeenCalledWith(
+    WEBSITE_ID,
+    SESSION_ID,
+    'user-1',
+    expect.objectContaining({ user: expect.objectContaining({ id: 'user-1' }) }),
+  );
 });
 
 test('DELETE rejects a permission revoked after the preliminary check', async () => {
@@ -288,7 +293,12 @@ test('DELETE rejects a permission revoked after the preliminary check', async ()
   );
 
   expect(response.status).toBe(401);
-  expect(deleteSessionMock).toHaveBeenCalledWith(WEBSITE_ID, SESSION_ID, 'user-1');
+  expect(deleteSessionMock).toHaveBeenCalledWith(
+    WEBSITE_ID,
+    SESSION_ID,
+    'user-1',
+    expect.objectContaining({ user: expect.objectContaining({ id: 'user-1' }) }),
+  );
 });
 
 test('DELETE returns not found if the website disappears before the transaction', async () => {

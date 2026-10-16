@@ -74,6 +74,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ pix
         parameters: shareParameters,
       },
       auth.user.id,
+      auth,
     );
   } catch (error: any) {
     if (error?.message === 'SHARE_ACTOR_NOT_AUTHORIZED') {

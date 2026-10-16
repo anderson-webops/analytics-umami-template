@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { ROLES } from '@/lib/constants';
+import { hash } from '@/lib/crypto';
 import prisma from '@/lib/prisma';
+import type { Auth } from '@/lib/types';
 import { joinTeamByAccessCode } from '@/queries/prisma/teamUser';
 
 assert.equal(process.env.ALLOW_DESTRUCTIVE_MIGRATION_TEST, '1');
@@ -15,6 +17,15 @@ const viewerId = randomUUID();
 const racingId = randomUUID();
 const teamId = randomUUID();
 const accessCode = `team_${randomBytes(8).toString('hex')}`;
+function authFor(userId: string, role: string): Auth {
+  return {
+    authType: 'session',
+    user: { id: userId, username: `team-join-${userId}`, role, isAdmin: role === ROLES.admin },
+    sessionGeneration: 0,
+    passwordFingerprint: hash('x'.repeat(60)),
+    mfaVerified: false,
+  };
+}
 let releaseDemotion = () => {};
 let signalLocked = () => {};
 const demotionGate = new Promise<void>(resolve => {
@@ -40,12 +51,18 @@ try {
     data: { id: randomUUID(), teamId, userId: ownerId, role: ROLES.teamOwner },
   });
 
-  await assert.rejects(joinTeamByAccessCode(viewerId, accessCode), /TEAM_ACTOR_NOT_AUTHORIZED/);
+  await assert.rejects(
+    joinTeamByAccessCode(viewerId, accessCode, authFor(viewerId, ROLES.viewOnly)),
+    /TEAM_ACTOR_NOT_AUTHORIZED/,
+  );
   assert.equal(await prisma.client.teamUser.count({ where: { teamId, userId: viewerId } }), 0);
 
-  const joined = await joinTeamByAccessCode(memberId, accessCode);
+  const joined = await joinTeamByAccessCode(memberId, accessCode, authFor(memberId, ROLES.user));
   assert.equal(joined.role, ROLES.teamMember);
-  await assert.rejects(joinTeamByAccessCode(memberId, accessCode), /TEAM_USER_EXISTS/);
+  await assert.rejects(
+    joinTeamByAccessCode(memberId, accessCode, authFor(memberId, ROLES.user)),
+    /TEAM_USER_EXISTS/,
+  );
 
   const demotion = prisma.transaction(
     async transaction => {
@@ -62,7 +79,7 @@ try {
     { isolationLevel: 'Serializable', timeout: 10_000 },
   );
   await locked;
-  const attemptedJoin = joinTeamByAccessCode(racingId, accessCode);
+  const attemptedJoin = joinTeamByAccessCode(racingId, accessCode, authFor(racingId, ROLES.user));
   await new Promise(resolve => setTimeout(resolve, 50));
   releaseDemotion();
   await demotion;
@@ -71,7 +88,10 @@ try {
 
   await prisma.client.user.update({ where: { id: memberId }, data: { role: ROLES.viewOnly } });
   assert.equal(await prisma.client.teamUser.count({ where: { teamId, userId: memberId } }), 1);
-  await assert.rejects(joinTeamByAccessCode(memberId, accessCode), /TEAM_ACTOR_NOT_AUTHORIZED/);
+  await assert.rejects(
+    joinTeamByAccessCode(memberId, accessCode, authFor(memberId, ROLES.user)),
+    /TEAM_ACTOR_NOT_AUTHORIZED/,
+  );
 } finally {
   releaseDemotion();
   await prisma.client.teamUser.deleteMany({ where: { teamId } });

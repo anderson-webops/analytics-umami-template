@@ -88,6 +88,7 @@ export async function POST(request: Request) {
     ({ website } = await createWebsite(data, auth.user.id, {
       activeOwnerWebsiteLimit,
       customEntityId: !!id,
+      auth,
     }));
   } catch (error: any) {
     switch (error?.message) {

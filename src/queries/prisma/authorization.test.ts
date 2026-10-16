@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { Prisma } from '@/generated/prisma/client';
 import { ENTITY_TYPE, PERMISSIONS, ROLES } from '@/lib/constants';
+import { hash } from '@/lib/crypto';
 
 const transaction = vi.fn();
 
@@ -33,11 +34,27 @@ describe('transactional mutation authorization after role changes', () => {
   const queryRaw = vi.fn();
   const client = {
     $queryRaw: queryRaw,
-    user: { findFirst: userFindFirst },
+    user: {
+      findFirst: userFindFirst,
+      findUnique: vi.fn().mockResolvedValue({
+        role: ROLES.user,
+        password: 'synthetic-password',
+        sessionGeneration: 0,
+        deletedAt: null,
+      }),
+    },
+    twoFactorAuth: { findUnique: vi.fn().mockResolvedValue(null) },
     website: { findFirst: websiteFindFirst },
     teamUser: { findFirst: teamUserFindFirst, findMany: teamUserFindMany },
     team: { findFirst: teamFindFirst },
   } as unknown as Prisma.TransactionClient;
+  const actorAuth = {
+    authType: 'session' as const,
+    user: { id: actorId, username: 'actor', role: ROLES.user, isAdmin: false },
+    passwordFingerprint: hash('synthetic-password'),
+    sessionGeneration: 0,
+    mfaVerified: false,
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -136,6 +153,7 @@ describe('transactional mutation authorization after role changes', () => {
         actorId,
         { userId: actorId },
         {
+          auth: actorAuth,
           requireGlobalCreatePermission: false,
         },
       ),
@@ -149,6 +167,7 @@ describe('transactional mutation authorization after role changes', () => {
         actorId,
         { userId: actorId },
         {
+          auth: actorAuth,
           requireGlobalCreatePermission: false,
         },
       ),
@@ -171,7 +190,16 @@ describe('share mutation after global role demotion', () => {
   const userFindFirst = vi.fn();
   const client = {
     $queryRaw: vi.fn().mockResolvedValue([{ user_id: actorId }]),
-    user: { findFirst: userFindFirst },
+    user: {
+      findFirst: userFindFirst,
+      findUnique: vi.fn().mockResolvedValue({
+        role: ROLES.user,
+        password: 'synthetic-password',
+        sessionGeneration: 0,
+        deletedAt: null,
+      }),
+    },
+    twoFactorAuth: { findUnique: vi.fn().mockResolvedValue(null) },
     website: {
       findFirst: vi.fn().mockResolvedValue({ id: websiteId, userId: actorId, teamId: null }),
     },
@@ -185,6 +213,12 @@ describe('share mutation after global role demotion', () => {
     slug: 'example',
     parameters: {},
   } as Prisma.ShareUncheckedCreateInput;
+  const auth = {
+    authType: 'session' as const,
+    user: { id: actorId, username: actorId, role: ROLES.user, isAdmin: false },
+    sessionGeneration: 0,
+    passwordFingerprint: hash('synthetic-password'),
+  };
 
   beforeEach(() => {
     transaction.mockReset();
@@ -199,20 +233,24 @@ describe('share mutation after global role demotion', () => {
     const { createShare } = await import('./share');
     userFindFirst.mockResolvedValue({ role: ROLES.viewOnly });
 
-    await expect(createShare(shareData, actorId)).rejects.toThrow('SHARE_ACTOR_NOT_AUTHORIZED');
+    await expect(createShare(shareData, actorId, auth)).rejects.toThrow(
+      'SHARE_ACTOR_NOT_AUTHORIZED',
+    );
     expect(shareCreate).not.toHaveBeenCalled();
   });
 
   test('retains share creation for an ordinary owner', async () => {
     const { createShare } = await import('./share');
 
-    await expect(createShare(shareData, actorId)).resolves.toMatchObject({ id: 'share-1' });
+    await expect(createShare(shareData, actorId, auth)).resolves.toMatchObject({ id: 'share-1' });
     expect(shareCreate).toHaveBeenCalledOnce();
   });
 });
 
 test('actor role lock is scoped to the current user row', async () => {
-  const queryRaw = vi.fn().mockResolvedValue([{ user_id: 'actor-1' }]);
+  const queryRaw = vi
+    .fn()
+    .mockResolvedValue([{ user_id: 'actor-1', enrollmentRequired: false, enrolled: false }]);
 
   await lockActorRoleForMutation(
     { $queryRaw: queryRaw } as unknown as Prisma.TransactionClient,
@@ -220,9 +258,36 @@ test('actor role lock is scoped to the current user row', async () => {
   );
 
   expect(queryRaw).toHaveBeenCalledOnce();
-  expect(queryRaw.mock.calls[0][0].join('')).toContain('WHERE user_id = ');
+  expect(queryRaw.mock.calls[0][0].join('')).toContain('WHERE u.user_id = ');
   expect(queryRaw.mock.calls[0][0].join('')).toContain('FOR NO KEY UPDATE');
   expect(queryRaw.mock.calls[0][1]).toBe('actor-1');
+});
+
+test('actor role lock denies a required but unenrolled factor', async () => {
+  const queryRaw = vi
+    .fn()
+    .mockResolvedValue([{ user_id: 'actor-1', enrollmentRequired: true, enrolled: false }]);
+
+  await expect(
+    lockActorRoleForMutation(
+      { $queryRaw: queryRaw } as unknown as Prisma.TransactionClient,
+      'actor-1',
+      'TEAM_ACTOR_NOT_AUTHORIZED',
+    ),
+  ).rejects.toThrow('TEAM_ACTOR_NOT_AUTHORIZED');
+});
+
+test('actor role lock retains mutations with an enrolled required factor', async () => {
+  const queryRaw = vi
+    .fn()
+    .mockResolvedValue([{ user_id: 'actor-1', enrollmentRequired: true, enrolled: true }]);
+
+  await expect(
+    lockActorRoleForMutation(
+      { $queryRaw: queryRaw } as unknown as Prisma.TransactionClient,
+      'actor-1',
+    ),
+  ).resolves.toBeUndefined();
 });
 
 function serializationConflict() {
@@ -373,6 +438,25 @@ describe('runSerializedUserMutation', () => {
 });
 
 describe('runAuthorizedAdministratorMutation', () => {
+  const adminAuth = {
+    authType: 'session' as const,
+    user: { id: 'admin-1', username: 'admin', role: ROLES.admin, isAdmin: true },
+    passwordFingerprint: hash('synthetic-password'),
+    sessionGeneration: 0,
+    mfaVerified: false,
+  };
+  const authenticatedAdmin = {
+    user: {
+      findUnique: vi.fn().mockResolvedValue({
+        role: ROLES.admin,
+        password: 'synthetic-password',
+        sessionGeneration: 0,
+        deletedAt: null,
+      }),
+    },
+    twoFactorAuth: { findUnique: vi.fn().mockResolvedValue(null) },
+  };
+
   beforeEach(() => {
     transaction.mockReset();
   });
@@ -383,11 +467,16 @@ describe('runAuthorizedAdministratorMutation', () => {
       .mockResolvedValueOnce([])
       .mockResolvedValue([{ allowed: 1 }]);
     const operation = vi.fn().mockResolvedValue('updated');
-    transaction.mockImplementation(async callback => callback({ $queryRaw: queryRaw }));
+    transaction.mockImplementation(async callback =>
+      callback({ $queryRaw: queryRaw, ...authenticatedAdmin }),
+    );
 
-    await expect(runAuthorizedAdministratorMutation('admin-1', operation)).resolves.toBe('updated');
-    expect(queryRaw).toHaveBeenCalledTimes(2);
+    await expect(runAuthorizedAdministratorMutation('admin-1', adminAuth, operation)).resolves.toBe(
+      'updated',
+    );
+    expect(queryRaw).toHaveBeenCalledTimes(4);
     expect(queryRaw.mock.calls[1][0].join('')).toContain('FOR NO KEY UPDATE');
+    expect(queryRaw.mock.calls[3][0].join('')).toContain('role = ');
     expect(queryRaw.mock.invocationCallOrder[0]).toBeLessThan(queryRaw.mock.invocationCallOrder[1]);
     expect(queryRaw.mock.invocationCallOrder[1]).toBeLessThan(
       operation.mock.invocationCallOrder[0],
@@ -399,21 +488,44 @@ describe('runAuthorizedAdministratorMutation', () => {
     transaction.mockImplementation(async callback =>
       callback({
         $queryRaw: vi.fn().mockResolvedValue([]),
+        ...authenticatedAdmin,
       }),
     );
 
-    await expect(runAuthorizedAdministratorMutation('admin-1', operation)).rejects.toThrow(
-      'ENTITY_ADMIN_REQUIRED',
+    await expect(
+      runAuthorizedAdministratorMutation('admin-1', adminAuth, operation),
+    ).rejects.toThrow('ENTITY_ADMIN_REQUIRED');
+    expect(operation).not.toHaveBeenCalled();
+  });
+
+  test('does not run a policy mutation using a session from before MFA enrollment', async () => {
+    const operation = vi.fn();
+    const queryRaw = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([{ allowed: 1 }]);
+    authenticatedAdmin.twoFactorAuth.findUnique.mockResolvedValueOnce({
+      id: 'new-factor',
+      isEnabled: true,
+    });
+    transaction.mockImplementation(async callback =>
+      callback({ $queryRaw: queryRaw, ...authenticatedAdmin }),
     );
+
+    await expect(
+      runAuthorizedAdministratorMutation('admin-1', adminAuth, operation),
+    ).rejects.toThrow('ENTITY_ADMIN_REQUIRED');
     expect(operation).not.toHaveBeenCalled();
   });
 
   test('rejects a missing actor identifier before querying an administrator', async () => {
     const operation = vi.fn();
     const queryRaw = vi.fn().mockResolvedValue([]);
-    transaction.mockImplementation(async callback => callback({ $queryRaw: queryRaw }));
+    transaction.mockImplementation(async callback =>
+      callback({ $queryRaw: queryRaw, ...authenticatedAdmin }),
+    );
 
-    await expect(runAuthorizedAdministratorMutation('', operation)).rejects.toThrow(
+    await expect(runAuthorizedAdministratorMutation('', adminAuth, operation)).rejects.toThrow(
       'ENTITY_ADMIN_REQUIRED',
     );
     expect(queryRaw).toHaveBeenCalledTimes(1);

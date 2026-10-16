@@ -10,6 +10,15 @@ const transaction = vi.mocked(prisma.transaction);
 const websiteId = '00000000-0000-4000-8000-000000000001';
 const sessionId = '00000000-0000-4000-8000-000000000002';
 const actorUserId = '00000000-0000-4000-8000-000000000003';
+const actorAuth = {
+  authType: 'session' as const,
+  user: { id: actorUserId, username: 'actor', role: 'user', isAdmin: false },
+};
+
+vi.mock('./authorization', async importOriginal => ({
+  ...(await importOriginal<typeof import('./authorization')>()),
+  assertCurrentActorAuth: vi.fn(),
+}));
 
 function transactionClient() {
   return {
@@ -51,7 +60,7 @@ test('deletes a session only after checking the actor inside a serializable tran
     return operation(client);
   });
 
-  await expect(deleteSession(websiteId, sessionId, actorUserId)).resolves.toEqual({
+  await expect(deleteSession(websiteId, sessionId, actorUserId, actorAuth)).resolves.toEqual({
     id: sessionId,
   });
   expect(client.user.findFirst).toHaveBeenCalledWith({
@@ -89,7 +98,7 @@ test('preserves session deletion for a team member with website-delete permissio
     .mockResolvedValueOnce([{ team_id: 'team-1' }]);
   transaction.mockImplementation(async (operation: any) => operation(client));
 
-  await expect(deleteSession(websiteId, sessionId, actorUserId)).resolves.toEqual({
+  await expect(deleteSession(websiteId, sessionId, actorUserId, actorAuth)).resolves.toEqual({
     id: sessionId,
   });
   expect(client.teamUser.findFirst).toHaveBeenCalledWith({
@@ -132,7 +141,7 @@ test.each(['removed actor', 'ownership transfer', 'team-role downgrade'])(
 
     transaction.mockImplementation(async (operation: any) => operation(client));
 
-    await expect(deleteSession(websiteId, sessionId, actorUserId)).rejects.toThrow(
+    await expect(deleteSession(websiteId, sessionId, actorUserId, actorAuth)).rejects.toThrow(
       'ENTITY_ACTOR_NOT_AUTHORIZED',
     );
     expect(client.session.findFirst).not.toHaveBeenCalled();
@@ -145,7 +154,7 @@ test('keeps a session bound to the requested website', async () => {
   client.session.findFirst.mockResolvedValue(null);
   transaction.mockImplementation(async (operation: any) => operation(client));
 
-  await expect(deleteSession(websiteId, sessionId, actorUserId)).resolves.toBeNull();
+  await expect(deleteSession(websiteId, sessionId, actorUserId, actorAuth)).resolves.toBeNull();
   expect(client.session.findFirst).toHaveBeenCalledWith({
     where: { id: sessionId, websiteId },
     select: { id: true },

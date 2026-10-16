@@ -76,6 +76,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ boa
       userId: sourceBoard.teamId ? undefined : (sourceBoard.userId ?? auth.user.id),
     },
     auth.user.id,
+    { auth },
   );
 
   return json(result);

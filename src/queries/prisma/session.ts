@@ -1,7 +1,9 @@
 import type { Prisma } from '@/generated/prisma/client';
 import { PERMISSIONS } from '@/lib/constants';
+import type { Auth } from '@/lib/types';
 import {
   assertActorCanMutateEntity,
+  assertCurrentActorAuth,
   lockActorRoleForMutation,
   runSerializable,
 } from './authorization';
@@ -29,8 +31,10 @@ export async function deleteSession(
   websiteId: string,
   sessionId: string,
   actorUserId: string,
+  auth: Auth,
 ): Promise<{ id: string } | null> {
   return runSerializable(async tx => {
+    await assertCurrentActorAuth(tx, actorUserId, auth);
     await lockSessionDeleteAuthorization(tx, actorUserId, websiteId);
     await assertActorCanMutateEntity(
       tx,

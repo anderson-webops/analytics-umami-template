@@ -121,6 +121,9 @@ test('a board update passes API-key identity to the shared-board transaction', a
       parameters: { websiteId: allowedWebsite },
     },
     'owner',
-    'api-key',
+    expect.objectContaining({
+      authType: 'api-key',
+      user: expect.objectContaining({ id: 'owner' }),
+    }),
   );
 });

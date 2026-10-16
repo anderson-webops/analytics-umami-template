@@ -140,7 +140,7 @@ export async function DELETE(
   let deletedSession;
 
   try {
-    deletedSession = await deleteSession(websiteId, sessionId, auth.user.id);
+    deletedSession = await deleteSession(websiteId, sessionId, auth.user.id, auth);
   } catch (error: any) {
     switch (error?.message) {
       case 'ENTITY_NOT_FOUND':

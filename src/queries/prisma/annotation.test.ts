@@ -1,7 +1,16 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { PERMISSIONS } from '@/lib/constants';
 import { createAnnotation, deleteAnnotation, updateAnnotation } from './annotation';
-import { assertActorCanMutateEntity, runSerializable } from './authorization';
+import {
+  assertActorCanMutateEntity,
+  assertCurrentActorAuth,
+  runSerializable,
+} from './authorization';
+
+const actorAuth = {
+  authType: 'session' as const,
+  user: { id: 'user-1', username: 'actor', role: 'user', isAdmin: false },
+};
 
 const transaction = vi.hoisted(() => ({
   annotation: {
@@ -15,6 +24,7 @@ const transaction = vi.hoisted(() => ({
 vi.mock('@/lib/prisma', () => ({ default: { client: { annotation: {} } } }));
 vi.mock('./authorization', () => ({
   assertActorCanMutateEntity: vi.fn(),
+  assertCurrentActorAuth: vi.fn(),
   runSerializable: vi.fn(async operation => operation(transaction)),
 }));
 
@@ -33,9 +43,10 @@ test('creation rechecks website update permission in the write transaction', asy
     note: 'Release',
   };
 
-  await createAnnotation(data, 'user-1');
+  await createAnnotation(data, 'user-1', actorAuth);
 
   expect(runSerializable).toHaveBeenCalledOnce();
+  expect(assertCurrentActorAuth).toHaveBeenCalledWith(transaction, 'user-1', actorAuth);
   expect(assertActorCanMutateEntity).toHaveBeenCalledWith(
     transaction,
     'user-1',
@@ -49,8 +60,9 @@ test('creation rechecks website update permission in the write transaction', asy
 test('update scopes the annotation to the authorized website before writing', async () => {
   const data = { note: 'Updated' };
 
-  await updateAnnotation('website-1', 'annotation-1', data, 'user-1');
+  await updateAnnotation('website-1', 'annotation-1', data, 'user-1', actorAuth);
 
+  expect(assertCurrentActorAuth).toHaveBeenCalledWith(transaction, 'user-1', actorAuth);
   expect(assertActorCanMutateEntity).toHaveBeenCalledWith(
     transaction,
     'user-1',
@@ -71,10 +83,11 @@ test('update scopes the annotation to the authorized website before writing', as
 test('delete fails closed when the annotation is not in the authorized website', async () => {
   transaction.annotation.findFirst.mockResolvedValue(null);
 
-  await expect(deleteAnnotation('website-1', 'annotation-2', 'user-1')).rejects.toThrow(
+  await expect(deleteAnnotation('website-1', 'annotation-2', 'user-1', actorAuth)).rejects.toThrow(
     'ANNOTATION_NOT_FOUND',
   );
 
+  expect(assertCurrentActorAuth).toHaveBeenCalledWith(transaction, 'user-1', actorAuth);
   expect(assertActorCanMutateEntity).toHaveBeenCalledWith(
     transaction,
     'user-1',

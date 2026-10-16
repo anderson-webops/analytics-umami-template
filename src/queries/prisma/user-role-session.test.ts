@@ -10,6 +10,7 @@ const {
   runSerialized,
   runRevocation,
   assertAdmin,
+  assertCurrent,
   getRequirement,
   redisMock,
 } = vi.hoisted(() => {
@@ -37,6 +38,7 @@ const {
     runSerialized: vi.fn(),
     runRevocation: vi.fn(),
     assertAdmin: vi.fn(),
+    assertCurrent: vi.fn(),
     getRequirement: vi.fn(),
     redisMock: { enabled: false, client: { get: vi.fn(), del: vi.fn() } },
   };
@@ -46,6 +48,7 @@ vi.mock('@/lib/prisma', () => ({ default: { client: {} } }));
 vi.mock('@/lib/redis', () => ({ default: redisMock }));
 vi.mock('./authorization', () => ({
   assertActorIsAdministrator: assertAdmin,
+  assertCurrentActorAuth: assertCurrent,
   runSerializedUserMutation: runSerialized,
   runCredentialRevocationMutation: runRevocation,
 }));
@@ -87,6 +90,7 @@ beforeEach(() => {
   runSerialized.mockReset().mockImplementation(callback => callback(transaction));
   runRevocation.mockReset().mockImplementation(callback => callback(transaction));
   assertAdmin.mockReset();
+  assertCurrent.mockReset();
   getRequirement.mockReset().mockResolvedValue({ reason: null });
   redisMock.enabled = false;
   redisMock.client.get.mockReset();
@@ -100,9 +104,13 @@ const currentSession = () => ({
   passwordFingerprint: hash(credentialState.password),
   mfaId: credentialState.mfaId,
 });
+const administratorAuth = {
+  authType: 'session' as const,
+  user: { id: 'admin-1', username: 'admin', role: 'admin', isAdmin: true },
+};
 
 test('a role round trip revokes sessions and API keys at each transition', async () => {
-  await updateUser('user-1', { role: 'admin' }, 'admin-1');
+  await updateUser('user-1', { role: 'admin' }, 'admin-1', administratorAuth);
   expect(state).toEqual({ role: 'admin', sessionGeneration: 1 });
   expect(hasCurrentSessionGeneration(0, state.sessionGeneration)).toBe(false);
   expect(runSerialized).toHaveBeenCalledOnce();
@@ -110,7 +118,7 @@ test('a role round trip revokes sessions and API keys at each transition', async
   expect(transaction.apiKey.deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-1' } });
   expect(transaction.apiKey.deleteMany).toHaveBeenCalledTimes(1);
 
-  await updateUser('user-1', { role: 'user' }, 'admin-1');
+  await updateUser('user-1', { role: 'user' }, 'admin-1', administratorAuth);
   expect(state).toEqual({ role: 'user', sessionGeneration: 2 });
   expect(hasCurrentSessionGeneration(0, state.sessionGeneration)).toBe(false);
   expect(hasCurrentSessionGeneration(1, state.sessionGeneration)).toBe(false);
@@ -118,7 +126,7 @@ test('a role round trip revokes sessions and API keys at each transition', async
 });
 
 test('a same-role update preserves current sessions', async () => {
-  await updateUser('user-1', { role: 'user', username: 'renamed' }, 'admin-1');
+  await updateUser('user-1', { role: 'user', username: 'renamed' }, 'admin-1', administratorAuth);
 
   expect(state.sessionGeneration).toBe(0);
   expect(runSerialized).toHaveBeenCalledOnce();
@@ -129,14 +137,14 @@ test('a same-role update preserves current sessions', async () => {
 });
 
 test('Prisma set-form role transitions also revoke earlier sessions', async () => {
-  await updateUser('user-1', { role: { set: 'admin' } }, 'admin-1');
+  await updateUser('user-1', { role: { set: 'admin' } }, 'admin-1', administratorAuth);
 
   expect(state).toEqual({ role: 'admin', sessionGeneration: 1 });
   expect(transaction.apiKey.deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-1' } });
 });
 
 test('combined role and password changes increment once and revoke API keys', async () => {
-  await updateUser('user-1', { role: 'admin', password: 'new-hash' }, 'admin-1');
+  await updateUser('user-1', { role: 'admin', password: 'new-hash' }, 'admin-1', administratorAuth);
 
   expect(state).toEqual({ role: 'admin', sessionGeneration: 1 });
   expect(runRevocation).toHaveBeenCalledOnce();
@@ -148,9 +156,9 @@ test('the last active administrator cannot be demoted', async () => {
   state.role = 'admin';
   transaction.user.count.mockResolvedValue(1);
 
-  await expect(updateUser('user-1', { role: 'user' }, 'admin-1')).rejects.toThrow(
-    'LAST_ACTIVE_ADMIN',
-  );
+  await expect(
+    updateUser('user-1', { role: 'user' }, 'admin-1', administratorAuth),
+  ).rejects.toThrow('LAST_ACTIVE_ADMIN');
   expect(transaction.user.update).not.toHaveBeenCalled();
 });
 
@@ -306,7 +314,9 @@ test('a current Redis administrator session still creates a user', async () => {
 test('user deletion requires the locked current administrator check', async () => {
   assertAdmin.mockRejectedValue(new Error('ENTITY_ADMIN_REQUIRED'));
 
-  await expect(deleteUser('user-1', 'admin-1')).rejects.toThrow('ADMIN_AUTHORIZATION_CHANGED');
+  await expect(deleteUser('user-1', 'admin-1', administratorAuth)).rejects.toThrow(
+    'ADMIN_AUTHORIZATION_CHANGED',
+  );
   expect(assertAdmin).toHaveBeenCalledWith(transaction, 'admin-1');
   expect(transaction.user.update).not.toHaveBeenCalled();
 });

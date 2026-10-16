@@ -59,7 +59,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ lin
   }
 
   try {
-    const result = await updateLink(linkId, { name, url, slug }, auth.user.id);
+    const result = await updateLink(linkId, { name, url, slug }, auth.user.id, auth);
 
     return Response.json(result);
   } catch (e: any) {
@@ -96,7 +96,7 @@ export async function DELETE(
   }
 
   try {
-    await deleteLink(linkId, auth.user.id);
+    await deleteLink(linkId, auth.user.id, auth);
   } catch (error: any) {
     switch (error?.message) {
       case 'ENTITY_NOT_FOUND':

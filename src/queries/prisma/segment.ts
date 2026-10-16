@@ -2,8 +2,12 @@ import type { Prisma } from '@/generated/prisma/client';
 import { PERMISSIONS } from '@/lib/constants';
 import { isUuid } from '@/lib/crypto';
 import prisma from '@/lib/prisma';
-import type { QueryFilters } from '@/lib/types';
-import { assertActorCanMutateEntity, runSerializable } from './authorization';
+import type { Auth, QueryFilters } from '@/lib/types';
+import {
+  assertActorCanMutateEntity,
+  assertCurrentActorAuth,
+  runSerializable,
+} from './authorization';
 
 async function findSegment(criteria: Prisma.SegmentFindUniqueArgs) {
   return prisma.client.segment.findUnique(criteria);
@@ -59,8 +63,13 @@ export async function getWebsiteSegments(websiteId: string, type: string, filter
   );
 }
 
-export async function createSegment(data: Prisma.SegmentUncheckedCreateInput, actorUserId: string) {
+export async function createSegment(
+  data: Prisma.SegmentUncheckedCreateInput,
+  actorUserId: string,
+  auth: Auth,
+) {
   return runSerializable(async transaction => {
+    await assertCurrentActorAuth(transaction, actorUserId, auth);
     await assertActorCanMutateEntity(
       transaction,
       actorUserId,
@@ -78,8 +87,10 @@ export async function updateSegment(
   segmentId: string,
   data: Prisma.SegmentUpdateInput,
   actorUserId: string,
+  auth: Auth,
 ) {
   return runSerializable(async transaction => {
+    await assertCurrentActorAuth(transaction, actorUserId, auth);
     await assertActorCanMutateEntity(
       transaction,
       actorUserId,
@@ -106,8 +117,14 @@ export async function updateSegment(
   });
 }
 
-export async function deleteSegment(websiteId: string, segmentId: string, actorUserId: string) {
+export async function deleteSegment(
+  websiteId: string,
+  segmentId: string,
+  actorUserId: string,
+  auth: Auth,
+) {
   return runSerializable(async transaction => {
+    await assertCurrentActorAuth(transaction, actorUserId, auth);
     await assertActorCanMutateEntity(
       transaction,
       actorUserId,

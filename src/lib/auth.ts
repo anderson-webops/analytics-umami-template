@@ -281,7 +281,8 @@ export async function checkAuth(request: Request) {
     mfaVerified,
     mfaId: mfaVerified ? mfaId : undefined,
     enrollmentOnly,
-    sessionGeneration: user ? sessionGeneration : undefined,
+    sessionGeneration:
+      user && typeof sessionGeneration === 'number' ? sessionGeneration : undefined,
     passwordFingerprint,
   };
 }

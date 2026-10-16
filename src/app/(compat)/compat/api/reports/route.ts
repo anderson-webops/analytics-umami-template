@@ -89,6 +89,7 @@ export async function POST(request: Request) {
           parameters,
         },
         auth.user.id,
+        auth,
       ),
     );
   } catch (error) {

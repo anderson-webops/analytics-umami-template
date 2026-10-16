@@ -56,7 +56,13 @@ export async function POST(
   let result: Annotation;
 
   try {
-    result = await updateAnnotation(websiteId, annotationId, { date, allDay, note }, auth.user.id);
+    result = await updateAnnotation(
+      websiteId,
+      annotationId,
+      { date, allDay, note },
+      auth.user.id,
+      auth,
+    );
   } catch (error: any) {
     switch (error?.message) {
       case 'ANNOTATION_NOT_FOUND':
@@ -95,7 +101,7 @@ export async function DELETE(
   }
 
   try {
-    await deleteAnnotation(websiteId, annotationId, auth.user.id);
+    await deleteAnnotation(websiteId, annotationId, auth.user.id, auth);
   } catch (error: any) {
     switch (error?.message) {
       case 'ANNOTATION_NOT_FOUND':

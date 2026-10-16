@@ -2,10 +2,10 @@ import { Prisma } from '@/generated/prisma/client';
 import { ROLES, TEAM_ROLE_RANK } from '@/lib/constants';
 import { isUuid, uuid } from '@/lib/crypto';
 import prisma from '@/lib/prisma';
-import type { QueryFilters } from '@/lib/types';
+import type { Auth, QueryFilters } from '@/lib/types';
 import { hasMutableGlobalRole } from '@/permissions/mutation';
 import {
-  lockActorRoleForMutation,
+  assertCurrentActorAuth,
   lockActorTeamMembershipForMutation,
   runSerializable,
 } from './authorization';
@@ -56,8 +56,9 @@ async function getActorState(
   transaction: Prisma.TransactionClient,
   teamId: string,
   actorUserId: string,
+  auth: Auth,
 ) {
-  await lockActorRoleForMutation(transaction, actorUserId);
+  await assertCurrentActorAuth(transaction, actorUserId, auth, 'TEAM_ACTOR_NOT_AUTHORIZED');
   const actor = await transaction.user.findUnique({
     where: { id: actorUserId },
     select: { role: true, deletedAt: true },
@@ -90,9 +91,10 @@ export async function addTeamUserByActor(
   userId: string,
   role: string,
   actorUserId: string,
+  auth: Auth,
 ) {
   return runSerializable(async transaction => {
-    const actor = await getActorState(transaction, teamId, actorUserId);
+    const actor = await getActorState(transaction, teamId, actorUserId, auth);
     const team = await transaction.team.findFirst({
       where: { id: teamId, deletedAt: null },
       select: { id: true },
@@ -129,7 +131,7 @@ export async function addTeamUserByActor(
     }
 
     try {
-      return await transaction.teamUser.create({
+      const membership = await transaction.teamUser.create({
         data: {
           id: uuid(),
           userId,
@@ -137,6 +139,8 @@ export async function addTeamUserByActor(
           role,
         },
       });
+      await transaction.user.update({ where: { id: userId }, data: { updatedAt: new Date() } });
+      return membership;
     } catch (error: any) {
       if (error?.code === 'P2002') {
         throw new Error('TEAM_USER_EXISTS');
@@ -147,7 +151,7 @@ export async function addTeamUserByActor(
   });
 }
 
-export async function joinTeamByAccessCode(userId: string, accessCode: string) {
+export async function joinTeamByAccessCode(userId: string, accessCode: string, auth: Auth) {
   return runSerializable(async transaction => {
     const [user] = await transaction.$queryRaw<
       Array<{ id: string; role: string; deletedAt: Date | null }>
@@ -162,6 +166,7 @@ export async function joinTeamByAccessCode(userId: string, accessCode: string) {
       throw new Error('TEAM_USER_NOT_FOUND');
     }
 
+    await assertCurrentActorAuth(transaction, userId, auth, 'TEAM_ACTOR_NOT_AUTHORIZED');
     if (!hasMutableGlobalRole(user.role)) {
       throw new Error('TEAM_ACTOR_NOT_AUTHORIZED');
     }
@@ -185,7 +190,7 @@ export async function joinTeamByAccessCode(userId: string, accessCode: string) {
     }
 
     try {
-      return await transaction.teamUser.create({
+      const membership = await transaction.teamUser.create({
         data: {
           id: uuid(),
           userId,
@@ -193,6 +198,8 @@ export async function joinTeamByAccessCode(userId: string, accessCode: string) {
           role: ROLES.teamMember,
         },
       });
+      await transaction.user.update({ where: { id: userId }, data: { updatedAt: new Date() } });
+      return membership;
     } catch (error: any) {
       if (error?.code === 'P2002') {
         throw new Error('TEAM_USER_EXISTS');
@@ -208,9 +215,10 @@ export async function updateTeamUserRoleByActor(
   userId: string,
   role: string,
   actorUserId: string,
+  auth: Auth,
 ) {
   return runSerializable(async transaction => {
-    const actor = await getActorState(transaction, teamId, actorUserId);
+    const actor = await getActorState(transaction, teamId, actorUserId, auth);
     const target = await transaction.teamUser.findFirst({
       where: {
         teamId,
@@ -248,9 +256,14 @@ export async function updateTeamUserRoleByActor(
   });
 }
 
-export async function deleteTeamUserByActor(teamId: string, userId: string, actorUserId: string) {
+export async function deleteTeamUserByActor(
+  teamId: string,
+  userId: string,
+  actorUserId: string,
+  auth: Auth,
+) {
   return runSerializable(async transaction => {
-    const actor = await getActorState(transaction, teamId, actorUserId);
+    const actor = await getActorState(transaction, teamId, actorUserId, auth);
     const target = await transaction.teamUser.findFirst({
       where: {
         teamId,
@@ -289,9 +302,10 @@ export async function transferTeamOwnership(
   teamId: string,
   newOwnerId: string,
   actorUserId: string,
+  auth: Auth,
 ) {
   return runSerializable(async transaction => {
-    const actor = await getActorState(transaction, teamId, actorUserId);
+    const actor = await getActorState(transaction, teamId, actorUserId, auth);
     const owners = await transaction.teamUser.findMany({
       where: {
         teamId,

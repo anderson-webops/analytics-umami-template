@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { hash } from '@/lib/crypto';
 import prisma from '@/lib/prisma';
 import { runAuthorizedAdministratorMutation } from '@/queries/prisma/authorization';
 
@@ -9,6 +10,18 @@ assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(address.hostname));
 assert.equal(address.pathname, '/postgres');
 
 const actorId = randomUUID();
+const actorAuth = {
+  authType: 'session' as const,
+  user: {
+    id: actorId,
+    username: `mfa-race-actor-${actorId}`,
+    role: 'admin',
+    isAdmin: true,
+  },
+  passwordFingerprint: hash('x'.repeat(60)),
+  sessionGeneration: 0,
+  mfaVerified: false,
+};
 const retainedAdminId = randomUUID();
 const settingKey = `synthetic-mfa-race-${actorId}`;
 let releaseDemotion: () => void = () => {};
@@ -72,7 +85,7 @@ try {
   );
 
   await demotionReady;
-  policyOutcome = runAuthorizedAdministratorMutation(actorId, transaction =>
+  policyOutcome = runAuthorizedAdministratorMutation(actorId, actorAuth, transaction =>
     transaction.appSetting.upsert({
       where: { key: settingKey },
       update: { value: 'true' },

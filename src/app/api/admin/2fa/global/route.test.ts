@@ -1,4 +1,5 @@
 import { beforeEach, expect, test, vi } from 'vitest';
+import { hash } from '@/lib/crypto';
 import prisma from '@/lib/prisma';
 import { parseRequest } from '@/lib/request';
 import { isTwoFactorConfigured } from '@/lib/two-factor/crypto';
@@ -16,7 +17,8 @@ vi.mock('@/lib/prisma', () => ({
   default: {
     client: {
       $queryRaw: vi.fn(),
-      user: { findFirst: vi.fn() },
+      user: { findFirst: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn() },
+      twoFactorAuth: { findUnique: vi.fn() },
       appSetting: { upsert: vi.fn() },
     },
     transaction: vi.fn(),
@@ -24,6 +26,13 @@ vi.mock('@/lib/prisma', () => ({
 }));
 
 const prismaMock = prisma as any;
+const adminAuth = {
+  authType: 'session' as const,
+  user: { id: 'admin-1', username: 'admin', role: 'admin', isAdmin: true },
+  passwordFingerprint: hash('synthetic-password'),
+  sessionGeneration: 0,
+  mfaVerified: false,
+};
 
 beforeEach(() => {
   vi.mocked(parseRequest).mockReset();
@@ -31,11 +40,19 @@ beforeEach(() => {
   vi.mocked(isTwoFactorConfigured).mockReset();
   prismaMock.client.$queryRaw.mockReset();
   prismaMock.client.user.findFirst.mockReset();
+  prismaMock.client.user.findUnique.mockReset().mockResolvedValue({
+    role: 'admin',
+    password: 'synthetic-password',
+    sessionGeneration: 0,
+    deletedAt: null,
+  });
+  prismaMock.client.twoFactorAuth.findUnique.mockReset().mockResolvedValue(null);
+  prismaMock.client.user.updateMany.mockReset();
   prismaMock.client.appSetting.upsert.mockReset();
   prismaMock.transaction.mockReset();
 
   vi.mocked(parseRequest).mockResolvedValue({
-    auth: { user: { id: 'admin-1', isAdmin: true } },
+    auth: adminAuth,
     body: { required: false },
     error: undefined,
   } as any);
@@ -55,14 +72,34 @@ test('sets global policy only after current administrator revalidation', async (
     isolationLevel: 'Serializable',
     timeout: 30_000,
   });
-  expect(prismaMock.client.$queryRaw).toHaveBeenCalledTimes(2);
+  expect(prismaMock.client.$queryRaw).toHaveBeenCalledTimes(4);
   expect(prismaMock.client.$queryRaw.mock.calls[1][0].join('')).toContain('FOR NO KEY UPDATE');
+  expect(prismaMock.client.$queryRaw.mock.calls[3][0].join('')).toContain('role = ');
   expect(prismaMock.client.appSetting.upsert).toHaveBeenCalledWith({
     where: { key: 'twoFactorRequiredGlobal' },
     update: { value: 'false' },
     create: { key: 'twoFactorRequiredGlobal', value: 'false' },
   });
+  expect(prismaMock.client.user.updateMany).not.toHaveBeenCalled();
   await expect(response.json()).resolves.toEqual({ ok: true, required: false });
+});
+
+test('serializes active user mutations when enabling global 2FA', async () => {
+  vi.mocked(parseRequest).mockResolvedValue({
+    auth: adminAuth,
+    body: { required: true },
+    error: undefined,
+  } as any);
+
+  const response = await POST(
+    new Request('http://localhost/api/admin/2fa/global', { method: 'POST' }),
+  );
+
+  expect(response.status).toBe(200);
+  expect(prismaMock.client.user.updateMany).toHaveBeenCalledWith({
+    where: { deletedAt: null },
+    data: { updatedAt: expect.any(Date) },
+  });
 });
 
 test('does not change global policy after administrator demotion', async () => {
@@ -78,7 +115,7 @@ test('does not change global policy after administrator demotion', async () => {
 
 test('does not enable global policy without two-factor configuration', async () => {
   vi.mocked(parseRequest).mockResolvedValue({
-    auth: { user: { id: 'admin-1', isAdmin: true } },
+    auth: adminAuth,
     body: { required: true },
     error: undefined,
   } as any);

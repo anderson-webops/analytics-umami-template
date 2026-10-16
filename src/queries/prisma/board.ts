@@ -4,11 +4,12 @@ import { ENTITY_TYPE, PERMISSIONS } from '@/lib/constants';
 import { isUuid } from '@/lib/crypto';
 import prisma from '@/lib/prisma';
 import { sanitizeSortFilters } from '@/lib/sort';
-import type { AuthType, BoardParameters, QueryFilters } from '@/lib/types';
+import type { Auth, BoardParameters, QueryFilters } from '@/lib/types';
 import {
   assertActorCanAccessEntities,
   assertActorCanCreateOwnedEntity,
   assertActorCanMutateEntity,
+  assertCurrentActorAuth,
   assertEntityIdAvailable,
   runSerializable,
 } from './authorization';
@@ -87,13 +88,16 @@ export async function getTeamBoards(teamId: string, filters?: QueryFilters) {
 export async function createBoard(
   data: Prisma.BoardUncheckedCreateInput,
   actorUserId: string,
-  options: { isPersonalDashboard?: boolean } = {},
+  options: { auth: Auth; isPersonalDashboard?: boolean },
 ) {
   return runSerializable(async transaction => {
     if (data.teamId) {
-      await assertActorCanCreateOwnedEntity(transaction, actorUserId, {
-        teamId: data.teamId,
-      });
+      await assertActorCanCreateOwnedEntity(
+        transaction,
+        actorUserId,
+        { teamId: data.teamId },
+        { auth: options.auth },
+      );
     } else if (data.userId) {
       await assertActorCanCreateOwnedEntity(
         transaction,
@@ -102,6 +106,7 @@ export async function createBoard(
           userId: data.userId,
         },
         {
+          auth: options.auth,
           requireGlobalCreatePermission: !options.isPersonalDashboard,
         },
       );
@@ -126,9 +131,10 @@ export async function updateBoard(
   boardId: string,
   data: Prisma.BoardUncheckedUpdateInput,
   actorUserId: string,
-  authType: AuthType,
+  auth: Auth,
 ) {
   return runSerializable(async transaction => {
+    await assertCurrentActorAuth(transaction, actorUserId, auth);
     await assertActorCanMutateEntity(
       transaction,
       actorUserId,
@@ -163,7 +169,7 @@ export async function updateBoard(
         where: { entityId: boardId, shareType: ENTITY_TYPE.board },
         select: { id: true },
       }));
-    if (hasPublicShare && authType !== 'session') {
+    if (hasPublicShare && auth.authType !== 'session') {
       throw new Error('SHARED_BOARD_REQUIRES_SESSION');
     }
     await assertActorCanAccessEntities(
@@ -177,8 +183,9 @@ export async function updateBoard(
   });
 }
 
-export async function deleteBoard(boardId: string, actorUserId: string) {
+export async function deleteBoard(boardId: string, actorUserId: string, auth: Auth) {
   return runSerializable(async transaction => {
+    await assertCurrentActorAuth(transaction, actorUserId, auth);
     await assertActorCanMutateEntity(
       transaction,
       actorUserId,

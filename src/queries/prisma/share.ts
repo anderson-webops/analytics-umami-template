@@ -4,10 +4,11 @@ import { ENTITY_TYPE, PERMISSIONS } from '@/lib/constants';
 import { isUuid, uuid } from '@/lib/crypto';
 import prisma from '@/lib/prisma';
 import { getRandomShareSlug } from '@/lib/share-slug';
-import type { BoardParameters, QueryFilters } from '@/lib/types';
+import type { Auth, BoardParameters, QueryFilters } from '@/lib/types';
 import {
   assertActorCanAccessEntities,
   assertActorCanMutateEntity,
+  assertCurrentActorAuth,
   type OwnedEntityType,
   runSerializable,
 } from './authorization';
@@ -136,8 +137,10 @@ async function assertActorCanManageShareEntity(
 export async function createShare(
   data: Prisma.ShareCreateInput | Prisma.ShareUncheckedCreateInput,
   actorUserId: string,
+  auth: Auth,
 ) {
   return runSerializable(async transaction => {
+    await assertCurrentActorAuth(transaction, actorUserId, auth, 'SHARE_ACTOR_NOT_AUTHORIZED');
     const shareType = Number(data.shareType);
     const entityId = String(data.entityId);
 
@@ -178,8 +181,10 @@ export async function updateShare(
     parameters: Prisma.ShareUncheckedUpdateInput['parameters'];
   },
   actorUserId: string,
+  auth: Auth,
 ) {
   return runSerializable(async transaction => {
+    await assertCurrentActorAuth(transaction, actorUserId, auth, 'SHARE_ACTOR_NOT_AUTHORIZED');
     const share = await transaction.share.findUnique({
       where: { id: shareId },
       select: {
@@ -241,8 +246,9 @@ export async function updateShare(
   });
 }
 
-export async function deleteShare(shareId: string, actorUserId: string) {
+export async function deleteShare(shareId: string, actorUserId: string, auth: Auth) {
   return runSerializable(async transaction => {
+    await assertCurrentActorAuth(transaction, actorUserId, auth, 'SHARE_ACTOR_NOT_AUTHORIZED');
     const share = await transaction.share.findUnique({
       where: { id: shareId },
       select: {

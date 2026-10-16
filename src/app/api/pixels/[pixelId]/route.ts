@@ -57,7 +57,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ pix
   }
 
   try {
-    const pixel = await updatePixel(pixelId, { name, slug }, auth.user.id);
+    const pixel = await updatePixel(pixelId, { name, slug }, auth.user.id, auth);
 
     return Response.json(pixel);
   } catch (e: any) {
@@ -94,7 +94,7 @@ export async function DELETE(
   }
 
   try {
-    await deletePixel(pixelId, auth.user.id);
+    await deletePixel(pixelId, auth.user.id, auth);
   } catch (error: any) {
     switch (error?.message) {
       case 'ENTITY_NOT_FOUND':

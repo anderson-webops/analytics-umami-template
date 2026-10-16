@@ -2,6 +2,11 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { ENTITY_TYPE } from '@/lib/constants';
 import { deleteWebsite, resetWebsite, transferWebsiteByActor } from './website';
 
+const actorAuth = {
+  authType: 'session' as const,
+  user: { id: 'actor-1', username: 'actor', role: 'user', isAdmin: false },
+};
+
 const { transactionMock, redisDelMock, redisSetMock } = vi.hoisted(() => ({
   transactionMock: vi.fn(),
   redisDelMock: vi.fn(),
@@ -24,9 +29,14 @@ vi.mock('@/lib/redis', () => ({
   },
 }));
 
+vi.mock('./authorization', async importOriginal => ({
+  ...(await importOriginal<typeof import('./authorization')>()),
+  assertCurrentActorAuth: vi.fn(),
+}));
+
 function createDeleteTx(calls: string[]) {
   return {
-    $queryRaw: vi.fn(),
+    $queryRaw: vi.fn().mockResolvedValue([]),
     user: {
       findFirst: vi.fn(async () => ({ role: 'admin' })),
     },
@@ -127,7 +137,7 @@ describe('website delete dependencies', () => {
 
     transactionMock.mockImplementation(async callback => callback(tx));
 
-    await deleteWebsite('website-1', 'actor-1');
+    await deleteWebsite('website-1', 'actor-1', actorAuth);
 
     expect(tx.eventData.deleteMany).toHaveBeenCalledWith({
       where: { websiteId: 'website-1' },
@@ -172,7 +182,7 @@ describe('website delete dependencies', () => {
 
     transactionMock.mockImplementation(async callback => callback(tx));
 
-    await resetWebsite('website-1', 'actor-1');
+    await resetWebsite('website-1', 'actor-1', actorAuth);
 
     expect(tx.eventData.deleteMany).toHaveBeenCalledWith({
       where: { websiteId: 'website-1' },
@@ -218,7 +228,7 @@ describe('website transfer authorization after role changes', () => {
       .mockResolvedValueOnce({ id: 'actor-1' });
     transactionMock.mockImplementation(async callback =>
       callback({
-        $queryRaw: vi.fn(),
+        $queryRaw: vi.fn().mockResolvedValue([]),
         user: { findFirst: actorLookup },
         website: {
           findFirst: vi.fn().mockResolvedValue({
@@ -234,7 +244,7 @@ describe('website transfer authorization after role changes', () => {
     );
 
     await expect(
-      transferWebsiteByActor('website-1', { userId: 'actor-1' }, 'actor-1'),
+      transferWebsiteByActor('website-1', { userId: 'actor-1' }, 'actor-1', actorAuth),
     ).rejects.toThrow('WEBSITE_TRANSFER_NOT_AUTHORIZED');
     expect(update).not.toHaveBeenCalled();
     expect(deleteShares).not.toHaveBeenCalled();
@@ -252,7 +262,7 @@ describe('website transfer authorization after role changes', () => {
     });
     transactionMock.mockImplementation(async callback =>
       callback({
-        $queryRaw: vi.fn(),
+        $queryRaw: vi.fn().mockResolvedValue([]),
         user: {
           findFirst: vi
             .fn()
@@ -273,7 +283,7 @@ describe('website transfer authorization after role changes', () => {
     );
 
     await expect(
-      transferWebsiteByActor('website-1', { userId: 'actor-1' }, 'actor-1'),
+      transferWebsiteByActor('website-1', { userId: 'actor-1' }, 'actor-1', actorAuth),
     ).resolves.toMatchObject({ userId: 'actor-1' });
     expect(update).toHaveBeenCalledOnce();
     expect(deleteShares).toHaveBeenCalledWith({
@@ -287,7 +297,7 @@ describe('website transfer authorization after role changes', () => {
     const deleteShares = vi.fn().mockResolvedValue({ count: 2 });
     transactionMock.mockImplementation(async callback =>
       callback({
-        $queryRaw: vi.fn(),
+        $queryRaw: vi.fn().mockResolvedValue([]),
         user: { findFirst: vi.fn().mockResolvedValue({ role: 'user' }) },
         website: {
           findFirst: vi.fn().mockResolvedValue({
@@ -304,7 +314,7 @@ describe('website transfer authorization after role changes', () => {
     );
 
     await expect(
-      transferWebsiteByActor('website-1', { teamId: 'team-2' }, 'actor-1'),
+      transferWebsiteByActor('website-1', { teamId: 'team-2' }, 'actor-1', actorAuth),
     ).resolves.toMatchObject({ teamId: 'team-2' });
     expect(deleteShares).toHaveBeenCalledWith({
       where: { entityId: 'website-1', shareType: ENTITY_TYPE.website },
@@ -320,7 +330,7 @@ describe('website transfer authorization after role changes', () => {
     const deleteShares = vi.fn();
     transactionMock.mockImplementation(async callback =>
       callback({
-        $queryRaw: vi.fn(),
+        $queryRaw: vi.fn().mockResolvedValue([]),
         user: {
           findFirst: vi
             .fn()
@@ -340,7 +350,7 @@ describe('website transfer authorization after role changes', () => {
     );
 
     await expect(
-      transferWebsiteByActor('website-1', { userId: 'actor-1' }, 'actor-1'),
+      transferWebsiteByActor('website-1', { userId: 'actor-1' }, 'actor-1', actorAuth),
     ).resolves.toMatchObject({ userId: 'actor-1' });
     expect(deleteShares).not.toHaveBeenCalled();
     expect(update).toHaveBeenCalledOnce();
@@ -351,7 +361,7 @@ describe('website transfer authorization after role changes', () => {
     const deleteShares = vi.fn().mockRejectedValue(new Error('SHARE_DELETE_FAILED'));
     transactionMock.mockImplementation(async callback =>
       callback({
-        $queryRaw: vi.fn(),
+        $queryRaw: vi.fn().mockResolvedValue([]),
         user: {
           findFirst: vi
             .fn()
@@ -371,7 +381,7 @@ describe('website transfer authorization after role changes', () => {
     );
 
     await expect(
-      transferWebsiteByActor('website-1', { userId: 'destination' }, 'actor-1'),
+      transferWebsiteByActor('website-1', { userId: 'destination' }, 'actor-1', actorAuth),
     ).rejects.toThrow('SHARE_DELETE_FAILED');
     expect(update).not.toHaveBeenCalled();
     expect(redisDelMock).not.toHaveBeenCalled();

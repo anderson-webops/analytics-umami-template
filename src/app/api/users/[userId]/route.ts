@@ -118,7 +118,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ use
   let updated;
 
   try {
-    updated = await updateUser(userId, data, auth.user.id);
+    updated = await updateUser(userId, data, auth.user.id, auth);
   } catch (error) {
     if (isLastActiveAdminError(error)) {
       return badRequest({ message: 'The final active administrator cannot be demoted.' });
@@ -163,7 +163,7 @@ export async function DELETE(
   }
 
   try {
-    await deleteUser(userId, auth.user.id);
+    await deleteUser(userId, auth.user.id, auth);
   } catch (error) {
     if (isLastActiveAdminError(error)) {
       return badRequest({ message: 'The final active administrator cannot be deleted.' });

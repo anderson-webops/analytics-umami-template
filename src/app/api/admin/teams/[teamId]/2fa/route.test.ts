@@ -1,4 +1,5 @@
 import { beforeEach, expect, test, vi } from 'vitest';
+import { hash } from '@/lib/crypto';
 import prisma from '@/lib/prisma';
 import { parseRequest } from '@/lib/request';
 import { isTwoFactorConfigured } from '@/lib/two-factor/crypto';
@@ -16,7 +17,8 @@ vi.mock('@/lib/prisma', () => ({
   default: {
     client: {
       $queryRaw: vi.fn(),
-      user: { findFirst: vi.fn() },
+      user: { findFirst: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn() },
+      twoFactorAuth: { findUnique: vi.fn() },
       team: { updateMany: vi.fn() },
     },
     transaction: vi.fn(),
@@ -25,6 +27,13 @@ vi.mock('@/lib/prisma', () => ({
 
 const prismaMock = prisma as any;
 const context = { params: Promise.resolve({ teamId: 'team-1' }) };
+const adminAuth = {
+  authType: 'session' as const,
+  user: { id: 'admin-1', username: 'admin', role: 'admin', isAdmin: true },
+  passwordFingerprint: hash('synthetic-password'),
+  sessionGeneration: 0,
+  mfaVerified: false,
+};
 
 beforeEach(() => {
   vi.mocked(parseRequest).mockReset();
@@ -32,11 +41,19 @@ beforeEach(() => {
   vi.mocked(isTwoFactorConfigured).mockReset();
   prismaMock.client.$queryRaw.mockReset();
   prismaMock.client.user.findFirst.mockReset();
+  prismaMock.client.user.findUnique.mockReset().mockResolvedValue({
+    role: 'admin',
+    password: 'synthetic-password',
+    sessionGeneration: 0,
+    deletedAt: null,
+  });
+  prismaMock.client.twoFactorAuth.findUnique.mockReset().mockResolvedValue(null);
+  prismaMock.client.user.updateMany.mockReset();
   prismaMock.client.team.updateMany.mockReset();
   prismaMock.transaction.mockReset();
 
   vi.mocked(parseRequest).mockResolvedValue({
-    auth: { user: { id: 'admin-1', isAdmin: true } },
+    auth: adminAuth,
     body: { required: false },
     error: undefined,
   } as any);
@@ -62,6 +79,26 @@ test('updates an active team after current administrator revalidation', async ()
     ok: true,
     teamId: 'team-1',
     twoFactorRequired: false,
+  });
+  expect(prismaMock.client.user.updateMany).not.toHaveBeenCalled();
+});
+
+test('serializes existing members when enabling team 2FA', async () => {
+  vi.mocked(parseRequest).mockResolvedValue({
+    auth: adminAuth,
+    body: { required: true },
+    error: undefined,
+  } as any);
+
+  const response = await POST(
+    new Request('http://localhost/api/admin/teams/team-1/2fa', { method: 'POST' }),
+    context,
+  );
+
+  expect(response.status).toBe(200);
+  expect(prismaMock.client.user.updateMany).toHaveBeenCalledWith({
+    where: { teams: { some: { teamId: 'team-1' } }, deletedAt: null },
+    data: { updatedAt: expect.any(Date) },
   });
 });
 

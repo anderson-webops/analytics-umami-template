@@ -30,13 +30,20 @@ export async function POST(request: Request) {
   }
 
   try {
-    await runAuthorizedAdministratorMutation(auth.user.id, transaction =>
-      transaction.appSetting.upsert({
+    await runAuthorizedAdministratorMutation(auth.user.id, auth, async transaction => {
+      await transaction.appSetting.upsert({
         where: { key: 'twoFactorRequiredGlobal' },
         update: { value: String(required) },
         create: { key: 'twoFactorRequiredGlobal', value: String(required) },
-      }),
-    );
+      });
+
+      if (required) {
+        await transaction.user.updateMany({
+          where: { deletedAt: null },
+          data: { updatedAt: new Date() },
+        });
+      }
+    });
   } catch (error) {
     if (error instanceof Error && error.message === 'ENTITY_ADMIN_REQUIRED') {
       return unauthorized({ message: 'Your administrator permission changed.' });

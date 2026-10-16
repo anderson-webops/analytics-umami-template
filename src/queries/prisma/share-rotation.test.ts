@@ -22,11 +22,16 @@ vi.mock('@/lib/prisma', () => ({
 vi.mock('./authorization', () => ({
   assertActorCanMutateEntity: vi.fn(),
   assertActorCanAccessEntities: vi.fn(),
+  assertCurrentActorAuth: vi.fn(),
   runSerializable: vi.fn(async operation => operation(database)),
 }));
 
 const originalId = '26a3b489-e0ee-4ba8-9b4d-f47b3efcd699';
 const entityId = '71636934-8138-421f-81f3-7d99f03a5acd';
+const managerAuth = {
+  authType: 'session' as const,
+  user: { id: 'manager', username: 'manager', role: 'user', isAdmin: false },
+};
 let currentShare: {
   id: string;
   entityId: string;
@@ -60,6 +65,7 @@ test('repeated rotations revoke every previous share ID and URL', async () => {
     originalId,
     { name: 'Example', slug: 'original', rotate: true, parameters: { events: true } },
     'manager',
+    managerAuth,
   );
   const replacementId = firstRotation.id;
 
@@ -74,6 +80,7 @@ test('repeated rotations revoke every previous share ID and URL', async () => {
     replacementId,
     { name: 'Example', slug: firstRotation.slug, rotate: true, parameters: { events: true } },
     'manager',
+    managerAuth,
   );
 
   expect(secondRotation.id).not.toBe(replacementId);
@@ -91,6 +98,7 @@ test('editing a share without changing its slug retains its ID', async () => {
     originalId,
     { name: 'Renamed', slug: 'original', parameters: { events: false } },
     'manager',
+    managerAuth,
   );
 
   expect(result.id).toBe(originalId);
@@ -111,6 +119,7 @@ test('revoked update permission prevents slug and ID changes', async () => {
       originalId,
       { name: 'Example', slug: 'original', rotate: true, parameters: { events: true } },
       'manager',
+      managerAuth,
     ),
   ).rejects.toThrow('SHARE_ACTOR_NOT_AUTHORIZED');
   expect(database.share.update).not.toHaveBeenCalled();
@@ -125,6 +134,7 @@ test('a stale edit cannot restore an already replaced public URL', async () => {
       originalId,
       { name: 'Stale edit', slug: 'original', parameters: { events: false } },
       'manager',
+      managerAuth,
     ),
   ).rejects.toThrow('SHARE_SLUG_CHANGED');
   expect(database.share.update).not.toHaveBeenCalled();

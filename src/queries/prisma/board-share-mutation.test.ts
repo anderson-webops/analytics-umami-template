@@ -9,6 +9,11 @@ import { updateBoard } from './board';
 
 const boardId = '508ad3c6-1993-41aa-a07c-44ff09a64686';
 const websiteId = '7b2728e9-f4b2-4a2a-9827-697b24bbf78a';
+const sessionAuth = {
+  authType: 'session' as const,
+  user: { id: 'board-editor', username: 'editor', role: 'user', isAdmin: false },
+};
+const apiKeyAuth = { ...sessionAuth, authType: 'api-key' as const };
 const transaction = vi.hoisted(() => ({
   board: { findUnique: vi.fn(), update: vi.fn() },
   share: { findFirst: vi.fn() },
@@ -19,6 +24,7 @@ vi.mock('./authorization', () => ({
   assertActorCanAccessEntities: vi.fn(),
   assertActorCanCreateOwnedEntity: vi.fn(),
   assertActorCanMutateEntity: vi.fn(),
+  assertCurrentActorAuth: vi.fn(),
   assertEntityIdAvailable: vi.fn(),
   runSerializable: vi.fn(async operation => operation(transaction)),
 }));
@@ -43,7 +49,7 @@ test('a shared board rejects references the editor can view but cannot share', a
   );
 
   await expect(
-    updateBoard(boardId, { parameters: { websiteId } }, 'board-editor', 'session'),
+    updateBoard(boardId, { parameters: { websiteId } }, 'board-editor', sessionAuth),
   ).rejects.toThrow('ENTITY_REFERENCE_NOT_AUTHORIZED');
   expect(runSerializable).toHaveBeenCalledOnce();
   expect(assertActorCanMutateEntity).toHaveBeenCalledWith(
@@ -70,7 +76,7 @@ test('a shared board accepts references the editor is allowed to share', async (
   transaction.share.findFirst.mockResolvedValue({ id: 'active-share' });
 
   await expect(
-    updateBoard(boardId, { type: 'website' }, 'board-editor', 'session'),
+    updateBoard(boardId, { type: 'website' }, 'board-editor', sessionAuth),
   ).resolves.toEqual({
     id: boardId,
   });
@@ -85,7 +91,7 @@ test('a shared board accepts references the editor is allowed to share', async (
 
 test('an unshared board still accepts viewable references', async () => {
   await expect(
-    updateBoard(boardId, { parameters: { websiteId } }, 'board-editor', 'session'),
+    updateBoard(boardId, { parameters: { websiteId } }, 'board-editor', sessionAuth),
   ).resolves.toEqual({ id: boardId });
   expect(assertActorCanAccessEntities).toHaveBeenCalledWith(
     transaction,
@@ -97,7 +103,7 @@ test('an unshared board still accepts viewable references', async () => {
 
 test('a metadata-only edit does not change a shared board reference grant', async () => {
   await expect(
-    updateBoard(boardId, { name: 'Renamed' }, 'board-editor', 'session'),
+    updateBoard(boardId, { name: 'Renamed' }, 'board-editor', sessionAuth),
   ).resolves.toEqual({
     id: boardId,
   });
@@ -116,7 +122,7 @@ test.each([
 ])('an API key cannot change $field on a shared board', async ({ data }) => {
   transaction.share.findFirst.mockResolvedValue({ id: 'active-share' });
 
-  await expect(updateBoard(boardId, data, 'board-editor', 'api-key')).rejects.toThrow(
+  await expect(updateBoard(boardId, data, 'board-editor', apiKeyAuth)).rejects.toThrow(
     'SHARED_BOARD_REQUIRES_SESSION',
   );
   expect(runSerializable).toHaveBeenCalledOnce();
@@ -127,7 +133,7 @@ test.each([
 
 test('an API key can edit an unshared board', async () => {
   await expect(
-    updateBoard(boardId, { parameters: { websiteId } }, 'board-editor', 'api-key'),
+    updateBoard(boardId, { parameters: { websiteId } }, 'board-editor', apiKeyAuth),
   ).resolves.toEqual({ id: boardId });
   expect(transaction.board.update).toHaveBeenCalledOnce();
 });
@@ -136,7 +142,7 @@ test('an API key can edit shared board metadata without changing its references'
   transaction.share.findFirst.mockResolvedValue({ id: 'active-share' });
 
   await expect(
-    updateBoard(boardId, { name: 'Renamed' }, 'board-editor', 'api-key'),
+    updateBoard(boardId, { name: 'Renamed' }, 'board-editor', apiKeyAuth),
   ).resolves.toEqual({
     id: boardId,
   });

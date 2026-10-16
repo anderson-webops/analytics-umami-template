@@ -1,4 +1,5 @@
 import { beforeEach, expect, test, vi } from 'vitest';
+import { assertCurrentActorAuth } from './authorization';
 import {
   deleteTeam,
   getAllUserTeams,
@@ -33,6 +34,15 @@ const {
 const TEAM_ID = '3979e857-a987-4795-9380-12024a4440a9';
 const ACTOR_ID = '1085fb06-4dd8-4fc8-b94a-c79146fa8947';
 const ACCESS_CODE = 'team_privatecode123';
+const actorAuth = {
+  authType: 'session' as const,
+  user: { id: ACTOR_ID, username: 'actor', role: 'user', isAdmin: false },
+};
+
+vi.mock('./authorization', async importOriginal => ({
+  ...(await importOriginal<typeof import('./authorization')>()),
+  assertCurrentActorAuth: vi.fn(),
+}));
 
 vi.mock('@/lib/prisma', () => ({
   default: {
@@ -152,14 +162,24 @@ test('an active administrator can read the current code without team membership'
 test('global view-only demotion cannot retrieve the code through a no-op update', async () => {
   userFindFirstMock.mockResolvedValue({ role: 'view-only' });
 
-  await expect(updateTeam(TEAM_ID, {}, ACTOR_ID)).rejects.toThrow('TEAM_ACTOR_NOT_AUTHORIZED');
+  await expect(updateTeam(TEAM_ID, {}, ACTOR_ID, actorAuth)).rejects.toThrow(
+    'TEAM_ACTOR_NOT_AUTHORIZED',
+  );
   expect(teamUpdateMock).not.toHaveBeenCalled();
 });
 
 test('current team managers can still update team settings', async () => {
-  await expect(updateTeam(TEAM_ID, { name: 'Updated team' }, ACTOR_ID)).resolves.toMatchObject({
+  await expect(
+    updateTeam(TEAM_ID, { name: 'Updated team' }, ACTOR_ID, actorAuth),
+  ).resolves.toMatchObject({
     id: TEAM_ID,
   });
+  expect(assertCurrentActorAuth).toHaveBeenCalledWith(
+    expect.anything(),
+    ACTOR_ID,
+    actorAuth,
+    'TEAM_ACTOR_NOT_AUTHORIZED',
+  );
   expect(teamUpdateMock).toHaveBeenCalledOnce();
 });
 
@@ -167,7 +187,9 @@ test('a demoted team owner cannot delete the team', async () => {
   userFindFirstMock.mockResolvedValue({ role: 'view-only' });
   membershipFindFirstMock.mockResolvedValue({ role: 'team-owner' });
 
-  await expect(deleteTeam(TEAM_ID, ACTOR_ID)).rejects.toThrow('TEAM_ACTOR_NOT_AUTHORIZED');
+  await expect(deleteTeam(TEAM_ID, ACTOR_ID, actorAuth)).rejects.toThrow(
+    'TEAM_ACTOR_NOT_AUTHORIZED',
+  );
   expect(websiteFindManyMock).not.toHaveBeenCalled();
 });
 
@@ -175,6 +197,8 @@ test('a deleted team owner cannot delete the team', async () => {
   userFindFirstMock.mockResolvedValue(null);
   membershipFindFirstMock.mockResolvedValue({ role: 'team-owner' });
 
-  await expect(deleteTeam(TEAM_ID, ACTOR_ID)).rejects.toThrow('TEAM_ACTOR_NOT_AUTHORIZED');
+  await expect(deleteTeam(TEAM_ID, ACTOR_ID, actorAuth)).rejects.toThrow(
+    'TEAM_ACTOR_NOT_AUTHORIZED',
+  );
   expect(websiteFindManyMock).not.toHaveBeenCalled();
 });

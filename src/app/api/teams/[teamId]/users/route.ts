@@ -97,7 +97,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ tea
   let users;
 
   try {
-    users = await addTeamUserByActor(teamId, userId, role, auth.user.id);
+    users = await addTeamUserByActor(teamId, userId, role, auth.user.id, auth);
   } catch (error: any) {
     switch (error?.message) {
       case 'TEAM_NOT_FOUND':

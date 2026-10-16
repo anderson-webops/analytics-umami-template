@@ -73,7 +73,7 @@ export async function POST(
   let user;
 
   try {
-    user = await updateTeamUserRoleByActor(teamId, userId, body.role, auth.user.id);
+    user = await updateTeamUserRoleByActor(teamId, userId, body.role, auth.user.id, auth);
   } catch (error: any) {
     switch (error?.message) {
       case 'TEAM_USER_NOT_FOUND':
@@ -132,7 +132,7 @@ export async function DELETE(
   }
 
   try {
-    await deleteTeamUserByActor(teamId, userId, auth.user.id);
+    await deleteTeamUserByActor(teamId, userId, auth.user.id, auth);
   } catch (error: any) {
     switch (error?.message) {
       case 'TEAM_USER_NOT_FOUND':

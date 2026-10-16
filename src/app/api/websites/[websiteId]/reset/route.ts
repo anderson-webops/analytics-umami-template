@@ -20,7 +20,7 @@ export async function POST(
   }
 
   try {
-    await resetWebsite(websiteId, auth.user.id);
+    await resetWebsite(websiteId, auth.user.id, auth);
   } catch (error: any) {
     switch (error?.message) {
       case 'ENTITY_NOT_FOUND':

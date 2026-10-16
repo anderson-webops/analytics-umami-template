@@ -1,4 +1,5 @@
 import { beforeEach, expect, test, vi } from 'vitest';
+import { hash } from '@/lib/crypto';
 import prisma from '@/lib/prisma';
 import { parseRequest } from '@/lib/request';
 import { isTwoFactorConfigured } from '@/lib/two-factor/crypto';
@@ -30,7 +31,7 @@ vi.mock('@/lib/prisma', () => ({
   default: {
     client: {
       $queryRaw: vi.fn(),
-      user: { findFirst: vi.fn(), updateMany: vi.fn() },
+      user: { findFirst: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn() },
       twoFactorAuth: {
         findUnique: vi.fn(),
         deleteMany: vi.fn(),
@@ -57,6 +58,13 @@ const canEnforceTwoFactorAuthForUserMock = vi.mocked(canEnforceTwoFactorAuthForU
 const isTwoFactorConfiguredMock = vi.mocked(isTwoFactorConfigured);
 const updateUserMock = vi.mocked(updateUser);
 const prismaMock = prisma as any;
+const adminAuth = {
+  authType: 'session' as const,
+  user: { id: 'admin-1', username: 'admin', role: 'admin', isAdmin: true },
+  passwordFingerprint: hash('synthetic-password'),
+  sessionGeneration: 0,
+  mfaVerified: false,
+};
 
 beforeEach(() => {
   parseRequestMock.mockReset();
@@ -65,7 +73,14 @@ beforeEach(() => {
   updateUserMock.mockReset();
   prismaMock.client.$queryRaw.mockReset();
   prismaMock.client.twoFactorAuth.findUnique.mockReset();
+  prismaMock.client.twoFactorAuth.findUnique.mockResolvedValue(null);
   prismaMock.client.user.findFirst.mockReset();
+  prismaMock.client.user.findUnique.mockReset().mockResolvedValue({
+    role: 'admin',
+    password: 'synthetic-password',
+    sessionGeneration: 0,
+    deletedAt: null,
+  });
   prismaMock.client.user.updateMany.mockReset();
   prismaMock.client.twoFactorAuth.deleteMany.mockReset();
   prismaMock.client.twoFactorBackupCode.deleteMany.mockReset();
@@ -75,12 +90,7 @@ beforeEach(() => {
   prismaMock.transaction.mockReset();
 
   parseRequestMock.mockResolvedValue({
-    auth: {
-      user: {
-        id: 'admin-1',
-        isAdmin: true,
-      },
-    },
+    auth: adminAuth,
     error: undefined,
   });
   canEnforceTwoFactorAuthForUserMock.mockResolvedValue(true);
@@ -106,12 +116,7 @@ test('GET returns whether 2FA is enabled for the target user', async () => {
 
 test('POST updates the user-level 2FA requirement flag', async () => {
   parseRequestMock.mockResolvedValue({
-    auth: {
-      user: {
-        id: 'admin-1',
-        isAdmin: true,
-      },
-    },
+    auth: adminAuth,
     body: {
       required: true,
     },
@@ -126,7 +131,12 @@ test('POST updates the user-level 2FA requirement flag', async () => {
     },
   );
 
-  expect(updateUserMock).toHaveBeenCalledWith('user-1', { twoFactorRequired: true }, 'admin-1');
+  expect(updateUserMock).toHaveBeenCalledWith(
+    'user-1',
+    { twoFactorRequired: true },
+    'admin-1',
+    adminAuth,
+  );
   await expect(response.json()).resolves.toEqual({
     ok: true,
     userId: 'user-1',
@@ -137,12 +147,7 @@ test('POST updates the user-level 2FA requirement flag', async () => {
 
 test('POST rejects enabling a user-level 2FA requirement when the encryption key is missing', async () => {
   parseRequestMock.mockResolvedValue({
-    auth: {
-      user: {
-        id: 'admin-1',
-        isAdmin: true,
-      },
-    },
+    auth: adminAuth,
     body: {
       required: true,
     },
@@ -248,6 +253,21 @@ test('DELETE rejects a demoted administrator before resetting a factor', async (
   expect(prismaMock.client.twoFactorBackupCode.deleteMany).not.toHaveBeenCalled();
   expect(prismaMock.client.twoFactorOtpUsed.deleteMany).not.toHaveBeenCalled();
   expect(prismaMock.client.twoFactorRateLimit.deleteMany).not.toHaveBeenCalled();
+});
+
+test('DELETE rejects a session from before administrator MFA enrollment', async () => {
+  prismaMock.client.twoFactorAuth.findUnique.mockResolvedValueOnce({
+    id: 'new-factor',
+    isEnabled: true,
+  });
+
+  const response = await DELETE(
+    new Request('http://localhost/api/admin/users/user-1/2fa', { method: 'DELETE' }),
+    { params: Promise.resolve({ userId: 'user-1' }) },
+  );
+
+  expect(response.status).toBe(401);
+  expect(prismaMock.client.twoFactorAuth.deleteMany).not.toHaveBeenCalled();
 });
 
 test('DELETE leaves a deleted target untouched', async () => {

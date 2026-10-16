@@ -3,6 +3,8 @@ import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@/generated/prisma/client';
+import { hash } from '@/lib/crypto';
+import type { Auth } from '@/lib/types';
 import {
   getReplaySaved,
   getSavedReplays,
@@ -18,6 +20,13 @@ assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(new URL(databaseUrl).host
 
 const client = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
 const userId = randomUUID();
+const actorAuth: Auth = {
+  authType: 'session',
+  user: { id: userId, username: `replay-retention-${userId}`, role: 'user', isAdmin: false },
+  sessionGeneration: 0,
+  passwordFingerprint: hash('x'.repeat(60)),
+  mfaVerified: false,
+};
 const websiteId = randomUUID();
 const sessionId = randomUUID();
 const legacyVisitId = randomUUID();
@@ -108,7 +117,7 @@ try {
     where: { id: legacy.id },
     data: { retentionExpiresAt: null },
   });
-  await setReplaySavedByActor(websiteId, legacyVisitId, true, 'Legacy bookmark', userId);
+  await setReplaySavedByActor(websiteId, legacyVisitId, true, 'Legacy bookmark', userId, actorAuth);
   assert.equal((await getReplayChunks(websiteId, legacyVisitId)).length, 1);
   assert.equal(await getReplaySaved(websiteId, legacyVisitId), true);
 
@@ -117,9 +126,16 @@ try {
     where: { id: mixedLegacy.id },
     data: { retentionExpiresAt: null },
   });
-  await setReplaySavedByActor(websiteId, mixedVisitId, true, 'Mixed bookmark', userId);
+  await setReplaySavedByActor(websiteId, mixedVisitId, true, 'Mixed bookmark', userId, actorAuth);
   const mixedNew = await record(mixedVisitId);
-  await setReplaySavedByActor(websiteId, mixedVisitId, true, 'Updated mixed bookmark', userId);
+  await setReplaySavedByActor(
+    websiteId,
+    mixedVisitId,
+    true,
+    'Updated mixed bookmark',
+    userId,
+    actorAuth,
+  );
   const mixedSaved = await client.sessionReplaySaved.findUniqueOrThrow({
     where: { websiteId_visitId: { websiteId, visitId: mixedVisitId } },
   });
@@ -132,7 +148,14 @@ try {
   assert.equal((await getReplayChunks(websiteId, mixedVisitId)).length, 1);
 
   const expired = await record(expiredVisitId);
-  await setReplaySavedByActor(websiteId, expiredVisitId, true, 'Expiring bookmark', userId);
+  await setReplaySavedByActor(
+    websiteId,
+    expiredVisitId,
+    true,
+    'Expiring bookmark',
+    userId,
+    actorAuth,
+  );
   const saved = await client.sessionReplaySaved.findUniqueOrThrow({
     where: { websiteId_visitId: { websiteId, visitId: expiredVisitId } },
   });

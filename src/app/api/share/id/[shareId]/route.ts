@@ -77,6 +77,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ sha
         parameters,
       },
       auth.user.id,
+      auth,
     );
   } catch (error: any) {
     if (error?.message === 'SHARE_NOT_FOUND') {
@@ -123,7 +124,7 @@ export async function DELETE(
   }
 
   try {
-    await deleteShare(shareId, auth.user.id);
+    await deleteShare(shareId, auth.user.id, auth);
   } catch (error: any) {
     if (error?.message === 'SHARE_NOT_FOUND') {
       return notFound();

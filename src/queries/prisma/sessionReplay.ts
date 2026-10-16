@@ -1,8 +1,12 @@
 import { PERMISSIONS } from '@/lib/constants';
 import { uuid } from '@/lib/crypto';
 import prisma from '@/lib/prisma';
-import type { QueryFilters } from '@/lib/types';
-import { assertActorCanMutateEntity, runSerializable } from './authorization';
+import type { Auth, QueryFilters } from '@/lib/types';
+import {
+  assertActorCanMutateEntity,
+  assertCurrentActorAuth,
+  runSerializable,
+} from './authorization';
 
 export interface CreateReplayChunkArgs {
   websiteId: string;
@@ -85,8 +89,10 @@ export async function setReplaySavedByActor(
   isSaved: boolean,
   name: string,
   actorUserId: string,
+  auth: Auth,
 ) {
   return runSerializable(async transaction => {
+    await assertCurrentActorAuth(transaction, actorUserId, auth);
     await assertActorCanMutateEntity(
       transaction,
       actorUserId,

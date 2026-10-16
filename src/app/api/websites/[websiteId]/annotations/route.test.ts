@@ -71,6 +71,7 @@ test('POST validates the note and stores the annotation with the creating user',
       note: 'Deployed v2',
     },
     'user-1',
+    expect.objectContaining({ user: expect.objectContaining({ id: 'user-1' }) }),
   );
   expect(response.status).toBe(200);
 });

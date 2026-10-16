@@ -78,7 +78,7 @@ export async function POST(request: Request) {
   let result;
 
   try {
-    result = await createBoard(data, auth.user.id);
+    result = await createBoard(data, auth.user.id, { auth });
   } catch (error: any) {
     switch (error?.message) {
       case 'ENTITY_ID_CONFLICT':

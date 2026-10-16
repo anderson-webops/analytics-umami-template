@@ -67,7 +67,7 @@ export async function POST(request: Request) {
 
   try {
     if (existing) {
-      const result = await updateBoard(userId, data, userId, auth.authType);
+      const result = await updateBoard(userId, data, userId, auth);
 
       return json(result);
     }
@@ -81,7 +81,7 @@ export async function POST(request: Request) {
         ...data,
       },
       userId,
-      { isPersonalDashboard: true },
+      { auth, isPersonalDashboard: true },
     );
 
     return json(result);

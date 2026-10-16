@@ -64,6 +64,7 @@ export async function POST(
         parameters,
       } as any,
       auth.user.id,
+      auth,
     );
   } catch (error: any) {
     if (['ENTITY_NOT_FOUND', 'ENTITY_ACTOR_NOT_AUTHORIZED'].includes(error?.message)) {

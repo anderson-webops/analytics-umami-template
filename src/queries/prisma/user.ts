@@ -8,10 +8,11 @@ import redis from '@/lib/redis';
 import { hasCurrentSessionGeneration } from '@/lib/session-generation';
 import { sanitizeSortFilters } from '@/lib/sort';
 import { getTwoFactorRequirement } from '@/lib/two-factor/requirement';
-import type { QueryFilters, Role } from '@/lib/types';
+import type { Auth, QueryFilters, Role } from '@/lib/types';
 import { deleteClickhouseCollectionSources } from '@/queries/sql/deleteCollectionSources';
 import {
   assertActorIsAdministrator,
+  assertCurrentActorAuth,
   runCredentialRevocationMutation,
   runSerializedUserMutation,
 } from './authorization';
@@ -207,6 +208,7 @@ export async function updateUser(
   userId: string,
   data: Prisma.UserUpdateInput,
   actorUserId: string,
+  auth: Auth,
 ) {
   const nextRole =
     typeof data.role === 'string'
@@ -220,6 +222,7 @@ export async function updateUser(
     : runSerializedUserMutation;
 
   return runMutation(async transaction => {
+    await assertCurrentActorAuth(transaction, actorUserId, auth, 'ADMIN_AUTHORIZATION_CHANGED');
     await requireCurrentAdministrator(transaction, actorUserId);
 
     const current = await transaction.user.findUnique({
@@ -357,11 +360,12 @@ export function isUserDeletionBlockedError(error: unknown): boolean {
   return error instanceof Error && error.message === 'USER_OWNS_RESOURCES';
 }
 
-export async function deleteUser(userId: string, actorUserId: string) {
+export async function deleteUser(userId: string, actorUserId: string, auth: Auth) {
   const cloudMode = isEnvEnabled('CLOUD_MODE');
 
   const result = await runSerializedUserMutation(
     async transaction => {
+      await assertCurrentActorAuth(transaction, actorUserId, auth, 'ADMIN_AUTHORIZATION_CHANGED');
       await requireCurrentAdministrator(transaction, actorUserId);
 
       if (actorUserId === userId) {

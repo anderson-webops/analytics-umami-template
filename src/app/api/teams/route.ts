@@ -71,6 +71,7 @@ export async function POST(request: Request) {
       teamOwnerId,
       auth.user.id,
       teamLimit,
+      auth,
     );
   } catch (error: any) {
     if (error?.message === 'TEAM_LIMIT_REACHED') {

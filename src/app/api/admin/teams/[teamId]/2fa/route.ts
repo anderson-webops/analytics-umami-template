@@ -31,7 +31,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ tea
   }
 
   try {
-    await runAuthorizedAdministratorMutation(auth.user.id, async transaction => {
+    await runAuthorizedAdministratorMutation(auth.user.id, auth, async transaction => {
       const updated = await transaction.team.updateMany({
         where: { id: teamId, deletedAt: null },
         data: { twoFactorRequired: required },
@@ -39,6 +39,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ tea
 
       if (updated.count !== 1) {
         throw new Error('TEAM_NOT_FOUND');
+      }
+
+      if (required) {
+        await transaction.user.updateMany({
+          where: { teams: { some: { teamId } }, deletedAt: null },
+          data: { updatedAt: new Date() },
+        });
       }
     });
   } catch (error) {

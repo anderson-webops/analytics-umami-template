@@ -82,6 +82,7 @@ export async function POST(
       },
       auth.user.id,
       {
+        auth,
         removeShares: shareId === null,
         replayConfig,
       },
@@ -125,7 +126,7 @@ export async function DELETE(
   }
 
   try {
-    await deleteWebsite(websiteId, auth.user.id);
+    await deleteWebsite(websiteId, auth.user.id, auth);
   } catch (error: any) {
     switch (error?.message) {
       case 'ENTITY_NOT_FOUND':

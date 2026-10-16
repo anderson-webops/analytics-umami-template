@@ -150,6 +150,18 @@ describe('createApiKey', () => {
     expect(countMock).not.toHaveBeenCalled();
   });
 
+  test('does not create a key after joining a team requiring unenrolled MFA', async () => {
+    queryRawMock
+      .mockResolvedValueOnce([{ sessionGeneration: 0 }])
+      .mockResolvedValueOnce([{ enrollmentRequired: true, enrolled: false }]);
+
+    await expect(createApiKey(data, 0, 'password-hash')).rejects.toThrow(
+      'API_KEY_AUTHORIZATION_CHANGED',
+    );
+    expect(createMock).not.toHaveBeenCalled();
+    expect(countMock).not.toHaveBeenCalled();
+  });
+
   test('accepts the last available slot, then refuses the quota under the user lock', async () => {
     countMock
       .mockResolvedValueOnce(MAX_API_KEYS_PER_USER - 1)
@@ -160,7 +172,7 @@ describe('createApiKey', () => {
       ApiKeyLimitReachedError,
     );
     expect(createMock).toHaveBeenCalledTimes(1);
-    expect(queryRawMock).toHaveBeenCalledTimes(2);
+    expect(queryRawMock).toHaveBeenCalledTimes(4);
   });
 
   test('a full quota does not consume a valid one-use authenticator code', async () => {

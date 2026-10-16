@@ -172,6 +172,10 @@ export async function POST(request: Request) {
       });
     }
 
+    if (error instanceof Error && error.message === 'API_KEY_AUTHORIZATION_CHANGED') {
+      return unauthorized({ code: 'credentials-changed' });
+    }
+
     throw error;
   }
 

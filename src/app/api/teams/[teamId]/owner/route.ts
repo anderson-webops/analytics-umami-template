@@ -22,7 +22,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ tea
   }
 
   try {
-    const owner = await transferTeamOwnership(teamId, body.userId, auth.user.id);
+    const owner = await transferTeamOwnership(teamId, body.userId, auth.user.id, auth);
 
     return json(owner);
   } catch (error: any) {

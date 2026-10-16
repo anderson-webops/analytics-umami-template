@@ -56,7 +56,14 @@ export async function POST(
   }
 
   try {
-    await setReplaySavedByActor(websiteId, replayId, body.isSaved, body.name ?? '', auth.user.id);
+    await setReplaySavedByActor(
+      websiteId,
+      replayId,
+      body.isSaved,
+      body.name ?? '',
+      auth.user.id,
+      auth,
+    );
   } catch (error: any) {
     switch (error?.message) {
       case 'REPLAY_NOT_FOUND':

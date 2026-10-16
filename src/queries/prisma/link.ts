@@ -4,14 +4,14 @@ import { isUuid } from '@/lib/crypto';
 import prisma from '@/lib/prisma';
 import redis from '@/lib/redis';
 import { sanitizeSortFilters } from '@/lib/sort';
-import type { QueryFilters } from '@/lib/types';
+import type { Auth, QueryFilters } from '@/lib/types';
 import { deleteClickhouseCollectionSources } from '@/queries/sql/deleteCollectionSources';
 import {
   assertActorCanCreateOwnedEntity,
   assertActorCanMutateEntity,
   assertActorIsAdministrator,
+  assertCurrentActorAuth,
   assertEntityIdAvailable,
-  lockActorRoleForMutation,
   runSerializable,
 } from './authorization';
 import { lockCollectionSources } from './collection';
@@ -80,7 +80,7 @@ export async function getTeamLinks(teamId: string, filters?: QueryFilters) {
 export async function createLink(
   data: Prisma.LinkUncheckedCreateInput,
   actorUserId: string,
-  options: { customEntityId?: boolean } = {},
+  options: { auth: Auth; customEntityId?: boolean },
 ) {
   return runSerializable(async transaction => {
     if (options.customEntityId) {
@@ -88,13 +88,19 @@ export async function createLink(
     }
 
     if (data.teamId) {
-      await assertActorCanCreateOwnedEntity(transaction, actorUserId, {
-        teamId: data.teamId,
-      });
+      await assertActorCanCreateOwnedEntity(
+        transaction,
+        actorUserId,
+        { teamId: data.teamId },
+        { auth: options.auth },
+      );
     } else if (data.userId) {
-      await assertActorCanCreateOwnedEntity(transaction, actorUserId, {
-        userId: data.userId,
-      });
+      await assertActorCanCreateOwnedEntity(
+        transaction,
+        actorUserId,
+        { userId: data.userId },
+        { auth: options.auth },
+      );
     } else {
       throw new Error('ENTITY_OWNER_NOT_FOUND');
     }
@@ -109,9 +115,10 @@ export async function updateLink(
   linkId: string,
   data: Prisma.LinkUncheckedUpdateInput,
   actorUserId: string,
+  auth: Auth,
 ) {
   const { link, previousSlug } = await runSerializable(async transaction => {
-    await lockActorRoleForMutation(transaction, actorUserId);
+    await assertCurrentActorAuth(transaction, actorUserId, auth);
     await lockCollectionSources(transaction, [linkId]);
 
     await assertActorCanMutateEntity(
@@ -144,10 +151,10 @@ export async function updateLink(
   return link;
 }
 
-export async function deleteLink(linkId: string, actorUserId: string) {
+export async function deleteLink(linkId: string, actorUserId: string, auth: Auth) {
   const result = await runSerializable(
     async transaction => {
-      await lockActorRoleForMutation(transaction, actorUserId);
+      await assertCurrentActorAuth(transaction, actorUserId, auth);
       await lockCollectionSources(transaction, [linkId]);
 
       await assertActorCanMutateEntity(

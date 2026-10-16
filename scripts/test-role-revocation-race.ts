@@ -46,6 +46,18 @@ async function waitForLock(queryFragment: string, waitEvent?: string) {
 }
 
 const administratorId = randomUUID();
+const administratorAuth = {
+  authType: 'session' as const,
+  user: {
+    id: administratorId,
+    username: `role-admin-${administratorId}`,
+    role: ROLES.admin,
+    isAdmin: true,
+  },
+  passwordFingerprint: hash('x'.repeat(60)),
+  sessionGeneration: 0,
+  mfaVerified: false,
+};
 const actorId = randomUUID();
 const otherOwnerId = randomUUID();
 const createdUserId = randomUUID();
@@ -104,6 +116,25 @@ async function mutateWebsite(websiteId: string, name: string) {
   });
 }
 
+async function currentActorAuth() {
+  const actor = await prisma.client.user.findUniqueOrThrow({
+    where: { id: actorId },
+    select: { username: true, role: true, password: true, sessionGeneration: true },
+  });
+
+  return {
+    authType: 'session' as const,
+    user: {
+      id: actorId,
+      username: actor.username,
+      role: actor.role,
+      isAdmin: actor.role === ROLES.admin,
+    },
+    passwordFingerprint: hash(actor.password),
+    sessionGeneration: actor.sessionGeneration,
+  };
+}
+
 try {
   await prisma.client.user.createMany({
     data: [
@@ -150,7 +181,7 @@ try {
     });
   });
   await actorAuthorized.promise;
-  demotion = updateUser(actorId, { role: ROLES.viewOnly }, administratorId);
+  demotion = updateUser(actorId, { role: ROLES.viewOnly }, administratorId, administratorAuth);
   await waitForLock('UPDATE', 'transactionid');
   releaseActorMutation.resolve();
   await actorMutation;
@@ -164,7 +195,7 @@ try {
     'Committed before demotion',
   );
 
-  await updateUser(actorId, { role: ROLES.user }, administratorId);
+  await updateUser(actorId, { role: ROLES.user }, administratorId, administratorAuth);
   demotion = prisma.transaction(
     async transaction => {
       await transaction.user.update({ where: { id: actorId }, data: { role: ROLES.viewOnly } });
@@ -189,11 +220,15 @@ try {
     'Committed before demotion',
   );
 
-  await updateUser(actorId, { role: ROLES.admin }, administratorId);
-  await updateWebsite(otherWebsiteId, { name: 'Administrator update' }, actorId);
-  await updateUser(actorId, { role: ROLES.user }, administratorId);
+  await updateUser(actorId, { role: ROLES.admin }, administratorId, administratorAuth);
+  await updateWebsite(otherWebsiteId, { name: 'Administrator update' }, actorId, {
+    auth: await currentActorAuth(),
+  });
+  await updateUser(actorId, { role: ROLES.user }, administratorId, administratorAuth);
   await assert.rejects(
-    updateWebsite(otherWebsiteId, { name: 'Must not commit' }, actorId),
+    updateWebsite(otherWebsiteId, { name: 'Must not commit' }, actorId, {
+      auth: await currentActorAuth(),
+    }),
     /ENTITY_ACTOR_NOT_AUTHORIZED/,
   );
   assert.equal(
@@ -201,7 +236,7 @@ try {
     'Administrator update',
   );
 
-  await updateUser(actorId, { role: ROLES.admin }, administratorId);
+  await updateUser(actorId, { role: ROLES.admin }, administratorId, administratorAuth);
   const actorCredentials = await prisma.client.user.findUniqueOrThrow({
     where: { id: actorId },
     select: { password: true, sessionGeneration: true },
@@ -240,7 +275,7 @@ try {
   assert.equal(deniedCreation.message, 'ADMIN_AUTHORIZATION_CHANGED');
   assert.equal(await prisma.client.user.findUnique({ where: { id: createdUserId } }), null);
 
-  await updateUser(actorId, { role: ROLES.admin }, administratorId);
+  await updateUser(actorId, { role: ROLES.admin }, administratorId, administratorAuth);
   const staleCredentials = await prisma.client.user.findUniqueOrThrow({
     where: { id: actorId },
     select: { password: true, sessionGeneration: true },
@@ -323,7 +358,7 @@ try {
   assert.equal(deniedAfterMfaRequirement.message, 'ADMIN_AUTHORIZATION_CHANGED');
   assert.equal(await prisma.client.user.findUnique({ where: { id: createdUserId } }), null);
 
-  await updateUser(actorId, { twoFactorRequired: false }, administratorId);
+  await updateUser(actorId, { twoFactorRequired: false }, administratorId, administratorAuth);
   await createUser(
     {
       id: createdUserId,
@@ -356,7 +391,7 @@ try {
     });
   });
   await delegatedCreationReady.promise;
-  delegatedDemotion = updateUser(actorId, { role: ROLES.user }, administratorId);
+  delegatedDemotion = updateUser(actorId, { role: ROLES.user }, administratorId, administratorAuth);
   await waitForLock('UPDATE', 'transactionid');
   releaseDelegatedCreation.resolve();
   await delegatedCreation;
@@ -398,7 +433,22 @@ try {
     });
   });
   await teamAuthorized.promise;
-  teamDemotion = updateTeamUserRoleByActor(teamId, actorId, ROLES.teamViewOnly, administratorId);
+  const administrator = await prisma.client.user.findUniqueOrThrow({
+    where: { id: administratorId },
+    select: { username: true, role: true, password: true, sessionGeneration: true },
+  });
+  teamDemotion = updateTeamUserRoleByActor(teamId, actorId, ROLES.teamViewOnly, administratorId, {
+    authType: 'session',
+    user: {
+      id: administratorId,
+      username: administrator.username,
+      role: administrator.role,
+      isAdmin: true,
+    },
+    passwordFingerprint: hash(administrator.password),
+    sessionGeneration: administrator.sessionGeneration,
+    mfaVerified: false,
+  });
   await waitForLock('UPDATE', 'transactionid');
   releaseTeamMutation.resolve();
   await teamMutation;
@@ -475,7 +525,7 @@ try {
     return transaction.teamUser.delete({ where: { id: memberId } });
   });
   await memberRemovalReady.promise;
-  accountDeletion = deleteUser(actorId, administratorId);
+  accountDeletion = deleteUser(actorId, administratorId, administratorAuth);
   await waitForLock('FOR UPDATE', 'transactionid');
   releaseMemberRemoval.resolve();
   releaseDelegatedCreation.resolve();

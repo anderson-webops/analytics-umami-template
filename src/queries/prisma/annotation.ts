@@ -1,8 +1,12 @@
 import type { Annotation, Prisma } from '@/generated/prisma/client';
 import { PERMISSIONS } from '@/lib/constants';
 import prisma from '@/lib/prisma';
-import type { PageResult, QueryFilters } from '@/lib/types';
-import { assertActorCanMutateEntity, runSerializable } from './authorization';
+import type { Auth, PageResult, QueryFilters } from '@/lib/types';
+import {
+  assertActorCanMutateEntity,
+  assertCurrentActorAuth,
+  runSerializable,
+} from './authorization';
 
 export async function getAnnotation(annotationId: string) {
   return prisma.client.annotation.findUnique({
@@ -56,8 +60,10 @@ export async function getWebsiteAnnotations(
 export async function createAnnotation(
   data: Prisma.AnnotationUncheckedCreateInput,
   actorUserId: string,
+  auth: Auth,
 ) {
   return runSerializable(async transaction => {
+    await assertCurrentActorAuth(transaction, actorUserId, auth);
     await assertActorCanMutateEntity(
       transaction,
       actorUserId,
@@ -75,8 +81,10 @@ export async function updateAnnotation(
   annotationId: string,
   data: Prisma.AnnotationUpdateInput,
   actorUserId: string,
+  auth: Auth,
 ) {
   return runSerializable(async transaction => {
+    await assertCurrentActorAuth(transaction, actorUserId, auth);
     await assertActorCanMutateEntity(
       transaction,
       actorUserId,
@@ -102,8 +110,10 @@ export async function deleteAnnotation(
   websiteId: string,
   annotationId: string,
   actorUserId: string,
+  auth: Auth,
 ) {
   return runSerializable(async transaction => {
+    await assertCurrentActorAuth(transaction, actorUserId, auth);
     await assertActorCanMutateEntity(
       transaction,
       actorUserId,

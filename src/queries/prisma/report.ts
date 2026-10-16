@@ -2,10 +2,10 @@ import { Prisma } from '@/generated/prisma/client';
 import { PERMISSIONS, ROLES } from '@/lib/constants';
 import { isUuid } from '@/lib/crypto';
 import prisma from '@/lib/prisma';
-import type { QueryFilters } from '@/lib/types';
+import type { Auth, QueryFilters } from '@/lib/types';
 import {
   assertActorCanMutateEntity,
-  lockActorRoleForMutation,
+  assertCurrentActorAuth,
   runSerializable,
 } from './authorization';
 
@@ -88,8 +88,13 @@ export async function getWebsiteReports(websiteId: string, filters: QueryFilters
   );
 }
 
-export async function createReport(data: Prisma.ReportUncheckedCreateInput, actorUserId: string) {
+export async function createReport(
+  data: Prisma.ReportUncheckedCreateInput,
+  actorUserId: string,
+  auth: Auth,
+) {
   return runSerializable(async transaction => {
+    await assertCurrentActorAuth(transaction, actorUserId, auth, 'REPORT_ACTOR_NOT_AUTHORIZED');
     if (data.userId !== actorUserId) {
       throw new Error('REPORT_ACTOR_NOT_AUTHORIZED');
     }
@@ -118,9 +123,10 @@ export async function updateReport(
   reportId: string,
   data: Prisma.ReportUncheckedUpdateInput,
   actorUserId: string,
+  auth: Auth,
 ) {
   return runSerializable(async transaction => {
-    await lockActorRoleForMutation(transaction, actorUserId);
+    await assertCurrentActorAuth(transaction, actorUserId, auth, 'REPORT_ACTOR_NOT_AUTHORIZED');
     const actor = await transaction.user.findFirst({
       where: {
         id: actorUserId,
@@ -187,9 +193,9 @@ export async function updateReport(
   });
 }
 
-export async function deleteReport(reportId: string, actorUserId: string) {
+export async function deleteReport(reportId: string, actorUserId: string, auth: Auth) {
   return runSerializable(async transaction => {
-    await lockActorRoleForMutation(transaction, actorUserId);
+    await assertCurrentActorAuth(transaction, actorUserId, auth, 'REPORT_ACTOR_NOT_AUTHORIZED');
     const actor = await transaction.user.findFirst({
       where: {
         id: actorUserId,
