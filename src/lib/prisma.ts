@@ -486,14 +486,12 @@ function getEventPropertyFilterQuery(
   }
 
   const clauses: string[] = [];
-  const keyRefs: string[] = [];
   const params: Record<string, any> = {};
 
   filters.forEach(({ propertyName, dataType, operator, value }, index) => {
     const keyParam = `epf_key_${index}`;
     const valParam = `epf_val_${index}`;
     params[keyParam] = propertyName;
-    keyRefs.push(`{{${keyParam}}}`);
 
     let condition: string;
 
@@ -577,9 +575,16 @@ function getEventPropertyFilterQuery(
       }
     }
 
-    clauses.push(
-      `bool_or(data_key = {{${keyParam}}} and data_type = ${dataType} and ${condition})`,
-    );
+    clauses.push(`and exists (
+      select 1
+      from event_data
+      where website_id = {{websiteId::uuid}}
+        and website_event_id = website_event.event_id
+        and created_at between {{startDate}} and {{endDate}}
+        and data_key = {{${keyParam}}}
+        and data_type = ${dataType}
+        and ${condition}
+    )`);
   });
 
   if (!clauses.length) {
@@ -587,15 +592,7 @@ function getEventPropertyFilterQuery(
   }
 
   return {
-    sql: `and website_event.event_id in (
-      select website_event_id
-      from event_data
-      where website_id = {{websiteId::uuid}}
-        and created_at between {{startDate}} and {{endDate}}
-        and data_key in (${keyRefs.join(', ')})
-      group by website_event_id
-      having ${clauses.join('\n        and ')}
-    )`,
+    sql: clauses.join('\n'),
     params,
   };
 }
@@ -612,14 +609,12 @@ function getSessionPropertyFilterQuery(
   }
 
   const clauses: string[] = [];
-  const keyRefs: string[] = [];
   const params: Record<string, any> = {};
 
   filters.forEach(({ propertyName, dataType, operator, value }, index) => {
     const keyParam = `spf_key_${index}`;
     const valParam = `spf_val_${index}`;
     params[keyParam] = propertyName;
-    keyRefs.push(`{{${keyParam}}}`);
 
     let condition: string;
 
@@ -703,9 +698,15 @@ function getSessionPropertyFilterQuery(
       }
     }
 
-    clauses.push(
-      `bool_or(data_key = {{${keyParam}}} and data_type = ${dataType} and ${condition})`,
-    );
+    clauses.push(`and exists (
+      select 1
+      from session_data
+      where website_id = website_event.website_id
+        and session_id = website_event.session_id
+        and data_key = {{${keyParam}}}
+        and data_type = ${dataType}
+        and ${condition}
+    )`);
   });
 
   if (!clauses.length) {
@@ -713,15 +714,7 @@ function getSessionPropertyFilterQuery(
   }
 
   return {
-    sql: `and exists (
-      select 1
-      from session_data
-      where website_id = website_event.website_id
-        and session_id = website_event.session_id
-        and data_key in (${keyRefs.join(', ')})
-      group by website_id, session_id
-      having ${clauses.join('\n        and ')}
-    )`,
+    sql: clauses.join('\n'),
     params,
   };
 }

@@ -1,5 +1,6 @@
 import { Client } from 'pg';
 import { expect, test } from 'vitest';
+import { DATA_TYPE, OPERATORS } from '@/lib/constants';
 
 const integrationTest = process.env.POSTGRES_DISCOVERY_TEST_URL ? test : test.skip;
 
@@ -107,6 +108,72 @@ integrationTest(
         { propertyName: 'currency', dataType: 1, total: 1 },
         { propertyName: 'tags', dataType: 5, total: 1 },
       ]);
+      const propertyFilters = {
+        ...filters,
+        eventPropertyFilters: [
+          {
+            propertyName: 'currency',
+            dataType: DATA_TYPE.string,
+            operator: OPERATORS.equals,
+            value: 'USD',
+          },
+          {
+            propertyName: 'tags',
+            dataType: DATA_TYPE.array,
+            operator: OPERATORS.contains,
+            value: 'red',
+          },
+        ],
+        sessionPropertyFilters: [
+          {
+            propertyName: 'category',
+            dataType: DATA_TYPE.string,
+            operator: OPERATORS.equals,
+            value: 'vip',
+          },
+          {
+            propertyName: 'tags',
+            dataType: DATA_TYPE.array,
+            operator: OPERATORS.contains,
+            value: 'alpha',
+          },
+        ],
+      };
+      const { default: prisma } = await import('@/lib/prisma');
+      expect(prisma.parseFilters({ ...propertyFilters, websiteId }).filterQuery).not.toMatch(
+        /\bgroup\s+by\b/i,
+      );
+      expect(await getEventDataFields(websiteId, 'purchase', propertyFilters)).toEqual([
+        { propertyName: 'currency', dataType: 1, total: 1 },
+        { propertyName: 'tags', dataType: 5, total: 1 },
+      ]);
+      expect(await getEventDataFields(websiteId, 'view', propertyFilters)).toEqual([]);
+      expect(
+        await getEventDataFields(websiteId, 'purchase', {
+          ...propertyFilters,
+          eventPropertyFilters: [
+            {
+              propertyName: 'currency',
+              dataType: DATA_TYPE.string,
+              operator: OPERATORS.equals,
+              value: 'EUR',
+            },
+          ],
+        }),
+      ).toEqual([]);
+      expect(
+        await getEventDataFields(websiteId, 'purchase', {
+          ...propertyFilters,
+          sessionPropertyFilters: [
+            {
+              propertyName: 'category',
+              dataType: DATA_TYPE.string,
+              operator: OPERATORS.equals,
+              value: 'other',
+            },
+          ],
+        }),
+      ).toEqual([]);
       const eventRows = await getEventDataEvents(websiteId, { ...filters, event: 'eq.purchase' });
       expect(eventRows).toEqual(
         expect.arrayContaining([
@@ -160,6 +227,18 @@ integrationTest(
       await client.query(
         `INSERT INTO event_data
           (website_event_id, website_id, created_at, data_key, data_type, string_value)
+         SELECT md5(n::text)::uuid, $1, $2, 'noise', 1, 'match'
+         FROM generate_series(1, 50001) n`,
+        [websiteId, now],
+      );
+      expect(await getEventDataFields(websiteId, 'purchase', propertyFilters)).toEqual([
+        { propertyName: 'currency', dataType: 1, total: 1 },
+        { propertyName: 'tags', dataType: 5, total: 1 },
+      ]);
+
+      await client.query(
+        `INSERT INTO event_data
+          (website_event_id, website_id, created_at, data_key, data_type, string_value)
          SELECT $1, $2, $3, 'key-' || n, 1, n::text
          FROM generate_series(1, 50001) n`,
         [attackEventId, attackWebsiteId, now],
@@ -177,6 +256,19 @@ integrationTest(
       await expect(getEventDataFields(attackWebsiteId, 'attack', filters)).rejects.toBeInstanceOf(
         DiscoveryRangeTooBroadError,
       );
+      await expect(
+        getEventDataFields(attackWebsiteId, 'attack', {
+          ...filters,
+          eventPropertyFilters: [
+            {
+              propertyName: 'key-1',
+              dataType: DATA_TYPE.string,
+              operator: OPERATORS.equals,
+              value: '1',
+            },
+          ],
+        }),
+      ).rejects.toBeInstanceOf(DiscoveryRangeTooBroadError);
       await expect(
         getEventDataEvents(attackWebsiteId, { ...filters, event: 'eq.attack' }),
       ).rejects.toBeInstanceOf(DiscoveryRangeTooBroadError);
