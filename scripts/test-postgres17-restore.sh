@@ -35,6 +35,17 @@ if [[ "${1:-}" == --two-factor-state-races ]]; then
   run_two_factor_state_races
   exit 0
 fi
+if [[ "${1:-}" == --two-factor-redis-races ]]; then
+  : "${REDIS_TEST_URL:?A disposable loopback Redis URL is required}"
+  DOTENV_CONFIG_PATH=/dev/null pnpm run db:migrate
+  ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 \
+    APP_SECRET=synthetic-factor-race-secret-000000000000000000 \
+    TWO_FACTOR_ENCRYPTION_KEY="$(printf 'a%.0s' {1..64})" \
+    PUBLIC_URL=https://analytics.example.com \
+    DOTENV_CONFIG_PATH=/dev/null REDIS_URL="$REDIS_TEST_URL" CLOUD_MODE='' \
+    node --conditions=react-server --import tsx scripts/test-two-factor-redis-races.ts
+  exit 0
+fi
 if [[ "${1:-}" == --team-join-role ]]; then
   DOTENV_CONFIG_PATH=/dev/null pnpm run db:migrate
   ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null REDIS_URL='' CLOUD_MODE='' \

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { SessionRevokedError } from '@/queries/prisma/authorization';
 import { POST } from './route';
 import { confirmTwoFactorSetupSchema } from './schema';
 
@@ -21,6 +22,7 @@ const mocks = vi.hoisted(() => {
     parseRequest: vi.fn(),
     findUnique: vi.fn(),
     transaction: vi.fn(),
+    runActiveSessionMutation: vi.fn(),
     tx,
     generateBackupCodes: vi.fn(),
     decryptSecret: vi.fn(),
@@ -90,6 +92,11 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 
+vi.mock('@/queries/prisma/authorization', () => ({
+  SessionRevokedError: class SessionRevokedError extends Error {},
+  runActiveSessionMutation: mocks.runActiveSessionMutation,
+}));
+
 vi.mock('@/lib/two-factor/backup-codes', () => ({
   generateBackupCodes: mocks.generateBackupCodes,
 }));
@@ -155,6 +162,9 @@ beforeEach(() => {
     secret: 'encrypted',
   });
   mocks.transaction.mockImplementation(async callback => callback(mocks.tx));
+  mocks.runActiveSessionMutation
+    .mockReset()
+    .mockImplementation((_, operation) => mocks.transaction(operation));
   mocks.generateBackupCodes.mockResolvedValue({
     plaintext: ['code-1', 'code-2'],
     hashed: ['hash-1', 'hash-2'],
@@ -412,6 +422,19 @@ test('POST rejects a stale session before enabling a factor or revoking keys', a
   expect(mocks.tx.$queryRaw).toHaveBeenCalledTimes(1);
   expect(mocks.tx.apiKey.deleteMany).not.toHaveBeenCalled();
   expect(mocks.tx.appSetting.deleteMany).not.toHaveBeenCalled();
+  expect(mocks.createSecureToken).not.toHaveBeenCalled();
+});
+
+test('POST rejects a revoked Redis session before enabling a factor', async () => {
+  mocks.runActiveSessionMutation.mockRejectedValue(new SessionRevokedError());
+
+  const response = await POST(
+    new Request('http://localhost/api/2fa/setup/confirm', { method: 'POST' }),
+  );
+
+  expect(response.status).toBe(401);
+  expect(mocks.transaction).not.toHaveBeenCalled();
+  expect(mocks.tx.apiKey.deleteMany).not.toHaveBeenCalled();
   expect(mocks.createSecureToken).not.toHaveBeenCalled();
 });
 

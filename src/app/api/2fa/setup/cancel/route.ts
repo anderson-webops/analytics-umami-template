@@ -1,7 +1,7 @@
 import { isEnvEnabled } from '@/lib/env';
-import prisma from '@/lib/prisma';
 import { parseRequest } from '@/lib/request';
-import { json, notFound } from '@/lib/response';
+import { json, notFound, unauthorized } from '@/lib/response';
+import { runActiveSessionMutation, SessionRevokedError } from '@/queries/prisma/authorization';
 
 export async function POST(request: Request) {
   if (isEnvEnabled('CLOUD_MODE')) {
@@ -14,11 +14,25 @@ export async function POST(request: Request) {
     return error();
   }
 
+  if (auth.authType !== 'session' || !auth.user?.id) {
+    return unauthorized();
+  }
+
   const userId = auth.user.id;
 
-  await prisma.client.twoFactorAuth.deleteMany({
-    where: { userId, isEnabled: false },
-  });
+  try {
+    await runActiveSessionMutation(auth, transaction =>
+      transaction.twoFactorAuth.deleteMany({
+        where: { userId, isEnabled: false },
+      }),
+    );
+  } catch (error) {
+    if (error instanceof SessionRevokedError) {
+      return unauthorized({ code: 'credentials-changed' });
+    }
+
+    throw error;
+  }
 
   return json({ ok: true });
 }

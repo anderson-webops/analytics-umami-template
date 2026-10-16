@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { SessionRevokedError } from '@/queries/prisma/authorization';
 import { POST } from './route';
 import { initiateTwoFactorSetupSchema } from './schema';
 
@@ -11,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   createMany: vi.fn(),
   queryRaw: vi.fn(),
   transaction: vi.fn(),
+  runActiveSessionMutation: vi.fn(),
   generateTotpSecret: vi.fn(),
   encryptSecret: vi.fn(),
   isTwoFactorConfigured: vi.fn(),
@@ -46,6 +48,11 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 
+vi.mock('@/queries/prisma/authorization', () => ({
+  SessionRevokedError: class SessionRevokedError extends Error {},
+  runActiveSessionMutation: mocks.runActiveSessionMutation,
+}));
+
 vi.mock('@/lib/two-factor/crypto', () => ({
   encryptSecret: mocks.encryptSecret,
   getTwoFactorConfigurationError: () => ({
@@ -77,6 +84,9 @@ beforeEach(() => {
       twoFactorAuth: { createMany: mocks.createMany },
     }),
   );
+  mocks.runActiveSessionMutation
+    .mockReset()
+    .mockImplementation((_, operation) => mocks.transaction(operation));
   mocks.generateTotpSecret.mockReset();
   mocks.encryptSecret.mockReset();
   mocks.isTwoFactorConfigured.mockReset();
@@ -327,5 +337,17 @@ test('POST rejects a stale session before changing a pending factor', async () =
     error: { code: 'credentials-changed' },
   });
   expect(mocks.queryRaw).toHaveBeenCalledTimes(1);
+  expect(mocks.createMany).not.toHaveBeenCalled();
+});
+
+test('POST rejects a revoked Redis session before writing a pending factor', async () => {
+  mocks.runActiveSessionMutation.mockRejectedValue(new SessionRevokedError());
+
+  const response = await POST(
+    new Request('http://localhost/api/2fa/setup/initiate', { method: 'POST' }),
+  );
+
+  expect(response.status).toBe(401);
+  expect(mocks.transaction).not.toHaveBeenCalled();
   expect(mocks.createMany).not.toHaveBeenCalled();
 });

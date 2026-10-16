@@ -23,6 +23,7 @@ import {
   generateQrCodeDataUrl,
   generateTotpSecret,
 } from '@/lib/two-factor/totp';
+import { runActiveSessionMutation, SessionRevokedError } from '@/queries/prisma/authorization';
 import { getUser } from '@/queries/prisma/user';
 import { initiateTwoFactorSetupSchema } from './schema';
 
@@ -94,8 +95,10 @@ export async function POST(request: Request) {
   const otpAuthUri = generateOtpAuthUri(secret, user.username);
   const qrCodeDataUrl = await generateQrCodeDataUrl(otpAuthUri);
 
-  const writeResult = await prisma.transaction(async transaction => {
-    const current = await transaction.$queryRaw<Array<{ sessionGeneration: number }>>`
+  let writeResult;
+  try {
+    writeResult = await runActiveSessionMutation(auth, async transaction => {
+      const current = await transaction.$queryRaw<Array<{ sessionGeneration: number }>>`
       SELECT "session_generation" AS "sessionGeneration"
       FROM "user"
       WHERE "user_id" = ${userId}::uuid
@@ -105,12 +108,12 @@ export async function POST(request: Request) {
       FOR UPDATE
     `;
 
-    if (current.length !== 1) {
-      return 'credentials-changed';
-    }
+      if (current.length !== 1) {
+        return 'credentials-changed';
+      }
 
-    if (existing) {
-      const updated = await transaction.$queryRaw<Array<{ id: string }>>`
+      if (existing) {
+        const updated = await transaction.$queryRaw<Array<{ id: string }>>`
         UPDATE "two_factor_auth"
         SET "secret" = ${encryptedSecret},
             "updated_at" = CURRENT_TIMESTAMP
@@ -120,15 +123,22 @@ export async function POST(request: Request) {
           AND "is_enabled" = false
         RETURNING "id"
       `;
-      return updated.length === 1 ? 'written' : 'setup-changed';
+        return updated.length === 1 ? 'written' : 'setup-changed';
+      }
+
+      const created = await transaction.twoFactorAuth.createMany({
+        data: [{ userId, secret: encryptedSecret, isEnabled: false }],
+        skipDuplicates: true,
+      });
+      return created.count === 1 ? 'written' : 'setup-changed';
+    });
+  } catch (error) {
+    if (error instanceof SessionRevokedError) {
+      return unauthorized({ code: 'credentials-changed' });
     }
 
-    const created = await transaction.twoFactorAuth.createMany({
-      data: [{ userId, secret: encryptedSecret, isEnabled: false }],
-      skipDuplicates: true,
-    });
-    return created.count === 1 ? 'written' : 'setup-changed';
-  });
+    throw error;
+  }
 
   if (writeResult === 'credentials-changed') {
     return unauthorized({ code: 'credentials-changed' });

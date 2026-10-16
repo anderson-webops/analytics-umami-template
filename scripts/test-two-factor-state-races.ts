@@ -7,6 +7,7 @@ import { POST as disableFactor } from '@/app/api/2fa/disable/route';
 import { POST as cancelSetup } from '@/app/api/2fa/setup/cancel/route';
 import { POST as confirmSetup } from '@/app/api/2fa/setup/confirm/route';
 import { POST as initiateSetup } from '@/app/api/2fa/setup/initiate/route';
+import { POST as logoutSession } from '@/app/api/auth/logout/route';
 import { checkAuth } from '@/lib/auth';
 import { hash, secret } from '@/lib/crypto';
 import { createSecureToken } from '@/lib/jwt';
@@ -155,6 +156,61 @@ function disableRequest(fixture: Awaited<ReturnType<typeof createFixture>>) {
   });
 }
 
+function sessionRequest(
+  fixture: Awaited<ReturnType<typeof createFixture>>,
+  path: string,
+  body?: Record<string, string>,
+) {
+  return new Request(`https://analytics.example.com${path}`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${fixture.sessionToken}`,
+      'content-type': 'application/json',
+      origin: 'https://analytics.example.com',
+    },
+    body: JSON.stringify(body ?? {}),
+  });
+}
+
+async function assertLogoutPrecedesMutation(
+  label: string,
+  operation: (fixture: Awaited<ReturnType<typeof createFixture>>) => Promise<Response>,
+) {
+  const fixture = await createFixture(label);
+  const before = await inspector.query<{ secret: string }>(
+    'SELECT secret FROM two_factor_auth WHERE id = $1',
+    [fixture.factorId],
+  );
+  const blocker = new Client({ connectionString: databaseUrl.toString() });
+  let pending: Promise<Response> | null = null;
+  await blocker.connect();
+
+  try {
+    await blocker.query('BEGIN');
+    await blocker.query("SELECT pg_advisory_xact_lock(hashtext('umami:user-mutations'))");
+    pending = operation(fixture);
+    await waitForDatabaseLock(`${label} did not wait on credential mutation admission`);
+
+    const logout = await logoutSession(sessionRequest(fixture, '/api/auth/logout'));
+    assert.equal(logout.status, 200);
+    await blocker.query('ROLLBACK');
+
+    const result = await withTimeout(pending, 8_000, `${label} did not finish after logout`);
+    assert.equal(result.status, 401);
+    const after = await inspector.query<{ secret: string; is_enabled: boolean }>(
+      'SELECT secret, is_enabled FROM two_factor_auth WHERE id = $1',
+      [fixture.factorId],
+    );
+    assert.deepEqual(after.rows, [{ secret: before.rows[0].secret, is_enabled: false }]);
+  } finally {
+    await blocker.query('ROLLBACK');
+    if (pending) {
+      await Promise.allSettled([pending]);
+    }
+    await blocker.end();
+  }
+}
+
 try {
   await inspector.connect();
   inspectorConnected = true;
@@ -165,6 +221,24 @@ try {
   const ordinaryResponse = await confirmSetup(confirmRequest(ordinary));
   assert.equal(ordinaryResponse.status, 200);
   assert.ok((await ordinaryResponse.json()).backupCodes.length > 0);
+
+  stage = 'stateless logout before setup writes';
+  await assertLogoutPrecedesMutation('initiate-after-logout', fixture =>
+    initiateSetup(
+      sessionRequest(fixture, '/api/2fa/setup/initiate', { password: fixture.password }),
+    ),
+  );
+  await assertLogoutPrecedesMutation('cancel-after-logout', fixture =>
+    cancelSetup(sessionRequest(fixture, '/api/2fa/setup/cancel')),
+  );
+  await assertLogoutPrecedesMutation('confirm-after-logout', fixture =>
+    confirmSetup(
+      sessionRequest(fixture, '/api/2fa/setup/confirm', {
+        password: fixture.password,
+        token: fixture.totpCode,
+      }),
+    ),
+  );
   assert.equal(
     (await prisma.client.twoFactorAuth.findUniqueOrThrow({ where: { id: ordinary.factorId } }))
       .isEnabled,

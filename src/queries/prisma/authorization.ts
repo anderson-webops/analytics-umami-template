@@ -1,6 +1,9 @@
 import type { Prisma } from '@/generated/prisma/client';
 import { PERMISSIONS, ROLE_PERMISSIONS, ROLES } from '@/lib/constants';
+import { hash } from '@/lib/crypto';
 import prisma from '@/lib/prisma';
+import redis from '@/lib/redis';
+import type { Auth } from '@/lib/types';
 import { hasMutableGlobalRole } from '@/permissions/mutation';
 
 export type OwnedEntityType = 'website' | 'link' | 'pixel' | 'board';
@@ -108,6 +111,60 @@ export async function runCredentialRevocationMutation<T>(
     },
     { isolationLevel: 'ReadCommitted', timeout: 30_000 },
   );
+}
+
+export class SessionRevokedError extends Error {}
+
+export async function runActiveSessionMutation<T>(
+  auth: Auth,
+  operation: (transaction: Prisma.TransactionClient) => Promise<T>,
+): Promise<T> {
+  const sessionGeneration = auth.sessionGeneration;
+  if (
+    auth.authType !== 'session' ||
+    !auth.user?.id ||
+    typeof sessionGeneration !== 'number' ||
+    !Number.isSafeInteger(sessionGeneration) ||
+    sessionGeneration < 0 ||
+    !auth.passwordFingerprint
+  ) {
+    throw new SessionRevokedError();
+  }
+
+  return runCredentialRevocationMutation(async transaction => {
+    const current = await transaction.$queryRaw<
+      Array<{ password: string; role: string; sessionGeneration: number }>
+    >`
+      SELECT password, role, session_generation AS "sessionGeneration"
+      FROM "user"
+      WHERE user_id = ${auth.user.id}::uuid
+        AND deleted_at IS NULL
+      FOR UPDATE
+    `;
+
+    if (
+      current.length !== 1 ||
+      current[0].role !== auth.user.role ||
+      current[0].sessionGeneration !== sessionGeneration ||
+      hash(current[0].password) !== auth.passwordFingerprint
+    ) {
+      throw new SessionRevokedError();
+    }
+
+    if (redis.enabled && auth.authKey) {
+      const session = await redis.client.get(auth.authKey);
+      if (
+        session?.userId !== auth.user.id ||
+        session.role !== auth.user.role ||
+        session.pwd !== auth.passwordFingerprint ||
+        session.sessionGeneration !== sessionGeneration
+      ) {
+        throw new SessionRevokedError();
+      }
+    }
+
+    return operation(transaction);
+  });
 }
 
 function roleHasPermission(role: string | null | undefined, permission: string) {

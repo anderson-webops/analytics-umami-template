@@ -32,6 +32,7 @@ import {
 import { reserveTwoFactorAttempt, resetRateLimit } from '@/lib/two-factor/rate-limit';
 import { consumeOtp } from '@/lib/two-factor/replay-prevention';
 import { verifyTotp } from '@/lib/two-factor/totp';
+import { runActiveSessionMutation, SessionRevokedError } from '@/queries/prisma/authorization';
 import { getUser } from '@/queries/prisma/user';
 import { confirmTwoFactorSetupSchema } from './schema';
 
@@ -131,7 +132,7 @@ export async function POST(request: Request) {
   const { plaintext, hashed } = await generateBackupCodes();
 
   try {
-    await prisma.transaction(async tx => {
+    await runActiveSessionMutation(auth, async tx => {
       const updatedUsers = await tx.$queryRaw<Array<{ sessionGeneration: number }>>`
         UPDATE "user"
         SET "session_generation" = "session_generation" + 1,
@@ -177,7 +178,7 @@ export async function POST(request: Request) {
       await tx.appSetting.deleteMany({ where: { key: getPasswordVerificationBudgetKey(userId) } });
     });
   } catch (error) {
-    if (error instanceof CredentialsChangedError) {
+    if (error instanceof CredentialsChangedError || error instanceof SessionRevokedError) {
       return unauthorized({ code: 'credentials-changed' });
     }
 
