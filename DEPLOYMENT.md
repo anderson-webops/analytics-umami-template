@@ -4,15 +4,31 @@ This repository deploys directly on Linux with Node, systemd, Nginx, and
 PostgreSQL. Production containers and container registries are not part of the
 supported topology.
 
+These host steps are for the protected server operator. Source agents publish
+reviewed releases and do not connect to or deploy on the production server.
+
 ## Host prerequisites
 
 - Node 24.18.1 installed at `/opt/node-24.18.1/bin/node` and pnpm 11.18.0 for builds
 - PostgreSQL 15 or newer, installed as an operating-system service or provided
   by a managed private database
 - Nginx terminating HTTPS for both existing IPv4 and IPv6 listeners
-- a locked service account named `umami` with no interactive shell
+- one locked, noninteractive service user and group named `umami-<instance>`
+  for each isolated instance; use a unique lowercase instance slug of at most
+  25 characters, starting with a letter, ending with a letter or digit, and
+  containing only letters, digits, and hyphens, so the complete account name
+  stays within 31 characters
 - release directories under `/srv/umami/<instance>/releases/`
 - a root-owned environment file at `/etc/umami/<instance>.env`, mode `0600`
+
+Do not install this example template over an existing unit just because a source
+release changes. The protected host operator must confirm the active unit and
+site-to-instance mapping, allocate distinct UIDs/GIDs without cross-tenant
+supplementary groups, and verify that each service account can read only its own
+immutable runtime and write only its own disposable cache. Preserve the existing
+service, Nginx, and environment while rehearsing activation and exact
+retained-runtime rollback. A missing account or permission mismatch must fail
+before switching the serving release.
 
 `DATABASE_REPLICA_URL` remains accepted for legacy environment compatibility, but
 the runtime does not route Prisma reads to it. All database authorization and
@@ -50,13 +66,20 @@ serve both address families.
    `SKIP_DB_MIGRATION` even if a caller supplies a nonproduction `NODE_ENV`.
    Only `pnpm check:db:build` may skip its non-migrating probe during a
    development build; its success is not pre-promotion database acceptance.
-6. Point `/srv/umami/<instance>/current` at the new release atomically.
-7. Install `deploy/systemd/umami@.service` as
-   `/etc/systemd/system/umami@.service`, reload systemd, and restart
-   `umami@<instance>.service`. Runtime and source `start` aliases use verify-only
-   database checks; neither applies migrations at startup. The self-contained
-   artifact never needs the Prisma CLI or development
-   dependencies and cannot mutate the tracker bundle. The runtime database
+6. When the installed service identity is unchanged, point
+   `/srv/umami/<instance>/current` at the new release atomically. For a first
+   per-instance identity transition, keep the old pointer serving while the
+   protected operator stages and tests the candidate under its new account.
+   Coordinate the pointer and unit switch under rollback protection only after
+   that rehearsal passes.
+7. After the protected per-instance identity and rollback rehearsal, install
+   the reviewed `deploy/systemd/umami@.service` as
+   `/etc/systemd/system/umami@.service`, reload systemd, and restart only
+   `umami@<instance>.service`. Do not apply this transition to consolidated
+   aliases that have no dedicated runtime. Runtime and source `start` aliases
+   use verify-only database checks; neither applies migrations at startup. The
+   self-contained artifact never needs the Prisma CLI or development dependencies
+   and cannot mutate the tracker bundle. The runtime database
    check is bounded to release migrations, required schema, an active
    administrator, supported roles, and one active owner per active team. The
    full password-hash and historical relationship audit remains in step 5 so

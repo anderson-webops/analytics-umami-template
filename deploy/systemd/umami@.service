@@ -5,8 +5,8 @@ After=network-online.target postgresql.service
 
 [Service]
 Type=simple
-User=umami
-Group=umami
+User=umami-%i
+Group=umami-%i
 WorkingDirectory=/srv/umami/%i/current
 EnvironmentFile=/etc/umami/%i.env
 Environment=NODE_ENV=production

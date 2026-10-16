@@ -33,7 +33,8 @@ database, while the application listens only on loopback behind Nginx.
 - `scripts/runtime-artifact.mjs` - creates and verifies the independent hashed runtime manifest and staged copies
 - `deploy/runtime-artifact.json` - reviewed entrypoint, dependency, native binding, asset, and writable-state contract
 - `scripts/change-password.js` - rotates a user's password without exposing it as a command-line argument
-- `deploy/systemd/umami@.service` - hardened direct Node service template
+- `deploy/systemd/umami@.service` - reviewed direct Node example with a distinct
+  `umami-<instance>` service identity for each dedicated tenant
 - `deploy/nginx/analytics.locations.conf` - same-origin reverse-proxy example
 - `env.development.sample` - local development environment template with no pinned public origin
 - `env.sample` - production environment template
