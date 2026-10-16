@@ -14,10 +14,13 @@ integrationTest(
     const client = createClient({ url: url.toString() });
     const websiteId = '4a147eee-7e6d-4d73-b4a0-f50d06a52000';
     const attackWebsiteId = '4a147eee-7e6d-4d73-b4a0-f50d06a52001';
+    const repeatedWebsiteId = '4a147eee-7e6d-4d73-b4a0-f50d06a52006';
     const sessionId = '4a147eee-7e6d-4d73-b4a0-f50d06a52002';
     const attackSessionId = '4a147eee-7e6d-4d73-b4a0-f50d06a52003';
+    const repeatedSessionId = '4a147eee-7e6d-4d73-b4a0-f50d06a52007';
     const purchaseEventId = '4a147eee-7e6d-4d73-b4a0-f50d06a52004';
     const attackEventId = '4a147eee-7e6d-4d73-b4a0-f50d06a52005';
+    const repeatedEventId = '4a147eee-7e6d-4d73-b4a0-f50d06a52008';
     const createdAt = '2026-10-15 12:00:00';
     const filters = {
       startDate: new Date('2026-10-15T00:00:00Z'),
@@ -184,6 +187,38 @@ integrationTest(
         query_params: { websiteId: attackWebsiteId, sessionId: attackSessionId },
       });
       await expect(getSessionDataProperties(attackWebsiteId, filters)).rejects.toBeInstanceOf(
+        DiscoveryRangeTooBroadError,
+      );
+
+      await client.insert({
+        table: 'website_event',
+        format: 'JSONEachRow',
+        values: [
+          {
+            website_id: repeatedWebsiteId,
+            session_id: repeatedSessionId,
+            event_id: repeatedEventId,
+            event_name: 'repeat',
+            event_type: 2,
+            is_bot: 0,
+            created_at: createdAt,
+          },
+        ],
+      });
+      await client.command({
+        query: `INSERT INTO event_data
+          (website_id, session_id, event_id, event_name, data_key,
+           data_type, string_value, created_at)
+          SELECT {websiteId:UUID}, {sessionId:UUID}, {eventId:UUID}, 'repeat',
+            'duplicate', 1, 'same', toDateTime('2026-10-15 12:00:00')
+          FROM numbers(262145)`,
+        query_params: {
+          websiteId: repeatedWebsiteId,
+          sessionId: repeatedSessionId,
+          eventId: repeatedEventId,
+        },
+      });
+      await expect(getEventDataFields(repeatedWebsiteId, 'repeat', filters)).rejects.toBeInstanceOf(
         DiscoveryRangeTooBroadError,
       );
     } finally {

@@ -80,6 +80,7 @@ test.each(['prisma', 'clickhouse'] as const)(
       } else {
         expect(query.trim()).toMatch(/\blimit 500$/i);
         expect(limits).toMatchObject({
+          maxRowsToRead: 262_144,
           maxRowsToGroupBy: 50_000,
           maxRowsInJoin: 50_000,
           maxThreads: 1,
@@ -108,6 +109,7 @@ test.each(['prisma', 'clickhouse'] as const)(
       } else {
         expect(query.trim()).toMatch(/\blimit 500$/i);
         expect(limits).toMatchObject({
+          maxRowsToRead: 262_144,
           maxRowsToGroupBy: 50_000,
           maxRowsInJoin: 50_000,
           maxThreads: 1,
@@ -175,7 +177,11 @@ test.each(['prisma', 'clickhouse'] as const)(
         expect(query).toMatch(/from admitted/i);
         expect(query).toMatch(/limit 50001/i);
       } else {
-        expect(limits).toMatchObject({ maxRowsToGroupBy: 50_000, maxRowsInJoin: 50_000 });
+        expect(limits).toMatchObject({
+          maxRowsToRead: 262_144,
+          maxRowsToGroupBy: 50_000,
+          maxRowsInJoin: 50_000,
+        });
       }
     }
   },

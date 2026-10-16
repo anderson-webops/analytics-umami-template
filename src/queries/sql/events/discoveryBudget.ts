@@ -3,6 +3,7 @@ import prisma from '@/lib/prisma';
 import { DiscoveryRangeTooBroadError } from './discoveryError';
 
 const MAX_DISCOVERY_INPUT_ROWS = 50_000;
+const MAX_DISCOVERY_SCAN_ROWS = 262_144;
 const MAX_DISCOVERY_RESULT_ROWS = 500;
 
 export async function boundedPostgresDiscovery<T>(
@@ -63,6 +64,7 @@ export async function boundedClickhouseDiscovery<T>(
 ): Promise<T[]> {
   try {
     return await clickhouse.rawQuery<T[]>(query, queryParams, functionName, {
+      maxRowsToRead: MAX_DISCOVERY_SCAN_ROWS,
       maxRowsToGroupBy: MAX_DISCOVERY_INPUT_ROWS,
       maxRowsInJoin: MAX_DISCOVERY_INPUT_ROWS,
       maxThreads: 1,
