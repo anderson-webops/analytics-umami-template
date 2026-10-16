@@ -4,7 +4,7 @@ import { ENTITY_TYPE } from '@/lib/constants';
 import { fetchWebsite } from '@/lib/load';
 import {
   reserveAuthenticatedQueryCost,
-  reserveShareQueryCost,
+  reserveShareQueryCost as reserveShareQueryCostForRequest,
   reserveTenantQueryCost,
 } from '@/lib/share-query-budget';
 import {
@@ -91,6 +91,14 @@ import { GET as getSessionsRoute } from './websites/[websiteId]/sessions/route';
 import { GET as getWebsiteStatsRoute } from './websites/[websiteId]/stats/route';
 import { GET as getTrafficStatsRoute } from './websites/[websiteId]/stats/traffic/route';
 import { GET as getWebsiteChartsRoute } from './websites/charts/route';
+
+const reserveShareQueryCost = (shareId: string, cost: number, requestCount: 0 | 1 = 1) =>
+  reserveShareQueryCostForRequest(
+    shareId,
+    cost,
+    new Request('https://analytics.example'),
+    requestCount,
+  );
 
 vi.hoisted(() => {
   process.env.DATABASE_URL ??= 'postgresql://user:pass@localhost:5432/umami?schema=public';
@@ -759,6 +767,29 @@ test('a public share within budget retains access to authorized analytics', asyn
   expect(response.status).toBe(200);
   await expect(response.json()).resolves.toEqual({ visitors: 2 });
   expect(getActiveVisitorsMock).toHaveBeenCalledOnce();
+});
+
+test('an exhausted share viewer does not block an independent viewer through the route', async () => {
+  vi.stubEnv('CLIENT_IP_HEADER', 'x-real-ip');
+  try {
+    const shareId = `viewer-route-${crypto.randomUUID()}`;
+    checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+    canViewWebsiteSectionMock.mockResolvedValue(true);
+    getActiveVisitorsMock.mockResolvedValue({ visitors: 2 });
+    const request = (ip: string) =>
+      new Request(`https://analytics.example/api/websites/${WEBSITE_ID}/active`, {
+        headers: { 'x-real-ip': ip },
+      });
+
+    expect(
+      (await reserveShareQueryCostForRequest(shareId, 600, request('192.0.2.1'))).blocked,
+    ).toBe(false);
+    expect((await getActiveVisitorsRoute(request('192.0.2.1'), pathParams)).status).toBe(429);
+    expect((await getActiveVisitorsRoute(request('198.51.100.1'), pathParams)).status).toBe(200);
+    expect(getActiveVisitorsMock).toHaveBeenCalledOnce();
+  } finally {
+    vi.unstubAllEnvs();
+  }
 });
 
 test('ordinary users retain active-visitor access and denied users remain denied', async () => {

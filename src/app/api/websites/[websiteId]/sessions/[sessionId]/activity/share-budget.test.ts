@@ -3,8 +3,9 @@ import { getQueryFilters, parseRequest } from '@/lib/request';
 import {
   MAX_AUTH_SESSION_ROWS,
   reserveAuthenticatedQueryCost,
-  reserveShareQueryCost,
+  reserveShareQueryCost as reserveShareQueryCostForRequest,
 } from '@/lib/share-query-budget';
+
 import { canViewWebsiteSection } from '@/permissions';
 import { getWebsite } from '@/queries/prisma';
 import {
@@ -14,6 +15,14 @@ import {
   getWebsiteSession,
 } from '@/queries/sql';
 import { GET } from './route';
+
+const reserveShareQueryCost = (shareId: string, cost: number, requestCount: 0 | 1 = 1) =>
+  reserveShareQueryCostForRequest(
+    shareId,
+    cost,
+    new Request('https://analytics.example'),
+    requestCount,
+  );
 
 vi.mock('@/lib/request', () => ({
   getQueryFilters: vi.fn(),

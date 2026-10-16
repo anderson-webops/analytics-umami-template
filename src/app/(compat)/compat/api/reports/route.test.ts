@@ -1,10 +1,19 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { checkAuth } from '@/lib/auth';
 import { fetchWebsite } from '@/lib/load';
-import { reserveShareQueryCost } from '@/lib/share-query-budget';
+import { reserveShareQueryCost as reserveShareQueryCostForRequest } from '@/lib/share-query-budget';
+
 import { canViewWebsiteSection } from '@/permissions';
 import { getReports } from '@/queries/prisma';
 import { GET } from './route';
+
+const reserveShareQueryCost = (shareId: string, cost: number, requestCount: 0 | 1 = 1) =>
+  reserveShareQueryCostForRequest(
+    shareId,
+    cost,
+    new Request('https://analytics.example'),
+    requestCount,
+  );
 
 vi.hoisted(() => {
   process.env.DATABASE_URL ??= 'postgresql://user:pass@localhost:5432/umami?schema=public';

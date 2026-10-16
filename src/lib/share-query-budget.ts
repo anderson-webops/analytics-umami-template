@@ -1,6 +1,7 @@
 import { DEFAULT_PAGE_SIZE, FILTER_COLUMNS, OPERATORS } from '@/lib/constants';
 import { hash } from '@/lib/crypto';
 import { getAllowedUnits, getMinimumUnit } from '@/lib/date';
+import { getIpAddress } from '@/lib/ip';
 import {
   filtersArrayToObject,
   parseFilterValue,
@@ -22,6 +23,8 @@ const MAX_AUTH_WINDOW_REQUESTS = 60;
 const MAX_TENANT_WINDOW_COST = 40_000;
 const MAX_TENANT_WINDOW_REQUESTS = 120;
 const MAX_SHARE_WINDOW_REQUESTS = 60;
+const MAX_SHARE_GLOBAL_WINDOW_COST = 1200;
+const MAX_SHARE_GLOBAL_WINDOW_REQUESTS = 120;
 const MAX_FILTERS = 24;
 const MAX_PROPERTY_FILTERS = 16;
 const MAX_SAVED_FUNNEL_STEP_FILTERS = 8 * 20;
@@ -432,33 +435,58 @@ function authMemoryCounters(): Map<string, AuthCounter> {
   return state[AUTH_MEMORY_COUNTERS];
 }
 
-function reserveLocal(key: string, cost: number, requestCount: 0 | 1) {
+function reserveLocalShare(
+  globalKey: string,
+  viewerKey: string,
+  cost: number,
+  requestCount: 0 | 1,
+) {
   const counters = memoryCounters();
   const now = Date.now();
-  const current = counters.get(key);
+  const limits = [
+    [globalKey, MAX_SHARE_GLOBAL_WINDOW_COST, MAX_SHARE_GLOBAL_WINDOW_REQUESTS],
+    [viewerKey, MAX_WINDOW_COST, MAX_SHARE_WINDOW_REQUESTS],
+  ] as const;
 
-  if (!current || current.expiresAt <= now) {
+  for (const [key] of limits) {
+    const current = counters.get(key);
+    if (current && current.expiresAt <= now) counters.delete(key);
+  }
+
+  if (counters.size + limits.filter(([key]) => !counters.has(key)).length > MAX_MEMORY_COUNTERS) {
     for (const [storedKey, counter] of counters) {
       if (counter.expiresAt <= now) counters.delete(storedKey);
     }
-    if (counters.size >= MAX_MEMORY_COUNTERS) {
-      return false;
-    }
-    counters.set(key, { cost, requests: requestCount, expiresAt: now + WINDOW_SECONDS * 1000 });
-    return true;
   }
 
-  if (
-    !Number.isSafeInteger(current.requests) ||
-    current.requests < 0 ||
-    current.cost + cost > MAX_WINDOW_COST ||
-    current.requests + requestCount > MAX_SHARE_WINDOW_REQUESTS
-  ) {
+  if (counters.size + limits.filter(([key]) => !counters.has(key)).length > MAX_MEMORY_COUNTERS) {
     return false;
   }
 
-  current.cost += cost;
-  current.requests += requestCount;
+  for (const [key, maxCost, maxRequests] of limits) {
+    const current = counters.get(key);
+    if (
+      current &&
+      (!Number.isSafeInteger(current.cost) ||
+        !Number.isSafeInteger(current.requests) ||
+        current.cost < 0 ||
+        current.requests < 0 ||
+        current.cost + cost > maxCost ||
+        current.requests + requestCount > maxRequests)
+    ) {
+      return false;
+    }
+  }
+
+  for (const [key] of limits) {
+    const current = counters.get(key);
+    if (current) {
+      current.cost += cost;
+      current.requests += requestCount;
+    } else {
+      counters.set(key, { cost, requests: requestCount, expiresAt: now + WINDOW_SECONDS * 1000 });
+    }
+  }
   return true;
 }
 
@@ -496,6 +524,7 @@ function reserveLocalAuth(
 export async function reserveShareQueryCost(
   shareId: string,
   cost: number,
+  request: Request,
   requestCount: 0 | 1 = 1,
 ) {
   if (
@@ -509,6 +538,7 @@ export async function reserveShareQueryCost(
   }
 
   const key = `share-query-budget:${hash(shareId).slice(0, 32)}`;
+  const viewerKey = `${key}:viewer:${hash(getIpAddress(request.headers) || 'unknown').slice(0, 32)}`;
 
   if (redis.enabled) {
     try {
@@ -516,34 +546,51 @@ export async function reserveShareQueryCost(
       const total = await redis.client.client.withAbortSignal(AbortSignal.timeout(1000)).eval(
         `local current = tonumber(redis.call('GET', KEYS[1]) or '0')
          local requests = tonumber(redis.call('GET', KEYS[2]) or '0')
+         local viewer = tonumber(redis.call('GET', KEYS[3]) or '0')
+         local viewerRequests = tonumber(redis.call('GET', KEYS[4]) or '0')
          local charge = tonumber(ARGV[1])
          local capacity = tonumber(ARGV[3])
          local requestCount = tonumber(ARGV[4])
          local requestCapacity = tonumber(ARGV[5])
-         if not current or not requests or current < 0 or requests < 0 or
+         local viewerCapacity = tonumber(ARGV[6])
+         local viewerRequestCapacity = tonumber(ARGV[7])
+         if not current or not requests or not viewer or not viewerRequests or
+            current < 0 or requests < 0 or viewer < 0 or viewerRequests < 0 or
             current > capacity or requests > requestCapacity or
-            current + charge > capacity or requests + requestCount > requestCapacity then
+            viewer > viewerCapacity or viewerRequests > viewerRequestCapacity or
+            current + charge > capacity or requests + requestCount > requestCapacity or
+            viewer + charge > viewerCapacity or
+            viewerRequests + requestCount > viewerRequestCapacity then
            return -1
          end
          local total = redis.call('INCRBY', KEYS[1], charge)
          redis.call('INCRBY', KEYS[2], requestCount)
+         redis.call('INCRBY', KEYS[3], charge)
+         redis.call('INCRBY', KEYS[4], requestCount)
          if current == 0 then redis.call('EXPIRE', KEYS[1], ARGV[2]) end
          if requests == 0 then redis.call('EXPIRE', KEYS[2], ARGV[2]) end
+         if viewer == 0 then redis.call('EXPIRE', KEYS[3], ARGV[2]) end
+         if viewerRequests == 0 then redis.call('EXPIRE', KEYS[4], ARGV[2]) end
          return total`,
         {
-          keys: [key, `${key}:requests`],
+          keys: [key, `${key}:requests`, viewerKey, `${viewerKey}:requests`],
           arguments: [
             String(cost),
             String(WINDOW_SECONDS),
-            String(MAX_WINDOW_COST),
+            String(MAX_SHARE_GLOBAL_WINDOW_COST),
             String(requestCount),
+            String(MAX_SHARE_GLOBAL_WINDOW_REQUESTS),
+            String(MAX_WINDOW_COST),
             String(MAX_SHARE_WINDOW_REQUESTS),
           ],
         },
       );
       const reserved = Number(total);
       return {
-        blocked: !Number.isSafeInteger(reserved) || reserved < cost || reserved > MAX_WINDOW_COST,
+        blocked:
+          !Number.isSafeInteger(reserved) ||
+          reserved < cost ||
+          reserved > MAX_SHARE_GLOBAL_WINDOW_COST,
         retryAfter: WINDOW_SECONDS,
       };
     } catch {
@@ -552,7 +599,7 @@ export async function reserveShareQueryCost(
   }
 
   return {
-    blocked: !reserveLocal(key, cost, requestCount),
+    blocked: !reserveLocalShare(key, viewerKey, cost, requestCount),
     retryAfter: WINDOW_SECONDS,
   };
 }

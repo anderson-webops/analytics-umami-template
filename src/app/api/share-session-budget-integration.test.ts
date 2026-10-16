@@ -4,8 +4,9 @@ import { parseRequest } from '@/lib/request';
 import {
   MAX_AUTH_SESSION_ROWS,
   MAX_SHARE_SESSION_ROWS,
-  reserveShareQueryCost,
+  reserveShareQueryCost as reserveShareQueryCostForRequest,
 } from '@/lib/share-query-budget';
+
 import { canDeleteWebsite, canViewWebsite, canViewWebsiteSection } from '@/permissions';
 import { getWebsite } from '@/queries/prisma';
 import {
@@ -18,6 +19,14 @@ import {
 import { GET as getSessionActivityRoute } from './websites/[websiteId]/sessions/[sessionId]/activity/route';
 import { GET as getSessionProperties } from './websites/[websiteId]/sessions/[sessionId]/properties/route';
 import { GET as getSessionDetail } from './websites/[websiteId]/sessions/[sessionId]/route';
+
+const reserveShareQueryCost = (shareId: string, cost: number, requestCount: 0 | 1 = 1) =>
+  reserveShareQueryCostForRequest(
+    shareId,
+    cost,
+    new Request('https://analytics.example'),
+    requestCount,
+  );
 
 vi.hoisted(() => {
   process.env.DATABASE_URL ??= 'postgresql://user:pass@localhost:5432/umami?schema=public';

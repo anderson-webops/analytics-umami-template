@@ -1,11 +1,23 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { ENTITY_TYPE } from '@/lib/constants';
 import { getQueryFilters, parseRequest } from '@/lib/request';
-import { reserveAuthenticatedQueryCost, reserveShareQueryCost } from '@/lib/share-query-budget';
+import {
+  reserveAuthenticatedQueryCost,
+  reserveShareQueryCost as reserveShareQueryCostForRequest,
+} from '@/lib/share-query-budget';
+
 import { canViewReport, canViewWebsiteSection } from '@/permissions';
 import { getReport, getWebsite } from '@/queries/prisma';
 import { getFunnel } from '@/queries/sql/funnels/getFunnel';
 import { GET } from './route';
+
+const reserveShareQueryCost = (shareId: string, cost: number, requestCount: 0 | 1 = 1) =>
+  reserveShareQueryCostForRequest(
+    shareId,
+    cost,
+    new Request('https://analytics.example'),
+    requestCount,
+  );
 
 vi.mock('@/lib/request', () => ({ parseRequest: vi.fn(), getQueryFilters: vi.fn() }));
 vi.mock('@/permissions', () => ({ canViewReport: vi.fn(), canViewWebsiteSection: vi.fn() }));

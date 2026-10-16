@@ -15,10 +15,18 @@ import {
   getValuesShareWorkMultiplier,
   isBoundedBreakdownShape,
   reserveAuthenticatedQueryCost,
-  reserveShareQueryCost,
+  reserveShareQueryCost as reserveShareQueryCostForRequest,
   reserveTenantQueryCost,
   reserveTenantQueryCosts,
 } from './share-query-budget';
+
+const reserveShareQueryCost = (shareId: string, cost: number, requestCount: 0 | 1 = 1) =>
+  reserveShareQueryCostForRequest(
+    shareId,
+    cost,
+    new Request('https://analytics.example'),
+    requestCount,
+  );
 
 test('reserves a multi-owner budget in one distributed admission operation', async () => {
   const enabled = redis.enabled;
@@ -275,6 +283,53 @@ test('bounds repeated queries per share in a fixed window', async () => {
   expect((await reserveShareQueryCost(shareId, 1)).blocked).toBe(true);
 });
 
+test('one public-share viewer cannot spend an independent viewer budget or the global reserve', async () => {
+  vi.stubEnv('CLIENT_IP_HEADER', 'x-real-ip');
+  try {
+    const shareId = `viewer-budget-${crypto.randomUUID()}`;
+    const viewerRequest = (ip: string) =>
+      new Request('https://analytics.example', { headers: { 'x-real-ip': ip } });
+    const attacker = viewerRequest('192.0.2.1');
+    const ordinary = viewerRequest('198.51.100.1');
+    const third = viewerRequest('203.0.113.1');
+    const spoofedForwarding = new Request('https://analytics.example', {
+      headers: { 'x-real-ip': '192.0.2.1', 'x-forwarded-for': '203.0.113.200' },
+    });
+
+    expect((await reserveShareQueryCostForRequest(shareId, 600, attacker)).blocked).toBe(false);
+    expect((await reserveShareQueryCostForRequest(shareId, 1, attacker)).blocked).toBe(true);
+    expect((await reserveShareQueryCostForRequest(shareId, 1, spoofedForwarding)).blocked).toBe(
+      true,
+    );
+    expect((await reserveShareQueryCostForRequest(shareId, 600, ordinary)).blocked).toBe(false);
+    expect((await reserveShareQueryCostForRequest(shareId, 1, third)).blocked).toBe(true);
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+
+test('one viewer cannot consume every low-cost request slot for the share', async () => {
+  vi.stubEnv('CLIENT_IP_HEADER', 'x-real-ip');
+  try {
+    const shareId = `viewer-requests-${crypto.randomUUID()}`;
+    const attacker = new Request('https://analytics.example', {
+      headers: { 'x-real-ip': '192.0.2.1' },
+    });
+    const ordinary = new Request('https://analytics.example', {
+      headers: { 'x-real-ip': '198.51.100.1' },
+    });
+    const reservations = await Promise.all(
+      Array.from({ length: 61 }, () => reserveShareQueryCostForRequest(shareId, 1, attacker)),
+    );
+
+    expect(reservations.filter(result => !result.blocked)).toHaveLength(60);
+    expect(reservations.filter(result => result.blocked)).toHaveLength(1);
+    expect((await reserveShareQueryCostForRequest(shareId, 1, ordinary)).blocked).toBe(false);
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+
 test('bounds low-cost public-share requests independently of weighted cost', async () => {
   const shareId = `share-request-count-${crypto.randomUUID()}`;
   const reservations = await Promise.all(
@@ -360,15 +415,26 @@ test('rejects a multi-query request larger than the complete window allowance', 
 test('Redis reservations reject oversized charges before connecting', async () => {
   const enabled = redis.enabled;
   const connect = vi.spyOn(redis.client, 'connect').mockResolvedValue();
-  let total = 0;
+  const counters = new Map<string, number>();
   const withAbortSignal = vi.spyOn(redis.client.client, 'withAbortSignal').mockImplementation(
     () =>
       ({
-        eval: (_script: string, options: { arguments: string[] }) => {
-          const charge = Number(options.arguments[0]);
-          if (total + charge > Number(options.arguments[2])) return Promise.resolve(-1);
-          total += charge;
-          return Promise.resolve(total);
+        eval: (_script: string, options: { keys: string[]; arguments: string[] }) => {
+          const [cost, , globalCost, requestCount, globalRequests, viewerCost, viewerRequests] =
+            options.arguments.map(Number);
+          const charges = [cost, requestCount, cost, requestCount];
+          const capacities = [globalCost, globalRequests, viewerCost, viewerRequests];
+          if (
+            options.keys.some(
+              (key, index) => (counters.get(key) ?? 0) + charges[index] > capacities[index],
+            )
+          ) {
+            return Promise.resolve(-1);
+          }
+          options.keys.forEach((key, index) => {
+            counters.set(key, (counters.get(key) ?? 0) + charges[index]);
+          });
+          return Promise.resolve(counters.get(options.keys[0]));
         },
       }) as any,
   );
@@ -438,18 +504,23 @@ test('Redis atomically bounds public-share cost and request count', async () => 
     () =>
       ({
         eval: (_script: string, options: { keys: string[]; arguments: string[] }) => {
-          const [costKey, requestKey] = options.keys;
-          const [cost, , maxCost, requestCount, maxRequests] = options.arguments.map(Number);
-          const currentCost = counters.get(costKey) ?? 0;
-          const currentRequests = counters.get(requestKey) ?? 0;
+          const [cost, , maxCost, requestCount, maxRequests, maxViewerCost, maxViewerRequests] =
+            options.arguments.map(Number);
+          const charges = [cost, requestCount, cost, requestCount];
+          const capacities = [maxCost, maxRequests, maxViewerCost, maxViewerRequests];
 
-          if (currentCost + cost > maxCost || currentRequests + requestCount > maxRequests) {
+          if (
+            options.keys.some(
+              (key, index) => (counters.get(key) ?? 0) + charges[index] > capacities[index],
+            )
+          ) {
             return Promise.resolve(-1);
           }
 
-          counters.set(costKey, currentCost + cost);
-          counters.set(requestKey, currentRequests + requestCount);
-          return Promise.resolve(currentCost + cost);
+          options.keys.forEach((key, index) => {
+            counters.set(key, (counters.get(key) ?? 0) + charges[index]);
+          });
+          return Promise.resolve(counters.get(options.keys[0]));
         },
       }) as any,
   );
@@ -463,7 +534,29 @@ test('Redis atomically bounds public-share cost and request count', async () => 
     expect(reservations.filter(result => !result.blocked)).toHaveLength(60);
     expect(reservations.filter(result => result.blocked)).toHaveLength(1);
     expect((await reserveShareQueryCost(shareId, 540, 0)).blocked).toBe(false);
+
+    vi.stubEnv('CLIENT_IP_HEADER', 'x-real-ip');
+    const firstViewer = new Request('https://analytics.example', {
+      headers: { 'x-real-ip': '192.0.2.1' },
+    });
+    const secondViewer = new Request('https://analytics.example', {
+      headers: { 'x-real-ip': '198.51.100.1' },
+    });
+    const thirdViewer = new Request('https://analytics.example', {
+      headers: { 'x-real-ip': '203.0.113.1' },
+    });
+    const fairShare = `redis-viewer-${crypto.randomUUID()}`;
+    expect((await reserveShareQueryCostForRequest(fairShare, 600, firstViewer)).blocked).toBe(
+      false,
+    );
+    expect((await reserveShareQueryCostForRequest(fairShare, 1, firstViewer)).blocked).toBe(true);
+    expect((await reserveShareQueryCostForRequest(fairShare, 600, secondViewer)).blocked).toBe(
+      false,
+    );
+    expect((await reserveShareQueryCostForRequest(fairShare, 1, thirdViewer)).blocked).toBe(true);
+    expect(counters.size).toBe(10);
   } finally {
+    vi.unstubAllEnvs();
     redis.enabled = enabled;
     connect.mockRestore();
     withAbortSignal.mockRestore();

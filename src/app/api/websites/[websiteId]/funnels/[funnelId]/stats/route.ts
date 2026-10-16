@@ -84,7 +84,12 @@ export async function GET(
   if (shareBase && shareCombined && shareCombined.charge > shareBase.charge) {
     const shareId = auth.shareToken.shareId ?? auth.shareToken.websiteId;
     if (!shareId) return unauthorized();
-    const limit = await reserveShareQueryCost(shareId, shareCombined.charge - shareBase.charge, 0);
+    const limit = await reserveShareQueryCost(
+      shareId,
+      shareCombined.charge - shareBase.charge,
+      request,
+      0,
+    );
     if (limit.unavailable) return serviceUnavailable();
     if (limit.blocked) return tooManyRequests(limit.retryAfter);
   }

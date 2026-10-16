@@ -377,7 +377,7 @@ export async function parseRequest(
       if (!shareId) {
         error = () => unauthorized();
       } else {
-        const limit = await reserveShareQueryCost(shareId, budget.charge);
+        const limit = await reserveShareQueryCost(shareId, budget.charge, request);
 
         if (limit.unavailable) {
           error = () => serviceUnavailable();

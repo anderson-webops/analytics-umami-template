@@ -76,7 +76,7 @@ export async function GET(
       }
 
       if (shareCost > 0) {
-        const limit = await reserveShareQueryCost(shareId, shareCost, 0);
+        const limit = await reserveShareQueryCost(shareId, shareCost, request, 0);
         if (limit.unavailable) return serviceUnavailable();
         if (limit.blocked) return tooManyRequests(limit.retryAfter);
       }

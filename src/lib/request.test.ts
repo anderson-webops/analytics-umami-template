@@ -17,9 +17,17 @@ import {
 import {
   getPagedShareWorkMultiplier,
   reserveAuthenticatedQueryCost,
-  reserveShareQueryCost,
+  reserveShareQueryCost as reserveShareQueryCostForRequest,
   reserveTenantQueryCost,
 } from './share-query-budget';
+
+const reserveShareQueryCost = (shareId: string, cost: number, requestCount: 0 | 1 = 1) =>
+  reserveShareQueryCostForRequest(
+    shareId,
+    cost,
+    new Request('https://analytics.example'),
+    requestCount,
+  );
 
 vi.hoisted(() => {
   process.env.DATABASE_URL ??= 'postgresql://user:pass@localhost:5432/umami?schema=public';

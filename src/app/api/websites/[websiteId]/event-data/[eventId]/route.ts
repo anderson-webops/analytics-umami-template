@@ -49,7 +49,7 @@ export async function GET(
       return unauthorized();
     }
 
-    const limit = await reserveShareQueryCost(shareId, SHARED_EVENT_DATA_COST);
+    const limit = await reserveShareQueryCost(shareId, SHARED_EVENT_DATA_COST, request);
 
     if (limit.unavailable) {
       return serviceUnavailable();
