@@ -17,7 +17,7 @@ if [[ "${1:-}" == --build ]]; then build=1; shift; fi
 port="$(node --input-type=module -e 'import net from "node:net"; const s=net.createServer(); s.listen(0,"127.0.0.1",()=>{console.log(s.address().port);s.close()});')"
 "$pg_bin/initdb" -D "$fixture/data" -A trust -U restore_test --no-locale >"$fixture/init.log"
 "$pg_bin/pg_ctl" -D "$fixture/data" -l "$fixture/postgres.log" \
-  -o "-h 127.0.0.1 -p $port -c unix_socket_directories='' -c shared_buffers=32MB -c max_connections=30" start >/dev/null
+  -o "-h 127.0.0.1 -p $port -c unix_socket_directories='' -c shared_buffers=32MB -c max_connections=30 -c TimeZone=America/New_York" start >/dev/null
 export PATH="$pg_bin:$PATH"
 export DATABASE_URL="postgresql://restore_test:synthetic-restore-password-000000@127.0.0.1:$port/postgres"
 export DATABASE_REPLICA_URL= DIRECT_DATABASE_URL= REDIS_URL= CLICKHOUSE_URL= KAFKA_URL=

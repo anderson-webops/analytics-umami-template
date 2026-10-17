@@ -290,7 +290,10 @@ async function generateSiteData(
 }
 
 function createPrismaClient(connectionString: string, schema: string): PrismaClient {
-  const adapter = new PrismaPg({ connectionString }, { schema });
+  const options = [new URL(connectionString).searchParams.get('options'), '-c TimeZone=UTC']
+    .filter(Boolean)
+    .join(' ');
+  const adapter = new PrismaPg({ connectionString, options }, { schema });
 
   return new PrismaClient({
     adapter,

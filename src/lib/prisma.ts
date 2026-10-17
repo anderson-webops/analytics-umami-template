@@ -106,8 +106,6 @@ function getCastColumnQuery(field: string, type: string): string {
 }
 
 function getDateSQL(field: string, unit: string, timezone?: string): string {
-  // Explicit `at time zone` even for UTC — `date_trunc` without one falls back to the
-  // DB session's ambient TimeZone setting, which this app never pins.
   const tz = timezone && !isUtcTimezone(timezone) ? timezone : 'UTC';
 
   return `to_char(date_trunc('${unit}', ${field} at time zone '${tz}'), '${DATE_FORMATS[unit]}')`;
@@ -969,7 +967,10 @@ function getClient() {
 
   const schema = getSchema();
 
-  const baseAdapter = new PrismaPg({ connectionString: url }, { schema });
+  const options = [new URL(url).searchParams.get('options'), '-c TimeZone=UTC']
+    .filter(Boolean)
+    .join(' ');
+  const baseAdapter = new PrismaPg({ connectionString: url, options }, { schema });
 
   const baseClient = new PrismaClient({
     adapter: baseAdapter,

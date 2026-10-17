@@ -101,7 +101,10 @@ async function run() {
   const password = requireStrongPassword(username);
   const url = requireDatabaseUrl();
   const adapter = new PrismaPg(
-    { connectionString: url.toString() },
+    {
+      connectionString: url.toString(),
+      options: [url.searchParams.get('options'), '-c TimeZone=UTC'].filter(Boolean).join(' '),
+    },
     { schema: url.searchParams.get('schema') },
   );
   const prisma = new PrismaClient({ adapter });

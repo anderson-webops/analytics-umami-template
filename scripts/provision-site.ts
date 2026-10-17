@@ -301,7 +301,12 @@ async function main() {
 
   const passwordHash = adminPassword ? await hashPassword(adminPassword) : undefined;
   const adapter = new PrismaPg(
-    { connectionString: databaseUrl.toString() },
+    {
+      connectionString: databaseUrl.toString(),
+      options: [databaseUrl.searchParams.get('options'), '-c TimeZone=UTC']
+        .filter(Boolean)
+        .join(' '),
+    },
     { schema: databaseUrl.searchParams.get('schema') },
   );
   const prisma = new PrismaClient({ adapter });

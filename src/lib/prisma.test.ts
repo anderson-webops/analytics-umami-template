@@ -3,12 +3,17 @@ import { afterEach, beforeAll, describe, expect, test, vi } from 'vitest';
 process.env.DATABASE_URL ??= 'postgresql://user:pass@localhost:5432/umami?schema=public';
 delete process.env.DATABASE_REPLICA_URL;
 
-const databaseInitialization = vi.hoisted(() => ({ adapters: 0, replicaExtensions: 0 }));
+const databaseInitialization = vi.hoisted(() => ({
+  adapters: 0,
+  options: [] as string[],
+  replicaExtensions: 0,
+}));
 
 vi.mock('@prisma/adapter-pg', () => ({
   PrismaPg: class PrismaPg {
-    constructor() {
+    constructor(config: { options?: string }) {
       databaseInitialization.adapters += 1;
+      databaseInitialization.options.push(config.options ?? '');
     }
   },
 }));
@@ -47,6 +52,7 @@ beforeAll(async () => {
 
 test('does not initialize an unverified replica when one is configured', () => {
   expect(databaseInitialization.adapters).toBe(1);
+  expect(databaseInitialization.options).toEqual([expect.stringContaining('-c TimeZone=UTC')]);
   expect(databaseInitialization.replicaExtensions).toBe(0);
 });
 

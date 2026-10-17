@@ -80,10 +80,17 @@ function parseDatabaseUrl(name, { required = false } = {}) {
 
 function databaseConnectionOptions(url) {
   const schema = url.searchParams.get('schema');
+  const options = [
+    url.searchParams.get('options'),
+    schema ? `-c search_path=${schema}` : null,
+    '-c TimeZone=UTC',
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   return {
     connectionString: url.toString(),
-    ...(schema ? { options: `-c search_path=${schema}` } : {}),
+    options,
   };
 }
 
@@ -129,6 +136,12 @@ async function checkConnection() {
   try {
     await prisma.$connect();
     await prisma.$queryRaw`SELECT 1`;
+    const [session] = await prisma.$queryRaw`SELECT current_setting('TimeZone') AS timezone`;
+
+    if (session?.timezone !== 'UTC') {
+      throw new Error('Database session timezone must be UTC.');
+    }
+
     success('Database connection successful.');
   } catch (error) {
     throw new Error(`Unable to connect to the database: ${error.message}`);

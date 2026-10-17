@@ -16,7 +16,9 @@ const databaseUrl = process.env.DATABASE_URL;
 assert.ok(databaseUrl);
 assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(new URL(databaseUrl).hostname));
 
-const client = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
+const client = new PrismaClient({
+  adapter: new PrismaPg({ connectionString: databaseUrl, options: '-c TimeZone=UTC' }),
+});
 const account = { accountType: 'user' as const, accountId: randomUUID() };
 const websiteId = randomUUID();
 const otherWebsiteId = randomUUID();
@@ -86,6 +88,19 @@ try {
 
   assert.equal(await replay(replayVisitId, 1), true);
   await heatmap(heatmapVisitId);
+  const [session] = await client.$queryRaw<Array<{ timezone: string }>>`
+    SELECT current_setting('TimeZone') AS timezone
+  `;
+  assert.equal(session.timezone, 'UTC');
+  const [databaseExpiry] = await client.$queryRaw<Array<{ expiryMs: bigint }>>`
+    SELECT (EXTRACT(EPOCH FROM expires_at) * 1000)::bigint AS "expiryMs"
+    FROM replay_ingest_budget
+    WHERE website_id = ${websiteId}::uuid
+      AND scope = 'visit' AND scope_key = ${replayVisitId}
+  `;
+  const clientExpiry = (await budget(replayVisitId)).expiresAt;
+  assert.ok(clientExpiry);
+  assert.ok(Math.abs(Number(databaseExpiry.expiryMs) - clientExpiry.getTime()) < 5_000);
   const accountDayBudgets = await client.collectionIngestBudget.findMany({
     where: { subjectType: 'user', subjectKey: account.accountId, scope: 'day' },
   });

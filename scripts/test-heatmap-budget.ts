@@ -12,7 +12,9 @@ const databaseUrl = process.env.DATABASE_URL;
 assert.ok(databaseUrl);
 assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(new URL(databaseUrl).hostname));
 
-const client = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
+const client = new PrismaClient({
+  adapter: new PrismaPg({ connectionString: databaseUrl, options: '-c TimeZone=UTC' }),
+});
 const account = { accountType: 'user' as const, accountId: randomUUID() };
 const websiteId = randomUUID();
 const visitId = randomUUID();
