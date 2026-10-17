@@ -123,9 +123,6 @@ elif [[ "$phase" = accept ]]; then
   export TMPDIR=/tmp
   test -f .next/standalone/runtime-manifest.json
   start_database
-  as_builder node scripts/check-db.js --migrate-only
-  as_builder env NODE_ENV=production node scripts/check-env.js
-  as_builder env NODE_ENV=production node scripts/check-db.js
   mkdir -m 0755 /opt/anderson-sealed
   node scripts/runtime-artifact.mjs copy .next/standalone /opt/anderson-sealed/runtime \
     --release --expected-commit "$RELEASE_COMMIT" \
@@ -136,6 +133,13 @@ elif [[ "$phase" = accept ]]; then
   node scripts/runtime-artifact.mjs verify /opt/anderson-sealed/runtime \
     --release --expected-commit "$RELEASE_COMMIT" \
     --expected-application "${RELEASE_REPOSITORY#*/}"
+  as_builder env NODE_ENV=production PRISMA_HIDE_UPDATE_MESSAGE=1 bash -c '
+    set -euo pipefail
+    cd /opt/anderson-sealed/runtime
+    node runtime-scripts/check-env.mjs
+    node runtime-scripts/check-db.mjs --migrate-only
+    node runtime-scripts/check-db.mjs --verify-only
+  '
   node scripts/test-runtime-artifact.mjs --release --require-isolation \
     --expected-commit "$RELEASE_COMMIT" \
     --source-runtime /opt/anderson-sealed/runtime

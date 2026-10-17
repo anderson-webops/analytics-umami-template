@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { build } from 'esbuild';
@@ -122,6 +123,48 @@ async function run() {
     'prisma.config.ts',
   ]) {
     await copyRuntimePath(path.resolve(fileName), path.join(appDir, fileName));
+  }
+
+  const migrationToolDirectory = path.join(appDir, 'migration-tool');
+  await fs.rm(migrationToolDirectory, { recursive: true, force: true });
+  execFileSync(
+    'pnpm',
+    [
+      '--filter',
+      '@anderson/analytics-migration-tool',
+      'deploy',
+      '--prod',
+      migrationToolDirectory,
+      '--config.inject-workspace-packages=true',
+    ],
+    { stdio: 'inherit' },
+  );
+  const migrationTool = JSON.parse(
+    await fs.readFile(path.join(migrationToolDirectory, 'node_modules/prisma/package.json')),
+  );
+  if (migrationTool.version !== '7.10.0') {
+    throw new Error('The packaged Prisma migration tool does not match the locked version.');
+  }
+  if (process.platform === 'linux' && process.arch === 'arm64') {
+    const enginePath = path.join(
+      migrationToolDirectory,
+      'node_modules/.pnpm/@prisma+engines@7.10.0/node_modules/@prisma/engines/schema-engine-linux-arm64-openssl-3.0.x',
+    );
+    const engine = await fs.open(enginePath, 'r');
+    try {
+      const header = Buffer.alloc(20);
+      await engine.read(header, 0, header.length, 0);
+      if (
+        !header.subarray(0, 4).equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46])) ||
+        header[4] !== 2 ||
+        header[5] !== 1 ||
+        header.readUInt16LE(18) !== 183
+      ) {
+        throw new Error('The packaged Prisma schema engine is not Linux ARM64 ELF.');
+      }
+    } finally {
+      await engine.close();
+    }
   }
 
   const runtimeScriptsDirectory = path.join(appDir, 'runtime-scripts');

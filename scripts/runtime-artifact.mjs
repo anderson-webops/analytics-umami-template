@@ -218,6 +218,7 @@ function validateDeploymentContract(deployment) {
     'database-aware-recovery-v1',
     'bounded-heatmap-retention-v1',
     'bounded-replay-retention-v1',
+    'packaged-migration-tool-v1',
   ]);
   const knownHostControls = new Set([
     'service-user',
@@ -247,7 +248,7 @@ function validateDeploymentContract(deployment) {
       database,
       hostControlled,
     }) ||
-    ![1, 2, 3].includes(deployment.schemaVersion) ||
+    ![1, 2, 3, 4].includes(deployment.schemaVersion) ||
     typeof deployment.applicationId !== 'string' ||
     !/^[a-z0-9][a-z0-9.-]{2,100}$/.test(deployment.applicationId) ||
     !Array.isArray(capabilities) ||
@@ -255,6 +256,7 @@ function validateDeploymentContract(deployment) {
     !capabilities.every(value => knownCapabilities.has(value)) ||
     !requiredCapabilities.every(value => capabilities.includes(value)) ||
     capabilities.includes('database-aware-recovery-v1') !== databaseAwareRecovery ||
+    capabilities.includes('packaged-migration-tool-v1') !== (deployment.schemaVersion === 4) ||
     ![
       'rehearse-retained-runtime-against-migrated-copy',
       'protected-pre-traffic-database-restore-v1',
@@ -265,7 +267,8 @@ function validateDeploymentContract(deployment) {
       readiness: { path: '/readyz', methods: ['GET', 'HEAD'], success: 200, failure: 503 },
     }) ||
     !exactFields(database, {
-      prePromotionGate: 'scripts/check-db.js',
+      prePromotionGate:
+        deployment.schemaVersion === 4 ? 'runtime-scripts/check-db.mjs' : 'scripts/check-db.js',
       migrationMode: 'forward-only',
       rollback,
     })
@@ -289,6 +292,30 @@ async function readContract(contractPath = defaultContractPath) {
 
   validateDeploymentContract(contract.deployment);
 
+  if (contract.deployment?.schemaVersion === 4) {
+    const toolPaths = [
+      'migration-tool/node_modules/prisma',
+      'migration-tool/package.json',
+      'migration-tool/pnpm-lock.yaml',
+      'migration-tool/prisma.config.ts',
+      'runtime-scripts/check-db.mjs',
+    ];
+    const toolPatterns = [
+      'migration-tool/node_modules/.pnpm/prisma@*/node_modules/prisma/build/index.js',
+      'migration-tool/node_modules/.pnpm/@prisma+engines@*/node_modules/@prisma/engines/schema-engine-linux-arm64-openssl-3.0.x',
+    ];
+
+    if (
+      !contract.allowedRoots.includes('migration-tool') ||
+      !toolPaths.every(value => contract.requiredFiles.includes(value)) ||
+      !toolPatterns.every(value =>
+        contract.requiredPatterns?.some(requirement => requirement.pattern === value),
+      )
+    ) {
+      throw new Error('Incomplete packaged migration tool contract.');
+    }
+  }
+
   for (const key of [
     'allowedFiles',
     'allowedRoots',
@@ -311,7 +338,7 @@ async function readContract(contractPath = defaultContractPath) {
   const retentionCapability =
     contract.deployment?.requiredAdapterCapabilities.includes('bounded-heatmap-retention-v1') ??
     false;
-  const retentionContract = [2, 3].includes(contract.deployment?.schemaVersion);
+  const retentionContract = [2, 3, 4].includes(contract.deployment?.schemaVersion);
   if (
     retentionFilesDeclared !== retentionContract ||
     retentionCapability !== retentionContract ||
@@ -332,7 +359,7 @@ async function readContract(contractPath = defaultContractPath) {
   const replayRetentionCapability =
     contract.deployment?.requiredAdapterCapabilities.includes('bounded-replay-retention-v1') ??
     false;
-  const replayRetentionContract = contract.deployment?.schemaVersion === 3;
+  const replayRetentionContract = [3, 4].includes(contract.deployment?.schemaVersion);
   if (
     replayRetentionFilesDeclared !== replayRetentionCapability ||
     (contract.deployment?.schemaVersion === 1 && replayRetentionCapability) ||

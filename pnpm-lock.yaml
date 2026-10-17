@@ -388,6 +388,12 @@ importers:
         specifier: ^6.0.2
         version: 6.0.2(zod@4.6.5)
 
+  deploy/migration-tool:
+    dependencies:
+      prisma:
+        specifier: 7.10.0
+        version: 7.10.0(@types/node@24.13.6)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(typescript@5.9.3)
+
   packages/api-client:
     devDependencies:
       '@types/node':

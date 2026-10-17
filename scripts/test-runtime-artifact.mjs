@@ -186,6 +186,47 @@ async function expectMissingModuleFailure(runtime) {
   }
 }
 
+async function expectMissingMigrationToolFailure(runtime) {
+  const prismaModule = path.join(runtime, 'migration-tool', 'node_modules', 'prisma');
+  const hiddenModule = path.join(
+    runtime,
+    'migration-tool',
+    'node_modules',
+    '.runtime-prisma-missing',
+  );
+
+  await fs.rename(prismaModule, hiddenModule);
+
+  try {
+    await verifyRuntimeArtifact(runtime, { release: false }).then(
+      () => {
+        throw new Error('Verifier accepted an artifact without its migration tool.');
+      },
+      () => undefined,
+    );
+
+    if (release) {
+      const result = spawnSync(
+        process.execPath,
+        ['runtime-scripts/check-db.mjs', '--migrate-only'],
+        {
+          cwd: runtime,
+          encoding: 'utf8',
+          timeout: 30_000,
+          env: { ...process.env, ...syntheticEnvironment(await availablePort()) },
+        },
+      );
+      const failure = `${result.stderr ?? ''}\n${result.stdout ?? ''}`;
+
+      if (result.status === 0 || !failure.includes('The pinned Prisma migration tool is missing')) {
+        throw new Error('The guarded migration command did not reject its missing tool.');
+      }
+    }
+  } finally {
+    await fs.rename(hiddenModule, prismaModule);
+  }
+}
+
 function expectReplayCssBinding(runtime) {
   const result = spawnSync(
     process.execPath,
@@ -266,6 +307,7 @@ try {
   }
 
   await expectMissingModuleFailure(copiedRuntime);
+  await expectMissingMigrationToolFailure(copiedRuntime);
   await clearRuntimeCache(copiedRuntime);
   await verifyRuntimeArtifact(copiedRuntime, { release, expectedCommit });
   console.log('Exact copied runtime, missing-module regression, and final hashes passed.');

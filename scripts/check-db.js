@@ -226,9 +226,25 @@ async function applyMigration() {
     return;
   }
 
-  const prismaCli = path.join(scriptDirectory, '..', 'node_modules', 'prisma', 'build', 'index.js');
+  const packaged = path.basename(scriptDirectory) === 'runtime-scripts';
+  const root = path.join(scriptDirectory, '..');
+  const toolRoot = packaged ? path.join(root, 'migration-tool') : root;
+  const prismaCli = path.join(toolRoot, 'node_modules', 'prisma', 'build', 'index.js');
+  const argumentsList = [prismaCli, 'migrate', 'deploy'];
+
+  if (packaged) {
+    argumentsList.push('--config', path.join(toolRoot, 'prisma.config.ts'));
+  }
+
   try {
-    const output = execFileSync(process.execPath, [prismaCli, 'migrate', 'deploy'], {
+    await fs.access(prismaCli);
+  } catch {
+    throw new Error('The pinned Prisma migration tool is missing from this release.');
+  }
+
+  try {
+    const output = execFileSync(process.execPath, argumentsList, {
+      cwd: toolRoot,
       encoding: 'utf8',
       env: {
         ...process.env,

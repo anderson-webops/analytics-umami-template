@@ -63,10 +63,15 @@ async function createFixture() {
     deployment: {
       ...templateContract.deployment,
       schemaVersion: 1,
+      database: {
+        ...templateContract.deployment.database,
+        prePromotionGate: 'scripts/check-db.js',
+      },
       requiredAdapterCapabilities: templateContract.deployment.requiredAdapterCapabilities.filter(
         capability =>
           capability !== 'bounded-heatmap-retention-v1' &&
-          capability !== 'bounded-replay-retention-v1',
+          capability !== 'bounded-replay-retention-v1' &&
+          capability !== 'packaged-migration-tool-v1',
       ),
     },
   };
@@ -320,7 +325,7 @@ test('heatmap retention files require complete packaging and host capability', a
     await fs.readFile(new URL('../deploy/runtime-artifact.json', import.meta.url), 'utf8'),
   );
   assert.ok(heatmapRetentionPaths.every(file => trustedContract.requiredFiles.includes(file)));
-  assert.equal(trustedContract.deployment.schemaVersion, 3);
+  assert.equal(trustedContract.deployment.schemaVersion, 4);
   assert.ok(
     trustedContract.deployment.requiredAdapterCapabilities.includes('bounded-heatmap-retention-v1'),
   );
@@ -366,7 +371,7 @@ test('replay retention files require complete packaging and host capability', as
     await fs.readFile(new URL('../deploy/runtime-artifact.json', import.meta.url), 'utf8'),
   );
   assert.ok(replayRetentionPaths.every(file => trustedContract.requiredFiles.includes(file)));
-  assert.equal(trustedContract.deployment.schemaVersion, 3);
+  assert.equal(trustedContract.deployment.schemaVersion, 4);
   assert.ok(
     trustedContract.deployment.requiredAdapterCapabilities.includes('bounded-replay-retention-v1'),
   );
@@ -464,12 +469,70 @@ test('database-aware recovery requires its exact host capability and policy', as
   );
 });
 
+test('packaged migration gate requires its own schema, capability, and inventory', async () => {
+  const trusted = JSON.parse(
+    await fs.readFile(new URL('../deploy/runtime-artifact.json', import.meta.url), 'utf8'),
+  );
+  assert.equal(trusted.deployment.schemaVersion, 4);
+  assert.equal(trusted.deployment.database.prePromotionGate, 'runtime-scripts/check-db.mjs');
+  assert.ok(trusted.deployment.requiredAdapterCapabilities.includes('packaged-migration-tool-v1'));
+
+  const { root, contractPath } = await createFixture();
+  const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
+  contract.deployment.schemaVersion = 4;
+  contract.deployment.requiredAdapterCapabilities.push('packaged-migration-tool-v1');
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await assert.rejects(
+    createRuntimeManifest(root, { contractPath, source }),
+    /deployment compatibility contract/,
+  );
+
+  contract.deployment.database.prePromotionGate = 'runtime-scripts/check-db.mjs';
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await assert.rejects(
+    createRuntimeManifest(root, { contractPath, source }),
+    /Incomplete packaged migration tool contract/,
+  );
+});
+
 test('rejects a changed file even when the manifest itself is untouched', async () => {
   const { root, contractPath } = await createFixture();
   await createRuntimeManifest(root, { contractPath, source });
   await fs.appendFile(path.join(root, 'server.js'), 'console.log("tampered");\n');
 
   await assert.rejects(verifyRuntimeArtifact(root, { contractPath }), /inventory or file hashes/);
+});
+
+test('requires the pinned migration tool independently of the server entrypoint', async () => {
+  const trustedContract = JSON.parse(
+    await fs.readFile(new URL('../deploy/runtime-artifact.json', import.meta.url), 'utf8'),
+  );
+  const required = [
+    'migration-tool/node_modules/prisma',
+    'migration-tool/pnpm-lock.yaml',
+    'migration-tool/prisma.config.ts',
+  ];
+  assert.ok(required.every(file => trustedContract.requiredFiles.includes(file)));
+  assert.ok(
+    trustedContract.requiredPatterns.some(requirement =>
+      requirement.pattern.includes('schema-engine-linux-arm64-openssl-3.0.x'),
+    ),
+  );
+  const prismaEntry =
+    'migration-tool/node_modules/.pnpm/prisma@*/node_modules/prisma/build/index.js';
+  assert.ok(
+    trustedContract.requiredPatterns.some(requirement => requirement.pattern === prismaEntry),
+  );
+
+  const { root, contractPath } = await createFixture();
+  const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
+  contract.allowedRoots.push('migration-tool');
+  contract.requiredPatterns.push({ pattern: prismaEntry, minimum: 1 });
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await assert.rejects(
+    createRuntimeManifest(root, { contractPath, source }),
+    /Artifact pattern migration-tool\/node_modules\/\.pnpm\/prisma@\*\/node_modules\/prisma\/build\/index\.js matched 0/,
+  );
 });
 
 test('rejects missing required modules and forbidden writable state', async () => {

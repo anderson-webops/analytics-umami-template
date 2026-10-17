@@ -15,6 +15,10 @@
     "db/clickhouse/migrations/16_expire_new_session_replays.sql",
     "generated/prisma/client.js",
     "geo/GeoLite2-City.mmdb",
+    "migration-tool/node_modules/prisma",
+    "migration-tool/package.json",
+    "migration-tool/pnpm-lock.yaml",
+    "migration-tool/prisma.config.ts",
     "node_modules/@prisma/client",
     "node_modules/lightningcss",
     "node_modules/lightningcss-linux-arm64-gnu/lightningcss.linux-arm64-gnu.node",
@@ -50,6 +54,22 @@
       "minimum": 26
     },
     {
+      "pattern": "migration-tool/node_modules/.pnpm/@prisma+engines@*/node_modules/@prisma/engines/schema-engine-linux-arm64-openssl-3.0.x",
+      "minimum": 1
+    },
+    {
+      "pattern": "migration-tool/node_modules/.pnpm/@prisma+engines@*/node_modules/@prisma/engines/package.json",
+      "minimum": 1
+    },
+    {
+      "pattern": "migration-tool/node_modules/.pnpm/prisma@*/node_modules/prisma/build/index.js",
+      "minimum": 1
+    },
+    {
+      "pattern": "migration-tool/node_modules/.pnpm/prisma@*/node_modules/prisma/package.json",
+      "minimum": 1
+    },
+    {
       "pattern": "node_modules/.pnpm/@prisma+client@*/node_modules/@prisma/client/package.json",
       "minimum": 1
     },
@@ -75,6 +95,7 @@
     "db",
     "generated",
     "geo",
+    "migration-tool",
     "node_modules",
     "packages",
     "prisma",
@@ -98,12 +119,13 @@
     "packageManager": "pnpm@11.18.0"
   },
   "deployment": {
-    "schemaVersion": 3,
+    "schemaVersion": 4,
     "applicationId": "analytics-umami-template",
     "requiredAdapterCapabilities": [
       "artifact-only-promotion-v1",
       "verified-source-and-payload-v1",
       "guarded-forward-migrations-v1",
+      "packaged-migration-tool-v1",
       "retained-artifact-rollback-v1",
       "database-aware-recovery-v1",
       "bounded-heatmap-retention-v1",
@@ -115,7 +137,7 @@
       "readiness": { "path": "/readyz", "methods": ["GET", "HEAD"], "success": 200, "failure": 503 }
     },
     "database": {
-      "prePromotionGate": "scripts/check-db.js",
+      "prePromotionGate": "runtime-scripts/check-db.mjs",
       "migrationMode": "forward-only",
       "rollback": "protected-pre-traffic-database-restore-v1"
     },
@@ -132,12 +154,15 @@
     "db/clickhouse/migrations/16_expire_new_session_replays.sql",
     "generated/prisma",
     "geo",
+    "migration-tool",
     "prisma/migrations",
     "runtime-scripts/prune-expired-heatmap-events.mjs",
     "runtime-scripts/prune-expired-session-replays.mjs",
     "runtime-scripts"
   ],
   "productionDependencies": [
+    "migration-tool/node_modules/.pnpm/@prisma+engines@*/node_modules/@prisma/engines",
+    "migration-tool/node_modules/prisma",
     "node_modules/@prisma/client",
     "node_modules/lightningcss",
     "node_modules/next",
@@ -145,6 +170,7 @@
   ],
   "generatedClients": ["generated/prisma"],
   "nativeBindings": [
+    "migration-tool/node_modules/.pnpm/@prisma+engines@*/node_modules/@prisma/engines/schema-engine-linux-arm64-openssl-3.0.x",
     "node_modules/lightningcss-linux-arm64-gnu/lightningcss.linux-arm64-gnu.node",
     "node_modules/.pnpm/@img+sharp-linux-arm64@*/node_modules/@img/sharp-linux-arm64/lib/*.node",
     "node_modules/.pnpm/@img+sharp-libvips-linux-arm64@*/node_modules/@img/sharp-libvips-linux-arm64/lib/*.so.*"
