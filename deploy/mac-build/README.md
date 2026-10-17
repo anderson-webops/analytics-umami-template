@@ -63,8 +63,9 @@ The builder scopes pnpm's virtual-store directory-name limit to 60 bytes, so
 verified standalone dependencies fit the server's portable USTAR transport
 without changing normal development installs or the committed lockfile.
 Only the build phase mounts the pnpm store and a separate Next compiler cache.
-The store scope binds the repository and exact Linux toolchain image. The
-compiler scope also binds the tracked lockfile, workspace/package settings,
+The store scope binds the repository and Linux toolchain filesystem/runtime
+fingerprint, not Buildx attestation metadata that can change between identical
+image builds. The compiler scope also binds the tracked lockfile, workspace/package settings,
 patches, build scripts, runtime contract, and public build configuration.
 Source-only edits can reuse compatible compiler work, but a different site,
 dependency graph, toolchain, or public flag cannot. The offline checkout and
@@ -73,6 +74,8 @@ per-run exchange directory, read-only and unprivileged. Privileged,
 network-disabled acceptance sees only its disposable Docker volume. A separate
 read-only inventory phase limits and checks the four unsigned asset files; a
 stopped copy container then exports them before Mac-side signing. Acceptance
+cannot replace the reviewed public configuration unnoticed: the Mac compares
+the packaged configuration to its original input before signing. Acceptance
 invokes already-installed executables directly and never silently reinstalls
 packages.
 The stopped copy container is removed with its inherited anonymous PostgreSQL

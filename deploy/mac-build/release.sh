@@ -58,9 +58,12 @@ node "$script_dir/run-bounded.mjs" "$run_root/image-build.log" 1800 8388608 \
 test "$(docker --context colima image inspect "$image" --format '{{.Os}}/{{.Architecture}}')" = \
   linux/arm64
 
-image_id="$(docker --context colima image inspect "$image" --format '{{.Id}}')"
+toolchain_fingerprint="$(
+  docker --context colima image inspect "$image" |
+    node "$script_dir/toolchain-fingerprint.mjs"
+)"
 cache_volumes="$(
-  node "$script_dir/cache-key.mjs" "$source_root" "$run_root/public-config.json" "$repository" "$image_id"
+  node "$script_dir/cache-key.mjs" "$source_root" "$run_root/public-config.json" "$repository" "$toolchain_fingerprint"
 )"
 read -r store_volume compiler_volume <<< "$cache_volumes"
 [[ "$store_volume" =~ ^anderson-pnpm-[0-9a-f]{64}$ ]]
@@ -169,7 +172,8 @@ node "$script_dir/run-bounded.mjs" "$run_root/collect.log" 600 8388608 \
   docker --context colima cp "$copy_container:/work/assets" "$run_root/assets"
 docker --context colima container rm -v "$copy_container" >/dev/null
 copy_container=""
-node "$script_dir/verify-unsigned-assets.mjs" "$run_root/assets" "$site" "$tag"
+node "$script_dir/verify-unsigned-assets.mjs" "$run_root/assets" "$site" "$tag" \
+  "$repository" "$run_root/public-config.json"
 
 node "$source_root/scripts/mac-artifact-transport.mjs" sign \
   --output "$run_root/assets" --key "$key_path"
