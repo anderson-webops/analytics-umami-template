@@ -211,7 +211,9 @@ export function createUstarHeader(record) {
   header.write(record.type === 'directory' ? '5' : record.type === 'symlink' ? '2' : '0', 156);
   if (record.type === 'symlink') {
     const target = Buffer.from(record.target);
-    if (target.length > 100) throw new Error('Transport link target exceeds USTAR limits.');
+    if (target.length > 100) {
+      throw new Error(`Transport link target exceeds USTAR limits: ${record.path}`);
+    }
     target.copy(header, 157);
   }
   header.write('ustar\0', 257, 6, 'ascii');

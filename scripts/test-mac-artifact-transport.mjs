@@ -146,6 +146,16 @@ test('USTAR header keeps exact names, metadata and checksum without extensions',
     () => createUstarHeader({ ...record, path: `runtime/${'a'.repeat(200)}` }),
     /portable USTAR/,
   );
+  assert.throws(
+    () =>
+      createUstarHeader({
+        ...record,
+        path: 'runtime/long-link',
+        type: 'symlink',
+        target: `../${'a'.repeat(101)}`,
+      }),
+    /Transport link target exceeds USTAR limits: runtime\/long-link/,
+  );
 });
 
 test('transport archive preserves checked files and links without a runtime root member', async () => {

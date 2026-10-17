@@ -6,6 +6,7 @@ import { build } from 'esbuild';
 import { rollup } from 'rollup';
 import trackerConfig from '../rollup.tracker.config.js';
 import { getGeoSource, verifyGeoDatabase } from './geo-build.mjs';
+import { shortenPnpmSymlinks } from './portable-pnpm-links.mjs';
 import { pruneForeignRuntimePackages } from './prune-foreign-runtime-packages.mjs';
 import { repairStandaloneRuntime } from './repair-standalone.js';
 import { createRuntimeManifest } from './runtime-artifact.mjs';
@@ -138,6 +139,9 @@ async function run() {
       '--config.inject-workspace-packages=true',
     ],
     { stdio: 'inherit' },
+  );
+  console.log(
+    `Shortened ${await shortenPnpmSymlinks(path.join(migrationToolDirectory, 'node_modules'))} pinned migration-tool links for portable transport.`,
   );
   const migrationTool = JSON.parse(
     await fs.readFile(path.join(migrationToolDirectory, 'node_modules/prisma/package.json')),
