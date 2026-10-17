@@ -131,6 +131,7 @@ async function run() {
   execFileSync(
     'pnpm',
     [
+      '--config.package-import-method=copy',
       '--filter',
       '@anderson/analytics-migration-tool',
       'deploy',
