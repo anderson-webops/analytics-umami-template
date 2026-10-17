@@ -42,6 +42,21 @@ test('generated API client version matches the application release', async () =>
   assert.equal(generatedVersion, packageJson.version);
 });
 
+test('CI builds the production artifact on its declared architecture', async () => {
+  const contract = JSON.parse(
+    await fs.readFile(new URL('../deploy/runtime-artifact.json', import.meta.url), 'utf8'),
+  );
+  const workflow = await fs.readFile(
+    new URL('../.github/workflows/ci.yml', import.meta.url),
+    'utf8',
+  );
+  assert.equal(contract.runtime.arch, 'arm64');
+  assert.match(
+    workflow,
+    /^ {2}validate:\n {4}name: Source validation\n {4}runs-on: ubuntu-24\.04-arm$/m,
+  );
+});
+
 async function createFixture() {
   const fixture = await fs.mkdtemp(path.join(os.tmpdir(), 'umami-runtime-artifact-'));
   const root = path.join(fixture, 'runtime');
