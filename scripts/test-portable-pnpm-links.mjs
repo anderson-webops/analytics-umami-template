@@ -6,6 +6,11 @@ import { test } from 'node:test';
 import { createUstarHeader } from './mac-artifact-transport.mjs';
 import { shortenPnpmSymlinks } from './portable-pnpm-links.mjs';
 
+test('migration-tool deployment pins portable pnpm package-directory lengths', async () => {
+  const source = await fs.readFile(path.join(import.meta.dirname, 'postbuild.js'), 'utf8');
+  assert.match(source, /--config\.virtual-store-dir-max-length=60/);
+});
+
 test('shortens pinned pnpm links without changing resolved packages', async () => {
   const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'portable-pnpm-links-'));
   try {

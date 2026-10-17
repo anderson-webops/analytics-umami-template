@@ -137,6 +137,7 @@ async function run() {
       '--prod',
       migrationToolDirectory,
       '--config.inject-workspace-packages=true',
+      '--config.virtual-store-dir-max-length=60',
     ],
     { stdio: 'inherit' },
   );
