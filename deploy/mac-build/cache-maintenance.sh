@@ -38,9 +38,13 @@ source "$script_dir/storage-env.sh"
 if [[ "${ANDERSON_BUILDER_LOCK_HELD:-}" != 1 ]]; then
   mkdir -p "$ANDERSON_BUILDER_EXCHANGE/locks"
   chmod 0700 "$ANDERSON_BUILDER_EXCHANGE/locks"
+  if ((${#original_args[@]})); then
+    exec /usr/bin/lockf -t 0 "$ANDERSON_BUILDER_EXCHANGE/locks/release.lock" \
+      /usr/bin/env ANDERSON_BUILDER_LOCK_HELD=1 /bin/bash "$script_dir/cache-maintenance.sh" \
+      "${original_args[@]}"
+  fi
   exec /usr/bin/lockf -t 0 "$ANDERSON_BUILDER_EXCHANGE/locks/release.lock" \
-    /usr/bin/env ANDERSON_BUILDER_LOCK_HELD=1 /bin/bash "$script_dir/cache-maintenance.sh" \
-    "${original_args[@]}"
+    /usr/bin/env ANDERSON_BUILDER_LOCK_HELD=1 /bin/bash "$script_dir/cache-maintenance.sh"
 fi
 colima status >/dev/null
 test "$(docker --context colima info --format '{{.OSType}}/{{.Architecture}}')" = linux/aarch64
