@@ -277,10 +277,15 @@ test('valid CAPTCHA preserves the existing two-factor login step', async () => {
 
 test('a valid CAPTCHA prevents failed guesses from locking a later correct login', async () => {
   mocks.isLoginCaptchaEnabled.mockReturnValue(true);
-  mocks.parseRequest.mockResolvedValue({
-    body: { username: 'alice', password: 'secret', captchaToken: 'test-token' },
-    error: undefined,
-  });
+  mocks.parseRequest
+    .mockResolvedValueOnce({
+      body: { username: 'alice', password: 'secret', captchaToken: 'first-token' },
+      error: undefined,
+    })
+    .mockResolvedValueOnce({
+      body: { username: 'alice', password: 'secret', captchaToken: 'second-token' },
+      error: undefined,
+    });
   mocks.checkPassword.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
   mocks.createSecureToken.mockReturnValue('partial-fixture');
   mocks.reserveLoginAccountAttempt.mockResolvedValue({ blocked: true, retryAfter: 120 });
@@ -292,6 +297,8 @@ test('a valid CAPTCHA prevents failed guesses from locking a later correct login
   expect(rejected.status).toBe(401);
   expect(authenticated.status).toBe(200);
   expect(mocks.verifyLoginCaptcha).toHaveBeenCalledTimes(2);
+  expect(mocks.verifyLoginCaptcha).toHaveBeenNthCalledWith(1, 'first-token', loginRequest().url);
+  expect(mocks.verifyLoginCaptcha).toHaveBeenNthCalledWith(2, 'second-token', loginRequest().url);
   expect(mocks.getLoginLimit).toHaveBeenCalledTimes(2);
   expect(mocks.recordFailedLogin).not.toHaveBeenCalled();
   expect(mocks.reserveLoginAccountAttempt).not.toHaveBeenCalled();
