@@ -42,6 +42,11 @@ test "$(node -p "require('$source_root/package.json').version")" = "${tag#v}"
 colima status >/dev/null
 test "$(docker --context colima info --format '{{.OSType}}/{{.Architecture}}')" = linux/aarch64
 docker --context colima buildx version >/dev/null
+verify_builder_mounts() {
+  limactl shell colima -- findmnt -J -t virtiofs,9p,fuse.sshfs -o TARGET,FSTYPE,OPTIONS |
+    node "$script_dir/verify-vm-mounts.mjs"
+}
+verify_builder_mounts
 run_name="${site}-${tag}-$(date -u +%Y%m%dT%H%M%SZ)-${commit:0:8}"
 run_root="$ANDERSON_BUILDER_EXCHANGE/mac-build-runs/$run_name"
 mkdir -p "$ANDERSON_BUILDER_EXCHANGE/mac-build-runs"
@@ -150,6 +155,7 @@ run_phase build 7200 --user 501:20 --network bridge \
       bash /work/source/deploy/mac-build/container-phase.sh build
   '
 
+verify_builder_mounts
 run_phase accept 3600 --user 0:0 --network none --privileged \
   "${common[@]}" "$image" bash -lc '
     set -euo pipefail

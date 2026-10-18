@@ -19,8 +19,17 @@ points to it. Its Colima VM disk and image store, Lima state, Docker configurati
 Homebrew download cache, temporary files, and build exchange are all under
 `/Volumes/Storage/General Storage`. Colima must mount **only**
 `/Volumes/Storage/General Storage/Builder/exchange` into the Linux VM. Do not
-mount the entire Sites tree or Builder tree. The Storage volume is unencrypted,
-so the small private signing key lives instead in the Mac's FileVault-protected
+mount the entire Sites tree or Builder tree.
+
+The release command checks the effective Linux shared-mount inventory before
+building and again before privileged artifact acceptance. It refuses any extra
+host share, missing exchange mount, or read-only exchange mount. A prior Colima
+profile exposed Sites as an additional writable share; remove it through Colima's
+supported mount configuration before attempting a release. The guard uses the
+local `limactl` and guest `findmnt` tools provided by this builder environment.
+
+The Storage volume is unencrypted, so the small private signing key lives instead
+in the Mac's FileVault-protected
 `~/Library/Application Support/AndersonArtifactBuilder` directory, outside the
 VM, source, and exchange. The signer checks volume encryption, owner, and modes.
 Never place the key in a container, repository, build log, or release asset.

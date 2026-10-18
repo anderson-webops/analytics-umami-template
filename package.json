@@ -121,7 +121,7 @@
     "check": "biome check .",
     "test:migration-attempts": "node scripts/test-migration-attempt-paths.mjs",
     "test:postgres17-restore": "bash scripts/test-postgres17-restore.sh",
-    "test:packaging": "node --test scripts/test-runtime-artifact-manifest.mjs scripts/test-runtime-workspaces.mjs scripts/test-mac-artifact-transport.mjs scripts/test-mac-build-cache-key.mjs deploy/mac-build/test-toolchain-fingerprint.mjs deploy/mac-build/test-verify-unsigned-assets.mjs scripts/test-prune-foreign-runtime-packages.mjs scripts/test-portable-pnpm-links.mjs",
+    "test:packaging": "node --test scripts/test-runtime-artifact-manifest.mjs scripts/test-runtime-workspaces.mjs scripts/test-mac-artifact-transport.mjs scripts/test-mac-build-cache-key.mjs deploy/mac-build/test-toolchain-fingerprint.mjs deploy/mac-build/test-verify-unsigned-assets.mjs deploy/mac-build/test-verify-vm-mounts.mjs scripts/test-prune-foreign-runtime-packages.mjs scripts/test-portable-pnpm-links.mjs",
     "test:braces": "node --test scripts/test-braces-compat.mjs",
     "test:selector-parser": "node --test scripts/test-selector-parser-compat.mjs",
     "test:source-map": "node --test scripts/test-source-map-js-compat.mjs"
