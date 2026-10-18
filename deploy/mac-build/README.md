@@ -104,10 +104,12 @@ merge into compatible forks without combining their users, databases, or
 public configuration.
 
 `bash deploy/mac-build/cache-maintenance.sh` reports only labeled builder
-cache volumes. It proposes removal after 30 idle days or 512 MiB for a compiler
-cache, and 90 idle days or 2 GiB for a pnpm store. Review the report, then use
-`--volume NAME --apply` for deliberate targeted garbage collection; active containers and
-signed assets are never selected. An evicted cache costs time, not correctness.
+cache volumes. It proposes removal after 30 idle days for a compiler cache,
+or after seven idle days if it exceeds 512 MiB. A pnpm store uses 90 idle days
+or seven idle days above 2 GiB. Freshly used caches are retained even when
+large. Review the report before using `--volume NAME --apply` for deliberate
+targeted garbage collection; active containers and signed assets are never
+selected. An evicted cache costs time, not correctness.
 The release and maintenance commands share a fail-fast Mac-side lock so a cache
 cannot be removed during a build and two 7 GiB builds cannot run at once.
 Per-phase wall time, result, and bounded output bytes are saved beside each

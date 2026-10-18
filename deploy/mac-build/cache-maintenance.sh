@@ -62,12 +62,8 @@ now="$(date +%s)"
 for kind in pnpm compiler; do
   if [[ "$kind" = pnpm ]]; then
     prefix=anderson-pnpm-
-    limit_kib=$((2 * 1024 * 1024))
-    idle_seconds=$((90 * 24 * 60 * 60))
   else
     prefix=anderson-next-
-    limit_kib=$((512 * 1024))
-    idle_seconds=$((30 * 24 * 60 * 60))
   fi
   while IFS= read -r volume; do
     if [[ -n "$selected_volume" && "$volume" != "$selected_volume" ]]; then
@@ -97,10 +93,12 @@ for kind in pnpm compiler; do
       printf 'Skipping cache with an invalid future timestamp: %s\n' "$volume" >&2
       continue
     fi
-    if (( size_kib <= limit_kib && age_seconds <= idle_seconds )); then
+    disposition="$(node "$script_dir/cache-disposition.mjs" "$kind" "$size_kib" "$age_seconds")"
+    if [[ "$disposition" = retain ]]; then
       printf 'retain %s %s %s KiB %s days\n' "$kind" "$volume" "$size_kib" "$((age_seconds / 86400))"
       continue
     fi
+    test "$disposition" = eligible
     if [[ -n "$(docker --context colima ps -a --filter "volume=$volume" --format '{{.ID}}')" ]]; then
       printf 'in-use %s %s %s KiB\n' "$kind" "$volume" "$size_kib"
       continue
