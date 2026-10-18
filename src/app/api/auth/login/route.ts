@@ -33,7 +33,11 @@ import { loginRequestSchema } from './schema';
 
 const DUMMY_PASSWORD_HASH = '$2b$12$dzX/8VLqsHliwcW1P2rlnuxNhqzhg00Jqq7s6vi/PNkMuBsbgJHGi';
 
-async function rejectInvalidCredentials(username: string) {
+async function rejectInvalidCredentials(username: string, captchaEnabled: boolean) {
+  if (captchaEnabled) {
+    return unauthorized({ code: 'incorrect-username-password' });
+  }
+
   const accountLimit = await recordFailedLogin(username);
 
   return accountLimit.blocked
@@ -97,7 +101,7 @@ export async function POST(request: Request) {
   }
 
   if (password === 'umami') {
-    return rejectInvalidCredentials(username);
+    return rejectInvalidCredentials(username, captchaEnabled);
   }
 
   const user = await getUserByUsername(username, {
@@ -105,28 +109,36 @@ export async function POST(request: Request) {
     includeSessionGeneration: true,
   });
 
-  let accountLimit;
+  let accountWindowExpiresAt: string | undefined;
 
-  try {
-    accountLimit = await reserveLoginAccountAttempt(user?.id);
-  } catch {
-    return serviceUnavailable({ message: 'Login verification is temporarily unavailable' });
-  }
+  if (!captchaEnabled) {
+    let accountLimit;
 
-  if (accountLimit.blocked) {
-    return unauthorized({ code: 'incorrect-username-password' });
+    try {
+      accountLimit = await reserveLoginAccountAttempt(user?.id);
+    } catch {
+      return serviceUnavailable({ message: 'Login verification is temporarily unavailable' });
+    }
+
+    if (accountLimit.blocked) {
+      return unauthorized({ code: 'incorrect-username-password' });
+    }
+
+    accountWindowExpiresAt = accountLimit.windowExpiresAt;
   }
 
   const passwordMatches = await checkPassword(password, user?.password || DUMMY_PASSWORD_HASH);
 
   if (!user || !passwordMatches) {
-    return rejectInvalidCredentials(username);
+    return rejectInvalidCredentials(username, captchaEnabled);
   }
 
-  try {
-    await releaseLoginAccountAttempt(user.id, accountLimit.windowExpiresAt);
-  } catch {
-    return serviceUnavailable({ message: 'Login verification is temporarily unavailable' });
+  if (accountWindowExpiresAt) {
+    try {
+      await releaseLoginAccountAttempt(user.id, accountWindowExpiresAt);
+    } catch {
+      return serviceUnavailable({ message: 'Login verification is temporarily unavailable' });
+    }
   }
 
   const { id, role, createdAt, sessionGeneration } = user;
