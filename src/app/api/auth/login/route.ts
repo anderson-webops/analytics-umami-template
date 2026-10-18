@@ -109,36 +109,22 @@ export async function POST(request: Request) {
     includeSessionGeneration: true,
   });
 
-  let accountWindowExpiresAt: string | undefined;
+  let accountLimit;
 
-  if (!captchaEnabled) {
-    let accountLimit;
+  try {
+    accountLimit = await reserveLoginAccountAttempt(user?.id);
+  } catch {
+    return serviceUnavailable({ message: 'Login verification is temporarily unavailable' });
+  }
 
-    try {
-      accountLimit = await reserveLoginAccountAttempt(user?.id);
-    } catch {
-      return serviceUnavailable({ message: 'Login verification is temporarily unavailable' });
-    }
-
-    if (accountLimit.blocked) {
-      return unauthorized({ code: 'incorrect-username-password' });
-    }
-
-    accountWindowExpiresAt = accountLimit.windowExpiresAt;
+  if (accountLimit.blocked) {
+    return unauthorized({ code: 'incorrect-username-password' });
   }
 
   const passwordMatches = await checkPassword(password, user?.password || DUMMY_PASSWORD_HASH);
 
   if (!user || !passwordMatches) {
     return rejectInvalidCredentials(username, captchaEnabled);
-  }
-
-  if (accountWindowExpiresAt) {
-    try {
-      await releaseLoginAccountAttempt(user.id, accountWindowExpiresAt);
-    } catch {
-      return serviceUnavailable({ message: 'Login verification is temporarily unavailable' });
-    }
   }
 
   const { id, role, createdAt, sessionGeneration } = user;
@@ -182,6 +168,14 @@ export async function POST(request: Request) {
   const enrollmentRequired = (await getTwoFactorRequirement(id)).reason !== null;
   if (enrollmentRequired && !isTwoFactorConfigured()) {
     return serviceUnavailable(getTwoFactorConfigurationError());
+  }
+
+  if (!enrollmentRequired) {
+    try {
+      await releaseLoginAccountAttempt(id, accountLimit.windowExpiresAt);
+    } catch {
+      return serviceUnavailable({ message: 'Login verification is temporarily unavailable' });
+    }
   }
 
   const sessionTtl = enrollmentRequired ? 15 * 60 : getAuthSessionTtlSeconds();

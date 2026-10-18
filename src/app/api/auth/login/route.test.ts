@@ -249,6 +249,7 @@ test.each(['invalid', 'unavailable'] as const)(
     expect(response.status).toBe(result === 'invalid' ? 401 : 503);
     expect(mocks.verifyLoginCaptcha).toHaveBeenCalledWith('test-token', loginRequest().url);
     expect(mocks.getUserByUsername).not.toHaveBeenCalled();
+    expect(mocks.reserveLoginAccountAttempt).not.toHaveBeenCalled();
     expect(mocks.checkPassword).not.toHaveBeenCalled();
   },
 );
@@ -270,12 +271,47 @@ test('valid CAPTCHA preserves the existing two-factor login step', async () => {
     partialToken: 'partial-fixture',
   });
   expect(mocks.verifyLoginCaptcha).toHaveBeenCalledWith('test-token', loginRequest().url);
-  expect(mocks.reserveLoginAccountAttempt).not.toHaveBeenCalled();
+  expect(mocks.reserveLoginAccountAttempt).toHaveBeenCalledWith('user-1');
   expect(mocks.releaseLoginAccountAttempt).not.toHaveBeenCalled();
   expect(mocks.checkPassword).toHaveBeenCalled();
 });
 
-test('a valid CAPTCHA prevents failed guesses from locking a later correct login', async () => {
+test('distributed valid CAPTCHA challenges cannot bypass the budget with correct 2FA first factors', async () => {
+  mocks.isLoginCaptchaEnabled.mockReturnValue(true);
+  mocks.createSecureToken.mockReturnValue('partial-fixture');
+  let accountAttempts = 0;
+  mocks.reserveLoginAccountAttempt.mockImplementation(async () => {
+    accountAttempts += 1;
+    return accountAttempts <= 10
+      ? { blocked: false, retryAfter: 0, windowExpiresAt: '2030-01-01T00:00:00Z' }
+      : { blocked: true, retryAfter: 120 };
+  });
+
+  for (let attempt = 0; attempt < 11; attempt += 1) {
+    mocks.parseRequest.mockResolvedValueOnce({
+      body: { username: 'alice', password: 'secret', captchaToken: `single-use-${attempt}` },
+      error: undefined,
+    });
+    const response = await POST(
+      new Request('http://localhost/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Origin: 'http://localhost',
+          'x-real-ip': `192.0.2.${attempt + 1}`,
+        },
+      }),
+    );
+    expect(response.status).toBe(attempt < 10 ? 200 : 401);
+  }
+
+  expect(mocks.verifyLoginCaptcha).toHaveBeenCalledTimes(11);
+  expect(mocks.checkPassword).toHaveBeenCalledTimes(10);
+  expect(mocks.createSecureToken).toHaveBeenCalledTimes(10);
+  expect(mocks.releaseLoginAccountAttempt).not.toHaveBeenCalled();
+});
+
+test('valid CAPTCHA cannot bypass an exhausted account budget', async () => {
   mocks.isLoginCaptchaEnabled.mockReturnValue(true);
   mocks.parseRequest
     .mockResolvedValueOnce({
@@ -288,20 +324,60 @@ test('a valid CAPTCHA prevents failed guesses from locking a later correct login
     });
   mocks.checkPassword.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
   mocks.createSecureToken.mockReturnValue('partial-fixture');
-  mocks.reserveLoginAccountAttempt.mockResolvedValue({ blocked: true, retryAfter: 120 });
-  mocks.recordFailedLogin.mockResolvedValue({ blocked: true, retryAfter: 900 });
+  mocks.reserveLoginAccountAttempt
+    .mockResolvedValueOnce({
+      blocked: false,
+      retryAfter: 0,
+      windowExpiresAt: '2030-01-01T00:00:00Z',
+    })
+    .mockResolvedValueOnce({ blocked: true, retryAfter: 120 });
 
   const rejected = await POST(loginRequest());
-  const authenticated = await POST(loginRequest());
+  const blocked = await POST(loginRequest());
 
   expect(rejected.status).toBe(401);
-  expect(authenticated.status).toBe(200);
+  expect(blocked.status).toBe(401);
+  expect(mocks.checkPassword).toHaveBeenCalledTimes(1);
   expect(mocks.verifyLoginCaptcha).toHaveBeenCalledTimes(2);
   expect(mocks.verifyLoginCaptcha).toHaveBeenNthCalledWith(1, 'first-token', loginRequest().url);
   expect(mocks.verifyLoginCaptcha).toHaveBeenNthCalledWith(2, 'second-token', loginRequest().url);
   expect(mocks.getLoginLimit).toHaveBeenCalledTimes(2);
-  expect(mocks.recordFailedLogin).not.toHaveBeenCalled();
-  expect(mocks.reserveLoginAccountAttempt).not.toHaveBeenCalled();
+  expect(mocks.reserveLoginAccountAttempt).toHaveBeenCalledTimes(2);
+  expect(mocks.releaseLoginAccountAttempt).not.toHaveBeenCalled();
+});
+
+test('distributed valid challenges cannot perform unbounded password checks for one account', async () => {
+  mocks.isLoginCaptchaEnabled.mockReturnValue(true);
+  mocks.checkPassword.mockResolvedValue(false);
+  let accountAttempts = 0;
+  mocks.reserveLoginAccountAttempt.mockImplementation(async () => {
+    accountAttempts += 1;
+    return accountAttempts <= 10
+      ? { blocked: false, retryAfter: 0, windowExpiresAt: '2030-01-01T00:00:00Z' }
+      : { blocked: true, retryAfter: 120 };
+  });
+
+  for (let attempt = 0; attempt < 11; attempt += 1) {
+    mocks.parseRequest.mockResolvedValueOnce({
+      body: { username: 'alice', password: 'wrong', captchaToken: `single-use-${attempt}` },
+      error: undefined,
+    });
+    const response = await POST(
+      new Request('http://localhost/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Origin: 'http://localhost',
+          'x-real-ip': `192.0.2.${attempt + 1}`,
+        },
+      }),
+    );
+    expect(response.status).toBe(401);
+  }
+
+  expect(mocks.verifyLoginCaptcha).toHaveBeenCalledTimes(11);
+  expect(mocks.reserveLoginAccountAttempt).toHaveBeenCalledTimes(11);
+  expect(mocks.checkPassword).toHaveBeenCalledTimes(10);
   expect(mocks.releaseLoginAccountAttempt).not.toHaveBeenCalled();
 });
 
@@ -318,7 +394,7 @@ test('a valid CAPTCHA gives unknown users the same password-check path', async (
 
   expect(response.status).toBe(401);
   expect(mocks.checkPassword).toHaveBeenCalledWith('secret', expect.any(String));
-  expect(mocks.reserveLoginAccountAttempt).not.toHaveBeenCalled();
+  expect(mocks.reserveLoginAccountAttempt).toHaveBeenCalledWith(undefined);
   expect(mocks.recordFailedLogin).not.toHaveBeenCalled();
 });
 
@@ -337,7 +413,7 @@ test('a failed login does not block a later correct password while admission rem
   });
   expect(mocks.recordFailedLogin).toHaveBeenCalledTimes(1);
   expect(mocks.reserveLoginAccountAttempt).toHaveBeenCalledTimes(2);
-  expect(mocks.releaseLoginAccountAttempt).toHaveBeenCalledTimes(1);
+  expect(mocks.releaseLoginAccountAttempt).not.toHaveBeenCalled();
   expect(mocks.clearFailedLogins).not.toHaveBeenCalled();
 });
 
@@ -398,22 +474,34 @@ test('unknown usernames share a bounded admission budget without exposing existe
   expect(mocks.checkPassword).not.toHaveBeenCalled();
 });
 
-test('without CAPTCHA, database admission failure stops password verification', async () => {
-  mocks.reserveLoginAccountAttempt.mockRejectedValue(new Error('database unavailable'));
+test.each([false, true])(
+  'database admission failure stops password verification with CAPTCHA enabled %s',
+  async captchaEnabled => {
+    mocks.isLoginCaptchaEnabled.mockReturnValue(captchaEnabled);
+    if (captchaEnabled) {
+      mocks.parseRequest.mockResolvedValue({
+        body: { username: 'alice', password: 'secret', captchaToken: 'single-use-token' },
+        error: undefined,
+      });
+    }
+    mocks.reserveLoginAccountAttempt.mockRejectedValue(new Error('database unavailable'));
 
-  const response = await POST(loginRequest());
+    const response = await POST(loginRequest());
 
-  expect(response.status).toBe(503);
-  expect(mocks.checkPassword).not.toHaveBeenCalled();
-});
+    expect(response.status).toBe(503);
+    expect(mocks.checkPassword).not.toHaveBeenCalled();
+  },
+);
 
 test('database release failure does not issue a session after password verification', async () => {
+  mocks.findTwoFactorAuth.mockResolvedValue(null);
   mocks.releaseLoginAccountAttempt.mockRejectedValue(new Error('database unavailable'));
 
   const response = await POST(loginRequest());
 
   expect(response.status).toBe(503);
   expect(mocks.saveAuth).not.toHaveBeenCalled();
+  expect(mocks.createSecureToken).not.toHaveBeenCalled();
 });
 
 test('per-IP limit stops password checks before they consume bcrypt work', async () => {
@@ -461,6 +549,7 @@ test.each([false, true])(
     });
     expect(mocks.getAllUserTeams).not.toHaveBeenCalled();
     expect(mocks.clearFailedLogins).not.toHaveBeenCalled();
+    expect(mocks.releaseLoginAccountAttempt).not.toHaveBeenCalled();
     if (enabled) {
       expect(mocks.saveAuth).toHaveBeenCalledWith(
         {
@@ -503,6 +592,7 @@ test.each([false, true])(
     expect(response.status).toBe(200);
     expect(response.headers.has('set-cookie')).toBe(true);
     expect(mocks.clearFailedLogins).toHaveBeenCalledWith(expect.any(Request), 'alice');
+    expect(mocks.releaseLoginAccountAttempt).toHaveBeenCalledWith('user-1', '2030-01-01T00:00:00Z');
     const issuer = enabled ? mocks.saveAuth : mocks.createSecureToken;
     expect(issuer.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.clearFailedLogins.mock.invocationCallOrder[0],
