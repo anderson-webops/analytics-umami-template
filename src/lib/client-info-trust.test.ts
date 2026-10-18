@@ -7,6 +7,7 @@ afterEach(() => {
 
 describe('trusted collector metadata', () => {
   test('requires both the explicit feature flag and matching shared key', () => {
+    vi.stubEnv('CLOUD_MODE', '1');
     vi.stubEnv('TRUST_CLIENT_INFO_PAYLOAD', '1');
     vi.stubEnv('CLIENT_INFO_TRUST_KEY', 'trusted-collector-key-0000000000000000');
 
@@ -34,7 +35,24 @@ describe('trusted collector metadata', () => {
   });
 
   test('does not trust a matching key while the feature is disabled', () => {
+    vi.stubEnv('CLOUD_MODE', '1');
     vi.stubEnv('TRUST_CLIENT_INFO_PAYLOAD', '0');
+    vi.stubEnv('CLIENT_INFO_TRUST_KEY', 'trusted-collector-key-0000000000000000');
+
+    expect(
+      canTrustClientInfoPayload(
+        new Request('https://analytics.example/api/send', {
+          headers: {
+            [CLIENT_INFO_TRUST_HEADER]: 'trusted-collector-key-0000000000000000',
+          },
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  test('does not trust a matching key outside cloud mode', () => {
+    vi.stubEnv('CLOUD_MODE', '0');
+    vi.stubEnv('TRUST_CLIENT_INFO_PAYLOAD', '1');
     vi.stubEnv('CLIENT_INFO_TRUST_KEY', 'trusted-collector-key-0000000000000000');
 
     expect(

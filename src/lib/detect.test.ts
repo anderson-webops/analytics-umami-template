@@ -57,6 +57,7 @@ test('ignores caller-supplied provider geography without an authenticated collec
 
 test('uses provider geography only with the authenticated cloud collector key', async () => {
   isLocalhost.default.mockResolvedValue(false);
+  vi.stubEnv('CLOUD_MODE', '1');
   vi.stubEnv('TRUST_LOCATION_HEADERS', '1');
   vi.stubEnv('LOCATION_HEADER_PROVIDER', 'cloudflare');
   vi.stubEnv('TRUST_CLIENT_INFO_PAYLOAD', '1');
@@ -79,8 +80,32 @@ test('uses provider geography only with the authenticated cloud collector key', 
   expect(clientInfo).toMatchObject({ country: 'US', region: 'US-CA', city: 'Los Angeles' });
 });
 
+test('ignores a matching collector key and provider headers outside cloud mode', async () => {
+  isLocalhost.default.mockResolvedValue(false);
+  vi.stubEnv('CLOUD_MODE', '0');
+  vi.stubEnv('TRUST_LOCATION_HEADERS', '1');
+  vi.stubEnv('LOCATION_HEADER_PROVIDER', 'cloudflare');
+  vi.stubEnv('TRUST_CLIENT_INFO_PAYLOAD', '1');
+  vi.stubEnv('CLIENT_INFO_TRUST_KEY', 'synthetic-trusted-collector-key-000000000000');
+  vi.stubEnv('CLIENT_IP_HEADER', 'x-trusted-client-ip');
+  vi.stubGlobal('maxmind', {
+    get: () => ({ country: { iso_code: 'CA' } }),
+  });
+
+  const request = new Request('https://analytics.example/api/send', {
+    headers: {
+      'x-trusted-client-ip': '8.8.8.8',
+      'x-umami-client-info-key': 'synthetic-trusted-collector-key-000000000000',
+      'cf-ipcountry': 'US',
+    },
+  });
+
+  expect(await getClientInfo(request, {})).toMatchObject({ country: 'CA' });
+});
+
 test('a signed collector cannot choose an unconfigured provider header family', async () => {
   isLocalhost.default.mockResolvedValue(false);
+  vi.stubEnv('CLOUD_MODE', '1');
   vi.stubEnv('TRUST_LOCATION_HEADERS', '1');
   vi.stubEnv('LOCATION_HEADER_PROVIDER', 'cloudflare');
   vi.stubEnv('TRUST_CLIENT_INFO_PAYLOAD', '1');
@@ -114,6 +139,7 @@ test('a signed collector cannot choose an unconfigured provider header family', 
 
 test('uses the selected provider even when another family appears first', async () => {
   isLocalhost.default.mockResolvedValue(false);
+  vi.stubEnv('CLOUD_MODE', '1');
   vi.stubEnv('TRUST_LOCATION_HEADERS', '1');
   vi.stubEnv('LOCATION_HEADER_PROVIDER', 'vercel');
   vi.stubGlobal('maxmind', { get: () => null });
@@ -138,6 +164,7 @@ test.each([
   ['edgeone', 'eo-ipcountry'],
 ])('retains %s geography when explicitly selected', async (provider, header) => {
   isLocalhost.default.mockResolvedValue(false);
+  vi.stubEnv('CLOUD_MODE', '1');
   vi.stubEnv('TRUST_LOCATION_HEADERS', '1');
   vi.stubEnv('LOCATION_HEADER_PROVIDER', provider);
   vi.stubGlobal('maxmind', { get: () => null });
@@ -156,6 +183,18 @@ test('missing or invalid provider configuration cannot enable header trust', asy
 
   vi.stubEnv('LOCATION_HEADER_PROVIDER', 'other');
   await expect(getLocation('8.8.8.8', headers, false)).resolves.toMatchObject({ country: 'CA' });
+});
+
+test('direct location lookup ignores provider headers outside cloud mode', async () => {
+  isLocalhost.default.mockResolvedValue(false);
+  vi.stubEnv('CLOUD_MODE', '0');
+  vi.stubEnv('TRUST_LOCATION_HEADERS', '1');
+  vi.stubEnv('LOCATION_HEADER_PROVIDER', 'cloudflare');
+  vi.stubGlobal('maxmind', { get: () => ({ country: { iso_code: 'CA' } }) });
+
+  await expect(
+    getLocation('8.8.8.8', new Headers({ 'cf-ipcountry': 'US' }), false),
+  ).resolves.toMatchObject({ country: 'CA' });
 });
 
 test('internal Umami geography requires cloud mode', async () => {
@@ -240,6 +279,7 @@ test('getLocation: returns null for malformed ip', async () => {
 
 test('getLocation: treats localhost check errors as non-local', async () => {
   isLocalhost.default.mockRejectedValue(new Error('DNS Lookup failed.'));
+  vi.stubEnv('CLOUD_MODE', '1');
   process.env.TRUST_LOCATION_HEADERS = '1';
   process.env.LOCATION_HEADER_PROVIDER = 'cloudflare';
 

@@ -144,6 +144,7 @@ export async function getLocation(ip: string = '', headers: Headers, skipHeaders
   }
 
   if (
+    isEnvEnabled('CLOUD_MODE') &&
     !skipHeaders &&
     isEnvEnabled('TRUST_LOCATION_HEADERS') &&
     !isEnvEnabled('SKIP_LOCATION_HEADERS')

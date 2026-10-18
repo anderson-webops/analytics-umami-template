@@ -11,7 +11,7 @@ function secretsMatch(left: string, right: string): boolean {
 }
 
 export function canTrustClientInfoPayload(request: Request): boolean {
-  if (!isEnvEnabled('TRUST_CLIENT_INFO_PAYLOAD')) {
+  if (!isEnvEnabled('CLOUD_MODE') || !isEnvEnabled('TRUST_CLIENT_INFO_PAYLOAD')) {
     return false;
   }
 
