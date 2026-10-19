@@ -39,6 +39,7 @@ const mocks = vi.hoisted(() => {
     secret: vi.fn(),
     createSecureToken: vi.fn(),
     clearFailedLogins: vi.fn(),
+    releaseLoginAccountAttemptOnce: vi.fn(),
   };
 });
 
@@ -79,6 +80,7 @@ vi.mock('@/lib/auth', () => ({
 
 vi.mock('@/lib/login-rate-limit', () => ({
   clearFailedLogins: mocks.clearFailedLogins,
+  releaseLoginAccountAttemptOnce: mocks.releaseLoginAccountAttemptOnce,
 }));
 
 vi.mock('@/lib/prisma', () => ({
@@ -149,6 +151,7 @@ beforeEach(() => {
   mocks.secret.mockReset();
   mocks.createSecureToken.mockReset();
   mocks.clearFailedLogins.mockReset().mockResolvedValue(undefined);
+  mocks.releaseLoginAccountAttemptOnce.mockReset().mockResolvedValue(true);
 
   mocks.parseRequest.mockResolvedValue({
     auth: { authType: 'session', user: { id: 'user-1', role: 'user' }, sessionGeneration: 0 },
@@ -390,6 +393,89 @@ test('POST confirms setup, enables 2FA, stores backup codes, and resets the rate
     backupCodes: ['code-1', 'code-2'],
   });
   expect(response.status).toBe(200);
+  expect(mocks.releaseLoginAccountAttemptOnce).not.toHaveBeenCalled();
+});
+
+test('required enrollment releases its reserved login attempt only after issuing full auth', async () => {
+  mocks.parseRequest.mockResolvedValue({
+    auth: {
+      authType: 'session',
+      user: { id: 'user-1', role: 'user' },
+      sessionGeneration: 0,
+      enrollmentOnly: true,
+      accountAttemptId: '00000000-0000-4000-8000-000000000001',
+      accountAttemptExpiresAt: '2030-01-01T00:00:00Z',
+    },
+    body: { token: '123456', password: 'current-password' },
+    error: undefined,
+  });
+
+  const response = await POST(
+    new Request('http://localhost/api/2fa/setup/confirm', { method: 'POST' }),
+  );
+
+  expect(response.status).toBe(200);
+  expect(mocks.releaseLoginAccountAttemptOnce).toHaveBeenCalledWith(
+    'alice',
+    '2030-01-01T00:00:00Z',
+    '00000000-0000-4000-8000-000000000001',
+    'user-1',
+  );
+  expect(mocks.createSecureToken.mock.invocationCallOrder[0]).toBeLessThan(
+    mocks.releaseLoginAccountAttemptOnce.mock.invocationCallOrder[0],
+  );
+});
+
+test('current enrollment releases its username-scoped admission key', async () => {
+  mocks.parseRequest.mockResolvedValue({
+    auth: {
+      authType: 'session',
+      user: { id: 'user-1', role: 'user' },
+      sessionGeneration: 0,
+      enrollmentOnly: true,
+      accountAttemptId: '00000000-0000-4000-8000-000000000001',
+      accountAttemptExpiresAt: '2030-01-01T00:00:00Z',
+      accountAttemptKeyVersion: 2,
+    },
+    body: { token: '123456', password: 'current-password' },
+    error: undefined,
+  });
+
+  const response = await POST(
+    new Request('http://localhost/api/2fa/setup/confirm', { method: 'POST' }),
+  );
+
+  expect(response.status).toBe(200);
+  expect(mocks.releaseLoginAccountAttemptOnce).toHaveBeenCalledWith(
+    'alice',
+    '2030-01-01T00:00:00Z',
+    '00000000-0000-4000-8000-000000000001',
+    undefined,
+  );
+});
+
+test('failed cleanup cannot strand a consumed enrollment code', async () => {
+  mocks.parseRequest.mockResolvedValue({
+    auth: {
+      authType: 'session',
+      user: { id: 'user-1', role: 'user' },
+      sessionGeneration: 0,
+      enrollmentOnly: true,
+      accountAttemptId: '00000000-0000-4000-8000-000000000001',
+      accountAttemptExpiresAt: '2030-01-01T00:00:00Z',
+    },
+    body: { token: '123456', password: 'current-password' },
+    error: undefined,
+  });
+  mocks.releaseLoginAccountAttemptOnce.mockRejectedValue(new Error('database unavailable'));
+
+  const response = await POST(
+    new Request('http://localhost/api/2fa/setup/confirm', { method: 'POST' }),
+  );
+
+  expect(response.status).toBe(200);
+  expect(response.headers.get('set-cookie')).toContain('verified-session-token');
+  expect(mocks.releaseLoginAccountAttemptOnce).toHaveBeenCalledTimes(1);
 });
 
 test('POST cannot issue a post-reset session from a pre-reset confirmation request', async () => {

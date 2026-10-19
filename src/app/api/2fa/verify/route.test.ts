@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   secret: vi.fn(),
   hash: vi.fn(),
   clearFailedLogins: vi.fn(),
+  releaseLoginAccountAttemptOnce: vi.fn(),
 }));
 
 vi.mock('@/lib/auth', () => ({
@@ -91,6 +92,7 @@ vi.mock('@/lib/redis', () => ({
 
 vi.mock('@/lib/login-rate-limit', () => ({
   clearFailedLogins: mocks.clearFailedLogins,
+  releaseLoginAccountAttemptOnce: mocks.releaseLoginAccountAttemptOnce,
 }));
 
 import { POST } from './route';
@@ -118,6 +120,7 @@ beforeEach(() => {
   mocks.secret.mockReset();
   mocks.hash.mockReset();
   mocks.clearFailedLogins.mockReset().mockResolvedValue(undefined);
+  mocks.releaseLoginAccountAttemptOnce.mockReset().mockResolvedValue(true);
 
   mocks.getBearerToken.mockReturnValue('partial-token');
   mocks.secret.mockReturnValue('app-secret');
@@ -127,6 +130,8 @@ beforeEach(() => {
     userId: 'user-1',
     pwd: 'password-fingerprint',
     sessionGeneration: 0,
+    accountAttemptId: '00000000-0000-4000-8000-000000000001',
+    accountAttemptExpiresAt: '2030-01-01T00:00:00Z',
   });
   mocks.getUser.mockResolvedValue({
     id: 'user-1',
@@ -197,6 +202,18 @@ test('POST accepts a token-only payload and completes 2FA verification', async (
   );
   expect(mocks.consumeOtp).toHaveBeenCalledWith('user-1', '123456');
   expect(mocks.resetRateLimit).toHaveBeenCalledWith('user-1');
+  expect(mocks.releaseLoginAccountAttemptOnce).toHaveBeenCalledWith(
+    'alice',
+    '2030-01-01T00:00:00Z',
+    '00000000-0000-4000-8000-000000000001',
+    'user-1',
+  );
+  expect(mocks.consumeOtp.mock.invocationCallOrder[0]).toBeLessThan(
+    mocks.releaseLoginAccountAttemptOnce.mock.invocationCallOrder[0],
+  );
+  expect(mocks.createSecureToken.mock.invocationCallOrder[0]).toBeLessThan(
+    mocks.releaseLoginAccountAttemptOnce.mock.invocationCallOrder[0],
+  );
   expect(mocks.createSecureToken).toHaveBeenCalledWith(
     {
       userId: 'user-1',
@@ -217,6 +234,102 @@ test('POST accepts a token-only payload and completes 2FA verification', async (
     },
   });
   expect(response.status).toBe(200);
+  expect(mocks.clearFailedLogins).toHaveBeenCalledWith(expect.any(Request), 'alice');
+});
+
+test('a current partial token releases its username-scoped admission key', async () => {
+  mocks.parseSecureToken.mockReturnValue({
+    type: 'partial-auth',
+    userId: 'user-1',
+    pwd: 'password-fingerprint',
+    sessionGeneration: 0,
+    accountAttemptId: '00000000-0000-4000-8000-000000000001',
+    accountAttemptExpiresAt: '2030-01-01T00:00:00Z',
+    accountAttemptKeyVersion: 2,
+  });
+
+  const response = await POST(
+    new Request('http://localhost/api/2fa/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer partial-token' },
+      body: JSON.stringify({ token: '123456' }),
+    }),
+  );
+
+  expect(response.status).toBe(200);
+  expect(mocks.releaseLoginAccountAttemptOnce).toHaveBeenCalledWith(
+    'alice',
+    '2030-01-01T00:00:00Z',
+    '00000000-0000-4000-8000-000000000001',
+    undefined,
+  );
+});
+
+test('legacy partial tokens complete without releasing an unproven reservation', async () => {
+  mocks.parseSecureToken.mockReturnValue({
+    type: 'partial-auth',
+    userId: 'user-1',
+    pwd: 'password-fingerprint',
+    sessionGeneration: 0,
+  });
+
+  const response = await POST(
+    new Request('http://localhost/api/2fa/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer partial-token' },
+      body: JSON.stringify({ token: '123456' }),
+    }),
+  );
+
+  expect(response.status).toBe(200);
+  expect(mocks.releaseLoginAccountAttemptOnce).not.toHaveBeenCalled();
+});
+
+test('a failed reservation release does not strand a consumed TOTP', async () => {
+  mocks.releaseLoginAccountAttemptOnce.mockRejectedValue(new Error('database unavailable'));
+
+  const response = await POST(
+    new Request('http://localhost/api/2fa/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer partial-token' },
+      body: JSON.stringify({ token: '123456' }),
+    }),
+  );
+
+  expect(response.status).toBe(200);
+  expect(response.headers.get('set-cookie')).toContain('full-auth-token');
+  expect(mocks.consumeOtp).toHaveBeenCalledWith('user-1', '123456');
+  expect(mocks.createSecureToken).toHaveBeenCalledTimes(1);
+  expect(mocks.clearFailedLogins).toHaveBeenCalledWith(expect.any(Request), 'alice');
+});
+
+test('a failed reservation release does not strand a consumed backup code', async () => {
+  mocks.findBackupCodes.mockResolvedValue([{ id: 'backup-1', codeHash: 'hashed-code' }]);
+  mocks.verifyBackupCode.mockResolvedValue(0);
+  mocks.updateBackupCodes.mockResolvedValue({ count: 1 });
+  mocks.releaseLoginAccountAttemptOnce.mockRejectedValue(new Error('database unavailable'));
+
+  const response = await POST(
+    new Request('http://localhost/api/2fa/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer partial-token' },
+      body: JSON.stringify({ backupCode: 'backup-code' }),
+    }),
+  );
+
+  expect(response.status).toBe(200);
+  expect(response.headers.get('set-cookie')).toContain('full-auth-token');
+  expect(mocks.updateBackupCodes).toHaveBeenCalledWith({
+    where: { id: 'backup-1', used: false },
+    data: { used: true },
+  });
+  expect(mocks.releaseLoginAccountAttemptOnce).toHaveBeenCalledWith(
+    'alice',
+    '2030-01-01T00:00:00Z',
+    '00000000-0000-4000-8000-000000000001',
+    'user-1',
+  );
+  expect(mocks.createSecureToken).toHaveBeenCalledTimes(1);
   expect(mocks.clearFailedLogins).toHaveBeenCalledWith(expect.any(Request), 'alice');
 });
 

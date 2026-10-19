@@ -138,6 +138,9 @@ export async function checkAuth(request: Request) {
   let mfaVerified = false;
   let mfaId: string | undefined;
   let enrollmentOnly = false;
+  let accountAttemptId: string | undefined;
+  let accountAttemptExpiresAt: string | undefined;
+  let accountAttemptKeyVersion: number | undefined;
   let sessionGeneration: unknown;
   let passwordFingerprint: string | undefined;
   const { userId, authKey } = payload || {};
@@ -146,6 +149,15 @@ export async function checkAuth(request: Request) {
     mfaVerified = payload?.mfa === true;
     mfaId = typeof payload?.mfaId === 'string' ? payload.mfaId : undefined;
     enrollmentOnly = payload?.type === ENROLLMENT_AUTH_TOKEN_TYPE;
+    if (enrollmentOnly) {
+      accountAttemptId =
+        typeof payload?.accountAttemptId === 'string' ? payload.accountAttemptId : undefined;
+      accountAttemptExpiresAt =
+        typeof payload?.accountAttemptExpiresAt === 'string'
+          ? payload.accountAttemptExpiresAt
+          : undefined;
+      accountAttemptKeyVersion = payload?.accountAttemptKeyVersion === 2 ? 2 : undefined;
+    }
     sessionGeneration = payload?.sessionGeneration;
     user = await getUser(userId, { includePassword: true, includeSessionGeneration: true });
 
@@ -166,6 +178,13 @@ export async function checkAuth(request: Request) {
       mfaVerified = key.mfa === true;
       mfaId = typeof key.mfaId === 'string' ? key.mfaId : undefined;
       enrollmentOnly = key.type === ENROLLMENT_AUTH_TOKEN_TYPE;
+      if (enrollmentOnly) {
+        accountAttemptId =
+          typeof key.accountAttemptId === 'string' ? key.accountAttemptId : undefined;
+        accountAttemptExpiresAt =
+          typeof key.accountAttemptExpiresAt === 'string' ? key.accountAttemptExpiresAt : undefined;
+        accountAttemptKeyVersion = key.accountAttemptKeyVersion === 2 ? 2 : undefined;
+      }
       sessionGeneration = key.sessionGeneration;
       user = await getUser(key.userId, { includePassword: true, includeSessionGeneration: true });
 
@@ -281,6 +300,9 @@ export async function checkAuth(request: Request) {
     mfaVerified,
     mfaId: mfaVerified ? mfaId : undefined,
     enrollmentOnly,
+    accountAttemptId: enrollmentOnly ? accountAttemptId : undefined,
+    accountAttemptExpiresAt: enrollmentOnly ? accountAttemptExpiresAt : undefined,
+    accountAttemptKeyVersion: enrollmentOnly ? accountAttemptKeyVersion : undefined,
     sessionGeneration:
       user && typeof sessionGeneration === 'number' ? sessionGeneration : undefined,
     passwordFingerprint,

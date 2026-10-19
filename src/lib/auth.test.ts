@@ -348,6 +348,41 @@ describe('checkAuth required 2FA enrollment', () => {
     }
   });
 
+  test.each([false, true])(
+    'carries a reserved attempt only in a required enrollment session (Redis %s)',
+    async enabled => {
+      mockSession(true);
+      twoFactorMocks.findUser.mockResolvedValue({ twoFactorRequired: true });
+      redisMock.enabled = enabled;
+      const enrollment = {
+        userId: 'user-1',
+        role: 'user',
+        pwd: hash(PASSWORD_HASH),
+        type: 'enrollment-auth',
+        accountAttemptId: '00000000-0000-4000-8000-000000000001',
+        accountAttemptExpiresAt: '2030-01-01T00:00:00Z',
+        accountAttemptKeyVersion: 2,
+      };
+
+      if (enabled) {
+        parseSecureTokenMock.mockReturnValue({ authKey: 'auth:fixture' } as any);
+        redisMock.client.get.mockResolvedValue(enrollment);
+      } else {
+        parseSecureTokenMock.mockReturnValue(enrollment as any);
+      }
+
+      const auth = await checkAuth(authedRequest('/api/2fa/setup/confirm', 'POST'));
+
+      expect(auth).toMatchObject({
+        authType: 'session',
+        enrollmentOnly: true,
+        accountAttemptId: enrollment.accountAttemptId,
+        accountAttemptExpiresAt: enrollment.accountAttemptExpiresAt,
+        accountAttemptKeyVersion: 2,
+      });
+    },
+  );
+
   test('allows ordinary access without a requirement and after verified enrollment', async () => {
     mockSession();
     expect(await checkAuth(authedRequest('/api/websites'))).not.toBeNull();

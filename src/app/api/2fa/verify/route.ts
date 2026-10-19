@@ -4,7 +4,7 @@ import { PARTIAL_AUTH_TOKEN_TYPE, ROLES } from '@/lib/constants';
 import { hash, secret } from '@/lib/crypto';
 import { isEnvEnabled } from '@/lib/env';
 import { createSecureToken, parseSecureToken } from '@/lib/jwt';
-import { clearFailedLogins } from '@/lib/login-rate-limit';
+import { clearFailedLogins, releaseLoginAccountAttemptOnce } from '@/lib/login-rate-limit';
 import prisma from '@/lib/prisma';
 import redis from '@/lib/redis';
 import { parseRequest } from '@/lib/request';
@@ -189,6 +189,17 @@ export async function POST(request: Request) {
   }
 
   const teams = await getAllUserTeams(id);
+  if (
+    typeof payload.accountAttemptId === 'string' &&
+    typeof payload.accountAttemptExpiresAt === 'string'
+  ) {
+    await releaseLoginAccountAttemptOnce(
+      username,
+      payload.accountAttemptExpiresAt,
+      payload.accountAttemptId,
+      payload.accountAttemptKeyVersion === 2 ? undefined : userId,
+    ).catch(() => undefined);
+  }
   await clearFailedLogins(request, username);
 
   return setSessionCookie(

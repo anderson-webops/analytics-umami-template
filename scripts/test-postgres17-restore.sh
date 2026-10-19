@@ -76,7 +76,8 @@ if [[ "${1:-}" == --login-admission ]]; then
   "$pg_bin/psql" -h 127.0.0.1 -p "$port" -U restore_test -d postgres \
     -v ON_ERROR_STOP=1 -c 'CREATE TABLE "app_setting" ("key" TEXT PRIMARY KEY, "value" TEXT NOT NULL)' \
     >/dev/null
-  ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm exec tsx scripts/test-login-account-admission.ts
+  APP_SECRET=synthetic-login-admission-secret-0000000000000000 \
+    ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-login-account-admission.ts
   exit 0
 fi
 if [[ "${1:-}" == --session-data-bulk ]]; then
@@ -123,7 +124,8 @@ ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm run test:collection-rate-limit
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-collection-budget.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm exec tsx scripts/test-two-factor-admission.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm exec tsx scripts/test-password-verification-admission.ts
-ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm exec tsx scripts/test-login-account-admission.ts
+APP_SECRET=synthetic-login-admission-secret-0000000000000000 \
+  ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-login-account-admission.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 \
   APP_SECRET=synthetic-session-generation-secret-0000000000000000 \
   REDIS_URL= CLOUD_MODE= node --conditions=react-server --import tsx scripts/test-session-generation.ts

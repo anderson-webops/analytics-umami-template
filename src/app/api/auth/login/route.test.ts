@@ -15,7 +15,11 @@ const mocks = vi.hoisted(() => ({
   isTwoFactorConfigured: vi.fn(),
   getLoginLimit: vi.fn(),
   reserveLoginAccountAttempt: vi.fn(),
+  reserveLoginOverflowAttempt: vi.fn(),
   releaseLoginAccountAttempt: vi.fn(),
+  releaseLoginOverflowAttempt: vi.fn(),
+  reserveLoginPasswordWork: vi.fn(),
+  releaseLoginPasswordWork: vi.fn(),
   recordFailedLogin: vi.fn(),
   clearFailedLogins: vi.fn(),
   hashPassword: vi.fn(),
@@ -47,7 +51,11 @@ vi.mock('@/lib/login-rate-limit', () => ({
   clearFailedLogins: mocks.clearFailedLogins,
   getLoginLimit: mocks.getLoginLimit,
   releaseLoginAccountAttempt: mocks.releaseLoginAccountAttempt,
+  releaseLoginOverflowAttempt: mocks.releaseLoginOverflowAttempt,
+  reserveLoginPasswordWork: mocks.reserveLoginPasswordWork,
+  releaseLoginPasswordWork: mocks.releaseLoginPasswordWork,
   reserveLoginAccountAttempt: mocks.reserveLoginAccountAttempt,
+  reserveLoginOverflowAttempt: mocks.reserveLoginOverflowAttempt,
   recordFailedLogin: mocks.recordFailedLogin,
 }));
 
@@ -120,7 +128,11 @@ beforeEach(() => {
   mocks.isTwoFactorConfigured.mockReset();
   mocks.getLoginLimit.mockReset();
   mocks.reserveLoginAccountAttempt.mockReset();
+  mocks.reserveLoginOverflowAttempt.mockReset();
   mocks.releaseLoginAccountAttempt.mockReset();
+  mocks.releaseLoginOverflowAttempt.mockReset();
+  mocks.reserveLoginPasswordWork.mockReset();
+  mocks.releaseLoginPasswordWork.mockReset();
   mocks.recordFailedLogin.mockReset();
   mocks.clearFailedLogins.mockReset();
   mocks.hashPassword.mockReset();
@@ -151,6 +163,13 @@ beforeEach(() => {
     windowExpiresAt: '2030-01-01T00:00:00Z',
   });
   mocks.releaseLoginAccountAttempt.mockResolvedValue(undefined);
+  mocks.reserveLoginOverflowAttempt.mockResolvedValue({ blocked: true });
+  mocks.releaseLoginOverflowAttempt.mockResolvedValue(undefined);
+  mocks.reserveLoginPasswordWork.mockResolvedValue({
+    key: 'login-password-work:0',
+    leaseId: 'lease-0',
+  });
+  mocks.releaseLoginPasswordWork.mockResolvedValue(undefined);
   mocks.recordFailedLogin.mockResolvedValue({ blocked: false, retryAfter: 900 });
   mocks.clearFailedLogins.mockResolvedValue(undefined);
   mocks.passwordNeedsRehash.mockReturnValue(false);
@@ -271,12 +290,12 @@ test('valid CAPTCHA preserves the existing two-factor login step', async () => {
     partialToken: 'partial-fixture',
   });
   expect(mocks.verifyLoginCaptcha).toHaveBeenCalledWith('test-token', loginRequest().url);
-  expect(mocks.reserveLoginAccountAttempt).toHaveBeenCalledWith('user-1');
+  expect(mocks.reserveLoginAccountAttempt).toHaveBeenCalledWith('alice');
   expect(mocks.releaseLoginAccountAttempt).not.toHaveBeenCalled();
   expect(mocks.checkPassword).toHaveBeenCalled();
 });
 
-test('distributed valid CAPTCHA challenges cannot bypass the budget with correct 2FA first factors', async () => {
+test('distributed challenged first factors receive only a bounded overflow slot', async () => {
   mocks.isLoginCaptchaEnabled.mockReturnValue(true);
   mocks.createSecureToken.mockReturnValue('partial-fixture');
   let accountAttempts = 0;
@@ -286,8 +305,13 @@ test('distributed valid CAPTCHA challenges cannot bypass the budget with correct
       ? { blocked: false, retryAfter: 0, windowExpiresAt: '2030-01-01T00:00:00Z' }
       : { blocked: true, retryAfter: 120 };
   });
+  mocks.reserveLoginOverflowAttempt.mockResolvedValueOnce({
+    blocked: false,
+    leaseId: 'lease-1',
+    windowExpiresAt: '2030-01-01T00:00:00Z',
+  });
 
-  for (let attempt = 0; attempt < 11; attempt += 1) {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
     mocks.parseRequest.mockResolvedValueOnce({
       body: { username: 'alice', password: 'secret', captchaToken: `single-use-${attempt}` },
       error: undefined,
@@ -302,16 +326,18 @@ test('distributed valid CAPTCHA challenges cannot bypass the budget with correct
         },
       }),
     );
-    expect(response.status).toBe(attempt < 10 ? 200 : 401);
+    expect(response.status).toBe(attempt < 11 ? 200 : 401);
   }
 
-  expect(mocks.verifyLoginCaptcha).toHaveBeenCalledTimes(11);
-  expect(mocks.checkPassword).toHaveBeenCalledTimes(10);
-  expect(mocks.createSecureToken).toHaveBeenCalledTimes(10);
+  expect(mocks.verifyLoginCaptcha).toHaveBeenCalledTimes(12);
+  expect(mocks.reserveLoginOverflowAttempt).toHaveBeenCalledTimes(2);
+  expect(mocks.releaseLoginOverflowAttempt).toHaveBeenCalledTimes(1);
+  expect(mocks.checkPassword).toHaveBeenCalledTimes(11);
+  expect(mocks.createSecureToken).toHaveBeenCalledTimes(11);
   expect(mocks.releaseLoginAccountAttempt).not.toHaveBeenCalled();
 });
 
-test('valid CAPTCHA cannot bypass an exhausted account budget', async () => {
+test('a valid CAPTCHA permits a correct password after account budget exhaustion', async () => {
   mocks.isLoginCaptchaEnabled.mockReturnValue(true);
   mocks.parseRequest
     .mockResolvedValueOnce({
@@ -331,19 +357,67 @@ test('valid CAPTCHA cannot bypass an exhausted account budget', async () => {
       windowExpiresAt: '2030-01-01T00:00:00Z',
     })
     .mockResolvedValueOnce({ blocked: true, retryAfter: 120 });
+  mocks.reserveLoginOverflowAttempt.mockResolvedValueOnce({
+    blocked: false,
+    leaseId: 'lease-1',
+    windowExpiresAt: '2030-01-01T00:00:00Z',
+  });
 
   const rejected = await POST(loginRequest());
-  const blocked = await POST(loginRequest());
+  const challenged = await POST(loginRequest());
 
   expect(rejected.status).toBe(401);
-  expect(blocked.status).toBe(401);
-  expect(mocks.checkPassword).toHaveBeenCalledTimes(1);
+  expect(challenged.status).toBe(200);
+  await expect(challenged.json()).resolves.toMatchObject({
+    requiresTwoFactor: true,
+    partialToken: 'partial-fixture',
+  });
+  expect(mocks.checkPassword).toHaveBeenCalledTimes(2);
   expect(mocks.verifyLoginCaptcha).toHaveBeenCalledTimes(2);
   expect(mocks.verifyLoginCaptcha).toHaveBeenNthCalledWith(1, 'first-token', loginRequest().url);
   expect(mocks.verifyLoginCaptcha).toHaveBeenNthCalledWith(2, 'second-token', loginRequest().url);
   expect(mocks.getLoginLimit).toHaveBeenCalledTimes(2);
   expect(mocks.reserveLoginAccountAttempt).toHaveBeenCalledTimes(2);
+  expect(mocks.reserveLoginOverflowAttempt).toHaveBeenCalledWith('alice');
+  expect(mocks.releaseLoginOverflowAttempt).toHaveBeenCalledWith(
+    'alice',
+    '2030-01-01T00:00:00Z',
+    'lease-1',
+  );
+  expect(mocks.createSecureToken).toHaveBeenLastCalledWith(
+    { userId: 'user-1', pwd: 'password-fingerprint', sessionGeneration: 0, type: 'partial-auth' },
+    undefined,
+    { expiresIn: '5m' },
+  );
   expect(mocks.releaseLoginAccountAttempt).not.toHaveBeenCalled();
+});
+
+test('overflow-store failure is not reported as an incorrect password', async () => {
+  mocks.isLoginCaptchaEnabled.mockReturnValue(true);
+  mocks.reserveLoginAccountAttempt.mockResolvedValue({ blocked: true, retryAfter: 120 });
+  mocks.reserveLoginOverflowAttempt.mockRejectedValue(new Error('synthetic database outage'));
+
+  const response = await POST(loginRequest());
+
+  expect(response.status).toBe(503);
+  expect(mocks.checkPassword).not.toHaveBeenCalled();
+});
+
+test('overflow lease cleanup failure does not strand a verified first factor', async () => {
+  mocks.isLoginCaptchaEnabled.mockReturnValue(true);
+  mocks.reserveLoginAccountAttempt.mockResolvedValue({ blocked: true, retryAfter: 120 });
+  mocks.reserveLoginOverflowAttempt.mockResolvedValue({
+    blocked: false,
+    leaseId: 'lease-1',
+    windowExpiresAt: '2030-01-01T00:00:00Z',
+  });
+  mocks.releaseLoginOverflowAttempt.mockRejectedValue(new Error('synthetic database outage'));
+  mocks.createSecureToken.mockReturnValue('partial-fixture');
+
+  const response = await POST(loginRequest());
+
+  expect(response.status).toBe(200);
+  expect(mocks.releaseLoginOverflowAttempt).toHaveBeenCalledTimes(1);
 });
 
 test('distributed valid challenges cannot perform unbounded password checks for one account', async () => {
@@ -356,8 +430,13 @@ test('distributed valid challenges cannot perform unbounded password checks for 
       ? { blocked: false, retryAfter: 0, windowExpiresAt: '2030-01-01T00:00:00Z' }
       : { blocked: true, retryAfter: 120 };
   });
+  mocks.reserveLoginOverflowAttempt.mockResolvedValueOnce({
+    blocked: false,
+    leaseId: 'lease-1',
+    windowExpiresAt: '2030-01-01T00:00:00Z',
+  });
 
-  for (let attempt = 0; attempt < 11; attempt += 1) {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
     mocks.parseRequest.mockResolvedValueOnce({
       body: { username: 'alice', password: 'wrong', captchaToken: `single-use-${attempt}` },
       error: undefined,
@@ -375,9 +454,11 @@ test('distributed valid challenges cannot perform unbounded password checks for 
     expect(response.status).toBe(401);
   }
 
-  expect(mocks.verifyLoginCaptcha).toHaveBeenCalledTimes(11);
-  expect(mocks.reserveLoginAccountAttempt).toHaveBeenCalledTimes(11);
-  expect(mocks.checkPassword).toHaveBeenCalledTimes(10);
+  expect(mocks.verifyLoginCaptcha).toHaveBeenCalledTimes(12);
+  expect(mocks.reserveLoginAccountAttempt).toHaveBeenCalledTimes(12);
+  expect(mocks.reserveLoginOverflowAttempt).toHaveBeenCalledTimes(2);
+  expect(mocks.releaseLoginOverflowAttempt).toHaveBeenCalledTimes(1);
+  expect(mocks.checkPassword).toHaveBeenCalledTimes(11);
   expect(mocks.releaseLoginAccountAttempt).not.toHaveBeenCalled();
 });
 
@@ -394,7 +475,7 @@ test('a valid CAPTCHA gives unknown users the same password-check path', async (
 
   expect(response.status).toBe(401);
   expect(mocks.checkPassword).toHaveBeenCalledWith('secret', expect.any(String));
-  expect(mocks.reserveLoginAccountAttempt).toHaveBeenCalledWith(undefined);
+  expect(mocks.reserveLoginAccountAttempt).toHaveBeenCalledWith('missing');
   expect(mocks.recordFailedLogin).not.toHaveBeenCalled();
 });
 
@@ -457,21 +538,95 @@ test('without CAPTCHA, an exhausted account budget denies a correct password bef
   await expect(response.json()).resolves.toMatchObject({
     error: { code: 'incorrect-username-password' },
   });
-  expect(mocks.reserveLoginAccountAttempt).toHaveBeenCalledWith('user-1');
+  expect(mocks.reserveLoginAccountAttempt).toHaveBeenCalledWith('alice');
   expect(mocks.checkPassword).not.toHaveBeenCalled();
   expect(mocks.releaseLoginAccountAttempt).not.toHaveBeenCalled();
   expect(mocks.createSecureToken).not.toHaveBeenCalled();
 });
 
-test('unknown usernames share a bounded admission budget without exposing existence in status', async () => {
+test('an exhausted username budget stops before account lookup', async () => {
   mocks.getUserByUsername.mockResolvedValue(null);
   mocks.reserveLoginAccountAttempt.mockResolvedValue({ blocked: true, retryAfter: 120 });
 
   const response = await POST(loginRequest());
 
   expect(response.status).toBe(401);
-  expect(mocks.reserveLoginAccountAttempt).toHaveBeenCalledWith(undefined);
+  expect(mocks.reserveLoginAccountAttempt).toHaveBeenCalledWith('alice');
+  expect(mocks.getUserByUsername).not.toHaveBeenCalled();
   expect(mocks.checkPassword).not.toHaveBeenCalled();
+});
+
+test('admission precedes account lookup for known and unknown usernames', async () => {
+  mocks.getUserByUsername.mockResolvedValueOnce(null);
+  mocks.checkPassword.mockResolvedValue(false);
+
+  const unknown = await POST(loginRequest());
+  const known = await POST(loginRequest());
+
+  expect(unknown.status).toBe(401);
+  expect(known.status).toBe(401);
+  expect(mocks.reserveLoginAccountAttempt).toHaveBeenNthCalledWith(1, 'alice');
+  expect(mocks.reserveLoginAccountAttempt).toHaveBeenNthCalledWith(2, 'alice');
+  expect(mocks.reserveLoginAccountAttempt.mock.invocationCallOrder[0]).toBeLessThan(
+    mocks.getUserByUsername.mock.invocationCallOrder[0],
+  );
+  expect(mocks.checkPassword).toHaveBeenCalledTimes(2);
+});
+
+test('exhausted shared password capacity rejects before account lookup', async () => {
+  mocks.reserveLoginPasswordWork.mockResolvedValue(null);
+
+  const response = await POST(loginRequest());
+
+  expect(response.status).toBe(503);
+  expect(mocks.reserveLoginAccountAttempt).not.toHaveBeenCalled();
+  expect(mocks.getUserByUsername).not.toHaveBeenCalled();
+  expect(mocks.checkPassword).not.toHaveBeenCalled();
+});
+
+test('an unavailable password-work store fails closed before account lookup', async () => {
+  mocks.reserveLoginPasswordWork.mockRejectedValue(new Error('synthetic database outage'));
+
+  const response = await POST(loginRequest());
+
+  expect(response.status).toBe(503);
+  expect(mocks.reserveLoginAccountAttempt).not.toHaveBeenCalled();
+  expect(mocks.getUserByUsername).not.toHaveBeenCalled();
+});
+
+test('password work lease is released after a rejected first factor', async () => {
+  mocks.checkPassword.mockResolvedValue(false);
+
+  const response = await POST(loginRequest());
+
+  expect(response.status).toBe(401);
+  expect(mocks.releaseLoginPasswordWork).toHaveBeenCalledWith({
+    key: 'login-password-work:0',
+    leaseId: 'lease-0',
+  });
+});
+
+test('a password-check exception releases both bounded leases', async () => {
+  mocks.isLoginCaptchaEnabled.mockReturnValue(true);
+  mocks.reserveLoginAccountAttempt.mockResolvedValue({ blocked: true, retryAfter: 120 });
+  mocks.reserveLoginOverflowAttempt.mockResolvedValue({
+    blocked: false,
+    leaseId: 'overflow-1',
+    windowExpiresAt: '2030-01-01T00:00:00Z',
+  });
+  mocks.checkPassword.mockRejectedValue(new Error('synthetic hash failure'));
+
+  await expect(POST(loginRequest())).rejects.toThrow('synthetic hash failure');
+
+  expect(mocks.releaseLoginOverflowAttempt).toHaveBeenCalledWith(
+    'alice',
+    '2030-01-01T00:00:00Z',
+    'overflow-1',
+  );
+  expect(mocks.releaseLoginPasswordWork).toHaveBeenCalledWith({
+    key: 'login-password-work:0',
+    leaseId: 'lease-0',
+  });
 });
 
 test.each([false, true])(
@@ -558,6 +713,9 @@ test.each([false, true])(
           pwd: 'password-fingerprint',
           sessionGeneration: 0,
           type: 'enrollment-auth',
+          accountAttemptId: expect.any(String),
+          accountAttemptExpiresAt: '2030-01-01T00:00:00Z',
+          accountAttemptKeyVersion: 2,
         },
         900,
       );
@@ -569,6 +727,9 @@ test.each([false, true])(
           pwd: 'password-fingerprint',
           sessionGeneration: 0,
           type: 'enrollment-auth',
+          accountAttemptId: expect.any(String),
+          accountAttemptExpiresAt: '2030-01-01T00:00:00Z',
+          accountAttemptKeyVersion: 2,
         },
         undefined,
         { expiresIn: 900 },
@@ -592,7 +753,7 @@ test.each([false, true])(
     expect(response.status).toBe(200);
     expect(response.headers.has('set-cookie')).toBe(true);
     expect(mocks.clearFailedLogins).toHaveBeenCalledWith(expect.any(Request), 'alice');
-    expect(mocks.releaseLoginAccountAttempt).toHaveBeenCalledWith('user-1', '2030-01-01T00:00:00Z');
+    expect(mocks.releaseLoginAccountAttempt).toHaveBeenCalledWith('alice', '2030-01-01T00:00:00Z');
     const issuer = enabled ? mocks.saveAuth : mocks.createSecureToken;
     expect(issuer.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.clearFailedLogins.mock.invocationCallOrder[0],
@@ -627,7 +788,15 @@ test('self-hosted enrollment decisions use the primary instead of stale replica 
   expect(findPrimaryEnrollment).toHaveBeenCalledWith({ where: { userId: 'user-1' } });
   expect(mocks.findTwoFactorAuth).not.toHaveBeenCalled();
   expect(mocks.createSecureToken).toHaveBeenCalledWith(
-    { userId: 'user-1', pwd: 'password-fingerprint', sessionGeneration: 0, type: 'partial-auth' },
+    {
+      userId: 'user-1',
+      pwd: 'password-fingerprint',
+      sessionGeneration: 0,
+      accountAttemptId: expect.any(String),
+      accountAttemptExpiresAt: '2030-01-01T00:00:00Z',
+      accountAttemptKeyVersion: 2,
+      type: 'partial-auth',
+    },
     undefined,
     { expiresIn: '5m' },
   );
@@ -654,6 +823,9 @@ test('password-hash upgrade keeps the existing credential generation during logi
       userId: 'user-1',
       pwd: 'password-fingerprint',
       sessionGeneration: 0,
+      accountAttemptId: expect.any(String),
+      accountAttemptExpiresAt: '2030-01-01T00:00:00Z',
+      accountAttemptKeyVersion: 2,
       type: 'partial-auth',
     },
     undefined,

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { saveAuth } from '@/lib/auth';
 import { ENROLLMENT_AUTH_TOKEN_TYPE, PARTIAL_AUTH_TOKEN_TYPE, ROLES } from '@/lib/constants';
 import { hash, secret } from '@/lib/crypto';
@@ -9,7 +10,11 @@ import {
   getLoginLimit,
   recordFailedLogin,
   releaseLoginAccountAttempt,
+  releaseLoginOverflowAttempt,
+  releaseLoginPasswordWork,
   reserveLoginAccountAttempt,
+  reserveLoginOverflowAttempt,
+  reserveLoginPasswordWork,
 } from '@/lib/login-rate-limit';
 import { checkPassword, hashPassword, passwordNeedsRehash } from '@/lib/password';
 import prisma from '@/lib/prisma';
@@ -104,24 +109,49 @@ export async function POST(request: Request) {
     return rejectInvalidCredentials(username, captchaEnabled);
   }
 
-  const user = await getUserByUsername(username, {
-    includePassword: true,
-    includeSessionGeneration: true,
-  });
-
-  let accountLimit;
-
+  let workLease;
   try {
-    accountLimit = await reserveLoginAccountAttempt(user?.id);
+    workLease = await reserveLoginPasswordWork();
   } catch {
     return serviceUnavailable({ message: 'Login verification is temporarily unavailable' });
   }
 
-  if (accountLimit.blocked) {
-    return unauthorized({ code: 'incorrect-username-password' });
+  if (!workLease) {
+    return serviceUnavailable({ message: 'Login verification is temporarily unavailable' });
   }
 
-  const passwordMatches = await checkPassword(password, user?.password || DUMMY_PASSWORD_HASH);
+  let accountLimit: Awaited<ReturnType<typeof reserveLoginAccountAttempt>>;
+  let user: Awaited<ReturnType<typeof getUserByUsername>>;
+  let passwordMatches: boolean;
+  let overflow: Awaited<ReturnType<typeof reserveLoginOverflowAttempt>> | null = null;
+
+  try {
+    try {
+      accountLimit = await reserveLoginAccountAttempt(username);
+      if (accountLimit.blocked && captchaEnabled) {
+        overflow = await reserveLoginOverflowAttempt(username);
+      }
+    } catch {
+      return serviceUnavailable({ message: 'Login verification is temporarily unavailable' });
+    }
+
+    if (accountLimit.blocked && (!overflow || overflow.blocked)) {
+      return unauthorized({ code: 'incorrect-username-password' });
+    }
+
+    user = await getUserByUsername(username, {
+      includePassword: true,
+      includeSessionGeneration: true,
+    });
+    passwordMatches = await checkPassword(password, user?.password || DUMMY_PASSWORD_HASH);
+  } finally {
+    if (overflow && 'windowExpiresAt' in overflow) {
+      await releaseLoginOverflowAttempt(username, overflow.windowExpiresAt, overflow.leaseId).catch(
+        () => undefined,
+      );
+    }
+    await releaseLoginPasswordWork(workLease).catch(() => undefined);
+  }
 
   if (!user || !passwordMatches) {
     return rejectInvalidCredentials(username, captchaEnabled);
@@ -150,6 +180,14 @@ export async function POST(request: Request) {
   }
 
   const passwordFingerprint = hash(passwordHash);
+  const accountAttempt =
+    'windowExpiresAt' in accountLimit
+      ? {
+          accountAttemptId: randomUUID(),
+          accountAttemptExpiresAt: accountLimit.windowExpiresAt,
+          accountAttemptKeyVersion: 2,
+        }
+      : {};
 
   if (twoFactor?.isEnabled) {
     if (!isTwoFactorConfigured()) {
@@ -157,7 +195,13 @@ export async function POST(request: Request) {
     }
 
     const partialToken = await createSecureToken(
-      { userId: id, pwd: passwordFingerprint, sessionGeneration, type: PARTIAL_AUTH_TOKEN_TYPE },
+      {
+        userId: id,
+        pwd: passwordFingerprint,
+        sessionGeneration,
+        ...accountAttempt,
+        type: PARTIAL_AUTH_TOKEN_TYPE,
+      },
       secret(),
       { expiresIn: '5m' },
     );
@@ -170,9 +214,9 @@ export async function POST(request: Request) {
     return serviceUnavailable(getTwoFactorConfigurationError());
   }
 
-  if (!enrollmentRequired) {
+  if (!enrollmentRequired && 'windowExpiresAt' in accountLimit) {
     try {
-      await releaseLoginAccountAttempt(id, accountLimit.windowExpiresAt);
+      await releaseLoginAccountAttempt(username, accountLimit.windowExpiresAt);
     } catch {
       return serviceUnavailable({ message: 'Login verification is temporarily unavailable' });
     }
@@ -184,7 +228,7 @@ export async function POST(request: Request) {
     role,
     pwd: passwordFingerprint,
     sessionGeneration,
-    ...(enrollmentRequired ? { type: ENROLLMENT_AUTH_TOKEN_TYPE } : {}),
+    ...(enrollmentRequired ? { type: ENROLLMENT_AUTH_TOKEN_TYPE, ...accountAttempt } : {}),
   };
   const token = redis.enabled
     ? await saveAuth(sessionData, sessionTtl)

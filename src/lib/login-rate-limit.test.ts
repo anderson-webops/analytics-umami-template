@@ -5,7 +5,12 @@ import {
   getLoginLimit,
   recordFailedLogin,
   releaseLoginAccountAttempt,
+  releaseLoginAccountAttemptOnce,
+  releaseLoginOverflowAttempt,
+  releaseLoginPasswordWork,
   reserveLoginAccountAttempt,
+  reserveLoginOverflowAttempt,
+  reserveLoginPasswordWork,
 } from './login-rate-limit';
 
 const mocks = vi.hoisted(() => {
@@ -193,12 +198,12 @@ test('account failure window expires without extending an existing lockout', asy
   expect((await recordFailedLogin('alice')).blocked).toBe(false);
 });
 
-test('account admission uses stable user keys and admits only a successful database reservation', async () => {
+test('account admission uses normalized submitted names and admits only a successful database reservation', async () => {
   mocks.queryRaw.mockResolvedValueOnce([{ windowExpiresAt: '2030-01-01T00:00:00Z' }]);
 
-  expect(getLoginAccountAttemptKey('user-1')).toBe(getLoginAccountAttemptKey('user-1'));
-  expect(getLoginAccountAttemptKey('user-1')).not.toBe(getLoginAccountAttemptKey('user-2'));
-  expect(getLoginAccountAttemptKey()).toBe('login-admission:unknown');
+  expect(getLoginAccountAttemptKey(' Alice ')).toBe(getLoginAccountAttemptKey('alice'));
+  expect(getLoginAccountAttemptKey('alice')).not.toBe(getLoginAccountAttemptKey('bob'));
+  expect(() => getLoginAccountAttemptKey('')).toThrow('Username is required');
   expect(await reserveLoginAccountAttempt('user-1')).toEqual({
     blocked: false,
     retryAfter: 0,
@@ -206,6 +211,31 @@ test('account admission uses stable user keys and admits only a successful datab
   });
   expect(mocks.queryRaw).toHaveBeenCalledTimes(1);
   expect(mocks.queryRaw.mock.calls[0]).toContain(getLoginAccountAttemptKey('user-1'));
+  expect(mocks.queryRaw.mock.calls[0][0].join('?')).toContain('ELSE jsonb_set(');
+});
+
+test('password work uses bounded shared slots and an exact lease release', async () => {
+  mocks.queryRaw.mockImplementationOnce(async (_query, key) => [{ key }]);
+  const lease = await reserveLoginPasswordWork();
+
+  expect(lease).toMatchObject({
+    key: expect.stringMatching(/^login-password-work:[0-3]$/),
+    leaseId: expect.any(String),
+  });
+  expect(mocks.queryRaw.mock.calls[0][0].join('?')).toContain('ON CONFLICT');
+  if (!lease) {
+    throw new Error('Expected a password work lease');
+  }
+  await releaseLoginPasswordWork(lease);
+  expect(mocks.executeRaw.mock.calls[0]).toContain(lease.key);
+  expect(mocks.executeRaw.mock.calls[0]).toContain(lease.leaseId);
+});
+
+test('password work exhaustion does not add unbounded work', async () => {
+  mocks.queryRaw.mockResolvedValue([]);
+
+  expect(await reserveLoginPasswordWork()).toBeNull();
+  expect(mocks.queryRaw).toHaveBeenCalledTimes(4);
 });
 
 test('a successful password check releases only its reserved account window', async () => {
@@ -214,6 +244,43 @@ test('a successful password check releases only its reserved account window', as
   expect(mocks.executeRaw).toHaveBeenCalledTimes(1);
   expect(mocks.executeRaw.mock.calls[0]).toContain(getLoginAccountAttemptKey('user-1'));
   expect(mocks.executeRaw.mock.calls[0]).toContain('2030-01-01T00:00:00Z');
+});
+
+test('a completed factor releases one reserved attempt at most once', async () => {
+  const attemptId = '00000000-0000-4000-8000-000000000001';
+  mocks.executeRaw.mockResolvedValueOnce(1).mockResolvedValueOnce(0);
+
+  expect(await releaseLoginAccountAttemptOnce('user-1', '2030-01-01T00:00:00Z', attemptId)).toBe(
+    true,
+  );
+  expect(await releaseLoginAccountAttemptOnce('user-1', '2030-01-01T00:00:00Z', attemptId)).toBe(
+    false,
+  );
+  expect(mocks.executeRaw).toHaveBeenCalledTimes(2);
+  const [query, ...parameters] = mocks.executeRaw.mock.calls[0];
+  expect(query.join('?')).toContain('AND NOT COALESCE');
+  expect(query.join('?')).toContain('jsonb_build_array');
+  expect(parameters).toContain(getLoginAccountAttemptKey('user-1'));
+  expect(parameters).toContain(attemptId);
+});
+
+test('malformed release IDs cannot reach the database', async () => {
+  expect(await releaseLoginAccountAttemptOnce('user-1', '2030-01-01T00:00:00Z', 'bad')).toBe(false);
+  expect(mocks.executeRaw).not.toHaveBeenCalled();
+});
+
+test('a challenged overflow attempt reserves and releases one shared lease', async () => {
+  mocks.queryRaw.mockResolvedValueOnce([{ windowExpiresAt: '2030-01-01T00:00:00Z' }]);
+  const admission = await reserveLoginOverflowAttempt('user-1');
+
+  expect(admission.blocked).toBe(false);
+  if (!('leaseId' in admission)) {
+    throw new Error('Expected overflow admission');
+  }
+  expect(mocks.queryRaw.mock.calls[0][0].join('?')).toContain('overflowNextAt');
+  expect(mocks.queryRaw.mock.calls[0]).toContain(getLoginAccountAttemptKey('user-1'));
+  await releaseLoginOverflowAttempt('user-1', admission.windowExpiresAt, admission.leaseId);
+  expect(mocks.executeRaw.mock.calls[0]).toContain(admission.leaseId);
 });
 
 test('account admission denies at capacity with a bounded remaining wait', async () => {
