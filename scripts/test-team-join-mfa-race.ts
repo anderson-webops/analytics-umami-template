@@ -614,10 +614,34 @@ try {
     deleteSession(requiredWebsiteId, protectedSessionId, actorId, preJoinAuth),
     /ENTITY_ACTOR_NOT_AUTHORIZED/,
   );
-  assert.equal(
-    (await deleteSession(requiredWebsiteId, protectedSessionId, actorId, verifiedAuth))?.id,
-    protectedSessionId,
+  await assert.rejects(
+    deleteSession(requiredWebsiteId, protectedSessionId, actorId, verifiedAuth),
+    /KAFKA_HISTORY_REVIEW_REQUIRED/,
   );
+  assert.equal(process.env.KAFKA_URL, '');
+  assert.equal(process.env.KAFKA_BROKER ?? '', '');
+  assert.equal(process.env.CLICKHOUSE_URL, '');
+  const priorKafkaAttestation = process.env.KAFKA_HISTORY_ATTESTED_CLEAN;
+  const priorClickhouseAttestation = process.env.CLICKHOUSE_HISTORY_ATTESTED_CLEAN;
+  try {
+    process.env.KAFKA_HISTORY_ATTESTED_CLEAN = 'true';
+    process.env.CLICKHOUSE_HISTORY_ATTESTED_CLEAN = 'true';
+    assert.equal(
+      (await deleteSession(requiredWebsiteId, protectedSessionId, actorId, verifiedAuth))?.id,
+      protectedSessionId,
+    );
+  } finally {
+    if (priorKafkaAttestation === undefined) {
+      delete process.env.KAFKA_HISTORY_ATTESTED_CLEAN;
+    } else {
+      process.env.KAFKA_HISTORY_ATTESTED_CLEAN = priorKafkaAttestation;
+    }
+    if (priorClickhouseAttestation === undefined) {
+      delete process.env.CLICKHOUSE_HISTORY_ATTESTED_CLEAN;
+    } else {
+      process.env.CLICKHOUSE_HISTORY_ATTESTED_CLEAN = priorClickhouseAttestation;
+    }
+  }
   await assert.rejects(
     createTeam({ id: createdTeamId, name: 'Stale team' }, actorId, actorId, null, preJoinAuth),
     /TEAM_ACTOR_NOT_AUTHORIZED/,

@@ -34,12 +34,6 @@ export async function deleteSession(
   actorUserId: string,
   auth: Auth,
 ): Promise<{ id: string } | null> {
-  assertKafkaHistorySafeForDeletion();
-
-  if (!isSessionDeletionAvailable()) {
-    throw new Error('SESSION_STORAGE_REVIEW_REQUIRED');
-  }
-
   return runSerializable(async tx => {
     await assertCurrentActorAuth(tx, actorUserId, auth);
     await lockSessionDeleteAuthorization(tx, actorUserId, websiteId);
@@ -50,6 +44,12 @@ export async function deleteSession(
       websiteId,
       PERMISSIONS.websiteDelete,
     );
+
+    assertKafkaHistorySafeForDeletion();
+
+    if (!isSessionDeletionAvailable()) {
+      throw new Error('SESSION_STORAGE_REVIEW_REQUIRED');
+    }
 
     const session = await tx.session.findFirst({
       where: {

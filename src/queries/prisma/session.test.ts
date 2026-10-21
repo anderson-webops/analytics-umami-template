@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import prisma from '@/lib/prisma';
+import { assertCurrentActorAuth } from './authorization';
 import { deleteSession } from './session';
 
 vi.mock('@/lib/prisma', () => ({
@@ -7,6 +8,7 @@ vi.mock('@/lib/prisma', () => ({
 }));
 
 const transaction = vi.mocked(prisma.transaction);
+const validateActorAuth = vi.mocked(assertCurrentActorAuth);
 const websiteId = '00000000-0000-4000-8000-000000000001';
 const sessionId = '00000000-0000-4000-8000-000000000002';
 const actorUserId = '00000000-0000-4000-8000-000000000003';
@@ -49,8 +51,15 @@ function transactionClient() {
   };
 }
 
+function authorizedTransactionClient() {
+  const client = transactionClient();
+  transaction.mockImplementation(async (operation: any) => operation(client));
+  return client;
+}
+
 beforeEach(() => {
   transaction.mockReset();
+  validateActorAuth.mockReset();
   vi.stubEnv('KAFKA_HISTORY_ATTESTED_CLEAN', 'true');
   vi.stubEnv('KAFKA_URL', '');
   vi.stubEnv('KAFKA_BROKER', '');
@@ -64,39 +73,60 @@ afterEach(() => {
 });
 
 test('refuses a direct session deletion without protected Kafka history review', async () => {
+  const client = authorizedTransactionClient();
   vi.stubEnv('KAFKA_HISTORY_ATTESTED_CLEAN', '');
 
   await expect(deleteSession(websiteId, sessionId, actorUserId, actorAuth)).rejects.toThrow(
     'KAFKA_HISTORY_REVIEW_REQUIRED',
   );
-  expect(transaction).not.toHaveBeenCalled();
+  expect(client.session.findFirst).not.toHaveBeenCalled();
+  expect(client.session.delete).not.toHaveBeenCalled();
 });
 
 test('refuses a direct session deletion when Kafka is configured after attestation', async () => {
+  const client = authorizedTransactionClient();
   vi.stubEnv('KAFKA_URL', 'kafkas://broker');
 
   await expect(deleteSession(websiteId, sessionId, actorUserId, actorAuth)).rejects.toThrow(
     'KAFKA_HISTORY_REVIEW_REQUIRED',
   );
-  expect(transaction).not.toHaveBeenCalled();
+  expect(client.session.findFirst).not.toHaveBeenCalled();
+  expect(client.session.delete).not.toHaveBeenCalled();
 });
 
 test('refuses a direct session deletion against non-relational storage', async () => {
+  const client = authorizedTransactionClient();
   vi.stubEnv('CLICKHOUSE_URL', 'http://localhost:8123');
 
   await expect(deleteSession(websiteId, sessionId, actorUserId, actorAuth)).rejects.toThrow(
     'SESSION_STORAGE_REVIEW_REQUIRED',
   );
-  expect(transaction).not.toHaveBeenCalled();
+  expect(client.session.findFirst).not.toHaveBeenCalled();
+  expect(client.session.delete).not.toHaveBeenCalled();
 });
 
 test('refuses a direct session deletion without retired ClickHouse history review', async () => {
+  const client = authorizedTransactionClient();
   vi.stubEnv('CLICKHOUSE_HISTORY_ATTESTED_CLEAN', '');
 
   await expect(deleteSession(websiteId, sessionId, actorUserId, actorAuth)).rejects.toThrow(
     'SESSION_STORAGE_REVIEW_REQUIRED',
   );
-  expect(transaction).not.toHaveBeenCalled();
+  expect(client.session.findFirst).not.toHaveBeenCalled();
+  expect(client.session.delete).not.toHaveBeenCalled();
+});
+
+test('denies a stale actor before revealing the retained-history guard', async () => {
+  const client = authorizedTransactionClient();
+  vi.stubEnv('KAFKA_HISTORY_ATTESTED_CLEAN', '');
+  validateActorAuth.mockRejectedValueOnce(new Error('ENTITY_ACTOR_NOT_AUTHORIZED'));
+
+  await expect(deleteSession(websiteId, sessionId, actorUserId, actorAuth)).rejects.toThrow(
+    'ENTITY_ACTOR_NOT_AUTHORIZED',
+  );
+  expect(client.$queryRaw).not.toHaveBeenCalled();
+  expect(client.session.findFirst).not.toHaveBeenCalled();
+  expect(client.session.delete).not.toHaveBeenCalled();
 });
 
 test('deletes a session only after checking the actor inside a serializable transaction', async () => {
