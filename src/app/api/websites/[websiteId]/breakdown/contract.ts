@@ -16,7 +16,8 @@ export const operations = [
       requestParams: { path: z.object({ websiteId: z.uuid() }), query: breakdownQuerySchema },
       responses: {
         '200': {
-          description: 'The operation completed successfully.',
+          description:
+            'Views and session denominators come from unverified public pageviews. Backend-authorized custom events can affect bounce classification. Each row and the X-Metric-Provenance response header declare the pageview provenance; visitor and visit counts represent session IDs, not verified people.',
           content: {
             'application/json': {
               schema: {
@@ -39,8 +40,19 @@ export const operations = [
                     totaltime: {
                       type: 'number',
                     },
+                    metricProvenance: {
+                      type: 'string',
+                      enum: ['unverified_public_observations'],
+                    },
                   },
-                  required: ['views', 'visitors', 'visits', 'bounces', 'totaltime'],
+                  required: [
+                    'views',
+                    'visitors',
+                    'visits',
+                    'bounces',
+                    'totaltime',
+                    'metricProvenance',
+                  ],
                   additionalProperties: {
                     anyOf: [
                       {

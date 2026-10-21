@@ -16,7 +16,8 @@ export const operations = [
       requestParams: { path: z.object({ websiteId: z.uuid() }), query: retentionQuerySchema },
       responses: {
         '200': {
-          description: 'The operation completed successfully.',
+          description:
+            'Retention cohorts and activities may include unverified public pageviews. Counts represent session IDs, not verified people. Each row and the X-Traffic-Provenance response header declare this limitation.',
           content: {
             'application/json': {
               schema: {
@@ -39,8 +40,19 @@ export const operations = [
                     percentage: {
                       type: 'number',
                     },
+                    trafficProvenance: {
+                      type: 'string',
+                      enum: ['may_include_unverified_public_observations'],
+                    },
                   },
-                  required: ['date', 'day', 'visitors', 'returnVisitors', 'percentage'],
+                  required: [
+                    'date',
+                    'day',
+                    'visitors',
+                    'returnVisitors',
+                    'percentage',
+                    'trafficProvenance',
+                  ],
                 },
               },
             },

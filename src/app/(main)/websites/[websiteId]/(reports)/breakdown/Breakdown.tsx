@@ -1,6 +1,7 @@
 import { Column, DataColumn, DataTable, Text } from '@umami/react-zen';
 import { LoadingPanel } from '@/components/common/LoadingPanel';
 import { useBreakdownQuery, useFields, useFormat, useMessages } from '@/components/hooks';
+import { TrafficProvenanceNotice } from '@/components/metrics/TrafficProvenanceNotice';
 import { formatShortTime } from '@/lib/format';
 
 export interface BreakdownProps {
@@ -27,6 +28,7 @@ export function Breakdown({ websiteId, selectedFields = [], startDate, endDate }
   return (
     <LoadingPanel data={data} isLoading={isLoading} error={error}>
       <Column overflow="auto" minHeight="0" height="100%">
+        <TrafficProvenanceNotice mayIncludeUnverifiedTraffic />
         <DataTable data={data} style={{ tableLayout: 'fixed' }}>
           {selectedFields.map(field => {
             return (

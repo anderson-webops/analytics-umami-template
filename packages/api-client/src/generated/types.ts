@@ -12748,7 +12748,7 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description The operation completed successfully. */
+      /** @description Views and session denominators come from unverified public pageviews. Backend-authorized custom events can affect bounce classification. Each row and the X-Metric-Provenance response header declare the pageview provenance; visitor and visit counts represent session IDs, not verified people. */
       200: {
         headers: {
           [name: string]: unknown;
@@ -12757,6 +12757,8 @@ export interface operations {
           'application/json': ({
             /** @description Number of visits with only one pageview. */
             bounces: number;
+            /** @enum {string} */
+            metricProvenance: 'unverified_public_observations';
             /** @description Total visit duration in seconds. */
             totaltime: number;
             /** @description Pageview counts for the selected period. */
@@ -18658,7 +18660,7 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description The operation completed successfully. */
+      /** @description Retention cohorts and activities may include unverified public pageviews. Counts represent session IDs, not verified people. Each row and the X-Traffic-Provenance response header declare this limitation. */
       200: {
         headers: {
           [name: string]: unknown;
@@ -18669,6 +18671,8 @@ export interface operations {
             day: number;
             percentage: number;
             returnVisitors: number;
+            /** @enum {string} */
+            trafficProvenance: 'may_include_unverified_public_observations';
             /** @description Unique visitor counts for the selected period. */
             visitors: number;
           }[];

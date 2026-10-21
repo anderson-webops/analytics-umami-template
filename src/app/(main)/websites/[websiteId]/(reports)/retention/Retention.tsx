@@ -5,6 +5,7 @@ import { LoadingPanel } from '@/components/common/LoadingPanel';
 import { Panel } from '@/components/common/Panel';
 import { useLocale, useMessages, useRetentionQuery } from '@/components/hooks';
 import { Users } from '@/components/icons';
+import { TrafficProvenanceNotice } from '@/components/metrics/TrafficProvenanceNotice';
 import { formatDate } from '@/lib/date';
 import { formatLongNumber } from '@/lib/format';
 
@@ -48,6 +49,7 @@ export function Retention({ websiteId, days = DAYS, startDate, endDate }: Retent
 
   return (
     <LoadingPanel data={data} isLoading={isLoading} error={error}>
+      <TrafficProvenanceNotice mayIncludeUnverifiedTraffic />
       {data && (
         <Panel allowFullscreen height="900px">
           <Column

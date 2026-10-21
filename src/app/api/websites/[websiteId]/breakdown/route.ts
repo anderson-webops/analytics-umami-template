@@ -1,6 +1,7 @@
 import { breakdownQuerySchema } from '@/lib/analytics-schema';
+import { metricResponse } from '@/lib/metric-provenance';
 import { getQueryFilters, parseRequest } from '@/lib/request';
-import { badRequest, json, unauthorized } from '@/lib/response';
+import { badRequest, unauthorized } from '@/lib/response';
 import { getBreakdownShareWorkMultiplier, isBoundedBreakdownShape } from '@/lib/share-query-budget';
 import { canViewWebsiteSection } from '@/permissions';
 import { type BreakdownParameters, getBreakdown } from '@/queries/sql/breakdown/getBreakdown';
@@ -20,5 +21,5 @@ export async function GET(
   }
   const filters = await getQueryFilters(query, websiteId);
   const parameters = { ...query, ...filters } as BreakdownParameters;
-  return json(await getBreakdown(websiteId, parameters, filters));
+  return metricResponse(await getBreakdown(websiteId, parameters, filters), 'breakdown');
 }

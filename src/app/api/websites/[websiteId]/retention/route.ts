@@ -4,6 +4,8 @@ import { json, unauthorized } from '@/lib/response';
 import { canViewWebsiteSection } from '@/permissions';
 import { getRetention, type RetentionParameters } from '@/queries/sql/retention/getRetention';
 
+const TRAFFIC_PROVENANCE = 'may_include_unverified_public_observations';
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ websiteId: string }> },
@@ -16,5 +18,9 @@ export async function GET(
   if (!(await canViewWebsiteSection(auth, websiteId, 'retention'))) return unauthorized();
   const filters = await getQueryFilters(query, websiteId);
   const parameters = { ...query, ...filters } as RetentionParameters;
-  return json(await getRetention(websiteId, parameters, filters));
+  const rows = await getRetention(websiteId, parameters, filters);
+  return json(
+    rows.map(row => ({ ...row, trafficProvenance: TRAFFIC_PROVENANCE })),
+    { headers: { 'X-Traffic-Provenance': TRAFFIC_PROVENANCE } },
+  );
 }
