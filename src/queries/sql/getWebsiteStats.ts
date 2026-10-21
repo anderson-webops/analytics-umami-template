@@ -8,6 +8,7 @@ const FUNCTION_NAME = 'getWebsiteStats';
 
 export interface WebsiteStatsData {
   pageviews: number;
+  unverifiedViews: number;
   visitors: number;
   visits: number;
   bounces: number;
@@ -44,6 +45,7 @@ async function relationalQuery(
       `
       select
         cast(coalesce(sum(t.c), 0) as bigint) as "pageviews",
+        cast(coalesce(sum(t.unverified_c), 0) as bigint) as "unverifiedViews",
         count(distinct t.session_id) as "visitors",
         count(distinct t.visit_id) as "visits",
         ${excludeBounce ? '0' : 'coalesce(sum(case when t.c = 1 and t.has_custom_event = 0 then 1 else 0 end), 0)'} as "bounces",
@@ -53,6 +55,7 @@ async function relationalQuery(
           website_event.session_id,
           website_event.visit_id,
           sum(case when website_event.event_type NOT IN (2, 5) then 1 else 0 end) as "c",
+          sum(case when website_event.event_type NOT IN (2, 5) and website_event.trust_tier = 0 then 1 else 0 end) as "unverified_c",
           min(case when website_event.event_type NOT IN (2, 5) then website_event.created_at end) as "min_time",
           max(case when website_event.event_type NOT IN (2, 5) then website_event.created_at end) as "max_time",
           max(case when website_event.event_type = ${EVENT_TYPE.customEvent} and website_event.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized} then 1 else 0 end) as "has_custom_event"
@@ -95,6 +98,7 @@ async function relationalQuery(
     `
     select
       cast(coalesce(sum(t.c), 0) as bigint) as "pageviews",
+      cast(coalesce(sum(t.unverified_c), 0) as bigint) as "unverifiedViews",
       count(distinct t.session_id) as "visitors",
       count(distinct t.visit_id) as "visits",
       ${bounceQuery} as "bounces",
@@ -104,6 +108,7 @@ async function relationalQuery(
         website_event.session_id,
         website_event.visit_id,
         count(*) as "c",
+        sum(case when website_event.trust_tier = 0 then 1 else 0 end) as "unverified_c",
         min(website_event.created_at) as "min_time",
         max(website_event.created_at) as "max_time"
       from website_event
@@ -144,6 +149,7 @@ async function clickhouseQuery(
     sql = `
     select
       sum(t.c) as "pageviews",
+      sum(t.unverified_c) as "unverifiedViews",
       uniq(t.session_id) as "visitors",
       uniq(t.visit_id) as "visits",
       ${excludeBounce ? '0' : 'sumIf(1, t.c = 1 and ifNull(e.has_custom_event, 0) = 0)'} as "bounces",
@@ -153,6 +159,7 @@ async function clickhouseQuery(
         session_id,
         visit_id,
         count(*) c,
+        countIf(trust_tier = 0) unverified_c,
         min(created_at) min_time,
         max(created_at) max_time
       from website_event
@@ -182,6 +189,7 @@ async function clickhouseQuery(
     sql = `
     select
       sum(t.c) as "pageviews",
+      sum(t.unverified_c) as "unverifiedViews",
       uniq(session_id) as "visitors",
       uniq(visit_id) as "visits",
       ${bounceQuery} as "bounces",
@@ -191,6 +199,7 @@ async function clickhouseQuery(
         session_id,
         visit_id,
         countIf(event_type NOT IN (2, 5)) c,
+        countIf(event_type NOT IN (2, 5) and trust_tier = 0) unverified_c,
         minIf(created_at, event_type NOT IN (2, 5)) min_time,
         maxIf(created_at, event_type NOT IN (2, 5)) max_time,
         max(if(event_type = ${EVENT_TYPE.customEvent} and trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized} and length(event_name) > 0, 1, 0)) has_custom_event

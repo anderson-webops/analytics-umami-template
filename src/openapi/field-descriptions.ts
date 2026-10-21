@@ -98,6 +98,8 @@ const fieldDescriptions: Record<string, string> = {
   utmContent: 'UTM campaign content.',
   utmTerm: 'UTM campaign search term.',
   pageviews: 'Pageview counts for the selected period.',
+  unverifiedViews:
+    'Public, backend-unverified traffic observations included in pageviews for the selected period.',
   visitors: 'Unique visitor counts for the selected period.',
   visits: 'Visit counts for the selected period.',
   views: 'Pageview counts for the selected period.',

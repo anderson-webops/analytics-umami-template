@@ -5,6 +5,7 @@ import { defineTool } from '../lib/tool';
 
 interface StatsRow {
   pageviews?: number;
+  unverifiedViews?: number;
   visitors?: number;
   visits?: number;
   bounces?: number;
@@ -33,6 +34,7 @@ function firstRow(value: unknown): StatsRow {
 
 function summarize(row: StatsRow) {
   const pageviews = Number(row.pageviews ?? 0);
+  const unverifiedViews = typeof row.unverifiedViews === 'number' ? row.unverifiedViews : null;
   const visitors = Number(row.visitors ?? 0);
   const visits = Number(row.visits ?? 0);
   const bounces = Number(row.bounces ?? 0);
@@ -40,6 +42,7 @@ function summarize(row: StatsRow) {
 
   return {
     pageviews,
+    unverifiedViews,
     visitors,
     visits,
     bounces,
@@ -53,7 +56,7 @@ export const getWebsiteStats = defineTool({
   name: 'get_website_stats',
   title: 'Get website stats',
   description:
-    'Returns summary traffic totals for a website over a time range: pageviews, unique visitors, visits (sessions), ' +
+    'Returns summary traffic totals for a website over a time range: pageviews, included unverified views (null when unavailable from an older API), unique visitors, visits (sessions), ' +
     'bounces, bounce rate, average visit duration and views per visit. Also returns the same totals for the ' +
     'previous period of equal length (or the same period last year) so you can compare. ' +
     'Use this for questions like "how much traffic did we get last week?". Requires a websiteId from list_websites.',

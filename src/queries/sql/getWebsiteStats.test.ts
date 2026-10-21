@@ -63,6 +63,12 @@ describe('getWebsiteStats default bounce path', () => {
 
     expect(query).toContain('t.c = 1 and t.has_custom_event = 0');
     expect(query).toContain(
+      'cast(coalesce(sum(t.unverified_c), 0) as bigint) as "unverifiedViews"',
+    );
+    expect(query).toContain(
+      'sum(case when website_event.event_type NOT IN (2, 5) and website_event.trust_tier = 0 then 1 else 0 end) as "unverified_c"',
+    );
+    expect(query).toContain(
       'max(case when website_event.event_type = 2 and website_event.trust_tier = 1 then 1 else 0 end) as "has_custom_event"',
     );
     expect(query).not.toContain('left join (');
@@ -76,6 +82,8 @@ describe('getWebsiteStats default bounce path', () => {
     const [query] = clickhouseRawQuery.mock.calls[0];
 
     expect(query).toContain('from website_event');
+    expect(query).toContain('sum(t.unverified_c) as "unverifiedViews"');
+    expect(query).toContain('countIf(event_type NOT IN (2, 5) and trust_tier = 0) unverified_c');
     expect(query).not.toContain('website_event_stats_hourly');
     expect(query).toContain('event_type = 2 and trust_tier = 1');
     expect(query).toContain('sumIf(1, t.c = 1 and t.has_custom_event = 0) as "bounces"');
@@ -96,6 +104,12 @@ describe('getWebsiteStats filtered bounce path', () => {
     expect(query).toContain('coalesce(e.has_custom_event, 0) = 0');
     expect(query).toContain('event_type = 2');
     expect(query).toContain('trust_tier = 1');
+    expect(query).toContain(
+      'cast(coalesce(sum(t.unverified_c), 0) as bigint) as "unverifiedViews"',
+    );
+    expect(query).toContain(
+      'sum(case when website_event.trust_tier = 0 then 1 else 0 end) as "unverified_c"',
+    );
   });
 
   test('clickhouse switches to the raw-event join when event filters are present', async () => {
@@ -109,6 +123,8 @@ describe('getWebsiteStats filtered bounce path', () => {
     expect(query).toContain('left join (');
     expect(query).toContain('ifNull(e.has_custom_event, 0) = 0');
     expect(query).toContain('trust_tier = 1');
+    expect(query).toContain('sum(t.unverified_c) as "unverifiedViews"');
+    expect(query).toContain('countIf(trust_tier = 0) unverified_c');
   });
 });
 

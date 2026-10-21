@@ -29,6 +29,9 @@ export const metricsQuerySchema = withDateRange({
 export const websiteStatsValuesSchema = z
   .object({
     pageviews: z.number(),
+    unverifiedViews: z.number().meta({
+      description: 'Public, backend-unverified traffic observations included in pageviews.',
+    }),
     visitors: z.number(),
     visits: z.number(),
     bounces: z.number(),

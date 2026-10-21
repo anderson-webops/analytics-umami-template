@@ -2818,7 +2818,7 @@ export interface paths {
     };
     /**
      * Get website summary statistics
-     * @description Returns pageviews, unique visitors, visits, bounces, and total time on site for the selected date range and comparison period.
+     * @description Returns pageviews, the included unverified public observations, unique visitors, visits, bounces, and total time on site for the selected date range and comparison period.
      */
     get: operations['getWebsiteStats'];
     put?: never;
@@ -2838,7 +2838,7 @@ export interface paths {
     };
     /**
      * Get website traffic totals
-     * @description Returns only pageview, visitor, and visit totals with their comparison period.
+     * @description Returns pageview, unverified public observation, visitor, and visit totals with their comparison period.
      */
     get: operations['getWebsiteTrafficStats'];
     put?: never;
@@ -3288,6 +3288,8 @@ export interface components {
       pageviews: number;
       /** @description Total visit duration in seconds. */
       totaltime: number;
+      /** @description Public, backend-unverified traffic observations included in pageviews. */
+      unverifiedViews: number;
       /** @description Unique visitor counts for the selected period. */
       visitors: number;
       /** @description Visit counts for the selected period. */
@@ -3300,6 +3302,8 @@ export interface components {
       pageviews: number;
       /** @description Total visit duration in seconds. */
       totaltime: number;
+      /** @description Public, backend-unverified traffic observations included in pageviews. */
+      unverifiedViews: number;
       /** @description Unique visitor counts for the selected period. */
       visitors: number;
       /** @description Visit counts for the selected period. */
@@ -22255,6 +22259,8 @@ export interface operations {
             comparison: {
               /** @description Pageview counts for the selected period. */
               pageviews: number;
+              /** @description Public, backend-unverified traffic observations included in pageviews for the selected period. */
+              unverifiedViews: number;
               /** @description Unique visitor counts for the selected period. */
               visitors: number;
               /** @description Visit counts for the selected period. */
@@ -22262,6 +22268,8 @@ export interface operations {
             };
             /** @description Pageview counts for the selected period. */
             pageviews: number;
+            /** @description Public, backend-unverified traffic observations included in pageviews for the selected period. */
+            unverifiedViews: number;
             /** @description Unique visitor counts for the selected period. */
             visitors: number;
             /** @description Visit counts for the selected period. */

@@ -12,7 +12,7 @@ const getWebsiteStatsOperation = defineOperation({
     operationId: 'getWebsiteStats',
     summary: 'Get website summary stats',
     description:
-      'Returns pageviews, unique visitors, visits, bounces and total time on site for the date range, plus the same totals for the comparison period (`compare`: prev or yoy).',
+      'Returns pageviews, the included unverified public observations, unique visitors, visits, bounces and total time on site for the date range, plus the same totals for the comparison period (`compare`: prev or yoy).',
     tags: ['Websites'],
     requestParams: {
       path: websiteIdPathSchema,

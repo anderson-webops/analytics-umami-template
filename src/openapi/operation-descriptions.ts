@@ -747,11 +747,12 @@ export const operationDescriptions: Record<string, OperationDescription> = {
   'GET /api/websites/{websiteId}/stats': {
     summary: 'Get website summary statistics',
     description:
-      'Returns pageviews, unique visitors, visits, bounces, and total time on site for the selected date range and comparison period.',
+      'Returns pageviews, the included unverified public observations, unique visitors, visits, bounces, and total time on site for the selected date range and comparison period.',
   },
   'GET /api/websites/{websiteId}/stats/traffic': {
     summary: 'Get website traffic totals',
-    description: 'Returns only pageview, visitor, and visit totals with their comparison period.',
+    description:
+      'Returns pageview, unverified public observation, visitor, and visit totals with their comparison period.',
   },
   'POST /api/websites/{websiteId}/transfer': {
     summary: 'Transfer website ownership',

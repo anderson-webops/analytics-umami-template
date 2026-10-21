@@ -5,12 +5,14 @@ import { useFilterParameters } from '../useFilterParameters';
 
 export interface WebsiteStatsData {
   pageviews: number;
+  unverifiedViews: number;
   visitors: number;
   visits: number;
   bounces: number;
   totaltime: number;
   comparison: {
     pageviews: number;
+    unverifiedViews: number;
     visitors: number;
     visits: number;
     bounces: number;

@@ -76,11 +76,19 @@ describe('createUmamiMcpServer', () => {
       return {
         body: {
           pageviews: 100,
+          unverifiedViews: 72,
           visitors: 40,
           visits: 50,
           bounces: 10,
           totaltime: 5000,
-          comparison: { pageviews: 80, visitors: 30, visits: 40, bounces: 8, totaltime: 4000 },
+          comparison: {
+            pageviews: 80,
+            unverifiedViews: 55,
+            visitors: 30,
+            visits: 40,
+            bounces: 8,
+            totaltime: 4000,
+          },
         },
       };
     }
@@ -508,8 +516,8 @@ describe('createUmamiMcpServer', () => {
 
     expect(result.isError).toBeFalsy();
     expect(result.structuredContent).toMatchObject({
-      current: { pageviews: 100, visitors: 40, visits: 50, bounceRate: 20 },
-      previous: { pageviews: 80, visitors: 30 },
+      current: { pageviews: 100, unverifiedViews: 72, visitors: 40, visits: 50, bounceRate: 20 },
+      previous: { pageviews: 80, unverifiedViews: 55, visitors: 30 },
     });
 
     const url = harness.calls[0].url;
@@ -517,6 +525,36 @@ describe('createUmamiMcpServer', () => {
     expect(url.searchParams.get('startAt')).toBe(String(Date.parse('2024-01-01T00:00:00Z')));
     expect(url.searchParams.get('endAt')).toBe(String(Date.parse('2024-01-08T00:00:00Z')));
     expect(url.searchParams.get('browser')).toBe('chrome');
+  });
+
+  test('get_website_stats does not invent provenance when an older API omits it', async () => {
+    const legacyHarness = createHarness(() => ({
+      body: {
+        pageviews: 10,
+        visitors: 5,
+        visits: 6,
+        bounces: 1,
+        totaltime: 40,
+        comparison: { pageviews: 8, visitors: 4, visits: 5, bounces: 1, totaltime: 30 },
+      },
+    }));
+    await connect(legacyHarness);
+
+    try {
+      const result = await legacyHarness.client.callTool({
+        name: 'get_website_stats',
+        arguments: { websiteId: WEBSITE_ID, startAt: '2024-01-01', endAt: '2024-01-08' },
+      });
+
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredContent).toMatchObject({
+        current: { pageviews: 10, unverifiedViews: null },
+        previous: { pageviews: 8, unverifiedViews: null },
+      });
+    } finally {
+      await legacyHarness.client.close();
+      await legacyHarness.server.close();
+    }
   });
 
   test('rejects invalid date ranges without calling the API', async () => {

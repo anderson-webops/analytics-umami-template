@@ -4,8 +4,18 @@ import { filterParams, withDateRange } from '@/lib/schema';
 import { canViewWebsiteSection } from '@/permissions';
 import { getWebsiteStats } from '@/queries/sql';
 
-function selectTrafficStats(stats: { pageviews: number; visitors: number; visits: number }) {
-  return { pageviews: stats.pageviews, visitors: stats.visitors, visits: stats.visits };
+function selectTrafficStats(stats: {
+  pageviews: number;
+  unverifiedViews: number;
+  visitors: number;
+  visits: number;
+}) {
+  return {
+    pageviews: stats.pageviews,
+    unverifiedViews: stats.unverifiedViews,
+    visitors: stats.visitors,
+    visits: stats.visits,
+  };
 }
 
 export async function GET(

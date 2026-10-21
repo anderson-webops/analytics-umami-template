@@ -11,7 +11,8 @@ const operation1 = defineOperation({
   operation: {
     operationId: 'getWebsiteTrafficStats',
     summary: 'Get website traffic totals',
-    description: 'Returns only pageview, visitor, and visit totals with their comparison period.',
+    description:
+      'Returns pageview, unverified public observation, visitor, and visit totals with their comparison period.',
     tags: ['Websites'],
     parameters: [
       {
@@ -336,6 +337,11 @@ const operation1 = defineOperation({
                       type: 'number',
                       description: 'Pageview counts for the selected period.',
                     },
+                    unverifiedViews: {
+                      type: 'number',
+                      description:
+                        'Public, backend-unverified traffic observations included in pageviews for the selected period.',
+                    },
                     visitors: {
                       type: 'number',
                       description: 'Unique visitor counts for the selected period.',
@@ -345,12 +351,17 @@ const operation1 = defineOperation({
                       description: 'Visit counts for the selected period.',
                     },
                   },
-                  required: ['pageviews', 'visitors', 'visits'],
+                  required: ['pageviews', 'unverifiedViews', 'visitors', 'visits'],
                   description: 'Analytics for the comparison period.',
                 },
                 pageviews: {
                   type: 'number',
                   description: 'Pageview counts for the selected period.',
+                },
+                unverifiedViews: {
+                  type: 'number',
+                  description:
+                    'Public, backend-unverified traffic observations included in pageviews for the selected period.',
                 },
                 visitors: {
                   type: 'number',
@@ -361,7 +372,7 @@ const operation1 = defineOperation({
                   description: 'Visit counts for the selected period.',
                 },
               },
-              required: ['comparison', 'pageviews', 'visitors', 'visits'],
+              required: ['comparison', 'pageviews', 'unverifiedViews', 'visitors', 'visits'],
             },
           },
         },

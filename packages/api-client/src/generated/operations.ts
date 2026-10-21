@@ -4996,7 +4996,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Get website summary statistics
-   * Returns pageviews, unique visitors, visits, bounces, and total time on site for the selected date range and comparison period.
+   * Returns pageviews, the included unverified public observations, unique visitors, visits, bounces, and total time on site for the selected date range and comparison period.
    * `GET /api/websites/{websiteId}/stats`
    */
   getWebsiteStats(
@@ -5008,7 +5008,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Get website traffic totals
-   * Returns only pageview, visitor, and visit totals with their comparison period.
+   * Returns pageview, unverified public observation, visitor, and visit totals with their comparison period.
    * `GET /api/websites/{websiteId}/stats/traffic`
    */
   getWebsiteTrafficStats(
