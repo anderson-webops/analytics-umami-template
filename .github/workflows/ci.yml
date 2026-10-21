@@ -209,6 +209,7 @@ jobs:
           pnpm exec vitest run src/queries/sql/events/getEventDataDiscovery.clickhouse.test.ts
           pnpm exec vitest run src/queries/sql/events/getEventDataPivot.clickhouse.test.ts
           pnpm exec vitest run src/queries/sql/revenue/getRevenueSessions.clickhouse.test.ts
+          pnpm exec vitest run src/queries/sql/funnels/getFunnel.clickhouse.test.ts
           pnpm exec vitest run src/queries/sql/revenue/revenueView.clickhouse.test.ts
           pnpm exec vitest run src/queries/sql/sessions/getWebsiteSession.clickhouse.test.ts
           pnpm exec vitest run src/queries/sql/sessions/linked-session.clickhouse.test.ts
