@@ -2958,6 +2958,27 @@ export interface components {
       /** @description ID of the associated team. */
       teamId?: string | null;
     };
+    ExpandedMetricRows: ({
+      /** @description Number of visits with only one pageview. */
+      bounces: number;
+      /**
+       * @description Numerator provenance; filters may still include unverified traffic.
+       * @enum {string}
+       */
+      metricProvenance: 'unverified_public_observations' | 'backend_authorized_event_counts';
+      /** @description Display name of the resource. */
+      name: string;
+      /** @description Pageviews, or event count for event dimensions. */
+      pageviews: number;
+      /** @description Total visit duration in seconds. */
+      totaltime: number;
+      /** @description Session count, not verified people. */
+      visitors: number;
+      /** @description Visit counts for the selected period. */
+      visits: number;
+    } & {
+      [key: string]: unknown;
+    })[];
     LoginRequest: {
       /** @description Turnstile token when login verification is configured. */
       captchaToken?: string;
@@ -3010,6 +3031,11 @@ export interface components {
       username: string;
     };
     MetricRow: {
+      /**
+       * @description Numerator provenance; filters may still include unverified traffic.
+       * @enum {string}
+       */
+      metricProvenance: 'unverified_public_observations' | 'backend_authorized_event_counts';
       t?: string;
       /** @description Dimension value (e.g. a path or country). */
       x: string | null;
@@ -17189,6 +17215,8 @@ export interface operations {
   getWebsiteExpandedMetrics: {
     parameters: {
       query: {
+        botCategory?: string;
+        botName?: string;
         /** @description Browser used by the visitor. */
         browser?: string;
         /** @description City of the visitor. */
@@ -17218,11 +17246,11 @@ export interface operations {
         /** @description Preferred language reported by the visitor browser. */
         language?: string;
         /** @description Maximum number of rows to return. */
-        limit?: unknown;
+        limit?: number;
         /** @description Whether records must match all filters or any filter. */
         match?: 'all' | 'any';
         /** @description Number of rows to skip before returning results. */
-        offset?: unknown;
+        offset?: number;
         /** @description Operating system used by the visitor. */
         os?: string;
         /** @description Filter by page URL path. */
@@ -17247,7 +17275,8 @@ export interface operations {
         timezone?: string;
         /** @description Filter by page title. */
         title?: string;
-        /** @description Type of resource or analytics dimension to return. */
+        trafficType?: 'human' | 'bot' | 'all';
+        /** @description Dimension to rank: path, entry, exit, title, query, hostname, referrer, domain, channel, event, tag, browser, os, device, screen, language, country, region, city, distinctId, utmSource, utmMedium, utmCampaign, utmContent, utmTerm. */
         type: string;
         /** @description Time interval used to group results: minute, hour, day, month, or year. */
         unit?: string;
@@ -17264,33 +17293,20 @@ export interface operations {
       };
       header?: never;
       path: {
-        /** @description ID of the website. */
+        /** @description Website ID. */
         websiteId: string;
       };
       cookie?: never;
     };
     requestBody?: never;
     responses: {
-      /** @description The operation completed successfully. */
+      /** @description Detailed ranked rows. */
       200: {
         headers: {
           [name: string]: unknown;
         };
         content: {
-          'application/json': {
-            /** @description Number of visits with only one pageview. */
-            bounces: number;
-            /** @description Display name of the resource. */
-            name: string;
-            /** @description Pageview counts for the selected period. */
-            pageviews: number;
-            /** @description Total visit duration in seconds. */
-            totaltime: number;
-            /** @description Unique visitor counts for the selected period. */
-            visitors: number;
-            /** @description Visit counts for the selected period. */
-            visits: number;
-          }[];
+          'application/json': components['schemas']['ExpandedMetricRows'];
         };
       };
       /** @description Bad request. */

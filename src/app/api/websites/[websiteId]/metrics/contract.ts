@@ -12,7 +12,7 @@ const getWebsiteMetricsOperation = defineOperation({
     operationId: 'getWebsiteMetrics',
     summary: 'Get ranked metrics for a dimension',
     description:
-      'Returns the top values for one dimension (`type`), such as pages, referrers, countries, browsers, UTM parameters or events, ordered by count. Page-type dimensions count views/events; visitor dimensions count unique visitors.',
+      'Returns the top values for one dimension (`type`), such as pages, referrers, countries, browsers, UTM parameters or events, ordered by count. Each row and the X-Metric-Provenance response header identify whether the counted values are unverified public observations or backend-authorized events. Filters may still include unverified traffic; visitor values count sessions, not verified people.',
     tags: ['Websites'],
     requestParams: {
       path: websiteIdPathSchema,

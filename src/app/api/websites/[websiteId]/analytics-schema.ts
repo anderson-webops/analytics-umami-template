@@ -83,10 +83,29 @@ export const metricRowSchema = z
     x: z.string().nullable().meta({ description: 'Dimension value (e.g. a path or country).' }),
     y: z.number().meta({ description: 'Count of views/events or unique visitors.' }),
     t: z.string().optional(),
+    metricProvenance: z
+      .enum(['unverified_public_observations', 'backend_authorized_event_counts'])
+      .meta({ description: 'Numerator provenance; filters may still include unverified traffic.' }),
   })
   .meta({ id: 'MetricRow' });
 
 export const metricRowsSchema = z.array(metricRowSchema).meta({ id: 'MetricRows' });
+
+export const expandedMetricRowsSchema = z
+  .array(
+    z.looseObject({
+      name: z.string(),
+      pageviews: z
+        .number()
+        .meta({ description: 'Pageviews, or event count for event dimensions.' }),
+      visitors: z.number().meta({ description: 'Session count, not verified people.' }),
+      visits: z.number(),
+      bounces: z.number(),
+      totaltime: z.number(),
+      metricProvenance: metricRowSchema.shape.metricProvenance,
+    }),
+  )
+  .meta({ id: 'ExpandedMetricRows' });
 
 export const activeVisitorsSchema = z
   .object({ visitors: z.number().int().nonnegative() })

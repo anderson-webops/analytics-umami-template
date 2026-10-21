@@ -1,4 +1,5 @@
 import { keepPreviousData } from '@tanstack/react-query';
+import type { MetricProvenance } from '@/lib/metric-provenance';
 import type { ReactQueryOptions } from '@/lib/types';
 import { useApi } from '../useApi';
 import { useDateParameters } from '../useDateParameters';
@@ -11,6 +12,7 @@ export type WebsiteExpandedMetricsData = {
   visits: number;
   bounces: number;
   totaltime: number;
+  metricProvenance: MetricProvenance;
 }[];
 
 export function useWebsiteExpandedMetricsQuery(

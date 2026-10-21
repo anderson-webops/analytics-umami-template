@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import { EVENT_COLUMNS, EVENT_TYPE, SESSION_COLUMNS } from '@/lib/constants';
 import { IdentitySearchTooBroadError } from '@/lib/identity-search-error';
+import { metricResponse } from '@/lib/metric-provenance';
 import { getQueryFilters, parseRequest } from '@/lib/request';
-import { badRequest, json, unauthorized } from '@/lib/response';
+import { badRequest, unauthorized } from '@/lib/response';
 import {
   filterParams,
   queryLimitParam,
@@ -67,20 +68,29 @@ export async function GET(
 
   try {
     if (SESSION_COLUMNS.includes(type)) {
-      return json(await getSessionExpandedMetrics(websiteId, { type, limit, offset }, filters));
+      return metricResponse(
+        await getSessionExpandedMetrics(websiteId, { type, limit, offset }, filters),
+        type,
+      );
     }
 
     if (EVENT_COLUMNS.includes(type)) {
       if (type === 'event') {
         filters.eventType = EVENT_TYPE.customEvent;
-        return json(await getEventExpandedMetrics(websiteId, { type, limit, offset }, filters));
+        return metricResponse(
+          await getEventExpandedMetrics(websiteId, { type, limit, offset }, filters),
+          type,
+        );
       } else {
-        return json(await getPageviewExpandedMetrics(websiteId, { type, limit, offset }, filters));
+        return metricResponse(
+          await getPageviewExpandedMetrics(websiteId, { type, limit, offset }, filters),
+          type,
+        );
       }
     }
 
     if (type === 'channel') {
-      return json(await getChannelExpandedMetrics(websiteId, filters));
+      return metricResponse(await getChannelExpandedMetrics(websiteId, filters), type);
     }
   } catch (error) {
     if (error instanceof IdentitySearchTooBroadError) {

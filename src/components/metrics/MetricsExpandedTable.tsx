@@ -6,6 +6,7 @@ import { useMessages, useWebsiteExpandedMetricsQuery } from '@/components/hooks'
 import { X } from '@/components/icons';
 import { DownloadButton } from '@/components/input/DownloadButton';
 import { MetricLabel } from '@/components/metrics/MetricLabel';
+import { MetricProvenanceNotice } from '@/components/metrics/MetricProvenanceNotice';
 import { SESSION_COLUMNS } from '@/lib/constants';
 import { formatShortTime } from '@/lib/format';
 
@@ -77,6 +78,7 @@ export function MetricsExpandedTable({
         height="100%"
         loadingIcon="spinner"
       >
+        {data?.length > 0 && <MetricProvenanceNotice metricProvenance={data[0].metricProvenance} />}
         <OverlayScrollArea
           orientation="both"
           style={{
@@ -102,7 +104,12 @@ export function MetricsExpandedTable({
                 <DataColumn id="visits" label={t(labels.visits)} align="end" width="120px">
                   {row => row?.visits?.toLocaleString()}
                 </DataColumn>
-                <DataColumn id="pageviews" label={t(labels.views)} align="end" width="120px">
+                <DataColumn
+                  id="pageviews"
+                  label={t(type === 'event' ? labels.events : labels.views)}
+                  align="end"
+                  width="120px"
+                >
                   {row => row?.pageviews?.toLocaleString()}
                 </DataColumn>
                 {showBounceDuration && [

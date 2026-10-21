@@ -1,4 +1,5 @@
 import { keepPreviousData } from '@tanstack/react-query';
+import type { MetricProvenance } from '@/lib/metric-provenance';
 import type { ReactQueryOptions } from '@/lib/types';
 import { useApi } from '../useApi';
 import { useDateParameters } from '../useDateParameters';
@@ -7,6 +8,7 @@ import { useFilterParameters } from '../useFilterParameters';
 export type WebsiteMetricsData = {
   x: string;
   y: number;
+  metricProvenance: MetricProvenance;
 }[];
 
 export function useWebsiteMetricsQuery(
