@@ -672,7 +672,11 @@ describe('heatmap intake budget', () => {
       expect.objectContaining({ rows: 1, requests: 1 }),
     );
     expect(saveHeatmapEvents).toHaveBeenCalledOnce();
-    expect(reserveCollectionSourceLimit).toHaveBeenCalledWith(expect.anything(), websiteId);
+    expect(reserveCollectionSourceLimit).toHaveBeenCalledWith(
+      expect.anything(),
+      websiteId,
+      'recorder',
+    );
     expect(getCollectionSourceStatus).toHaveBeenCalledWith(websiteId);
     expect(vi.mocked(getCollectionIpLimit).mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(reserveCollectionSourceLimit).mock.invocationCallOrder[0],
@@ -770,7 +774,11 @@ describe('heatmap intake budget', () => {
     );
 
     expect(response.status).toBe(200);
-    expect(reserveCollectionSourceLimit).toHaveBeenCalledWith(expect.anything(), websiteId);
+    expect(reserveCollectionSourceLimit).toHaveBeenCalledWith(
+      expect.anything(),
+      websiteId,
+      'recorder',
+    );
   });
 
   test('does not write when a visit or source budget is exhausted', async () => {

@@ -227,6 +227,31 @@ test('anonymous sources stop at one quarter of the shared minute limit', async (
   expect(state.sharedCounters.get(sharedKeys('rate:pool:source|')[0])).toBe(1n);
 });
 
+test('anonymous pageviews cannot exhaust the authorized recorder source allowance', async () => {
+  for (let attempt = 0; attempt < 25; attempt += 1) {
+    await prisma.transaction(transaction =>
+      reserveCollectionSourceLimit(transaction, sourceId, 'anonymous'),
+    );
+  }
+
+  await prisma.transaction(transaction =>
+    reserveCollectionSourceLimit(transaction, sourceId, 'recorder'),
+  );
+
+  for (let attempt = 26; attempt < 100; attempt += 1) {
+    await prisma.transaction(transaction =>
+      reserveCollectionSourceLimit(transaction, sourceId, 'recorder'),
+    );
+  }
+
+  await expect(
+    prisma.transaction(transaction =>
+      reserveCollectionSourceLimit(transaction, sourceId, 'recorder'),
+    ),
+  ).rejects.toMatchObject({ retryAfter: 60 });
+  expect(await getCollectionSourceStatus(sourceId)).toEqual({ blocked: true, retryAfter: 60 });
+});
+
 test('a full shared key pool rejects new keys without evicting active ones', async () => {
   await reserveSource(sourceId);
   expect((await getCollectionIpLimit(request())).blocked).toBe(false);

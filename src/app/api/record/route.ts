@@ -447,7 +447,7 @@ export async function POST(request: Request) {
                 requests: 1,
               },
             );
-            await reserveCollectionSourceLimit(transaction, websiteId);
+            await reserveCollectionSourceLimit(transaction, websiteId, 'recorder');
 
             const recording = {
               websiteId,
@@ -564,7 +564,7 @@ export async function POST(request: Request) {
             'heatmap',
             { bytes: heatmapBytes + events.length * 512, rows: events.length, requests: 1 },
           );
-          await reserveCollectionSourceLimit(transaction, websiteId);
+          await reserveCollectionSourceLimit(transaction, websiteId, 'recorder');
 
           if (clickhouse.enabled) {
             return { kind: 'heatmap' as const, heatmapRows, accountType, accountId };

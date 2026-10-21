@@ -9,6 +9,7 @@ import prisma from '@/lib/prisma';
 import redis from '@/lib/redis';
 
 type CounterKind = 'ip' | 'source';
+type SourceAdmissionClass = CollectionAdmissionClass | 'recorder';
 
 export interface CollectionLimit {
   blocked: boolean;
@@ -207,10 +208,10 @@ export function transferCollectionIpLimit(from: Request, to: Request): void {
 export async function reserveCollectionSourceLimit(
   transaction: Prisma.TransactionClient,
   sourceId: string,
-  admissionClass: CollectionAdmissionClass = 'anonymous',
+  admissionClass: SourceAdmissionClass = 'anonymous',
 ): Promise<void> {
   const sourceKey = getSourceKey(sourceId);
-  if (admissionClass !== 'backend') {
+  if (admissionClass === 'anonymous') {
     const anonymousLimit = Math.max(1, Math.floor(getPerSourceLimit() / 4));
     const anonymousCount = await reserveSharedCounter(
       transaction,

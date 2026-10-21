@@ -199,7 +199,9 @@ try {
       { retryAfter: 60 },
     );
     assert.equal((await getCollectionSourceStatus(anonymousSourceId)).blocked, false);
-    await reserveSource(anonymousSourceId);
+    await prisma.transaction(transaction =>
+      reserveCollectionSourceLimit(transaction, anonymousSourceId, 'recorder'),
+    );
     assert.equal((await getCollectionSourceStatus(anonymousSourceId)).blocked, false);
     const laterCounters = await readRateCounters();
     const newAnonymousSourceCounters = laterCounters.filter(
