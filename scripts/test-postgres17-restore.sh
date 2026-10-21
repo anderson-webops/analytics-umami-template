@@ -21,6 +21,7 @@ port="$(node --input-type=module -e 'import net from "node:net"; const s=net.cre
 export PATH="$pg_bin:$PATH"
 export DATABASE_URL="postgresql://restore_test:synthetic-restore-password-000000@127.0.0.1:$port/postgres"
 export DATABASE_REPLICA_URL= DIRECT_DATABASE_URL= REDIS_URL= CLICKHOUSE_URL= KAFKA_URL=
+export KAFKA_BROKER=''
 export LOGIN_RATE_LIMIT_ACCOUNT_FAILURES=10 LOGIN_RATE_LIMIT_WINDOW_SECONDS=900
 run_collector_values() {
   POSTGRES_EVENT_SERIES_TEST_URL="$DATABASE_URL" pnpm exec vitest run \
@@ -109,12 +110,14 @@ fi
 if [[ "${1:-}" == --collection-budget ]]; then
   DOTENV_CONFIG_PATH=/dev/null pnpm run db:migrate
   ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null \
+    CLICKHOUSE_HISTORY_ATTESTED_CLEAN=true KAFKA_HISTORY_ATTESTED_CLEAN=true \
     node --import tsx scripts/test-collection-budget.ts
   exit 0
 fi
 if [[ "${1:-}" == --collection-generation-lifecycle ]]; then
   DOTENV_CONFIG_PATH=/dev/null pnpm run db:migrate
   ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null CLOUD_MODE='' \
+    CLICKHOUSE_HISTORY_ATTESTED_CLEAN=true KAFKA_HISTORY_ATTESTED_CLEAN=true \
     node --import tsx scripts/test-collection-generation-lifecycle.ts
   exit 0
 fi
@@ -193,8 +196,11 @@ ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-recorder-budge
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null REDIS_URL='' CLOUD_MODE='' \
   node --conditions=react-server --import tsx scripts/test-replay-fragment-transaction.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm run test:collection-rate-limit
-ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-collection-budget.ts
+ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 \
+  CLICKHOUSE_HISTORY_ATTESTED_CLEAN=true KAFKA_HISTORY_ATTESTED_CLEAN=true \
+  node --import tsx scripts/test-collection-budget.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null CLOUD_MODE='' \
+  CLICKHOUSE_HISTORY_ATTESTED_CLEAN=true KAFKA_HISTORY_ATTESTED_CLEAN=true \
   node --import tsx scripts/test-collection-generation-lifecycle.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm exec tsx scripts/test-two-factor-admission.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm exec tsx scripts/test-password-verification-admission.ts
