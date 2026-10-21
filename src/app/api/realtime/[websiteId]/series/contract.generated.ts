@@ -11,7 +11,8 @@ const operation1 = defineOperation({
   operation: {
     operationId: 'getRealtimeSeries',
     summary: 'Get real-time chart series',
-    description: 'Returns only the pageview and visitor time series for the real-time view.',
+    description:
+      'Returns pageview and session time series with public-observation provenance for the real-time view.',
     tags: ['Realtime'],
     parameters: [
       {

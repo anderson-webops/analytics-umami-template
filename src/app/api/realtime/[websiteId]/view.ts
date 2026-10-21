@@ -38,5 +38,5 @@ export async function getRealtimeView(
   );
   const data = await getRealtimeData(websiteId, filters);
 
-  return json({ [view]: data[view] });
+  return json({ [view]: data[view], trafficProvenance: data.trafficProvenance });
 }

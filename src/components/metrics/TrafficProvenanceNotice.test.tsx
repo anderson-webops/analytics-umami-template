@@ -22,3 +22,12 @@ test('does not show a warning when no public observations are counted', () => {
 
   expect(container).toBeEmptyDOMElement();
 });
+
+test('possible unverified traffic remains labeled even without a pageview count', () => {
+  render(<TrafficProvenanceNotice mayIncludeUnverifiedTraffic />);
+
+  expect(screen.getByRole('note')).toHaveTextContent(
+    'Traffic may include unverified public observations.',
+  );
+  expect(screen.getByRole('note')).toHaveTextContent('Visitor counts do not verify people.');
+});

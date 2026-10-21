@@ -7,7 +7,7 @@ export function useBoardRealtimeQuery<View extends 'totals' | 'series'>(
   view: View,
 ) {
   const { get, useQuery } = useApi();
-  return useQuery<Pick<RealtimeData, View>>({
+  return useQuery<Pick<RealtimeData, View | 'trafficProvenance'>>({
     queryKey: ['realtime:board', { websiteId, view }],
     queryFn: () => get(`/realtime/${websiteId}/${view}`),
     enabled: !!websiteId,

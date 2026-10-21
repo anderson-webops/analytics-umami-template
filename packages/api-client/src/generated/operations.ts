@@ -4115,7 +4115,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Get real-time website activity
-   * Returns recent website activity and visitor data for the real-time view, applying the supplied filters.
+   * Returns recent website activity and visitor data for the real-time view, applying the supplied filters. Traffic may include unverified public observations; visitor counts are session counts, not verified people.
    * `GET /api/realtime/{websiteId}`
    */
   getRealtime(
@@ -4127,7 +4127,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Get real-time chart series
-   * Returns only the pageview and visitor time series for the real-time view.
+   * Returns pageview and session time series with public-observation provenance for the real-time view.
    * `GET /api/realtime/{websiteId}/series`
    */
   getRealtimeSeries(
@@ -4139,7 +4139,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Get real-time totals
-   * Returns only the aggregate totals for the real-time view.
+   * Returns aggregate totals and their public-observation provenance for the real-time view.
    * `GET /api/realtime/{websiteId}/totals`
    */
   getRealtimeTotals(

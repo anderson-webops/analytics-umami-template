@@ -11,7 +11,8 @@ const operation1 = defineOperation({
   operation: {
     operationId: 'getRealtimeTotals',
     summary: 'Get real-time totals',
-    description: 'Returns only the aggregate totals for the real-time view.',
+    description:
+      'Returns aggregate totals and their public-observation provenance for the real-time view.',
     tags: ['Realtime'],
     parameters: [
       {

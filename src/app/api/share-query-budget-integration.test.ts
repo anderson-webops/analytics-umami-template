@@ -1175,6 +1175,25 @@ test('realtime shares reserve all three analytics scans before querying', async 
   expect(getRealtimeDataMock).toHaveBeenCalledOnce();
 });
 
+test('full real-time responses retain public-observation provenance', async () => {
+  checkAuthMock.mockResolvedValue({ user: { id: 'website-owner' } } as any);
+  canViewWebsiteSectionMock.mockResolvedValue(true);
+  getRealtimeDataMock.mockResolvedValue({
+    trafficProvenance: 'may_include_unverified_public_observations',
+    totals: { views: 1, visitors: 1, events: 0, countries: 1 },
+  } as any);
+
+  const response = await getRealtimeRoute(
+    new Request(`https://analytics.example/api/realtime/${WEBSITE_ID}`),
+    pathParams,
+  );
+
+  expect(response.status).toBe(200);
+  expect((await response.json()).trafficProvenance).toBe(
+    'may_include_unverified_public_observations',
+  );
+});
+
 test('board realtime components receive only their own aggregates', async () => {
   checkAuthMock.mockResolvedValue({
     shareToken: {
@@ -1186,6 +1205,7 @@ test('board realtime components receive only their own aggregates', async () => 
   } as any);
   canViewWebsiteSectionMock.mockResolvedValue(true);
   getRealtimeDataMock.mockResolvedValue({
+    trafficProvenance: 'may_include_unverified_public_observations',
     totals: { views: 1, visitors: 1, events: 0, countries: 1 },
     series: { views: [], visitors: [] },
     events: [{ sessionId: 'private-session' }],
@@ -1213,10 +1233,12 @@ test('board realtime components receive only their own aggregates', async () => 
   expect(totals.status).toBe(200);
   expect(await totals.json()).toEqual({
     totals: { views: 1, visitors: 1, events: 0, countries: 1 },
+    trafficProvenance: 'may_include_unverified_public_observations',
   });
   expect(series.status).toBe(200);
   expect(await series.json()).toEqual({
     series: { views: [], visitors: [] },
+    trafficProvenance: 'may_include_unverified_public_observations',
   });
 });
 

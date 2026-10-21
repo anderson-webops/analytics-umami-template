@@ -61,6 +61,7 @@ export async function getRealtimeData(
   );
 
   return {
+    trafficProvenance: 'may_include_unverified_public_observations',
     countries,
     urls,
     referrers,

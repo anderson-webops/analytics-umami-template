@@ -12,7 +12,7 @@ const operation1 = defineOperation({
     operationId: 'getRealtime',
     summary: 'Get real-time website activity',
     description:
-      'Returns recent website activity and visitor data for the real-time view, applying the supplied filters.',
+      'Returns recent website activity and visitor data for the real-time view, applying the supplied filters. Traffic may include unverified public observations; visitor counts are session counts, not verified people.',
     tags: ['Realtime'],
     parameters: [
       {
@@ -281,6 +281,9 @@ const operation1 = defineOperation({
             schema: {
               type: 'object',
               properties: {
+                trafficProvenance: {
+                  const: 'may_include_unverified_public_observations',
+                },
                 countries: {
                   type: 'object',
                   properties: {},
@@ -453,6 +456,7 @@ const operation1 = defineOperation({
                 },
               },
               required: [
+                'trafficProvenance',
                 'countries',
                 'events',
                 'referrers',

@@ -271,15 +271,17 @@ export const operationDescriptions: Record<string, OperationDescription> = {
   'GET /api/realtime/{websiteId}': {
     summary: 'Get real-time website activity',
     description:
-      'Returns recent website activity and visitor data for the real-time view, applying the supplied filters.',
+      'Returns recent website activity and visitor data for the real-time view, applying the supplied filters. Traffic may include unverified public observations; visitor counts are session counts, not verified people.',
   },
   'GET /api/realtime/{websiteId}/totals': {
     summary: 'Get real-time totals',
-    description: 'Returns only the aggregate totals for the real-time view.',
+    description:
+      'Returns aggregate totals and their public-observation provenance for the real-time view.',
   },
   'GET /api/realtime/{websiteId}/series': {
     summary: 'Get real-time chart series',
-    description: 'Returns only the pageview and visitor time series for the real-time view.',
+    description:
+      'Returns pageview and session time series with public-observation provenance for the real-time view.',
   },
   'POST /api/collection-permit': {
     summary: 'Authorize consented website recording',

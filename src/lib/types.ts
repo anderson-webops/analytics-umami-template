@@ -332,6 +332,7 @@ export interface SessionDataValue {
 }
 
 export interface RealtimeData {
+  trafficProvenance: 'may_include_unverified_public_observations';
   countries: Record<string, number>;
   events: RealtimeEvent[];
   referrers: Record<string, number>;

@@ -875,7 +875,7 @@ export interface paths {
     };
     /**
      * Get real-time website activity
-     * @description Returns recent website activity and visitor data for the real-time view, applying the supplied filters.
+     * @description Returns recent website activity and visitor data for the real-time view, applying the supplied filters. Traffic may include unverified public observations; visitor counts are session counts, not verified people.
      */
     get: operations['getRealtime'];
     put?: never;
@@ -895,7 +895,7 @@ export interface paths {
     };
     /**
      * Get real-time chart series
-     * @description Returns only the pageview and visitor time series for the real-time view.
+     * @description Returns pageview and session time series with public-observation provenance for the real-time view.
      */
     get: operations['getRealtimeSeries'];
     put?: never;
@@ -915,7 +915,7 @@ export interface paths {
     };
     /**
      * Get real-time totals
-     * @description Returns only the aggregate totals for the real-time view.
+     * @description Returns aggregate totals and their public-observation provenance for the real-time view.
      */
     get: operations['getRealtimeTotals'];
     put?: never;
@@ -8897,6 +8897,8 @@ export interface operations {
               /** @description Unique visitor counts for the selected period. */
               visitors: number;
             };
+            /** @constant */
+            trafficProvenance: 'may_include_unverified_public_observations';
             urls: {
               [key: string]: number;
             };
