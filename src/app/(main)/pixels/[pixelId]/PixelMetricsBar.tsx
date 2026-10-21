@@ -16,7 +16,7 @@ export function PixelMetricsBar({
   const { t, labels } = useMessages();
   const { data, isLoading, isFetching, error } = useTrafficStatsQuery(pixelId);
 
-  const { pageviews, visitors, visits, comparison } = data || {};
+  const { pageviews, unverifiedViews, visitors, visits, comparison } = data || {};
 
   const metrics = data
     ? [
@@ -36,6 +36,12 @@ export function PixelMetricsBar({
           value: pageviews,
           label: t(labels.views),
           change: pageviews - comparison.pageviews,
+          formatValue: formatLongNumber,
+        },
+        {
+          value: unverifiedViews,
+          label: 'Unverified views',
+          change: unverifiedViews - comparison.unverifiedViews,
           formatValue: formatLongNumber,
         },
       ]
