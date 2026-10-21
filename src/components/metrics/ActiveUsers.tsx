@@ -32,7 +32,7 @@ export function ActiveUsers({
   const content = (
     <StatusLight variant="success">
       <Text size="sm" weight="medium">
-        {count} {t(labels.online)}
+        {count} {t(labels.sessions)}
       </Text>
     </StatusLight>
   );

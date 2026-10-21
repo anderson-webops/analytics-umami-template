@@ -6,14 +6,22 @@ import prisma from '@/lib/prisma';
 import type { ActiveVisitors } from '@/lib/types';
 
 const FUNCTION_NAME = 'getActiveVisitors';
+type ActiveVisitorCount = Pick<ActiveVisitors, 'visitors'>;
 
 export async function getActiveVisitors(
   ...args: [websiteId: string]
 ): Promise<ActiveVisitors | null> {
-  return runQuery({
+  const result: ActiveVisitorCount | null = await runQuery({
     [PRISMA]: () => relationalQuery(...args),
     [CLICKHOUSE]: () => clickhouseQuery(...args),
   });
+
+  return result
+    ? {
+        visitors: result.visitors,
+        trafficProvenance: 'may_include_unverified_public_observations',
+      }
+    : null;
 }
 
 async function relationalQuery(websiteId: string) {
@@ -37,7 +45,7 @@ async function relationalQuery(websiteId: string) {
   return result?.[0] ?? null;
 }
 
-async function clickhouseQuery(websiteId: string): Promise<ActiveVisitors | null> {
+async function clickhouseQuery(websiteId: string): Promise<ActiveVisitorCount | null> {
   const { rawQuery } = clickhouse;
   const startDate = subMinutes(new Date(), 5);
 

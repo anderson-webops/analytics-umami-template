@@ -2931,7 +2931,12 @@ export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
     ActiveVisitors: {
-      /** @description Unique visitor counts for the selected period. */
+      /**
+       * @description Active sessions can include unverified public pageview observations.
+       * @constant
+       */
+      trafficProvenance: 'may_include_unverified_public_observations';
+      /** @description Distinct active session IDs, not verified people. */
       visitors: number;
     };
     /** @description Standard Umami API error response. */
@@ -11974,7 +11979,7 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Active visitor count. */
+      /** @description Active session count and provenance. */
       200: {
         headers: {
           [name: string]: unknown;

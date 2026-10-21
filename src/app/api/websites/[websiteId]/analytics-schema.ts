@@ -108,7 +108,16 @@ export const expandedMetricRowsSchema = z
   .meta({ id: 'ExpandedMetricRows' });
 
 export const activeVisitorsSchema = z
-  .object({ visitors: z.number().int().nonnegative() })
+  .object({
+    visitors: z
+      .number()
+      .int()
+      .nonnegative()
+      .meta({ description: 'Distinct active session IDs, not verified people.' }),
+    trafficProvenance: z.literal('may_include_unverified_public_observations').meta({
+      description: 'Active sessions can include unverified public pageview observations.',
+    }),
+  })
   .meta({ id: 'ActiveVisitors' });
 
 export const websiteSessionSchema = z

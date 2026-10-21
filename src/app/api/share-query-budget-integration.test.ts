@@ -759,7 +759,10 @@ test('a public share within budget retains access to authorized analytics', asyn
   const shareId = `allowed-budget-${crypto.randomUUID()}`;
   checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
   canViewWebsiteSectionMock.mockResolvedValue(true);
-  getActiveVisitorsMock.mockResolvedValue({ visitors: 2 });
+  getActiveVisitorsMock.mockResolvedValue({
+    visitors: 2,
+    trafficProvenance: 'may_include_unverified_public_observations',
+  });
 
   const response = await getActiveVisitorsRoute(
     new Request(`https://analytics.example/api/websites/${WEBSITE_ID}/active`),
@@ -767,7 +770,10 @@ test('a public share within budget retains access to authorized analytics', asyn
   );
 
   expect(response.status).toBe(200);
-  await expect(response.json()).resolves.toEqual({ visitors: 2 });
+  await expect(response.json()).resolves.toEqual({
+    visitors: 2,
+    trafficProvenance: 'may_include_unverified_public_observations',
+  });
   expect(getActiveVisitorsMock).toHaveBeenCalledOnce();
 });
 
@@ -777,7 +783,10 @@ test('an exhausted share viewer does not block an independent viewer through the
     const shareId = `viewer-route-${crypto.randomUUID()}`;
     checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
     canViewWebsiteSectionMock.mockResolvedValue(true);
-    getActiveVisitorsMock.mockResolvedValue({ visitors: 2 });
+    getActiveVisitorsMock.mockResolvedValue({
+      visitors: 2,
+      trafficProvenance: 'may_include_unverified_public_observations',
+    });
     const request = (ip: string) =>
       new Request(`https://analytics.example/api/websites/${WEBSITE_ID}/active`, {
         headers: { 'x-real-ip': ip },
@@ -797,14 +806,20 @@ test('an exhausted share viewer does not block an independent viewer through the
 test('ordinary users retain active-visitor access and denied users remain denied', async () => {
   checkAuthMock.mockResolvedValue({ user: { id: 'website-owner' } } as any);
   canViewWebsiteSectionMock.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
-  getActiveVisitorsMock.mockResolvedValue({ visitors: 2 });
+  getActiveVisitorsMock.mockResolvedValue({
+    visitors: 2,
+    trafficProvenance: 'may_include_unverified_public_observations',
+  });
   const request = () => new Request(`https://analytics.example/api/websites/${WEBSITE_ID}/active`);
 
   const allowed = await getActiveVisitorsRoute(request(), pathParams);
   const denied = await getActiveVisitorsRoute(request(), pathParams);
 
   expect(allowed.status).toBe(200);
-  await expect(allowed.json()).resolves.toEqual({ visitors: 2 });
+  await expect(allowed.json()).resolves.toEqual({
+    visitors: 2,
+    trafficProvenance: 'may_include_unverified_public_observations',
+  });
   expect(denied.status).toBe(401);
   expect(getActiveVisitorsMock).toHaveBeenCalledOnce();
 });

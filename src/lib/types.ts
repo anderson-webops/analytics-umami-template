@@ -211,6 +211,7 @@ export interface PageResult<T> {
 
 export interface ActiveVisitors {
   visitors: number;
+  trafficProvenance: 'may_include_unverified_public_observations';
 }
 
 export interface WebsiteDateRange {

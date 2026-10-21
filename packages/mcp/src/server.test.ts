@@ -133,7 +133,9 @@ describe('createUmamiMcpServer', () => {
     }
 
     if (path === `/api/websites/${WEBSITE_ID}/active`) {
-      return { body: { visitors: 7 } };
+      return {
+        body: { visitors: 7, trafficProvenance: 'may_include_unverified_public_observations' },
+      };
     }
 
     if (path === `/api/websites/${WEBSITE_ID}/events`) {
@@ -788,13 +790,61 @@ describe('createUmamiMcpServer', () => {
     }
   });
 
-  test('get_realtime returns the active visitor count', async () => {
+  test('get_realtime preserves the active-session provenance', async () => {
     const result = await harness.client.callTool({
       name: 'get_realtime',
       arguments: { websiteId: WEBSITE_ID },
     });
 
-    expect(result.structuredContent).toMatchObject({ activeVisitors: 7 });
+    expect(result.structuredContent).toMatchObject({
+      activeVisitors: 7,
+      trafficProvenance: 'may_include_unverified_public_observations',
+    });
+  });
+
+  test('get_realtime does not infer provenance from an older or contradictory API', async () => {
+    for (const body of [
+      { visitors: 7 },
+      { visitors: 7, trafficProvenance: 'backend_verified_people' },
+    ]) {
+      const alternateHarness = createHarness(url =>
+        url.pathname === `/api/websites/${WEBSITE_ID}/active` ? { body } : routes(url),
+      );
+      try {
+        await connect(alternateHarness);
+        const result = await alternateHarness.client.callTool({
+          name: 'get_realtime',
+          arguments: { websiteId: WEBSITE_ID },
+        });
+        expect(result.structuredContent).toMatchObject({
+          activeVisitors: 7,
+          trafficProvenance: null,
+        });
+      } finally {
+        await alternateHarness.client.close();
+        await alternateHarness.server.close();
+      }
+    }
+  });
+
+  test('get_realtime does not invent zero active sessions when the API has no result', async () => {
+    const emptyHarness = createHarness(url =>
+      url.pathname === `/api/websites/${WEBSITE_ID}/active` ? { body: null } : routes(url),
+    );
+    try {
+      await connect(emptyHarness);
+      const result = await emptyHarness.client.callTool({
+        name: 'get_realtime',
+        arguments: { websiteId: WEBSITE_ID },
+      });
+      expect(result.structuredContent).toMatchObject({
+        activeVisitors: null,
+        trafficProvenance: null,
+      });
+    } finally {
+      await emptyHarness.client.close();
+      await emptyHarness.server.close();
+    }
   });
 
   test('get_events paginates and clamps page size', async () => {

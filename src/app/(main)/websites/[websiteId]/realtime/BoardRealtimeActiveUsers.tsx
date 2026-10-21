@@ -17,7 +17,10 @@ export function BoardRealtimeActiveUsers({ websiteId }: { websiteId: string }) {
           {count}
         </Text>
         <Text size="sm" color="muted">
-          {t(labels.online)}
+          {t(labels.sessions)}
+        </Text>
+        <Text size="sm" color="muted">
+          May include unverified public activity.
         </Text>
       </Column>
     </LoadingPanel>

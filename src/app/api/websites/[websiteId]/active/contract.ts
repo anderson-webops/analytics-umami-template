@@ -10,14 +10,15 @@ const getWebsiteActiveOperation = defineOperation({
   auth: 'bearer-or-share',
   operation: {
     operationId: 'getWebsiteActive',
-    summary: 'Get current active visitors',
-    description: 'Returns the number of visitors active on the website in the last few minutes.',
+    summary: 'Get current active sessions',
+    description:
+      'Returns distinct session IDs active in the last few minutes. Public pageviews are unverified; this is not a count of verified people.',
     tags: ['Websites'],
     requestParams: {
       path: websiteIdPathSchema,
     },
     responses: {
-      '200': jsonResponse(activeVisitorsSchema, 'Active visitor count.'),
+      '200': jsonResponse(activeVisitorsSchema, 'Active session count and provenance.'),
       '401': unauthorizedResponse,
     },
   },

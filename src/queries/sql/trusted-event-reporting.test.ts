@@ -142,9 +142,21 @@ test.each(['prisma', 'clickhouse'] as const)(
   '%s active visitors count pageviews but not unverified custom events',
   async mode => {
     state.mode = mode;
-    await getActiveVisitors('website');
+    rawQuery.mockResolvedValue([{ visitors: 2 }]);
+    expect(await getActiveVisitors('website')).toEqual({
+      visitors: 2,
+      trafficProvenance: 'may_include_unverified_public_observations',
+    });
     expect(rawQuery.mock.lastCall?.[0]).toContain('(event_type != 2 or trust_tier = 1)');
     expect(rawQuery.mock.lastCall?.[0]).toContain('event_type != 5');
+  },
+);
+
+test.each(['prisma', 'clickhouse'] as const)(
+  '%s active visitors preserve an unavailable result rather than inventing provenance',
+  async mode => {
+    state.mode = mode;
+    expect(await getActiveVisitors('website')).toBeNull();
   },
 );
 
