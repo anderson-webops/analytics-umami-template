@@ -1,6 +1,6 @@
 {
   "name": "umami",
-  "version": "4.2.179",
+  "version": "4.2.180",
   "private": true,
   "description": "A modern, privacy-focused alternative to Google Analytics.",
   "author": "Umami Software, Inc. <hello@umami.is>",
@@ -239,7 +239,7 @@
     "tsup": "^8.5.1",
     "tsx": "^4.23.14",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.11",
+    "vitest": "^4.1.12",
     "zod-openapi": "^6.0.2"
   }
 }
