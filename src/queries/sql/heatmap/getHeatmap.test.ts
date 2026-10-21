@@ -1,11 +1,20 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { getHeatmap } from './getHeatmap';
 
-const { state, prismaRawQuery, clickhouseRawQuery, getWebsite } = vi.hoisted(() => ({
+const {
+  state,
+  prismaRawQuery,
+  clickhouseRawQuery,
+  getWebsite,
+  prismaParseFilters,
+  clickhouseParseFilters,
+} = vi.hoisted(() => ({
   state: { mode: 'prisma' as 'prisma' | 'clickhouse' },
   prismaRawQuery: vi.fn(),
   clickhouseRawQuery: vi.fn(),
   getWebsite: vi.fn(),
+  prismaParseFilters: vi.fn(),
+  clickhouseParseFilters: vi.fn(),
 }));
 
 vi.mock('@/lib/db', () => ({
@@ -17,14 +26,14 @@ vi.mock('@/lib/db', () => ({
 vi.mock('@/lib/prisma', () => ({
   default: {
     rawQuery: prismaRawQuery,
-    parseFilters: vi.fn(() => ({ filterQuery: '', queryParams: {} })),
+    parseFilters: prismaParseFilters,
   },
 }));
 
 vi.mock('@/lib/clickhouse', () => ({
   default: {
     rawQuery: clickhouseRawQuery,
-    parseFilters: vi.fn(() => ({ filterQuery: '', queryParams: {} })),
+    parseFilters: clickhouseParseFilters,
   },
 }));
 
@@ -36,7 +45,41 @@ beforeEach(() => {
   clickhouseRawQuery.mockReset();
   getWebsite.mockReset();
   getWebsite.mockResolvedValue(null);
+  prismaParseFilters.mockReset().mockReturnValue({ filterQuery: '', queryParams: {} });
+  clickhouseParseFilters.mockReset().mockReturnValue({ filterQuery: '', queryParams: {} });
 });
+
+test.each(['prisma', 'clickhouse'] as const)(
+  '%s filtered heatmaps exclude legacy unverified custom events but retain pageview context',
+  async mode => {
+    state.mode = mode;
+    const parseFilters = mode === 'prisma' ? prismaParseFilters : clickhouseParseFilters;
+    const rawQuery = mode === 'prisma' ? prismaRawQuery : clickhouseRawQuery;
+    const eventFilter =
+      mode === 'prisma'
+        ? 'and website_event.event_name = {{eventName}}'
+        : 'and event_name = {eventName:String}';
+    parseFilters.mockReturnValue({
+      filterQuery: eventFilter,
+      queryParams: { eventName: 'purchase' },
+    });
+    rawQuery.mockResolvedValue([]);
+
+    await getHeatmap('website-1', {
+      mode: 'click',
+      startDate: new Date('2026-10-01T00:00:00Z'),
+      endDate: new Date('2026-10-02T00:00:00Z'),
+    });
+
+    const sql = rawQuery.mock.calls[0][0] as string;
+    expect(sql).toContain(
+      mode === 'prisma'
+        ? 'website_event.event_type != 2 or website_event.trust_tier = 1'
+        : 'event_type != 2 or trust_tier = 1',
+    );
+    expect(sql).toContain(eventFilter);
+  },
+);
 
 test.each([
   ['prisma', 'click', 'http://127.0.0.1:3001'],
