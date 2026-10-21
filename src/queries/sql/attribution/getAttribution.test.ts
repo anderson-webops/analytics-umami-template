@@ -108,14 +108,14 @@ describe('getAttribution postgres branch', () => {
     expect(prismaParseFilters).toHaveBeenCalledWith(expect.objectContaining({ eventType: 2 }));
   });
 
-  test('first-click model uses min(created_at) with no upper-bound clause', async () => {
+  test('first-click model excludes the conversion event itself', async () => {
     await getAttribution('website-1', { ...parameters, model: 'first-click' }, {});
 
     const referrerQuery = prismaRawQuery.mock.calls
       .map(c => c[0] as string)
       .find(q => q.includes('we.referrer_domain') && q.includes('model AS'));
     expect(referrerQuery).toContain('min(we.created_at) created_at');
-    expect(referrerQuery).not.toContain('and we.created_at < e.max_dt');
+    expect(referrerQuery).toContain('and we.created_at < e.max_dt');
   });
 
   test('last-click model uses max(created_at) bounded by e.max_dt', async () => {
@@ -145,6 +145,14 @@ describe('getAttribution postgres branch', () => {
     expect(result.paidAds).toEqual([{ name: 'Google Ads', value: 2 }]);
     expect(result.utm_source).toEqual([{ name: 's', value: 3 }]);
     expect(result.total).toEqual({ pageviews: 10, visitors: 8, visits: 9 });
+    expect(result).toMatchObject({
+      targetProvenance: 'unverified_pageview',
+      sourceProvenance: 'caller_reported',
+    });
+    expect(await getAttribution('website-1', { ...parameters, type: 'event' }, {})).toMatchObject({
+      targetProvenance: 'backend_authorized_event',
+      sourceProvenance: 'caller_reported',
+    });
   });
 });
 
@@ -188,15 +196,19 @@ describe('getAttribution clickhouse branch', () => {
     expect(
       queries.slice(0, 7).every(query => query.includes('(event_type != 2 or trust_tier = 1)')),
     ).toBe(true);
+    expect(await getAttribution('website-1', parameters, {})).toMatchObject({
+      targetProvenance: 'unverified_pageview',
+      sourceProvenance: 'caller_reported',
+    });
   });
 
-  test('first-click model uses min(created_at) with no upper bound', async () => {
+  test('first-click model excludes the conversion event itself', async () => {
     await getAttribution('website-1', { ...parameters, model: 'first-click' }, {});
 
     const referrerQuery = clickhouseRawQuery.mock.calls
       .map(c => c[0] as string)
       .find(q => q.includes('we.referrer_domain') && q.includes('model AS'));
     expect(referrerQuery).toContain('min(we.created_at) created_at');
-    expect(referrerQuery).not.toContain('where we.created_at < e.max_dt');
+    expect(referrerQuery).toContain('where we.created_at < e.max_dt');
   });
 });

@@ -12539,6 +12539,10 @@ export interface operations {
               name: string;
               value: number;
             }[];
+            /** @enum {string} */
+            sourceProvenance: 'caller_reported';
+            /** @enum {string} */
+            targetProvenance: 'unverified_pageview' | 'backend_authorized_event';
             total: {
               /** @description Pageview counts for the selected period. */
               pageviews: number;

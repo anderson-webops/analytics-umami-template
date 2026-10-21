@@ -8,6 +8,7 @@ import { MetricCard } from '@/components/metrics/MetricCard';
 import { MetricsBar } from '@/components/metrics/MetricsBar';
 import { percentFilter } from '@/lib/filters';
 import { formatLongNumber } from '@/lib/format';
+import { AttributionProvenanceNotice } from './AttributionProvenanceNotice';
 
 export interface AttributionProps {
   websiteId: string;
@@ -87,6 +88,10 @@ export function Attribution({
     <LoadingPanel data={data} isLoading={isLoading} error={error}>
       {data && (
         <Column gap>
+          <AttributionProvenanceNotice
+            targetProvenance={data.targetProvenance}
+            sourceProvenance={data.sourceProvenance}
+          />
           <MetricsBar>
             {metrics?.map(({ label, value, formatValue }) => {
               return (

@@ -22,6 +22,14 @@ export const operations = [
               schema: {
                 type: 'object',
                 properties: {
+                  targetProvenance: {
+                    type: 'string',
+                    enum: ['unverified_pageview', 'backend_authorized_event'],
+                  },
+                  sourceProvenance: {
+                    type: 'string',
+                    enum: ['caller_reported'],
+                  },
                   referrer: {
                     type: 'array',
                     items: {
@@ -144,6 +152,8 @@ export const operations = [
                   },
                 },
                 required: [
+                  'targetProvenance',
+                  'sourceProvenance',
                   'referrer',
                   'paidAds',
                   'utm_source',

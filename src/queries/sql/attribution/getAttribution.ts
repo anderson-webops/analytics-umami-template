@@ -13,6 +13,8 @@ export interface AttributionParameters {
 }
 
 export interface AttributionResult {
+  targetProvenance: 'unverified_pageview' | 'backend_authorized_event';
+  sourceProvenance: 'caller_reported';
   referrer: { name: string; value: number }[];
   paidAds: { name: string; value: number }[];
   utm_source: { name: string; value: number }[];
@@ -95,6 +97,7 @@ async function relationalQuery(
     on we.session_id = e.session_id
     where we.website_id = {{websiteId::uuid}}
           and we.created_at between {{startDate}} and {{endDate}}
+          and we.created_at < e.max_dt
           ${sourceTrustQuery}
     group by e.session_id)`
       : `\n
@@ -231,6 +234,8 @@ async function relationalQuery(
   ).then(result => result?.[0]);
 
   return {
+    targetProvenance: type === 'path' ? 'unverified_pageview' : 'backend_authorized_event',
+    sourceProvenance: 'caller_reported',
     referrer: referrerRes,
     paidAds: paidAdsres,
     utm_source: sourceRes,
@@ -297,6 +302,7 @@ async function clickhouseQuery(
             ${sourceTrustQuery}
         ) we
         on we.session_id = e.session_id
+        where we.created_at < e.max_dt
         group by e.session_id)
       `;
     }
@@ -483,6 +489,8 @@ async function clickhouseQuery(
   ).then(result => result?.[0]);
 
   return {
+    targetProvenance: type === 'path' ? 'unverified_pageview' : 'backend_authorized_event',
+    sourceProvenance: 'caller_reported',
     referrer: referrerRes,
     paidAds: paidAdsres,
     utm_source: sourceRes,
