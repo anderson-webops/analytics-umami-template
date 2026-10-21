@@ -3212,6 +3212,11 @@ export interface components {
        * @description Start of the date range as an ISO 8601 date or date-time.
        */
       startDate?: string;
+      /**
+       * @description Pageview and session time series include public observations; their source is not authenticated by the website backend.
+       * @constant
+       */
+      trafficProvenance: 'unverified_public_observations';
     };
     WebsiteSession: {
       /** @description Browser used by the visitor. */

@@ -62,6 +62,10 @@ const pageviewsSeriesSchema = z.object({
 
 export const websitePageviewsSchema = pageviewsSeriesSchema
   .extend({
+    trafficProvenance: z.literal('unverified_public_observations').meta({
+      description:
+        'Pageview and session time series include public observations; their source is not authenticated by the website backend.',
+    }),
     startDate: z.iso.datetime().optional(),
     endDate: z.iso.datetime().optional(),
     compare: pageviewsSeriesSchema

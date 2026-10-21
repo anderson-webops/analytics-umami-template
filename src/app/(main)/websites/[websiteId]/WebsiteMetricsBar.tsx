@@ -4,6 +4,7 @@ import { useWebsiteStatsQuery } from '@/components/hooks/queries/useWebsiteStats
 import { MetricCard } from '@/components/metrics/MetricCard';
 import { MetricsBar } from '@/components/metrics/MetricsBar';
 import { formatLongNumber, formatShortTime } from '@/lib/format';
+import { TrafficProvenanceNotice } from './TrafficProvenanceNotice';
 
 export function WebsiteMetricsBar({
   websiteId,
@@ -71,6 +72,7 @@ export function WebsiteMetricsBar({
       error={getErrorMessage(error)}
       minHeight="136px"
     >
+      {data && <TrafficProvenanceNotice unverifiedViews={data.unverifiedViews} />}
       <MetricsBar>
         {metrics?.map(({ label, value, prev, change, formatValue, reverseColors }) => {
           return (

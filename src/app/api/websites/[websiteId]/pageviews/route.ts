@@ -57,6 +57,7 @@ export async function GET(
     ]);
 
     return json({
+      trafficProvenance: 'unverified_public_observations',
       pageviews,
       sessions,
       startDate: filters.startDate,
@@ -70,5 +71,5 @@ export async function GET(
     });
   }
 
-  return json({ pageviews, sessions });
+  return json({ trafficProvenance: 'unverified_public_observations', pageviews, sessions });
 }

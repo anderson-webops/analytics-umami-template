@@ -4,6 +4,7 @@ import { useDateParameters } from '../useDateParameters';
 import { useFilterParameters } from '../useFilterParameters';
 
 export interface WebsitePageviewsData {
+  trafficProvenance: 'unverified_public_observations';
   pageviews: { x: string; y: number }[];
   sessions: { x: string; y: number }[];
 }

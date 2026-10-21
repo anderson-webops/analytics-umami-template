@@ -12,7 +12,7 @@ const getWebsitePageviewsOperation = defineOperation({
     operationId: 'getWebsitePageviews',
     summary: 'Get pageview and session time series',
     description:
-      'Returns pageviews and sessions bucketed by `unit` (minute, hour, day, month, year) in the given `timezone`. When `compare` is set the comparison period is included.',
+      'Returns pageviews and sessions bucketed by `unit` (minute, hour, day, month, year) in the given `timezone`. Traffic provenance identifies public observations that are not authenticated by the website backend. When `compare` is set the comparison period is included.',
     tags: ['Websites'],
     requestParams: {
       path: websiteIdPathSchema,
