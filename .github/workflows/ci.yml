@@ -244,6 +244,7 @@ jobs:
       DATABASE_URL: postgresql://umami:umami@127.0.0.1:5432/umami_event_series_test
       POSTGRES_EVENT_SERIES_TEST_URL: postgresql://umami:umami@127.0.0.1:5432/umami_event_series_test
       POSTGRES_DISCOVERY_TEST_URL: postgresql://umami:umami@127.0.0.1:5432/umami_event_series_test
+      POSTGRES_FUNNEL_TEST_URL: postgresql://umami:umami@127.0.0.1:5432/umami_event_series_test
 
     steps:
       - name: Check out source
@@ -270,3 +271,4 @@ jobs:
           pnpm exec vitest run src/queries/sql/events/getEventStats.postgres.test.ts
           pnpm exec vitest run src/queries/sql/events/getEventDataDiscovery.postgres.test.ts
           pnpm exec vitest run src/queries/sql/property-series.postgres.test.ts
+          pnpm exec vitest run src/queries/sql/funnels/getFunnel.postgres.test.ts

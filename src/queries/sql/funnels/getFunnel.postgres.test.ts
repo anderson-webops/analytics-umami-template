@@ -7,7 +7,7 @@ const integrationTest = process.env.POSTGRES_FUNNEL_TEST_URL ? test : test.skip;
 integrationTest('funnel steps reject performance and unverified custom events', async () => {
   const url = new URL(process.env.POSTGRES_FUNNEL_TEST_URL ?? '');
   expect(url.hostname).toBe('127.0.0.1');
-  expect(url.pathname).toBe('/umami_funnel_test');
+  expect(['/umami_funnel_test', '/umami_event_series_test']).toContain(url.pathname);
   expect(process.env.DATABASE_URL).toBe(url.toString());
   expect(process.env.CLICKHOUSE_URL).toBeFalsy();
 
@@ -18,6 +18,7 @@ integrationTest('funnel steps reject performance and unverified custom events', 
   const unverifiedSessionId = randomUUID();
   const startDate = new Date('2026-10-21T00:00:00.000Z');
   const endDate = new Date('2026-10-22T00:00:00.000Z');
+  let tableCreated = false;
 
   await client.connect();
 
@@ -32,6 +33,7 @@ integrationTest('funnel steps reject performance and unverified custom events', 
       trust_tier SMALLINT NOT NULL,
       created_at TIMESTAMPTZ NOT NULL
     )`);
+    tableCreated = true;
 
     const insert = async (
       sessionId: string,
@@ -92,7 +94,9 @@ integrationTest('funnel steps reject performance and unverified custom events', 
     ]);
     expect(pathToPath.map(step => step.visitors)).toEqual([2, 1]);
   } finally {
-    await client.query('DROP TABLE IF EXISTS website_event');
+    if (tableCreated) {
+      await client.query('DROP TABLE website_event');
+    }
     await client.end();
     const prisma = await import('@/lib/prisma');
     await prisma.default.client.$disconnect();
