@@ -30,7 +30,8 @@ export const websiteStatsValuesSchema = z
   .object({
     pageviews: z.number(),
     unverifiedViews: z.number().meta({
-      description: 'Public, backend-unverified traffic observations included in pageviews.',
+      description:
+        'All reported views are backend-unverified; this equals pageviews until a verified-view contract exists.',
     }),
     visitors: z.number(),
     visits: z.number(),

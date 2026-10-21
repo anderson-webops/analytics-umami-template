@@ -340,7 +340,7 @@ const operation1 = defineOperation({
                     unverifiedViews: {
                       type: 'number',
                       description:
-                        'Public, backend-unverified traffic observations included in pageviews for the selected period.',
+                        'All reported views are backend-unverified; this equals pageviews until a verified-view contract exists.',
                     },
                     visitors: {
                       type: 'number',
@@ -361,7 +361,7 @@ const operation1 = defineOperation({
                 unverifiedViews: {
                   type: 'number',
                   description:
-                    'Public, backend-unverified traffic observations included in pageviews for the selected period.',
+                    'All reported views are backend-unverified; this equals pageviews until a verified-view contract exists.',
                 },
                 visitors: {
                   type: 'number',

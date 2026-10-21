@@ -20,8 +20,7 @@ export function WebsiteMetricsBar({
     compare: compareMode ? dateCompare?.compare : undefined,
   });
 
-  const { pageviews, unverifiedViews, visitors, visits, bounces, totaltime, comparison } =
-    data || {};
+  const { pageviews, visitors, visits, bounces, totaltime, comparison } = data || {};
 
   const metrics = data
     ? [
@@ -41,12 +40,6 @@ export function WebsiteMetricsBar({
           value: pageviews,
           label: t(labels.views),
           change: pageviews - comparison.pageviews,
-          formatValue: formatLongNumber,
-        },
-        {
-          value: unverifiedViews,
-          label: 'Unverified views',
-          change: unverifiedViews - comparison.unverifiedViews,
           formatValue: formatLongNumber,
         },
         {

@@ -16,7 +16,7 @@ export function LinkMetricsBar({
   const { t, labels } = useMessages();
   const { data, isLoading, isFetching, error } = useTrafficStatsQuery(linkId);
 
-  const { pageviews, unverifiedViews, visitors, visits, comparison } = data || {};
+  const { pageviews, visitors, visits, comparison } = data || {};
 
   const metrics = data
     ? [
@@ -36,12 +36,6 @@ export function LinkMetricsBar({
           value: pageviews,
           label: t(labels.views),
           change: pageviews - comparison.pageviews,
-          formatValue: formatLongNumber,
-        },
-        {
-          value: unverifiedViews,
-          label: 'Unverified views',
-          change: unverifiedViews - comparison.unverifiedViews,
           formatValue: formatLongNumber,
         },
       ]

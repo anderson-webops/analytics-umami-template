@@ -16,7 +16,7 @@ vi.mock('@/queries/sql', () => ({ getWebsiteStats: vi.fn() }));
 const websiteId = '00000000-0000-4000-8000-000000000001';
 const currentStats = {
   pageviews: 11,
-  unverifiedViews: 7,
+  unverifiedViews: 11,
   visitors: 5,
   visits: 6,
   bounces: 2,
@@ -24,7 +24,7 @@ const currentStats = {
 };
 const comparisonStats = {
   pageviews: 9,
-  unverifiedViews: 3,
+  unverifiedViews: 9,
   visitors: 4,
   visits: 5,
   bounces: 1,
@@ -65,8 +65,8 @@ test.each([
   expect(response.status).toBe(200);
   expect(result).toMatchObject({
     pageviews: 11,
-    unverifiedViews: 7,
-    comparison: { pageviews: 9, unverifiedViews: 3 },
+    unverifiedViews: 11,
+    comparison: { pageviews: 9, unverifiedViews: 9 },
   });
   expect(getWebsiteStats).toHaveBeenCalledTimes(2);
 });

@@ -76,14 +76,14 @@ describe('createUmamiMcpServer', () => {
       return {
         body: {
           pageviews: 100,
-          unverifiedViews: 72,
+          unverifiedViews: 100,
           visitors: 40,
           visits: 50,
           bounces: 10,
           totaltime: 5000,
           comparison: {
             pageviews: 80,
-            unverifiedViews: 55,
+            unverifiedViews: 80,
             visitors: 30,
             visits: 40,
             bounces: 8,
@@ -516,8 +516,8 @@ describe('createUmamiMcpServer', () => {
 
     expect(result.isError).toBeFalsy();
     expect(result.structuredContent).toMatchObject({
-      current: { pageviews: 100, unverifiedViews: 72, visitors: 40, visits: 50, bounceRate: 20 },
-      previous: { pageviews: 80, unverifiedViews: 55, visitors: 30 },
+      current: { pageviews: 100, unverifiedViews: 100, visitors: 40, visits: 50, bounceRate: 20 },
+      previous: { pageviews: 80, unverifiedViews: 80, visitors: 30 },
     });
 
     const url = harness.calls[0].url;

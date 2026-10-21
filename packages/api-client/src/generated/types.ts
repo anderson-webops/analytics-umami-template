@@ -3288,7 +3288,7 @@ export interface components {
       pageviews: number;
       /** @description Total visit duration in seconds. */
       totaltime: number;
-      /** @description Public, backend-unverified traffic observations included in pageviews. */
+      /** @description All reported views are backend-unverified; this equals pageviews until a verified-view contract exists. */
       unverifiedViews: number;
       /** @description Unique visitor counts for the selected period. */
       visitors: number;
@@ -3302,7 +3302,7 @@ export interface components {
       pageviews: number;
       /** @description Total visit duration in seconds. */
       totaltime: number;
-      /** @description Public, backend-unverified traffic observations included in pageviews. */
+      /** @description All reported views are backend-unverified; this equals pageviews until a verified-view contract exists. */
       unverifiedViews: number;
       /** @description Unique visitor counts for the selected period. */
       visitors: number;
@@ -22259,7 +22259,7 @@ export interface operations {
             comparison: {
               /** @description Pageview counts for the selected period. */
               pageviews: number;
-              /** @description Public, backend-unverified traffic observations included in pageviews for the selected period. */
+              /** @description All reported views are backend-unverified; this equals pageviews until a verified-view contract exists. */
               unverifiedViews: number;
               /** @description Unique visitor counts for the selected period. */
               visitors: number;
@@ -22268,7 +22268,7 @@ export interface operations {
             };
             /** @description Pageview counts for the selected period. */
             pageviews: number;
-            /** @description Public, backend-unverified traffic observations included in pageviews for the selected period. */
+            /** @description All reported views are backend-unverified; this equals pageviews until a verified-view contract exists. */
             unverifiedViews: number;
             /** @description Unique visitor counts for the selected period. */
             visitors: number;
