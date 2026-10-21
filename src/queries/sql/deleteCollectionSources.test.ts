@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 const command = vi.fn();
+const rawQuery = vi.fn();
 const clickhouse = {
   enabled: true,
   command,
+  rawQuery,
 };
 
 vi.mock('@/lib/clickhouse', () => ({
@@ -17,12 +19,18 @@ const { CLICKHOUSE_COLLECTION_TABLES, deleteClickhouseCollectionSources } = awai
 describe('deleteClickhouseCollectionSources', () => {
   beforeEach(() => {
     command.mockReset();
+    rawQuery
+      .mockReset()
+      .mockResolvedValueOnce([{ name: 'umami' }])
+      .mockResolvedValue([]);
     clickhouse.enabled = true;
+    delete process.env.CLICKHOUSE_HISTORY_ATTESTED_CLEAN;
   });
 
   test('waits for deletion from every raw and derived collection table', async () => {
     await deleteClickhouseCollectionSources(['source-1', 'source-1', 'source-2']);
 
+    expect(rawQuery).toHaveBeenCalledTimes(2);
     expect(CLICKHOUSE_COLLECTION_TABLES).toContain('session_link');
     expect(CLICKHOUSE_COLLECTION_TABLES).toContain('event_data_pivot_verified');
     expect(command).toHaveBeenCalledTimes(CLICKHOUSE_COLLECTION_TABLES.length);
@@ -47,6 +55,55 @@ describe('deleteClickhouseCollectionSources', () => {
     );
   });
 
+  test('rejects retained legacy row copies before deleting active data', async () => {
+    rawQuery.mockResolvedValue([
+      { name: 'event_data_old' },
+      { name: 'website_event_old' },
+      { name: 'website_event_stats_hourly_old' },
+    ]);
+
+    await expect(deleteClickhouseCollectionSources(['source-1'])).rejects.toThrow(
+      'CLICKHOUSE_LEGACY_CLEANUP_REQUIRED',
+    );
+    expect(command).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    { name: 'website_event_join' },
+    { name: 'website_event_stats_hourly_mv_old' },
+    { name: 'event_data_new' },
+    { name: 'unexpected_object' },
+  ])('rejects unsafe legacy objects before any deletion (%j)', async row => {
+    rawQuery.mockResolvedValue([row]);
+
+    await expect(deleteClickhouseCollectionSources(['source-1'])).rejects.toThrow(
+      /CLICKHOUSE_LEGACY_(CLEANUP_REQUIRED|SCHEMA_REVIEW_REQUIRED)/,
+    );
+    expect(command).not.toHaveBeenCalled();
+  });
+
+  test('rejects a non-historical current database before any deletion', async () => {
+    rawQuery.mockReset().mockResolvedValueOnce([{ name: 'client_analytics' }]);
+
+    await expect(deleteClickhouseCollectionSources(['source-1'])).rejects.toThrow(
+      'CLICKHOUSE_LEGACY_DATABASE_REVIEW_REQUIRED',
+    );
+    expect(rawQuery).toHaveBeenCalledTimes(1);
+    expect(command).not.toHaveBeenCalled();
+  });
+
+  test('rejects a failed inventory before any deletion', async () => {
+    rawQuery
+      .mockReset()
+      .mockResolvedValueOnce([{ name: 'umami' }])
+      .mockRejectedValue(new Error('inventory unavailable'));
+
+    await expect(deleteClickhouseCollectionSources(['source-1'])).rejects.toThrow(
+      'inventory unavailable',
+    );
+    expect(command).not.toHaveBeenCalled();
+  });
+
   test('fails closed when identity-link deletion fails', async () => {
     command.mockImplementation(async query => {
       if (query.startsWith('ALTER TABLE session_link DELETE')) {
@@ -63,12 +120,28 @@ describe('deleteClickhouseCollectionSources', () => {
     );
   });
 
-  test('does nothing when ClickHouse is disabled or no sources are present', async () => {
+  test('requires protected history attestation when ClickHouse is disabled', async () => {
     clickhouse.enabled = false;
+    await expect(deleteClickhouseCollectionSources(['source-1'])).rejects.toThrow(
+      'CLICKHOUSE_HISTORY_REVIEW_REQUIRED',
+    );
+    expect(command).not.toHaveBeenCalled();
+    expect(rawQuery).not.toHaveBeenCalled();
+  });
+
+  test('accepts disabled ClickHouse only after protected history attestation', async () => {
+    clickhouse.enabled = false;
+    process.env.CLICKHOUSE_HISTORY_ATTESTED_CLEAN = 'true';
     await deleteClickhouseCollectionSources(['source-1']);
-    clickhouse.enabled = true;
+
+    expect(command).not.toHaveBeenCalled();
+    expect(rawQuery).not.toHaveBeenCalled();
+  });
+
+  test('does nothing when no sources are present', async () => {
     await deleteClickhouseCollectionSources([]);
 
     expect(command).not.toHaveBeenCalled();
+    expect(rawQuery).not.toHaveBeenCalled();
   });
 });

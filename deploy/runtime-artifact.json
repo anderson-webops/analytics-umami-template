@@ -143,6 +143,7 @@
       "packaged-migration-tool-v1",
       "retained-artifact-rollback-v1",
       "database-aware-recovery-v1",
+      "legacy-clickhouse-erasure-review-v1",
       "bounded-heatmap-retention-v1",
       "bounded-replay-retention-v1",
       "authenticated-advanced-collection-v1",

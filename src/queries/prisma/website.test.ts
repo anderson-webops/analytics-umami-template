@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { ENTITY_TYPE } from '@/lib/constants';
 import {
   createWebsite,
@@ -250,11 +250,28 @@ function createDeleteTx(calls: string[]) {
 
 describe('website delete dependencies', () => {
   beforeEach(() => {
+    vi.stubEnv('CLICKHOUSE_HISTORY_ATTESTED_CLEAN', 'true');
     transactionMock.mockReset();
     redisDelMock.mockReset();
     redisSetMock.mockReset();
     delete process.env.CLOUD_MODE;
     process.env.DATABASE_URL = 'postgresql://user:pass@localhost:5432/umami?schema=public';
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  test('reset refuses to remove relational rows without protected history attestation', async () => {
+    delete process.env.CLICKHOUSE_HISTORY_ATTESTED_CLEAN;
+    const calls: string[] = [];
+    const tx = createDeleteTx(calls);
+    transactionMock.mockImplementation(async callback => callback(tx));
+
+    await expect(resetWebsite('website-1', 'actor-1', actorAuth)).rejects.toThrow(
+      'CLICKHOUSE_HISTORY_REVIEW_REQUIRED',
+    );
+    expect(calls).toEqual([]);
   });
 
   test('deleteWebsite runs fast event-data cleanup, a relational safety pass, and heatmap cleanup before deleting website events', async () => {

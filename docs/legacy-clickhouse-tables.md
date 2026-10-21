@@ -6,6 +6,17 @@ copies are outside the current collection-source deletion path and may retain
 data for a source that was later reset or deleted. Do not rewrite the applied
 migrations, assume the copies are absent, or drop tables as a source-code deploy.
 
+The collection-source deletion path now fails closed before changing active or
+relational data if the configured `umami` ClickHouse database contains any of
+the exact historical `_old`, interrupted `_new`, or unscoped join objects. It
+does not delete those objects automatically. If ClickHouse is currently
+disabled, deletion requires a protected host-side
+`CLICKHOUSE_HISTORY_ATTESTED_CLEAN=true` setting. The operator may set it only
+after reviewing prior ClickHouse use and all retained databases and backups;
+an absent current URL does not prove historical copies are gone. This is a
+new deployment prerequisite, not a flag for a source agent to set or a reason
+to bypass a reset failure.
+
 Using the repository-pinned Node 24 runtime,
 `node scripts/inspect-legacy-clickhouse-tables.mjs` is a read-only, bounded
 inventory. The protected server operator may run it with the existing private
