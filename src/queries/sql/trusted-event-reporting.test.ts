@@ -93,6 +93,31 @@ test.each(['prisma', 'clickhouse'] as const)(
 );
 
 test.each(['prisma', 'clickhouse'] as const)(
+  '%s goal results distinguish public path observations from backend-authorized events',
+  async mode => {
+    state.mode = mode;
+    rawQuery.mockResolvedValue([{ num: 2, total: 5 }]);
+
+    expect(
+      await getGoal('website', { ...filters, type: 'path', value: '/checkout' }, filters),
+    ).toEqual({
+      num: 2,
+      total: 5,
+      numeratorProvenance: 'unverified_pageview',
+      denominatorProvenance: 'may_include_unverified_traffic',
+    });
+    expect(
+      await getGoal('website', { ...filters, type: 'event', value: 'checkout' }, filters),
+    ).toEqual({
+      num: 2,
+      total: 5,
+      numeratorProvenance: 'backend_authorized_event',
+      denominatorProvenance: 'may_include_unverified_traffic',
+    });
+  },
+);
+
+test.each(['prisma', 'clickhouse'] as const)(
   '%s retention excludes unverified custom events from cohorts and returning activity',
   async mode => {
     state.mode = mode;

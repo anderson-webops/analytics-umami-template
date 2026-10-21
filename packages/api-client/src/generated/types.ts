@@ -16440,7 +16440,17 @@ export interface operations {
         };
         content: {
           'application/json': {
+            /**
+             * @description The session denominator can include unverified public traffic.
+             * @enum {string}
+             */
+            denominatorProvenance: 'may_include_unverified_traffic';
             num: number;
+            /**
+             * @description Pageview goals are observations; custom-event goals are website-backend authorized.
+             * @enum {string}
+             */
+            numeratorProvenance: 'unverified_pageview' | 'backend_authorized_event';
             total: number;
           };
         };
@@ -16585,7 +16595,17 @@ export interface operations {
         };
         content: {
           'application/json': {
+            /**
+             * @description The session denominator can include unverified public traffic.
+             * @enum {string}
+             */
+            denominatorProvenance: 'may_include_unverified_traffic';
             num: number;
+            /**
+             * @description Pageview goals are observations; custom-event goals are website-backend authorized.
+             * @enum {string}
+             */
+            numeratorProvenance: 'unverified_pageview' | 'backend_authorized_event';
             total: number;
           };
         };

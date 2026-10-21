@@ -28,7 +28,7 @@ user/team permission checks as the web app.
 | `get_session`         | One session with its activity timeline and properties.                  |
 | `list_funnels`        | Saved funnels with their steps (get a `funnelId` for `run_funnel`).     |
 | `run_funnel`          | Conversion funnel from a saved `funnelId` or ad-hoc page/event steps.    |
-| `get_goals`           | Saved goals with conversions, visitors and rate for a range.           |
+| `get_goals`           | Saved goals with matching sessions, total sessions, rate and provenance for a range. |
 | `run_journey`         | Most common paths visitors take.                                        |
 | `run_retention`       | Cohort retention table.                                                 |
 | `run_attribution`     | First/last-click attribution for a conversion.                          |

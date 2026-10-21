@@ -28,8 +28,19 @@ export const operations = [
                   total: {
                     type: 'number',
                   },
+                  numeratorProvenance: {
+                    type: 'string',
+                    enum: ['unverified_pageview', 'backend_authorized_event'],
+                    description:
+                      'Pageview goals are observations; custom-event goals are website-backend authorized.',
+                  },
+                  denominatorProvenance: {
+                    type: 'string',
+                    enum: ['may_include_unverified_traffic'],
+                    description: 'The session denominator can include unverified public traffic.',
+                  },
                 },
-                required: ['num', 'total'],
+                required: ['num', 'total', 'numeratorProvenance', 'denominatorProvenance'],
               },
             },
           },

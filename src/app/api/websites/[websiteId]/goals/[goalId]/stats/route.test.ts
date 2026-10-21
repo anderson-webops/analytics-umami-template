@@ -59,6 +59,12 @@ test('reserves stored goal work for authenticated viewers before executing analy
 });
 
 test('preserves ordinary saved goal analytics for authenticated viewers', async () => {
+  vi.mocked(getGoal).mockResolvedValue({
+    num: 1,
+    total: 2,
+    numeratorProvenance: 'unverified_pageview',
+    denominatorProvenance: 'may_include_unverified_traffic',
+  });
   const response = await GET(
     new Request('https://analytics.example/api/websites/site/goals/report/stats'),
     { params: Promise.resolve({ websiteId, goalId: 'report' }) },
@@ -66,6 +72,12 @@ test('preserves ordinary saved goal analytics for authenticated viewers', async 
 
   expect(response.status).toBe(200);
   expect(getGoal).toHaveBeenCalledTimes(1);
+  expect(await response.json()).toEqual({
+    num: 1,
+    total: 2,
+    numeratorProvenance: 'unverified_pageview',
+    denominatorProvenance: 'may_include_unverified_traffic',
+  });
 });
 
 test('preserves ordinary saved goal analytics for public shares', async () => {

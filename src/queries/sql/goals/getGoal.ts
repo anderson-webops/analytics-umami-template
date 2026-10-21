@@ -14,15 +14,28 @@ export interface GoalParameters {
 export interface GoalResult {
   num: number;
   total: number;
+  numeratorProvenance: 'unverified_pageview' | 'backend_authorized_event';
+  denominatorProvenance: 'may_include_unverified_traffic';
 }
 
 export async function getGoal(
   ...args: [websiteId: string, params: GoalParameters, filters: QueryFilters]
 ): Promise<GoalResult> {
-  return runQuery({
+  const result = await runQuery({
     [PRISMA]: () => relationalQuery(...args),
     [CLICKHOUSE]: () => clickhouseQuery(...args),
   });
+
+  if (!result) {
+    return result;
+  }
+
+  return {
+    ...result,
+    numeratorProvenance:
+      args[1].type === 'path' ? 'unverified_pageview' : 'backend_authorized_event',
+    denominatorProvenance: 'may_include_unverified_traffic',
+  };
 }
 
 async function relationalQuery(

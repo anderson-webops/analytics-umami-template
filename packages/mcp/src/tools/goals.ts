@@ -20,6 +20,8 @@ interface GoalRow {
 interface GoalStats {
   num?: number;
   total?: number;
+  numeratorProvenance?: 'unverified_pageview' | 'backend_authorized_event';
+  denominatorProvenance?: 'may_include_unverified_traffic';
 }
 
 async function mapInBatches<Input, Output>(
@@ -42,7 +44,10 @@ export const getGoals = defineTool({
   description:
     'Lists the goals saved for a website (a goal is a target page path or custom event, e.g. "visit /thank-you" or ' +
     '"fire signup"). Pass startAt (and optionally endAt) to also compute each goal\'s results in that range: how many ' +
-    'visitors converted, the total visitors, and the conversion rate. Use "goalId" to check a single goal. ' +
+    'counted sessions matching the goal, the total counted sessions, and their rate. Current APIs label ' +
+    'path matches as unverified pageviews and event matches as website-backend authorized; totals can ' +
+    'include unverified public traffic. Null provenance means the API did not provide that label. ' +
+    'Use "goalId" to check a single goal. ' +
     'Statistics are limited to 20 goals per page and a 366-day range; paginate or narrow the range for larger reports. ' +
     'Use this for "how are we doing against our goals?" questions. Requires a websiteId from list_websites.',
   inputSchema: z.object({
@@ -114,14 +119,16 @@ export const getGoals = defineTool({
         ...filters,
       })) as GoalStats;
       const conversions = Number(stats?.num ?? 0);
-      const visitors = Number(stats?.total ?? 0);
+      const totalSessions = Number(stats?.total ?? 0);
 
       return {
         ...goal,
         results: {
           conversions,
-          visitors,
-          conversionRate: visitors ? Math.round((conversions / visitors) * 1000) / 10 : 0,
+          totalSessions,
+          conversionRate: totalSessions ? Math.round((conversions / totalSessions) * 1000) / 10 : 0,
+          numeratorProvenance: stats?.numeratorProvenance ?? null,
+          denominatorProvenance: stats?.denominatorProvenance ?? null,
         },
       };
     });

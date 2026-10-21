@@ -6,6 +6,7 @@ import { SavedDefinitionEditButton } from '@/components/input/SavedDefinitionEdi
 import { Lightning } from '@/components/svg';
 import { formatLongNumber } from '@/lib/format';
 import { GoalEditForm } from './GoalEditForm';
+import { GoalProvenanceNotice } from './GoalProvenanceNotice';
 
 export interface GoalProps {
   id: string;
@@ -21,8 +22,6 @@ export interface GoalProps {
   endDate: Date;
   allowEdit?: boolean;
 }
-
-export type GoalData = { num: number; total: number };
 
 export function Goal({
   id,
@@ -102,6 +101,7 @@ export function Goal({
             {data?.total ? Math.round((+data?.num / +data?.total) * 100) : '0'}%
           </Text>
         </Row>
+        <GoalProvenanceNotice numeratorProvenance={data?.numeratorProvenance} />
       </LoadingPanel>
     </Grid>
   );

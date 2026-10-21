@@ -49,7 +49,47 @@ test('goal statistics stay within a bounded query fanout', async () => {
     type: null,
     value: null,
     createdAt: null,
-    results: { conversions: 2, visitors: 10, conversionRate: 20 },
+    results: {
+      conversions: 2,
+      totalSessions: 10,
+      conversionRate: 20,
+      numeratorProvenance: null,
+      denominatorProvenance: null,
+    },
+  });
+});
+
+test('an older goal API does not fabricate provenance', async () => {
+  const mock = createClient(1);
+
+  const result = await getGoals.handler(
+    { websiteId: WEBSITE_ID, startAt: '2026-01-01', endAt: '2026-02-01' },
+    { client: mock.client, logger: silentLogger },
+  );
+
+  expect((result.goals as { results: Record<string, unknown> }[])[0].results).toMatchObject({
+    numeratorProvenance: null,
+    denominatorProvenance: null,
+  });
+});
+
+test('current goal API conveys count provenance', async () => {
+  const mock = createClient(1);
+  mock.getWebsiteSavedGoalStats.mockResolvedValue({
+    num: 2,
+    total: 10,
+    numeratorProvenance: 'unverified_pageview',
+    denominatorProvenance: 'may_include_unverified_traffic',
+  } as any);
+
+  const result = await getGoals.handler(
+    { websiteId: WEBSITE_ID, startAt: '2026-01-01', endAt: '2026-02-01' },
+    { client: mock.client, logger: silentLogger },
+  );
+
+  expect((result.goals as { results: Record<string, unknown> }[])[0].results).toMatchObject({
+    numeratorProvenance: 'unverified_pageview',
+    denominatorProvenance: 'may_include_unverified_traffic',
   });
 });
 

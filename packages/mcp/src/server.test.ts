@@ -953,7 +953,7 @@ describe('createUmamiMcpServer', () => {
 
     expect(withStats.isError).toBeFalsy();
     expect(withStats.structuredContent).toMatchObject({
-      goals: [{ id: GOAL_ID, results: { conversions: 8, visitors: 40, conversionRate: 20 } }],
+      goals: [{ id: GOAL_ID, results: { conversions: 8, totalSessions: 40, conversionRate: 20 } }],
     });
     expect(harness.calls.map(call => call.url.pathname)).toEqual([
       `/api/websites/${WEBSITE_ID}/goals`,
