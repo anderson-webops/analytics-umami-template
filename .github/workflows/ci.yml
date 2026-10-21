@@ -272,3 +272,9 @@ jobs:
           pnpm exec vitest run src/queries/sql/events/getEventDataDiscovery.postgres.test.ts
           pnpm exec vitest run src/queries/sql/property-series.postgres.test.ts
           pnpm exec vitest run src/queries/sql/funnels/getFunnel.postgres.test.ts
+
+      - name: Exercise replay and heatmap trust filters
+        env:
+          DATABASE_URL: postgres://umami:umami@127.0.0.1:5432/umami_event_series_test
+          POSTGRES_REPORT_FILTER_TEST_URL: postgres://umami:umami@127.0.0.1:5432/umami_event_series_test
+        run: pnpm exec vitest run src/queries/sql/replays/reportFilters.postgres.test.ts --maxWorkers=1
