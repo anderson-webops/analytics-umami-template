@@ -1,4 +1,5 @@
 import { EVENT_COLUMNS, FILTER_COLUMNS, SESSION_COLUMNS } from '@/lib/constants';
+import { IdentitySearchTooBroadError } from '@/lib/identity-search-error';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import { badRequest, json, unauthorized } from '@/lib/response';
 import { fieldsParam, searchParams, withDateRange } from '@/lib/schema';
@@ -39,7 +40,14 @@ export async function GET(
   }
 
   const filters = await getQueryFilters(query, websiteId);
-  const values = await getValues(websiteId, FILTER_COLUMNS[type], filters);
+  try {
+    const values = await getValues(websiteId, FILTER_COLUMNS[type], filters);
 
-  return json(values.filter(n => n?.value != null).sort());
+    return json(values.filter(n => n?.value != null).sort());
+  } catch (error) {
+    if (error instanceof IdentitySearchTooBroadError) {
+      return badRequest({ message: 'Identity search is too broad.' });
+    }
+    throw error;
+  }
 }

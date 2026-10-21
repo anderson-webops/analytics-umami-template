@@ -96,29 +96,36 @@ async function sendMessage(
   message: KafkaMessage | KafkaMessage[],
 ): Promise<RecordMetadata[]> {
   try {
-    await connect();
-
     const maxMessageBytes = getMaxMessageBytes();
     const messages = getMessages(message);
+    const oversized = messages.find(({ size }) => size > maxMessageBytes);
+
+    if (oversized) {
+      throw Object.assign(new Error('Kafka message exceeds the configured limit.'), {
+        code: 'KAFKA_MESSAGE_TOO_LARGE',
+      });
+    }
+
+    await connect();
+
     const result: RecordMetadata[] = [];
     let batch: KafkaProducerMessage[] = [];
     let batchSize = 0;
 
     for (const { value, size } of messages) {
-      if (size > maxMessageBytes) {
-        log('Kafka message dropped: topic=%s size=%d max=%d', topic, size, maxMessageBytes);
-        continue;
-      }
-
       if (batch.length && batchSize + size > maxMessageBytes) {
-        result.push(
-          ...(await producer.send({
-            topic,
-            messages: batch,
-            timeout: SEND_TIMEOUT,
-            acks: ACKS,
-          })),
-        );
+        const acknowledgements = await producer.send({
+          topic,
+          messages: batch,
+          timeout: SEND_TIMEOUT,
+          acks: ACKS,
+        });
+
+        if (!acknowledgements.length) {
+          throw new Error('KAFKA_SEND_UNACKNOWLEDGED');
+        }
+
+        result.push(...acknowledgements);
         batch = [];
         batchSize = 0;
       }
@@ -128,14 +135,18 @@ async function sendMessage(
     }
 
     if (batch.length) {
-      result.push(
-        ...(await producer.send({
-          topic,
-          messages: batch,
-          timeout: SEND_TIMEOUT,
-          acks: ACKS,
-        })),
-      );
+      const acknowledgements = await producer.send({
+        topic,
+        messages: batch,
+        timeout: SEND_TIMEOUT,
+        acks: ACKS,
+      });
+
+      if (!acknowledgements.length) {
+        throw new Error('KAFKA_SEND_UNACKNOWLEDGED');
+      }
+
+      result.push(...acknowledgements);
     }
 
     return result;
@@ -148,7 +159,9 @@ async function sendMessage(
     // eslint-disable-next-line no-console
     console.error('Kafka send failed', { name, ...(code ? { code } : {}) });
 
-    return [];
+    throw Object.assign(new Error('Kafka delivery failed.'), {
+      code: code === 'KAFKA_MESSAGE_TOO_LARGE' ? code : 'KAFKA_SEND_FAILED',
+    });
   }
 }
 

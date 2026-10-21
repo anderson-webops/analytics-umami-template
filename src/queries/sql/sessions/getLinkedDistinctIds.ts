@@ -1,11 +1,6 @@
-import clickhouse from '@/lib/clickhouse';
-import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
+import { COLLECTION_TRUST_TIER } from '@/lib/constants';
 import prisma from '@/lib/prisma';
-import {
-  LINKED_QUERY_TIMEOUT_MS,
-  MAX_AUTH_SESSION_ROWS,
-  MAX_LINK_READ_ROWS,
-} from '@/lib/share-query-budget';
+import { LINKED_QUERY_TIMEOUT_MS, MAX_AUTH_SESSION_ROWS } from '@/lib/share-query-budget';
 
 const FUNCTION_NAME = 'getLinkedDistinctIds';
 
@@ -16,10 +11,7 @@ export async function getLinkedDistinctIds(
     throw new Error('LINKED_SESSION_ROW_LIMIT_INVALID');
   }
 
-  return runQuery({
-    [PRISMA]: () => relationalQuery(...args),
-    [CLICKHOUSE]: () => getLegacyLinkedDistinctIds(...args),
-  });
+  return relationalQuery(...args);
 }
 
 async function relationalQuery(
@@ -35,35 +27,11 @@ async function relationalQuery(
     from session_link
     where website_id = {{websiteId::uuid}}
       and session_id = {{sessionId::uuid}}
+      and trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}
     limit {{rowLimit}}
     `,
     { websiteId, sessionId, rowLimit },
     FUNCTION_NAME,
     LINKED_QUERY_TIMEOUT_MS,
-  ).then(result => (result as { distinctId: string }[]).map(({ distinctId }) => distinctId));
-}
-
-export async function getLegacyLinkedDistinctIds(
-  websiteId: string,
-  sessionId: string,
-  rowLimit: number,
-): Promise<string[]> {
-  const { rawQuery } = clickhouse;
-
-  return rawQuery(
-    `
-    select distinct distinct_id as distinctId
-    from session_link
-    where website_id = {websiteId:UUID}
-      and session_id = {sessionId:UUID}
-    limit {rowLimit:UInt32}
-    `,
-    { websiteId, sessionId, rowLimit },
-    FUNCTION_NAME,
-    {
-      maxExecutionTimeSeconds: LINKED_QUERY_TIMEOUT_MS / 1000,
-      maxResultRows: rowLimit,
-      maxRowsToRead: MAX_LINK_READ_ROWS,
-    },
   ).then(result => (result as { distinctId: string }[]).map(({ distinctId }) => distinctId));
 }

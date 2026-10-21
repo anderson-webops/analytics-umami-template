@@ -10,9 +10,9 @@ const operation1 = defineOperation({
   auth: 'bearer-or-share',
   operation: {
     operationId: 'getWebsiteRevenueChart',
-    summary: 'Get website revenue over time',
+    summary: 'Get unverified historical revenue claims over time',
     description:
-      'Returns revenue chart data for the selected currency, date range, and website filters.',
+      'Returns unverified historical event claims for the selected currency, date range, and website filters. Values do not prove completed orders or payments.',
     tags: ['Websites'],
     parameters: [
       {
@@ -339,6 +339,9 @@ const operation1 = defineOperation({
             schema: {
               type: 'object',
               properties: {
+                revenueProvenance: {
+                  type: 'string',
+                },
                 chart: {
                   type: 'array',
                   items: {
@@ -362,7 +365,7 @@ const operation1 = defineOperation({
                   },
                 },
               },
-              required: ['chart'],
+              required: ['revenueProvenance', 'chart'],
             },
           },
         },

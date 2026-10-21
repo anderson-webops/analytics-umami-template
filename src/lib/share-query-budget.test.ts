@@ -1,6 +1,7 @@
 import { expect, test, vi } from 'vitest';
 import { getCompareDate } from '@/lib/date';
 import redis from '@/lib/redis';
+import { OPERATORS } from './constants';
 import {
   getAuthenticatedQueryCost,
   getBreakdownShareWorkMultiplier,
@@ -14,11 +15,37 @@ import {
   getShareQueryCost,
   getValuesShareWorkMultiplier,
   isBoundedBreakdownShape,
+  isSavedSegmentWithinQueryBudget,
   reserveAuthenticatedQueryCost,
   reserveShareQueryCost as reserveShareQueryCostForRequest,
   reserveTenantQueryCost,
   reserveTenantQueryCosts,
 } from './share-query-budget';
+
+test('saved identity filters respect the ClickHouse verification limit', () => {
+  const originalClickHouseUrl = process.env.CLICKHOUSE_URL;
+  const filters = Array.from({ length: 9 }, () => ({
+    name: 'distinctId',
+    operator: OPERATORS.equals,
+    value: 'synthetic-user',
+  }));
+
+  try {
+    delete process.env.CLICKHOUSE_URL;
+    expect(isSavedSegmentWithinQueryBudget(filters)).toBe(true);
+    process.env.CLICKHOUSE_URL = 'http://127.0.0.1:8123/synthetic';
+    expect(isSavedSegmentWithinQueryBudget(filters.slice(0, 8))).toBe(true);
+    expect(isSavedSegmentWithinQueryBudget(filters)).toBe(false);
+    expect(isSavedSegmentWithinQueryBudget(filters.slice(0, 7), [], 'distinctId')).toBe(true);
+    expect(isSavedSegmentWithinQueryBudget(filters.slice(0, 8), [], 'distinctId')).toBe(false);
+  } finally {
+    if (originalClickHouseUrl === undefined) {
+      delete process.env.CLICKHOUSE_URL;
+    } else {
+      process.env.CLICKHOUSE_URL = originalClickHouseUrl;
+    }
+  }
+});
 
 const reserveShareQueryCost = (shareId: string, cost: number, requestCount: 0 | 1 = 1) =>
   reserveShareQueryCostForRequest(

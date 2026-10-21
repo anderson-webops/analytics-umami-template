@@ -10,6 +10,7 @@ interface EventRow {
   createdAt?: string | Date;
   eventName?: string | null;
   eventType?: number;
+  trustTier?: number;
   urlPath?: string;
   hostname?: string;
   referrerDomain?: string | null;
@@ -27,7 +28,8 @@ export const getEvents = defineTool({
   title: 'Get tracked events',
   description:
     'Lists individual tracked events (pageviews and custom events) for a website during a time range, newest first. ' +
-    'Each event includes its name, page path, session ID, timestamp and visitor attributes. ' +
+    'Each event includes its name, page path, session ID, timestamp, visitor attributes and trust tier. ' +
+    'Trust tier 0 is an unverified browser claim; tier 1 is backend-authorized. Missing tier is unknown, not verified. ' +
     'Set "event" to only return a specific custom event name, or "search" for a free-text match. ' +
     'To count events by name instead, use get_website_metrics with type "event". Results are paginated. ' +
     'Requires a websiteId from list_websites.',
@@ -75,6 +77,7 @@ export const getEvents = defineTool({
         sessionId: row.sessionId,
         createdAt: toIso(row.createdAt as string),
         type: row.eventType === 2 ? 'event' : row.eventType === 1 ? 'pageview' : row.eventType,
+        trustTier: typeof row.trustTier === 'number' ? row.trustTier : null,
         name: row.eventName ?? null,
         path: row.urlPath,
         title: row.pageTitle ?? null,

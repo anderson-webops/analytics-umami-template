@@ -167,6 +167,7 @@ export interface FilterParams {
   region?: string;
   city?: string;
   language?: string;
+  distinctId?: string;
   event?: string;
   botName?: string;
   botCategory?: string;
@@ -272,6 +273,7 @@ export interface WebsiteEvent {
   pageTitle: string;
   eventType: number;
   eventName: string;
+  trustTier: number;
   hasData: boolean;
 }
 
@@ -309,6 +311,7 @@ export interface SessionActivity {
   referrerDomain: string;
   eventId: string;
   eventType: number;
+  trustTier: number;
   eventName: string;
   visitId: string;
   hostname: string;
@@ -320,6 +323,7 @@ export interface SessionDataValue {
   sessionId: string;
   dataKey: string;
   dataType: number;
+  trustTier: number;
   stringValue: string | null;
   numberValue: number | null;
   dateValue: Date | string | null;

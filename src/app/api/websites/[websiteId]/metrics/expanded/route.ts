@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { EVENT_COLUMNS, EVENT_TYPE, SESSION_COLUMNS } from '@/lib/constants';
+import { IdentitySearchTooBroadError } from '@/lib/identity-search-error';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import { badRequest, json, unauthorized } from '@/lib/response';
 import {
@@ -64,23 +65,28 @@ export async function GET(
     filters[type] = `c.${search}`;
   }
 
-  if (SESSION_COLUMNS.includes(type)) {
-    const data = await getSessionExpandedMetrics(websiteId, { type, limit, offset }, filters);
-
-    return json(data);
-  }
-
-  if (EVENT_COLUMNS.includes(type)) {
-    if (type === 'event') {
-      filters.eventType = EVENT_TYPE.customEvent;
-      return json(await getEventExpandedMetrics(websiteId, { type, limit, offset }, filters));
-    } else {
-      return json(await getPageviewExpandedMetrics(websiteId, { type, limit, offset }, filters));
+  try {
+    if (SESSION_COLUMNS.includes(type)) {
+      return json(await getSessionExpandedMetrics(websiteId, { type, limit, offset }, filters));
     }
-  }
 
-  if (type === 'channel') {
-    return json(await getChannelExpandedMetrics(websiteId, filters));
+    if (EVENT_COLUMNS.includes(type)) {
+      if (type === 'event') {
+        filters.eventType = EVENT_TYPE.customEvent;
+        return json(await getEventExpandedMetrics(websiteId, { type, limit, offset }, filters));
+      } else {
+        return json(await getPageviewExpandedMetrics(websiteId, { type, limit, offset }, filters));
+      }
+    }
+
+    if (type === 'channel') {
+      return json(await getChannelExpandedMetrics(websiteId, filters));
+    }
+  } catch (error) {
+    if (error instanceof IdentitySearchTooBroadError) {
+      return badRequest({ message: 'Identity search is too broad.' });
+    }
+    throw error;
   }
 
   return badRequest();

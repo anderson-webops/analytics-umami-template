@@ -1,5 +1,10 @@
 import clickhouse from '@/lib/clickhouse';
-import { EVENT_TYPE, FILTER_COLUMNS, SESSION_COLUMNS } from '@/lib/constants';
+import {
+  COLLECTION_TRUST_TIER,
+  EVENT_TYPE,
+  FILTER_COLUMNS,
+  SESSION_COLUMNS,
+} from '@/lib/constants';
 import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
 import prisma from '@/lib/prisma';
 import type { QueryFilters } from '@/lib/types';
@@ -59,6 +64,7 @@ async function relationalQuery(
       where website_id = {{websiteId::uuid}}
         and created_at between {{startDate}} and {{endDate}}
         and event_type = ${EVENT_TYPE.customEvent}
+        and trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}
       group by 1, 2
     ) as e
       on e.session_id = t.session_id
@@ -126,6 +132,7 @@ async function clickhouseQuery(
       where website_id = {websiteId:UUID}
         and created_at between {startDate:DateTime64} and {endDate:DateTime64}
         and event_type = ${EVENT_TYPE.customEvent}
+        and trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}
       group by session_id, visit_id
     ) as e using (session_id, visit_id)`
     : '';

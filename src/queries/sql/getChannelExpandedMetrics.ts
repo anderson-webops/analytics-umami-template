@@ -1,5 +1,6 @@
 import clickhouse from '@/lib/clickhouse';
 import {
+  COLLECTION_TRUST_TIER,
   EMAIL_DOMAINS,
   EVENT_TYPE,
   LLM_DOMAINS,
@@ -64,6 +65,7 @@ async function relationalQuery(
         where website_id = {{websiteId::uuid}}
           and created_at between {{startDate}} and {{endDate}}
           and event_type = ${EVENT_TYPE.customEvent}
+          and trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}
         group by session_id, visit_id)`
     : '';
   const visitEventsJoin = needsBounceEvents
@@ -187,6 +189,7 @@ async function clickhouseQuery(
       where website_id = {websiteId:UUID}
         and created_at between {startDate:DateTime64} and {endDate:DateTime64}
         and event_type = ${EVENT_TYPE.customEvent}
+        and trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}
       group by session_id, visit_id
     ) as e using (session_id, visit_id)`
     : '';

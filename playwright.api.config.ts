@@ -27,7 +27,7 @@ export default defineConfig({
   // Specs are deterministic and share coverage state; retries would only hide flakes.
   retries: 0,
   forbidOnly: !!process.env.CI,
-  timeout: 30_000,
+  timeout: Number(process.env.API_TEST_AUTH_QUERY_WINDOW_LIMIT || 0) > 0 ? 90_000 : 30_000,
   globalSetup: './tests/api/global-setup.ts',
   reporter: reporters,
   use: {

@@ -118,7 +118,7 @@ test.describe('Replays', () => {
     expect(response.body.events.map((event: any) => event.type)).toEqual([4, 2, 3]);
     expect(response.body.events[0]).toEqual({
       type: 4,
-      data: { href: `https://${seed.data.hostname}/`, width: 1280, height: 800 },
+      data: { href: '', width: 1280, height: 800 },
       timestamp: expect.any(Number),
     });
     const timestamps = response.body.events.map((event: any) => event.timestamp);
@@ -162,6 +162,7 @@ test.describe('Replays', () => {
     const until = await admin.get(path, { params: { until: secondTimestamp } });
     const allChunks = await admin.get(path, { params: { chunkIndex: nowSeconds } });
     const beforeFirstChunk = await admin.get(path, { params: { chunkIndex: startSeconds - 1 } });
+    const overflow = await admin.get(path, { params: { chunkIndex: 2_147_483_648 } });
     const listed = await admin.get(`${base}/replays`, {
       params: dateRange(seed, { pageSize: 100 }),
     });
@@ -180,6 +181,7 @@ test.describe('Replays', () => {
 
     expect(beforeFirstChunk.status).toBe(200);
     expect(beforeFirstChunk.body).toMatchObject({ events: [], chunkCount: 0 });
+    expect(overflow.status).toBe(400);
 
     // `eventIndex` only applies to the chunk whose timestamp equals `chunkIndex`. The
     // seeded chunk was ingested without an explicit timestamp, so its key is the ingest
@@ -227,6 +229,10 @@ test.describe('Replays', () => {
       isSaved: true,
       name: 'x'.repeat(101),
     });
+    const unknownReplay = await admin.post(`${base}/replays/saved/${UNKNOWN_UUID}`, {
+      isSaved: true,
+      name,
+    });
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ ok: true });
@@ -234,6 +240,7 @@ test.describe('Replays', () => {
     expect(denied.status).toBe(401);
     expect(missingFlag.status).toBe(400);
     expect(longName.status).toBe(400);
+    expect(unknownReplay.status).toBe(404);
 
     const status = await admin.get(`${base}/replays/saved/${seed.data.replayVisitId}`);
     const saved = await admin.get(`${base}/replays/saved`, { params: { pageSize: 100 } });

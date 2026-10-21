@@ -146,16 +146,16 @@ const operation2 = defineOperation({
                   format: 'date-time',
                   description: 'Date and time the record was last updated.',
                 },
-                role: {
-                  type: 'string',
-                  description: 'Permission role assigned to the user.',
-                },
                 teamId: {
                   type: 'string',
                   description: 'ID of the associated team.',
                 },
+                role: {
+                  type: 'string',
+                  description: 'Permission role assigned to the user.',
+                },
               },
-              required: ['id', 'userId', 'createdAt', 'updatedAt', 'role', 'teamId'],
+              required: ['id', 'userId', 'createdAt', 'updatedAt', 'teamId', 'role'],
             },
           },
         },

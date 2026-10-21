@@ -12,6 +12,28 @@ function isoRange(range: { startAt: number; endAt: number }) {
   };
 }
 
+function unverifiedRevenueStats(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  const stats = { ...(value as Record<string, unknown>) };
+  delete stats.total_sessions;
+  stats.arpu = null;
+
+  if (
+    stats.comparison &&
+    typeof stats.comparison === 'object' &&
+    !Array.isArray(stats.comparison)
+  ) {
+    const comparison = { ...(stats.comparison as Record<string, unknown>) };
+    delete comparison.total_sessions;
+    stats.comparison = { ...comparison, arpu: null };
+  }
+
+  return stats;
+}
+
 export const runFunnel = defineTool({
   name: 'run_funnel',
   title: 'Run a funnel report',
@@ -255,11 +277,11 @@ export const runAttribution = defineTool({
 
 export const getRevenue = defineTool({
   name: 'get_revenue',
-  title: 'Get revenue report',
+  title: 'Get unverified historical revenue claims',
   description:
-    'Returns revenue tracked through Umami revenue events for a time range: totals (sum, count, average, unique ' +
-    'customers, ARPU) with a comparison to the previous period, a revenue time series, and breakdowns by country, ' +
-    'region, referrer and channel. Requires revenue tracking to be set up and a websiteId from list_websites.',
+    'Returns historical, unverified revenue event claims for a time range: totals, a comparison period, a time series, ' +
+    'and breakdowns by country, region, referrer and channel. Counts are events and sessions, not verified orders ' +
+    'or customers; ARPU is unavailable. Requires a websiteId from list_websites.',
   inputSchema: z.object({
     websiteId,
     ...dateRangeInput,
@@ -290,7 +312,8 @@ export const getRevenue = defineTool({
       websiteId: input.websiteId,
       range: isoRange(range),
       currency: (input.currency ?? 'USD').toUpperCase(),
-      total: result?.total ?? null,
+      revenueProvenance: 'unverified_historical_event_claims',
+      total: unverifiedRevenueStats(result?.total),
       chart: result?.chart ?? [],
       byCountry: result?.country ?? [],
       byRegion: result?.region ?? [],

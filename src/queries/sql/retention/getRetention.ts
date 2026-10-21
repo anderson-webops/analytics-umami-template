@@ -1,4 +1,5 @@
 import clickhouse from '@/lib/clickhouse';
+import { COLLECTION_TRUST_TIER, EVENT_TYPE } from '@/lib/constants';
 import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
 import prisma from '@/lib/prisma';
 import type { QueryFilters } from '@/lib/types';
@@ -54,6 +55,7 @@ async function relationalQuery(
       ${joinSessionQuery}
       where website_event.website_id = {{websiteId::uuid}}
         and website_event.created_at between {{startDate}} and {{endDate}}
+        and (website_event.event_type != ${EVENT_TYPE.customEvent} or website_event.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})
         ${filterQuery}
       group by website_event.session_id
     ),
@@ -66,6 +68,7 @@ async function relationalQuery(
       on website_event.session_id = cohort_items.session_id
       where website_id = {{websiteId::uuid}}
           and created_at between {{startDate}} and {{endDate}}
+          and (website_event.event_type != ${EVENT_TYPE.customEvent} or website_event.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})
           
       ),
     cohort_size as (
@@ -127,6 +130,7 @@ async function clickhouseQuery(
       ${cohortQuery}
       where website_id = {websiteId:UUID}
         and created_at between {startDate:DateTime64} and {endDate:DateTime64}
+        and (event_type != ${EVENT_TYPE.customEvent} or trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})
         ${filterQuery}
       group by session_id
     ),
@@ -142,6 +146,7 @@ async function clickhouseQuery(
       on website_event.session_id = cohort_items.session_id
       where website_id = {websiteId:UUID}
         and created_at between {startDate:DateTime64} and {endDate:DateTime64}
+        and (website_event.event_type != ${EVENT_TYPE.customEvent} or website_event.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})
     ),
     cohort_size as (
       select cohort_date,

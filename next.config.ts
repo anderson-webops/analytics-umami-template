@@ -99,7 +99,7 @@ const trackerHeaders = [
 const apiHeaders = [
   {
     key: 'Access-Control-Allow-Headers',
-    value: 'Content-Type, X-Umami-Cache, X-Umami-Hostname, X-Umami-Website-Id',
+    value: 'Content-Type, X-Umami-Cache, X-Umami-Hostname, X-Umami-Website-Id, X-Umami-Permit',
   },
   {
     key: 'Access-Control-Allow-Methods',

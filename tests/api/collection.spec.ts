@@ -1,10 +1,37 @@
+import type { ApiClient } from './client';
 import { expect, test } from './fixtures';
 import { CACHE_HEADER, UNKNOWN_UUID } from './helpers/constants';
 import { dateRange } from './helpers/dates';
 import { uniqueName } from './helpers/entities';
+import { getTestBackendCollectionHeaders } from './seed/collection-keys';
 import { HOSTNAME, PERSONAS } from './seed/dataset';
+import { SEED_WEBSITES } from './seed/ids';
 
 const persona = PERSONAS[0];
+const origin = `https://${HOSTNAME}`;
+
+async function recordingHeaders(
+  api: ApiClient,
+  websiteId: string,
+  cache: string,
+  feature: 'record' | 'heatmap',
+) {
+  const response = await api.post(
+    '/api/collection-permit',
+    { website: websiteId, feature, origin, consent: true },
+    {
+      headers: {
+        ...getTestBackendCollectionHeaders(websiteId),
+        [CACHE_HEADER]: cache,
+      },
+    },
+  );
+
+  expect(response.status).toBe(200);
+  expect(response.body.permit).toEqual(expect.any(String));
+
+  return { [CACHE_HEADER]: cache, 'x-umami-permit': response.body.permit, origin };
+}
 
 function pageview(website: string, extra: Record<string, unknown> = {}) {
   return {
@@ -39,35 +66,51 @@ test.describe('Collection', () => {
     admin,
     seed,
   }) => {
-    const distinctId = uniqueName('cache-visit');
-    const first = await api.post('/api/send', pageview(seed.website.id, { id: distinctId }));
-    const second = await api.post(
-      '/api/send',
-      pageview(seed.website.id, { id: distinctId, url: '/second' }),
-      { headers: { [CACHE_HEADER]: first.body.cache } },
-    );
-    const sessions = await admin.get(`/api/websites/${seed.website.id}/sessions`, {
-      params: dateRange(seed, { distinctId }),
+    const url = `/${uniqueName('cache-visit')}`;
+    const browser = api.with({ 'user-agent': persona.userAgent });
+    const first = await browser.post('/api/send', pageview(seed.website.id, { url }));
+    const second = await browser.post('/api/send', pageview(seed.website.id, { url }), {
+      headers: { [CACHE_HEADER]: first.body.cache },
+    });
+    const events = await admin.get(`/api/websites/${seed.website.id}/events`, {
+      params: dateRange(seed, { search: url, eventType: 1, pageSize: 10 }),
     });
 
+    expect(first.status).toBe(200);
     expect(second.status).toBe(200);
     expect(second.body).toEqual({ cache: expect.stringMatching(/^c1\./) });
-    expect(sessions.status).toBe(200);
-    expect(sessions.body.data).toHaveLength(1);
-    expect(sessions.body.data[0]).toMatchObject({ views: 2, visits: 1 });
+    expect(events.status).toBe(200);
+    expect(events.body.data).toHaveLength(2);
+    expect(events.body.data[0].sessionId).toBe(events.body.data[1].sessionId);
+
+    const session = await admin.get(
+      `/api/websites/${seed.website.id}/sessions/${events.body.data[0].sessionId}`,
+    );
+    expect(session.status).toBe(200);
+    expect(Number(session.body.views)).toBe(2);
+    expect(Number(session.body.visits)).toBe(1);
   });
 
   test('POST /api/send records custom, identify and performance payloads', async ({
     api,
     seed,
   }) => {
-    const custom = await api.post(
-      '/api/send',
-      pageview(seed.website.id, { name: 'spec-event', data: { value: 1, label: 'spec' } }),
-    );
-    const identify = await api.post('/api/send', {
+    const backend = api.with({ 'user-agent': persona.userAgent });
+    const customPayload = pageview(seed.website.id, {
+      name: 'spec-event',
+      data: { value: 1, label: 'spec' },
+    });
+    const identifyPayload = {
       type: 'identify',
       payload: { ...pageview(seed.website.id).payload, id: 'spec-user', data: { plan: 'spec' } },
+    };
+    const deniedCustom = await api.post('/api/send', customPayload);
+    const deniedIdentify = await api.post('/api/send', identifyPayload);
+    const custom = await backend.post('/api/send', customPayload, {
+      headers: getTestBackendCollectionHeaders(seed.website.id),
+    });
+    const identify = await backend.post('/api/send', identifyPayload, {
+      headers: getTestBackendCollectionHeaders(seed.website.id),
     });
     const performance = await api.post('/api/send', {
       type: 'performance',
@@ -81,6 +124,8 @@ test.describe('Collection', () => {
       },
     });
 
+    expect(deniedCustom.status).toBe(403);
+    expect(deniedIdentify.status).toBe(403);
     expect(custom.status).toBe(200);
     expect(identify.status).toBe(200);
     expect(performance.status).toBe(200);
@@ -104,7 +149,10 @@ test.describe('Collection', () => {
     const response = await api.post('/api/send', pageview(UNKNOWN_UUID));
 
     expect(response.status).toBe(400);
-    expect(response.body.error).toMatchObject({ message: 'Website not found.', status: 400 });
+    expect(response.body.error).toMatchObject({
+      message: 'Tracking source not found.',
+      status: 400,
+    });
   });
 
   test('POST /api/send requires exactly one of website, link or pixel', async ({ api, seed }) => {
@@ -139,18 +187,18 @@ test.describe('Collection', () => {
     const response = await api.post('/api/batch', [
       pageview(seed.website.id, { url: '/batch-1' }),
       pageview(UNKNOWN_UUID, { url: '/batch-2' }),
-      pageview(seed.website.id, { url: '/batch-3', name: 'batch-event' }),
+      pageview(seed.website.id, { url: '/batch-3' }),
+      pageview(seed.website.id, { url: '/batch-4', name: 'batch-event' }),
     ]);
 
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({
-      size: 3,
+      size: 4,
       processed: 2,
-      errors: 1,
+      errors: 2,
       cache: expect.any(String),
     });
-    expect(response.body.details).toHaveLength(1);
-    expect(response.body.details[0].index).toBe(1);
+    expect(response.body.details.map((detail: { index: number }) => detail.index)).toEqual([1, 3]);
   });
 
   test('POST /api/batch validates the body', async ({ api, seed }) => {
@@ -169,7 +217,13 @@ test.describe('Collection', () => {
     seed,
   }) => {
     const visit = await api.post('/api/send', pageview(seed.website.id));
-    const headers = { [CACHE_HEADER]: visit.body.cache };
+    const replayHeaders = await recordingHeaders(api, seed.website.id, visit.body.cache, 'record');
+    const heatmapHeaders = await recordingHeaders(
+      api,
+      seed.website.id,
+      visit.body.cache,
+      'heatmap',
+    );
     const now = Date.now();
 
     const replay = await api.post(
@@ -188,7 +242,7 @@ test.describe('Collection', () => {
           ],
         },
       },
-      { headers },
+      { headers: replayHeaders },
     );
     const heatmap = await api.post(
       '/api/record',
@@ -202,7 +256,7 @@ test.describe('Collection', () => {
           ],
         },
       },
-      { headers },
+      { headers: heatmapHeaders },
     );
 
     expect(replay.status).toBe(200);
@@ -211,9 +265,53 @@ test.describe('Collection', () => {
     expect(heatmap.body).toEqual({ ok: true });
   });
 
+  test('POST /api/record does not accept a permit for another recording feature', async ({
+    api,
+    seed,
+  }) => {
+    const visit = await api.post('/api/send', pageview(seed.website.id));
+    expect(visit.status).toBe(200);
+
+    const replayHeaders = await recordingHeaders(api, seed.website.id, visit.body.cache, 'record');
+    const heatmapHeaders = await recordingHeaders(
+      api,
+      seed.website.id,
+      visit.body.cache,
+      'heatmap',
+    );
+    const now = Date.now();
+    const replay = await api.post(
+      '/api/record',
+      {
+        type: 'record',
+        payload: {
+          website: seed.website.id,
+          events: [{ type: 4, data: { width: 100, height: 100 }, timestamp: now }],
+        },
+      },
+      { headers: heatmapHeaders },
+    );
+    const heatmap = await api.post(
+      '/api/record',
+      {
+        type: 'heatmap',
+        payload: {
+          website: seed.website.id,
+          events: [{ type: 'click', url: `https://${HOSTNAME}/`, x: 1, y: 2, timestamp: now }],
+        },
+      },
+      { headers: replayHeaders },
+    );
+
+    expect(replay.status).toBe(403);
+    expect(heatmap.status).toBe(403);
+  });
+
   test('POST /api/record deduplicates a retried replay chunk', async ({ api, admin, seed }) => {
-    const distinctId = uniqueName('replay-retry');
-    const visit = await api.post('/api/send', pageview(seed.website.id, { id: distinctId }));
+    const url = `/${uniqueName('replay-retry')}`;
+    const visit = await api
+      .with({ 'user-agent': persona.userAgent })
+      .post('/api/send', pageview(seed.website.id, { url }));
     const chunkIndex = Math.floor(Date.now() / 1000);
     const payload = {
       type: 'record',
@@ -223,14 +321,20 @@ test.describe('Collection', () => {
         events: [{ type: 4, timestamp: Date.now(), data: { width: 100, height: 100 } }],
       },
     };
-    const headers = { [CACHE_HEADER]: visit.body.cache };
+    const headers = await recordingHeaders(api, seed.website.id, visit.body.cache, 'record');
 
     expect((await api.post('/api/record', payload, { headers })).status).toBe(200);
     expect((await api.post('/api/record', payload, { headers })).status).toBe(200);
 
-    const listed = await admin.get(`/api/websites/${seed.website.id}/replays`, {
-      params: dateRange(seed, { search: distinctId }),
+    const events = await admin.get(`/api/websites/${seed.website.id}/events`, {
+      params: dateRange(seed, { search: url, eventType: 1, pageSize: 10 }),
     });
+    expect(events.status).toBe(200);
+    expect(events.body.data).toHaveLength(1);
+    const listed = await admin.get(
+      `/api/websites/${seed.website.id}/sessions/${events.body.data[0].sessionId}/replays`,
+      { params: dateRange(seed) },
+    );
     expect(listed.status).toBe(200);
     expect(listed.body.data).toHaveLength(1);
     const replay = await admin.get(
@@ -243,9 +347,11 @@ test.describe('Collection', () => {
   });
 
   test('POST /api/record rejects a cumulative oversized visit', async ({ api, admin, seed }) => {
-    const distinctId = uniqueName('replay-budget');
-    const visit = await api.post('/api/send', pageview(seed.website.id, { id: distinctId }));
-    const headers = { [CACHE_HEADER]: visit.body.cache };
+    const url = `/${uniqueName('replay-budget')}`;
+    const visit = await api
+      .with({ 'user-agent': persona.userAgent })
+      .post('/api/send', pageview(seed.website.id, { url }));
+    const headers = await recordingHeaders(api, seed.website.id, visit.body.cache, 'record');
     const chunkIndex = Math.floor(Date.now() / 1000);
     const eventData = 'x'.repeat(950_000);
 
@@ -278,9 +384,15 @@ test.describe('Collection', () => {
       },
       { headers },
     );
-    const listed = await admin.get(`/api/websites/${seed.website.id}/replays`, {
-      params: dateRange(seed, { search: distinctId }),
+    const events = await admin.get(`/api/websites/${seed.website.id}/events`, {
+      params: dateRange(seed, { search: url, eventType: 1, pageSize: 10 }),
     });
+    expect(events.status).toBe(200);
+    expect(events.body.data).toHaveLength(1);
+    const listed = await admin.get(
+      `/api/websites/${seed.website.id}/sessions/${events.body.data[0].sessionId}/replays`,
+      { params: dateRange(seed) },
+    );
     expect(listed.status).toBe(200);
     expect(listed.body.data).toHaveLength(1);
     const replay = await admin.get(
@@ -291,7 +403,7 @@ test.describe('Collection', () => {
     expect(rejected.body.error.code).toBe('payload-too-large');
     expect(replay.status).toBe(200);
     expect(replay.body.chunkCount).toBe(8);
-    expect(replay.body.eventCount).toBe(8);
+    expect(replay.body.eventCount).toBe(0);
   });
 
   test('POST /api/record requires a session token', async ({ api, seed }) => {
@@ -305,15 +417,39 @@ test.describe('Collection', () => {
   });
 
   test('POST /api/record reports when the recorder is disabled', async ({ api, seed }) => {
-    const visit = await api.post('/api/send', pageview(seed.website2.id));
+    const visit = await api.post(
+      '/api/send',
+      pageview(seed.website2.id, { hostname: SEED_WEBSITES.secondary.domain }),
+    );
+    expect(visit.status).toBe(200);
+    const permit = await api.post(
+      '/api/collection-permit',
+      {
+        website: seed.website2.id,
+        feature: 'record',
+        origin: `https://${SEED_WEBSITES.secondary.domain}`,
+        consent: true,
+      },
+      {
+        headers: {
+          ...getTestBackendCollectionHeaders(seed.website2.id),
+          [CACHE_HEADER]: visit.body.cache,
+        },
+      },
+    );
     const response = await api.post(
       '/api/record',
       { type: 'record', payload: { website: seed.website2.id, events: [{ type: 2 }] } },
-      { headers: { [CACHE_HEADER]: visit.body.cache } },
+      {
+        headers: {
+          [CACHE_HEADER]: visit.body.cache,
+          origin: `https://${SEED_WEBSITES.secondary.domain}`,
+        },
+      },
     );
 
-    expect(response.status).toBe(200);
-    expect(response.body).toEqual({ ok: false, reason: 'recorder_disabled' });
+    expect(permit.status).toBe(400);
+    expect(response.status).toBe(403);
   });
 
   test('POST /api/record rejects invalid and oversized payloads', async ({ api, seed }) => {
@@ -322,7 +458,7 @@ test.describe('Collection', () => {
       '/api/record',
       JSON.stringify({
         type: 'record',
-        payload: { website: seed.website.id, events: [{ type: 2, data: 'x'.repeat(1_000_100) }] },
+        payload: { website: seed.website.id, events: [{ type: 2, data: 'x'.repeat(1_100_000) }] },
       }),
       { headers: { 'content-type': 'application/json' } },
     );

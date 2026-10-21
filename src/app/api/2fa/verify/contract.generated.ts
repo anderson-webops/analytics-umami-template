@@ -119,16 +119,16 @@ const operation1 = defineOperation({
                                 type: 'string',
                                 description: 'Unique identifier of the resource.',
                               },
-                              logoUrl: {
-                                type: 'string',
-                                description: 'URL of the logo image.',
-                              },
                               name: {
                                 type: 'string',
                                 description: 'Display name of the resource.',
                               },
+                              logoUrl: {
+                                type: 'string',
+                                description: 'URL of the logo image.',
+                              },
                             },
-                            required: ['id', 'logoUrl', 'name'],
+                            required: ['id', 'name', 'logoUrl'],
                           },
                           description: 'Teams associated with the user.',
                         },

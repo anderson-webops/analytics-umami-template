@@ -4,9 +4,17 @@ import debug from 'debug';
 import { CLICKHOUSE } from '@/lib/db';
 import { isEnvEnabled } from '@/lib/env';
 import { normalizePagination } from '@/lib/paging';
-import { DATA_TYPE, FILTER_COLUMNS, OPERATORS } from './constants';
+import { getVerifiedIdentityFilterSessions } from '@/queries/sql/sessions/getVerifiedIdentityFilterSessions';
+import {
+  COLLECTION_TRUST_TIER,
+  DATA_TYPE,
+  EVENT_TYPE,
+  FILTER_COLUMNS,
+  MAX_VERIFIED_IDENTITY_FILTERS,
+  OPERATORS,
+} from './constants';
 import { filtersObjectToArray } from './params';
-import type { Operator, PropertyFilter, QueryFilters, QueryOptions } from './types';
+import type { Filter, Operator, PropertyFilter, QueryFilters, QueryOptions } from './types';
 
 export const CLICKHOUSE_DATE_FORMATS = {
   // %i is unsupported by ClickHouse before v23.4. %T and %R work on both
@@ -35,10 +43,23 @@ const log = debug('umami:clickhouse');
 
 const EQUALITY_OPERATORS: Operator[] = [OPERATORS.equals, OPERATORS.notEquals];
 const REGEX_OPERATORS: Operator[] = [OPERATORS.regex, OPERATORS.notRegex];
+const IDENTITY_FILTER_OPERATORS: Operator[] = [
+  ...EQUALITY_OPERATORS,
+  OPERATORS.contains,
+  OPERATORS.doesNotContain,
+  ...REGEX_OPERATORS,
+];
 const READ_QUERY_MAX_EXECUTION_SECONDS = 30;
 const READ_QUERY_MAX_RESULT_ROWS = 100_000;
 const READ_QUERY_MAX_MEMORY_BYTES = 1024 * 1024 * 1024;
 const READ_QUERY_MAX_BYTES_TO_READ = 2 * 1024 * 1024 * 1024;
+const VERIFIED_IDENTITY_FILTERS = Symbol('verifiedIdentityFilters');
+
+type VerifiedIdentityFilters = {
+  websiteId: string;
+  filters: Filter[];
+  resolved?: Promise<Record<string, string[]>>;
+};
 
 export function isClickHouseReadLimitError(error: unknown): boolean {
   const failure = error as { code?: unknown; type?: unknown } | null;
@@ -141,6 +162,14 @@ function mapFilter(
   const param = paramName ?? name;
   const value = `{${param}:${type}}`;
 
+  if (name === 'distinctId' || name === 'cohort_distinctId') {
+    if (!IDENTITY_FILTER_OPERATORS.includes(operator)) {
+      throw new Error('INVALID_IDENTITY_FILTER');
+    }
+
+    return `has({verifiedIdentitySessions_${param}:Array(UUID)}, website_event.session_id)`;
+  }
+
   switch (operator) {
     case OPERATORS.equals:
       return `${column} IN {${param}:Array(${type})}`;
@@ -226,6 +255,7 @@ function getCohortQuery(filters: Record<string, any>) {
       from website_event
       where website_id = {websiteId:UUID}
       and created_at between {cohort_startDate:DateTime64} and {cohort_endDate:DateTime64}
+      and (event_type != ${EVENT_TYPE.customEvent} or trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})
       ${filterQuery}
     ) as cohort
       on cohort.cohort_session_id = website_event.session_id
@@ -239,15 +269,15 @@ function getExcludeBounceQuery(filters: Record<string, any>) {
 
   return `join
     (select session_id as exclude_session_id, visit_id as exclude_visit_id
-    from website_event_stats_hourly
+    from website_event
     where website_id = {websiteId:UUID}
       and created_at between {startDate:DateTime64} and {endDate:DateTime64}
       and event_type != 5
     group by session_id, visit_id
-    having sum(views) > 1
+    having countIf(event_type NOT IN (2, 5)) > 1
       or (
-        sum(views) = 1
-        and sumIf(length(event_name), event_type = 2) > 0
+        countIf(event_type NOT IN (2, 5)) = 1
+        and countIf(event_type = 2 and trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}) > 0
       )
     ) excludeBounce
     on excludeBounce.exclude_session_id = website_event.session_id
@@ -311,6 +341,29 @@ function parseFilters(rawFilters: Record<string, any>, options?: QueryOptions) {
       (filters as QueryFilters).sessionPropertyFilters,
       filters.timezone,
     );
+  const identityFilters = filtersObjectToArray(filters).filter(
+    ({ name }) => name === 'distinctId' || name === 'cohort_distinctId',
+  );
+
+  if (identityFilters.length > MAX_VERIFIED_IDENTITY_FILTERS) {
+    throw new Error('IDENTITY_FILTER_COUNT_EXCEEDED');
+  }
+
+  const queryParams = {
+    ...getQueryParams(filters),
+    ...eventPropertyFilterParams,
+    ...sessionPropertyFilterParams,
+  };
+
+  if (identityFilters.length) {
+    Object.defineProperty(queryParams, VERIFIED_IDENTITY_FILTERS, {
+      value: {
+        websiteId: filters.websiteId,
+        filters: identityFilters,
+      } satisfies VerifiedIdentityFilters,
+      enumerable: true,
+    });
+  }
 
   return {
     filterQuery: [
@@ -321,11 +374,7 @@ function parseFilters(rawFilters: Record<string, any>, options?: QueryOptions) {
       .filter(Boolean)
       .join('\n'),
     dateQuery: getDateQuery(filters),
-    queryParams: {
-      ...getQueryParams(filters),
-      ...eventPropertyFilterParams,
-      ...sessionPropertyFilterParams,
-    },
+    queryParams,
     cohortQuery: getCohortQuery(cohortFilters),
     excludeBounceQuery: getExcludeBounceQuery(filters),
   };
@@ -344,8 +393,11 @@ function getPropertyFilterQuery(
   const parts: string[] = [];
   const params: Record<string, any> = {};
   const table = propertyType === 'event' ? 'event_data' : 'session_data final';
-  const column = propertyType === 'event' ? 'event_id' : 'session_id';
-  const outerColumn = propertyType === 'event' ? 'event_id' : 'website_event.session_id';
+  const column = propertyType === 'event' ? 'event_id, session_id, event_name' : 'session_id';
+  const outerColumn =
+    propertyType === 'event'
+      ? 'tuple(website_event.event_id, website_event.session_id, website_event.event_name)'
+      : 'website_event.session_id';
   const dateFilter =
     propertyType === 'event'
       ? `and created_at between {startDate:DateTime64} and {endDate:DateTime64}`
@@ -435,6 +487,7 @@ function getPropertyFilterQuery(
       select website_id, session_id
       from ${table}
       where website_id = {websiteId:UUID}
+        and trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}
         and data_key = {${keyParam}:String}
         and data_type = ${dataType}
         and ${condition}
@@ -445,6 +498,7 @@ function getPropertyFilterQuery(
       from ${table}
       where website_id = {websiteId:UUID}
         ${dateFilter}
+        and trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}
         and data_key = {${keyParam}:String}
         and data_type = ${dataType}
         and ${condition}
@@ -565,13 +619,14 @@ function getEventPropertyFilterQuery(
   }
 
   return {
-    sql: `and website_event.event_id in (
-      select event_id
+    sql: `and tuple(website_event.event_id, website_event.session_id, website_event.event_name) in (
+      select event_id, session_id, event_name
       from event_data
       where website_id = {websiteId:UUID}
+        and trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}
         and created_at between {startDate:DateTime64} and {endDate:DateTime64}
         and data_key in (${keyRefs.join(', ')})
-      group by event_id
+      group by event_id, session_id, event_name
       having ${clauses.join('\n        and ')}
     )`,
     params,
@@ -692,6 +747,7 @@ function getSessionPropertyFilterQuery(
       select website_id, session_id
       from session_data final
       where website_id = {websiteId:UUID}
+        and trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}
         and data_key in (${keyRefs.join(', ')})
       group by website_id, session_id
       having ${clauses.join('\n        and ')}
@@ -755,8 +811,36 @@ async function rawQuery<T = unknown>(
     maxThreads?: number;
   },
 ): Promise<T> {
+  const identityFilters = (params as Record<symbol, VerifiedIdentityFilters | undefined>)[
+    VERIFIED_IDENTITY_FILTERS
+  ];
+  const queryParams = Object.fromEntries(Object.entries(params));
+
+  if (identityFilters) {
+    for (const { name, paramName } of identityFilters.filters) {
+      delete queryParams[paramName ?? name];
+    }
+
+    identityFilters.resolved ??= (async () => {
+      const resolved: Record<string, string[]> = {};
+
+      for (const { name, paramName, operator, value } of identityFilters.filters) {
+        const param = paramName ?? name;
+        resolved[`verifiedIdentitySessions_${param}`] = await getVerifiedIdentityFilterSessions(
+          identityFilters.websiteId,
+          operator,
+          value,
+        );
+      }
+
+      return resolved;
+    })();
+
+    Object.assign(queryParams, await identityFilters.resolved);
+  }
+
   if (isEnvEnabled('LOG_QUERY')) {
-    log({ query, params, name });
+    log({ query, params: queryParams, name });
   }
 
   await connect();
@@ -772,7 +856,7 @@ async function rawQuery<T = unknown>(
 
   const resultSet = await clickhouse.query({
     query: query,
-    query_params: params,
+    query_params: queryParams,
     format: 'JSONEachRow',
     clickhouse_settings: {
       date_time_output_format: 'iso',

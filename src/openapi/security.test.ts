@@ -32,4 +32,7 @@ test('share-token access and public routes keep their authentication contracts',
     { shareToken: [], shareContext: [] },
   ]);
   expect(getSecurityRequirements('none', '/api/auth/login', 'post')).toEqual([]);
+  expect(getSecurityRequirements('backend-key', '/api/revenue/movements', 'post')).toEqual([
+    { backendCollectionKey: [] },
+  ]);
 });

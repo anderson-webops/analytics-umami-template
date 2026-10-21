@@ -1,16 +1,18 @@
 import { z } from 'zod';
 import { getQueryFilters, parseRequest } from '@/lib/request';
-import { json, unauthorized } from '@/lib/response';
+import { badRequest, json, unauthorized } from '@/lib/response';
 import { filterParams, pagingParams } from '@/lib/schema';
 import { getPagedShareWorkMultiplier } from '@/lib/share-query-budget';
 import type { PageResult } from '@/lib/types';
 import { canViewWebsiteSection } from '@/permissions';
-import { getEventData } from '@/queries/sql/events/getEventData';
+import { EventDataPageTooBroadError, getEventData } from '@/queries/sql/events/getEventData';
 
 interface EventDataRow {
   websiteId: string;
+  sessionId: string;
   eventId: string;
   eventName: string;
+  urlPath: string;
   dataKey: string;
   stringValue: string | null;
   numberValue: number | null;
@@ -19,7 +21,10 @@ interface EventDataRow {
   createdAt: Date | string;
 }
 
-type EventProperty = Omit<EventDataRow, 'websiteId' | 'eventId' | 'eventName'>;
+type EventProperty = Omit<
+  EventDataRow,
+  'websiteId' | 'sessionId' | 'eventId' | 'eventName' | 'urlPath'
+>;
 
 export async function GET(
   request: Request,
@@ -49,23 +54,30 @@ export async function GET(
 
   const filters = await getQueryFilters(query, websiteId);
 
-  const {
-    data: rows,
-    count,
-    page,
-    pageSize,
-  } = (await getEventData(websiteId, filters)) as PageResult<EventDataRow[]>;
+  let result: PageResult<EventDataRow[]>;
+  try {
+    result = (await getEventData(websiteId, filters)) as PageResult<EventDataRow[]>;
+  } catch (caught) {
+    if (caught instanceof EventDataPageTooBroadError) {
+      return badRequest({ message: caught.message });
+    }
+
+    throw caught;
+  }
+
+  const { data: rows, count, page, pageSize } = result;
 
   const eventMap = new Map<
     string,
     { websiteId: string; eventId: string; eventName: string; eventProperties: EventProperty[] }
   >();
 
-  for (const { websiteId, eventId, eventName, ...props } of rows) {
-    let entry = eventMap.get(eventId);
+  for (const { websiteId, sessionId, eventId, eventName, urlPath, ...props } of rows) {
+    const eventKey = JSON.stringify([websiteId, sessionId, eventId, eventName, urlPath]);
+    let entry = eventMap.get(eventKey);
     if (!entry) {
       entry = { websiteId, eventId, eventName, eventProperties: [] };
-      eventMap.set(eventId, entry);
+      eventMap.set(eventKey, entry);
     }
     entry.eventProperties.push(props);
   }

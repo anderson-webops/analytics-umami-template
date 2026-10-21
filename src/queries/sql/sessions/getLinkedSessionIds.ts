@@ -1,5 +1,5 @@
 import clickhouse from '@/lib/clickhouse';
-import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
+import { COLLECTION_TRUST_TIER } from '@/lib/constants';
 import prisma from '@/lib/prisma';
 import {
   LINKED_QUERY_TIMEOUT_MS,
@@ -16,10 +16,7 @@ export async function getLinkedSessionIds(
     throw new Error('LINKED_SESSION_ROW_LIMIT_INVALID');
   }
 
-  return runQuery({
-    [PRISMA]: () => relationalQuery(...args),
-    [CLICKHOUSE]: () => getLegacyLinkedSessionIds(...args),
-  });
+  return relationalQuery(...args);
 }
 
 async function relationalQuery(websiteId: string, distinctId: string, rowLimit: number) {
@@ -33,6 +30,7 @@ async function relationalQuery(websiteId: string, distinctId: string, rowLimit: 
     from session_link
     where website_id = {{websiteId::uuid}}
       and distinct_id = {{distinctId}}
+      and trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}
     order by session_id
     limit {{rowLimit}}
     `,

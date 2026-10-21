@@ -4,6 +4,7 @@ import { checkAuth } from '@/lib/auth';
 import { fetchAccount, fetchWebsite } from '@/lib/load';
 import { canViewWebsite } from '@/permissions';
 import { getWebsite, getWebsiteSegment } from '@/queries/prisma';
+import { OPERATORS } from './constants';
 import { reserveAuthenticatedQueryLease } from './query-concurrency';
 import { getBoundedCompareDate, getQueryFilters, parseRequest } from './request';
 import { readRequestBodyBytes } from './request-body';
@@ -671,6 +672,46 @@ test('prices a stored historical cohort before admitting a short-range query', a
   expect(result.error?.().status).toBe(400);
   expect(getWebsiteSegmentMock).toHaveBeenCalledWith(websiteId, cohortId);
   expect((await reserveAuthenticatedQueryCost(userId, 20_000, 0)).blocked).toBe(false);
+});
+
+test('rejects a saved cohort beyond the verified identity-filter limit at admission', async () => {
+  const originalClickHouseUrl = process.env.CLICKHOUSE_URL;
+  process.env.CLICKHOUSE_URL = 'http://127.0.0.1:8123/synthetic';
+  const websiteId = crypto.randomUUID();
+  const cohortId = crypto.randomUUID();
+  const startAt = Date.UTC(2025, 0, 1);
+  const endAt = startAt + 86_400_000;
+  getWebsiteSegmentMock.mockResolvedValue({
+    name: 'Many identities',
+    type: 'cohort',
+    parameters: {
+      filters: Array.from({ length: 8 }, () => ({
+        name: 'distinctId',
+        operator: OPERATORS.equals,
+        value: 'synthetic-user',
+      })),
+      dateRange: `range:${startAt}:${endAt}`,
+      action: { type: 'distinctId', value: 'synthetic-user' },
+    },
+  } as any);
+  checkAuthMock.mockResolvedValue({ user: { id: crypto.randomUUID() } } as any);
+
+  try {
+    const result = await parseRequest(
+      new Request(
+        `https://analytics.example/api/websites/${websiteId}/stats?startAt=${startAt}&endAt=${endAt}&cohort=${cohortId}`,
+      ),
+      withDateRange({ cohort: z.uuid().optional() }),
+    );
+
+    expect(result.error?.().status).toBe(400);
+  } finally {
+    if (originalClickHouseUrl === undefined) {
+      delete process.env.CLICKHOUSE_URL;
+    } else {
+      process.env.CLICKHOUSE_URL = originalClickHouseUrl;
+    }
+  }
 });
 
 test('uses the cohort snapshot priced at admission when building SQL filters', async () => {

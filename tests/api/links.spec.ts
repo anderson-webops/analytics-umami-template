@@ -118,7 +118,6 @@ test.describe('Links', () => {
     const denied = await viewer.get(`/api/links/${linkId}`);
     const anonymous = await api.get(`/api/links/${linkId}`);
     const unknown = await user.get(`/api/links/${UNKNOWN_UUID}`);
-    // Admins bypass the ownership check, so an unknown id yields an empty 200.
     const adminUnknown = await admin.get(`/api/links/${UNKNOWN_UUID}`);
 
     expect(response.status).toBe(200);
@@ -126,8 +125,7 @@ test.describe('Links', () => {
     expect(denied.status).toBe(401);
     expect(anonymous.status).toBe(401);
     expect(unknown.status).toBe(401);
-    expect(adminUnknown.status).toBe(200);
-    expect(adminUnknown.body).toBeNull();
+    expect(adminUnknown.status).toBe(401);
   });
 
   test('POST /api/links/{linkId} updates a link', async ({ admin, user, seed }) => {
@@ -223,8 +221,7 @@ test.describe('Links', () => {
     expect(denied.status).toBe(401);
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ ok: true });
-    expect(gone.status).toBe(200);
-    expect(gone.body).toBeNull();
+    expect(gone.status).toBe(401);
 
     linkId = '';
   });

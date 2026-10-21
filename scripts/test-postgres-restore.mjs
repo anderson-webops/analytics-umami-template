@@ -328,6 +328,147 @@ try {
     'ALTER TABLE "collection_ingest_budget" ADD CONSTRAINT "collection_ingest_budget_pkey" PRIMARY KEY (subject_type, subject_key, scope, window_start)',
   );
   ok(startup());
+  const linkTrustDefinition = (
+    await active.query(
+      "SELECT pg_get_constraintdef(oid, true) AS definition FROM pg_constraint WHERE conrelid = 'public.session_link'::regclass AND conname = 'session_link_trust_tier_check'",
+    )
+  ).rows[0]?.definition;
+  assert.equal(linkTrustDefinition, 'CHECK (trust_tier = ANY (ARRAY[0, 1]))');
+  for (const replacement of [
+    null,
+    'CHECK (trust_tier >= 0)',
+    'CHECK (trust_tier IN (0, 1)) NOT VALID',
+  ]) {
+    await active.query(
+      'ALTER TABLE "session_link" DROP CONSTRAINT "session_link_trust_tier_check"',
+    );
+    if (replacement) {
+      await active.query(
+        `ALTER TABLE "session_link" ADD CONSTRAINT "session_link_trust_tier_check" ${replacement}`,
+      );
+    }
+    for (const execute of [migrate, startup]) {
+      const result = execute();
+      assert.notEqual(result.status, 0, result.output);
+      assert.match(result.output, /Database schema is incomplete/);
+      assert.ok(!result.output.includes('RESTORED_STARTUP_ACCEPTED'));
+      rejected += 1;
+    }
+    await active.query(
+      'ALTER TABLE "session_link" DROP CONSTRAINT IF EXISTS "session_link_trust_tier_check"',
+    );
+    await active.query(
+      `ALTER TABLE "session_link" ADD CONSTRAINT "session_link_trust_tier_check" ${linkTrustDefinition}`,
+    );
+    ok(startup());
+  }
+  await active.query('ALTER TABLE "session_link" ALTER COLUMN "trust_tier" DROP DEFAULT');
+  for (const execute of [migrate, startup]) {
+    const result = execute();
+    assert.notEqual(result.status, 0, result.output);
+    assert.match(result.output, /Database schema is incomplete/);
+    assert.ok(!result.output.includes('RESTORED_STARTUP_ACCEPTED'));
+    rejected += 1;
+  }
+  await active.query('ALTER TABLE "session_link" ALTER COLUMN "trust_tier" SET DEFAULT 0');
+  ok(startup());
+  const ownerGenerationDefinition = (
+    await active.query(
+      "SELECT pg_get_constraintdef(oid, true) AS definition FROM pg_constraint WHERE conrelid = 'public.website'::regclass AND conname = 'website_collection_generation_check'",
+    )
+  ).rows[0]?.definition;
+  assert.equal(ownerGenerationDefinition, 'CHECK (collection_generation >= 0)');
+  for (const replacement of [
+    null,
+    'CHECK (collection_generation >= -1)',
+    'CHECK (collection_generation >= 0) NOT VALID',
+  ]) {
+    await active.query(
+      'ALTER TABLE "website" DROP CONSTRAINT "website_collection_generation_check"',
+    );
+    if (replacement) {
+      await active.query(
+        `ALTER TABLE "website" ADD CONSTRAINT "website_collection_generation_check" ${replacement}`,
+      );
+    }
+    for (const execute of [migrate, startup]) {
+      const result = execute();
+      assert.notEqual(result.status, 0, result.output);
+      assert.match(result.output, /Database schema is incomplete/);
+      assert.ok(!result.output.includes('RESTORED_STARTUP_ACCEPTED'));
+      rejected += 1;
+    }
+    await active.query(
+      'ALTER TABLE "website" DROP CONSTRAINT IF EXISTS "website_collection_generation_check"',
+    );
+    await active.query(
+      `ALTER TABLE "website" ADD CONSTRAINT "website_collection_generation_check" ${ownerGenerationDefinition}`,
+    );
+    ok(startup());
+  }
+  await active.query('ALTER TABLE "website" ALTER COLUMN "collection_generation" DROP DEFAULT');
+  for (const execute of [migrate, startup]) {
+    const result = execute();
+    assert.notEqual(result.status, 0, result.output);
+    assert.match(result.output, /Database schema is incomplete/);
+    rejected += 1;
+  }
+  await active.query('ALTER TABLE "website" ALTER COLUMN "collection_generation" SET DEFAULT 0');
+  ok(startup());
+  const tombstoneCheckDefinition = (
+    await active.query(
+      "SELECT pg_get_constraintdef(oid, true) AS definition FROM pg_constraint WHERE conrelid = 'public.website_collection_tombstone'::regclass AND conname = 'website_collection_tombstone_generation_check'",
+    )
+  ).rows[0]?.definition;
+  assert.equal(tombstoneCheckDefinition, 'CHECK (next_generation > 0)');
+  for (const replacement of [null, 'CHECK (next_generation >= 0)']) {
+    await active.query(
+      'ALTER TABLE "website_collection_tombstone" DROP CONSTRAINT "website_collection_tombstone_generation_check"',
+    );
+    if (replacement) {
+      await active.query(
+        `ALTER TABLE "website_collection_tombstone" ADD CONSTRAINT "website_collection_tombstone_generation_check" ${replacement}`,
+      );
+    }
+    for (const execute of [migrate, startup]) {
+      const result = execute();
+      assert.notEqual(result.status, 0, result.output);
+      assert.match(result.output, /Database schema is incomplete/);
+      rejected += 1;
+    }
+    await active.query(
+      'ALTER TABLE "website_collection_tombstone" DROP CONSTRAINT IF EXISTS "website_collection_tombstone_generation_check"',
+    );
+    await active.query(
+      `ALTER TABLE "website_collection_tombstone" ADD CONSTRAINT "website_collection_tombstone_generation_check" ${tombstoneCheckDefinition}`,
+    );
+    ok(startup());
+  }
+  await active.query(
+    'ALTER TABLE "website_collection_tombstone" DROP CONSTRAINT "website_collection_tombstone_pkey"',
+  );
+  for (const execute of [migrate, startup]) {
+    const result = execute();
+    assert.notEqual(result.status, 0, result.output);
+    assert.match(result.output, /Database schema is incomplete/);
+    rejected += 1;
+  }
+  await active.query('ALTER TABLE "website_collection_tombstone" ADD PRIMARY KEY (website_id)');
+  ok(startup());
+  await active.query(
+    'ALTER TABLE "website_collection_tombstone" RENAME TO "website_collection_tombstone_missing"',
+  );
+  for (const execute of [migrate, startup]) {
+    const result = execute();
+    assert.notEqual(result.status, 0, result.output);
+    assert.match(result.output, /Database schema is incomplete/);
+    assert.ok(!result.output.includes('RESTORED_STARTUP_ACCEPTED'));
+    rejected += 1;
+  }
+  await active.query(
+    'ALTER TABLE "website_collection_tombstone_missing" RENAME TO "website_collection_tombstone"',
+  );
+  ok(startup());
   const specifications = [
     ['user', 'user_role_check', ['admin', 'user', 'view-only']],
     [

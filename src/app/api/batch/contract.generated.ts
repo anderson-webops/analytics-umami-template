@@ -12,7 +12,7 @@ const operation1 = defineOperation({
     operationId: 'batch',
     summary: 'Send a batch of tracking requests',
     description:
-      'Processes up to 500 tracking payloads and returns processed and failed counts, individual error details, and a tracking cache token.',
+      'Processes up to 20 tracking payloads. Each child request must independently satisfy the same collection authorization as /api/send. Returns processed and failed counts, individual error details, and a tracking cache token.',
     tags: ['Collection'],
     requestBody: {
       required: true,

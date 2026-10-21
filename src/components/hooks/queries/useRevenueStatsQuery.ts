@@ -4,17 +4,18 @@ import { useApi } from '../useApi';
 import { useFilterParameters } from '../useFilterParameters';
 
 export interface RevenueStatsData {
-  sum: number;
+  sum: number | string | null;
   count: number;
   average: number;
   unique_count: number;
-  arpu: number;
+  arpu: null;
+  revenueProvenance: 'unverified_historical_event_claims';
   comparison: {
-    sum: number;
+    sum: number | string | null;
     count: number;
     average: number;
     unique_count: number;
-    arpu: number;
+    arpu: null;
   };
 }
 

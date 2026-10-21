@@ -92,6 +92,7 @@ describe('getWebsiteEvents', () => {
       'join paged_events on paged_events.event_id = event_data.website_event_id',
     );
     expect(dataQuery).toContain('where event_data.website_id = {{websiteId::uuid}}');
+    expect(dataQuery).toContain('and event_data.trust_tier = 1');
     expect(dataQuery).toContain('and event_data.created_at between {{startDate}} and {{endDate}}');
     expect(dataQuery).toContain(
       'left join paged_event_data on paged_event_data.event_id = website_event.event_id',
@@ -100,7 +101,10 @@ describe('getWebsiteEvents', () => {
       'left join session on session.session_id = website_event.session_id',
     );
     expect(dataQuery).toContain('order by paged_events.created_at desc');
-    expect(dataQuery).toContain('(paged_event_data.event_id is not null) as "hasData"');
+    expect(dataQuery).toContain(
+      '(website_event.trust_tier = 1 and paged_event_data.event_id is not null) as "hasData"',
+    );
+    expect(dataQuery).toContain('website_event.trust_tier as "trustTier"');
     expect(countParams).toMatchObject({ eventSearch: '%signup%' });
     expect(dataParams).toMatchObject({ eventSearch: '%signup%' });
     expect(result).toEqual({
@@ -133,7 +137,7 @@ describe('getWebsiteEvents', () => {
     expect(dataQuery).toContain('website_id as websiteId');
     expect(dataQuery).toContain('paged_event_data as (');
     expect(dataQuery).toContain('where website_id = {websiteId:UUID}');
-    expect(dataQuery).toContain('from umami.event_data_pivot');
+    expect(dataQuery).toContain('from umami.event_data_pivot_verified');
     expect(dataQuery).toContain(
       'inner join paged_events on paged_events.id = event_data_pivot.event_id',
     );
@@ -144,9 +148,15 @@ describe('getWebsiteEvents', () => {
     expect(dataQuery).toContain(
       'left join paged_event_data on paged_event_data.event_id = paged_events.id',
     );
+    expect(dataQuery).toContain('and paged_event_data.website_id = paged_events.websiteId');
+    expect(dataQuery).toContain('and paged_event_data.session_id = paged_events.sessionId');
+    expect(dataQuery).toContain('and paged_event_data.event_name = paged_events.eventName');
+    expect(dataQuery).toContain('and paged_event_data.url_path = paged_events.urlPath');
     expect(dataQuery).toContain('order by paged_events.createdAt desc');
     expect(dataQuery).toContain('toUInt8(1) as has_data');
+    expect(dataQuery).toContain('and paged_events.trustTier = 1');
     expect(dataQuery).toContain('ifNull(paged_event_data.has_data, 0) as hasData');
+    expect(dataQuery).toContain('trust_tier as trustTier');
     expect(result).toEqual({
       data: [{ id: 'event-1' }],
       count: '25',

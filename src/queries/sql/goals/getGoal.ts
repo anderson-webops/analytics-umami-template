@@ -1,5 +1,5 @@
 import clickhouse from '@/lib/clickhouse';
-import { EVENT_TYPE } from '@/lib/constants';
+import { COLLECTION_TRUST_TIER, EVENT_TYPE } from '@/lib/constants';
 import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
 import prisma from '@/lib/prisma';
 import type { QueryFilters } from '@/lib/types';
@@ -34,6 +34,10 @@ async function relationalQuery(
   const { rawQuery, parseFilters } = prisma;
   const eventType = type === 'path' ? EVENT_TYPE.pageView : EVENT_TYPE.customEvent;
   const column = type === 'path' ? 'url_path' : 'event_name';
+  const claimGuard =
+    type === 'path'
+      ? ''
+      : `and website_event.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}`;
 
   let operator = '=';
   let paramValue = value;
@@ -66,6 +70,7 @@ async function relationalQuery(
       ${cohortQuery}
       ${joinSessionQuery}
       where website_event.website_id = {{websiteId::uuid}}
+      and (website_event.event_type != ${EVENT_TYPE.customEvent} or website_event.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})
       ${dateQuery}
       ${excludeEventTypeFilterQuery}
     ) as total
@@ -74,6 +79,7 @@ async function relationalQuery(
     ${joinSessionQuery}
     where website_event.website_id = {{websiteId::uuid}}
       and ${column} ${operator} {{value}}
+      ${claimGuard}
       ${dateQuery}
       ${filterQuery}
     `,
@@ -90,6 +96,8 @@ async function clickhouseQuery(
   const { rawQuery, parseFilters } = clickhouse;
   const eventType = type === 'path' ? EVENT_TYPE.pageView : EVENT_TYPE.customEvent;
   const column = type === 'path' ? 'url_path' : 'event_name';
+  const claimGuard =
+    type === 'path' ? '' : `and trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}`;
 
   let operator = '=';
   let paramValue = value;
@@ -121,6 +129,7 @@ async function clickhouseQuery(
       from website_event
       ${cohortQuery}
       where website_id = {websiteId:UUID}
+        and (event_type != ${EVENT_TYPE.customEvent} or trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})
         ${dateQuery}
         ${excludeEventTypeFilterQuery}
     ) as total
@@ -128,6 +137,7 @@ async function clickhouseQuery(
     ${cohortQuery}
     where website_id = {websiteId:UUID}
       and ${column} ${operator} {value:String}
+      ${claimGuard}
       ${dateQuery}
       ${filterQuery}
     `,

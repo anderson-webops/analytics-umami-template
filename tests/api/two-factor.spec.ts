@@ -229,14 +229,18 @@ test.describe('Two-factor authentication', () => {
   });
 
   test('POST /api/2fa/verify rejects a code that was already used', async ({ api }) => {
-    // The code accepted by setup/confirm stays blocked for 90 s.
-    const response = await api.bearer(partialToken).post('/api/2fa/verify', { token: lastCode });
+    const code = await nextCode(secret, lastCode);
+    const partial = api.bearer(partialToken);
+    const accepted = await partial.post('/api/2fa/verify', { token: code });
+    const response = await partial.post('/api/2fa/verify', { token: code });
 
+    expect(accepted.status).toBe(200);
     expect(response.status).toBe(400);
     expect(response.body.error).toMatchObject({
       code: 'two-factor-error-code-used',
       message: 'Code already used',
     });
+    lastCode = code;
   });
 
   test('POST /api/2fa/verify completes the login with a TOTP code', async ({ api }) => {

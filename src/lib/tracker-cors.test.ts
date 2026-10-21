@@ -14,7 +14,7 @@ describe('tracker cross-origin requests', () => {
     );
 
     for (const trackerHeader of [
-      "'x-umami-cache': cache",
+      "'x-umami-cache': requestCache",
       "'x-umami-hostname': hostname",
       "'x-umami-website-id': website",
     ]) {
@@ -44,5 +44,20 @@ describe('tracker cross-origin requests', () => {
     )) {
       expect(route.headers.map(({ key }) => key)).not.toContain('Access-Control-Allow-Origin');
     }
+  });
+
+  test('configured recording preflight accepts the browser permit header', async () => {
+    const { default: config } = await import('../../next.config');
+    const routes = await config.headers?.();
+    const recordingHeaders = routes?.find(({ source }) => source === '/api/record')?.headers;
+    const allowed = recordingHeaders?.find(
+      ({ key }) => key.toLowerCase() === 'access-control-allow-headers',
+    )?.value;
+
+    const recordAllowedHeaders = allowed
+      ?.toLowerCase()
+      .split(',')
+      .map(value => value.trim());
+    expect(recordAllowedHeaders).toContain('x-umami-permit');
   });
 });

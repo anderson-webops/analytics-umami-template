@@ -12,7 +12,7 @@ const operation1 = defineOperation({
     operationId: 'record',
     summary: 'Send session recordings or heatmap data',
     description:
-      'Stores session replay events or heatmap clicks and scrolls for a website, using a valid tracking cache token to identify the session and visit. Replay and heatmap intake have cumulative visit and website budgets; exceeding them returns 413 or 429.',
+      'Stores session replay events or heatmap clicks and scrolls only with a valid tracking cache token and a separate feature-, session-, visit-, and origin-bound collection permit. The website must enable the feature; replay requires strict masking. Cumulative visit and website budgets can return 413 or 429.',
     tags: ['Collection'],
     requestBody: {
       required: true,
@@ -188,8 +188,11 @@ const operation1 = defineOperation({
                       type: 'boolean',
                       description: 'Whether the operation succeeded.',
                     },
+                    reason: {
+                      type: 'string',
+                    },
                   },
-                  required: ['ok'],
+                  required: ['ok', 'reason'],
                 },
                 {
                   type: 'object',
@@ -198,11 +201,8 @@ const operation1 = defineOperation({
                       type: 'boolean',
                       description: 'Whether the operation succeeded.',
                     },
-                    reason: {
-                      type: 'string',
-                    },
                   },
-                  required: ['ok', 'reason'],
+                  required: ['ok'],
                 },
               ],
             },

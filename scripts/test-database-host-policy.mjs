@@ -37,6 +37,24 @@ test('recognizes loopback and private IP literals', () => {
   }
 });
 
+test('environment validation does not reuse recorder permits as an IP header', () => {
+  const validationScript = fileURLToPath(new URL('./check-env.js', import.meta.url));
+  const result = spawnSync(process.execPath, [validationScript], {
+    env: {
+      PATH: process.env.PATH || '/usr/bin:/bin',
+      DOTENV_CONFIG_PATH: '/dev/null',
+      APP_SECRET: 'synthetic-app-secret-11111111111111111',
+      SKIP_DB_CHECK: '1',
+      CLIENT_IP_HEADER: 'x-umami-permit',
+    },
+    encoding: 'utf8',
+    timeout: 10_000,
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /CLIENT_IP_HEADER must not reuse an authentication/);
+});
+
 test('production environment validation requires TLS for an arbitrary single-label database host', () => {
   const validationScript = fileURLToPath(new URL('./check-env.js', import.meta.url));
   const baseEnvironment = {
@@ -108,12 +126,14 @@ test('production validates service transport for dotless and public IPv6 hosts',
     {
       name: 'secure Kafka',
       settings: { KAFKA_URL: 'kafkas://broker', KAFKA_BROKER: 'database:9092' },
-      expectedStatus: 0,
+      expectedStatus: 1,
+      error: /Kafka collection requires a reviewed consumer and backlog transition/,
     },
     {
       name: 'secure public IPv6 Kafka',
       settings: { KAFKA_URL: 'kafkas://broker', KAFKA_BROKER: '[2606:4700:4700::1111]:9092' },
-      expectedStatus: 0,
+      expectedStatus: 1,
+      error: /Kafka collection requires a reviewed consumer and backlog transition/,
     },
     {
       name: 'insecure Kafka',
@@ -130,7 +150,8 @@ test('production validates service transport for dotless and public IPv6 hosts',
     {
       name: 'private IPv6 Kafka',
       settings: { KAFKA_URL: 'kafka://broker', KAFKA_BROKER: '[fd00::1]:9092' },
-      expectedStatus: 0,
+      expectedStatus: 1,
+      error: /Kafka collection requires a reviewed consumer and backlog transition/,
     },
     {
       name: 'Kafka broker with a path',
@@ -163,6 +184,51 @@ test('production validates service transport for dotless and public IPv6 hosts',
     }
     assert.doesNotMatch(result.stderr, /ReferenceError|must be a valid absolute/);
   }
+});
+
+test('development may configure valid Kafka without changing production admission', () => {
+  const validationScript = fileURLToPath(new URL('./check-env.js', import.meta.url));
+  const result = spawnSync(process.execPath, [validationScript], {
+    env: {
+      PATH: process.env.PATH || '/usr/bin:/bin',
+      DOTENV_CONFIG_PATH: '/dev/null',
+      NODE_ENV: 'development',
+      APP_SECRET: 'synthetic-app-secret-11111111111111111',
+      SKIP_DB_CHECK: '1',
+      KAFKA_URL: 'kafkas://broker',
+      KAFKA_BROKER: 'database:9092',
+    },
+    encoding: 'utf8',
+    timeout: 10_000,
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test('production rejects Kafka values that the runtime treats as enabled even when trimmed empty', () => {
+  const validationScript = fileURLToPath(new URL('./check-env.js', import.meta.url));
+  const result = spawnSync(process.execPath, [validationScript], {
+    env: {
+      PATH: process.env.PATH || '/usr/bin:/bin',
+      DOTENV_CONFIG_PATH: '/dev/null',
+      NODE_ENV: 'production',
+      APP_SECRET: 'synthetic-app-secret-11111111111111111',
+      PUBLIC_URL: 'https://analytics.example',
+      CLIENT_IP_HEADER: 'X-Forwarded-For',
+      DATABASE_URL:
+        'postgresql://synthetic:synthetic-password-0000000000000000@localhost:5432/synthetic',
+      KAFKA_URL: ' ',
+      KAFKA_BROKER: ' ',
+    },
+    encoding: 'utf8',
+    timeout: 10_000,
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(
+    result.stderr,
+    /Kafka collection requires a reviewed consumer and backlog transition/,
+  );
 });
 
 test('rejects query overrides and ambiguous TLS settings before connecting', () => {

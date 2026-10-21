@@ -24,6 +24,12 @@ export interface ReplayFragmentPart {
 export interface CompletedReplayFragmentGroup {
   event: unknown;
   parts: ReplayFragmentPart[];
+  charges: { chunkIndex: number; bytes: number; events: number }[];
+  release: () => void;
+}
+
+export interface CompletedReplayFragmentBatch extends CompletedReplayFragmentGroup {
+  reservations: { chunkIndex: number; bytes: number; structureUnits: number }[];
 }
 
 interface PendingGroup {
@@ -34,12 +40,14 @@ interface PendingGroup {
   timestamp?: number;
   bytes: number;
   chargedBytes: number;
-  parts: Map<number, { value: string; chunkIndex: number }>;
+  parts: Map<number, { value: string; chunkIndex: number; chargedBytes: number }>;
 }
 
 export class ReplayFragmentBuffer {
   private readonly groups = new Map<string, PendingGroup>();
   private pendingBytes = 0;
+
+  constructor(private readonly requirePrechargedStructure = true) {}
 
   private remove(key: string, group: PendingGroup) {
     this.groups.delete(key);
@@ -60,6 +68,7 @@ export class ReplayFragmentBuffer {
     visitId,
     accountType,
     accountId,
+    collectionGeneration,
     chunkIndex,
     event,
   }: {
@@ -68,6 +77,7 @@ export class ReplayFragmentBuffer {
     visitId: string;
     accountType: string;
     accountId: string;
+    collectionGeneration: number;
     chunkIndex: number;
     event: unknown;
   }): CompletedReplayFragmentGroup | null {
@@ -93,8 +103,23 @@ export class ReplayFragmentBuffer {
 
     const now = Date.now();
     this.expire(now);
-    const scope = JSON.stringify([websiteId, sessionId, visitId, accountType, accountId]);
-    const key = JSON.stringify([websiteId, sessionId, visitId, accountType, accountId, id]);
+    const scope = JSON.stringify([
+      websiteId,
+      sessionId,
+      visitId,
+      accountType,
+      accountId,
+      collectionGeneration,
+    ]);
+    const key = JSON.stringify([
+      websiteId,
+      sessionId,
+      visitId,
+      accountType,
+      accountId,
+      collectionGeneration,
+      id,
+    ]);
     let group = this.groups.get(key);
 
     if (!group) {
@@ -145,30 +170,32 @@ export class ReplayFragmentBuffer {
       throw new ReplayBudgetExceededError(60);
     }
 
-    group.parts.set(index, { value, chunkIndex });
-    group.bytes += valueBytes;
-    group.chargedBytes += getReplayChargedBytes(
+    const chargedBytes = getReplayChargedBytes(
       Buffer.byteLength(JSON.stringify([event]), 'utf8'),
       fragmentUnits,
     );
+    group.parts.set(index, { value, chunkIndex, chargedBytes });
+    group.bytes += valueBytes;
+    group.chargedBytes += chargedBytes;
     this.pendingBytes += valueBytes;
 
     if (group.parts.size !== group.total) {
       return null;
     }
 
-    this.remove(key, group);
     const ordered = Array.from({ length: total }, (_, fragmentIndex) =>
       group.parts.get(fragmentIndex),
     );
 
     if (ordered.some(part => !part)) {
+      this.remove(key, group);
       throw new ReplayBudgetExceededError();
     }
 
     const serialized = ordered.map(part => part?.value).join('');
 
     if (!hasBoundedReplayJsonStructure(serialized)) {
+      this.remove(key, group);
       throw new ReplayBudgetExceededError();
     }
 
@@ -177,6 +204,7 @@ export class ReplayFragmentBuffer {
     try {
       parsed = JSON.parse(serialized);
     } catch {
+      this.remove(key, group);
       throw new ReplayBudgetExceededError();
     }
 
@@ -184,9 +212,11 @@ export class ReplayFragmentBuffer {
 
     if (
       structureUnits === null ||
-      getReplayChargedBytes(Buffer.byteLength(serialized, 'utf8'), structureUnits) >
-        group.chargedBytes
+      (this.requirePrechargedStructure &&
+        getReplayChargedBytes(Buffer.byteLength(serialized, 'utf8'), structureUnits) >
+          group.chargedBytes)
     ) {
+      this.remove(key, group);
       throw new ReplayBudgetExceededError();
     }
 
@@ -199,8 +229,100 @@ export class ReplayFragmentBuffer {
         chunkIndex: part?.chunkIndex ?? baseIndex + fragmentIndex,
         timestamp: group.timestamp,
       })),
+      charges: ordered.map(part => {
+        if (!part) throw new ReplayBudgetExceededError();
+        return { chunkIndex: part.chunkIndex, bytes: part.chargedBytes, events: 1 };
+      }),
+      release: () => {
+        if (this.groups.get(key) === group) this.remove(key, group);
+      },
     };
   }
 }
 
-export const replayFragmentBuffer = new ReplayFragmentBuffer();
+export function reassembleReplayFragmentBatch({
+  websiteId,
+  sessionId,
+  visitId,
+  accountType,
+  accountId,
+  collectionGeneration,
+  chunkIndex,
+  events,
+}: {
+  websiteId: string;
+  sessionId: string;
+  visitId: string;
+  accountType: string;
+  accountId: string;
+  collectionGeneration: number;
+  chunkIndex: number;
+  events: unknown[];
+}): CompletedReplayFragmentBatch {
+  if (events.length === 0 || events.length > MAX_FRAGMENT_PARTS) {
+    throw new ReplayBudgetExceededError();
+  }
+
+  const buffer = new ReplayFragmentBuffer(false);
+  let completed: CompletedReplayFragmentGroup | null = null;
+
+  for (const [index, event] of events.entries()) {
+    if (
+      !isReplayEventFragment(event) ||
+      event.data.index !== index ||
+      event.data.total !== events.length
+    ) {
+      throw new ReplayBudgetExceededError();
+    }
+
+    completed = buffer.stage({
+      websiteId,
+      sessionId,
+      visitId,
+      accountType,
+      accountId,
+      collectionGeneration,
+      chunkIndex: chunkIndex + index,
+      event,
+    });
+
+    if (index < events.length - 1 && completed) {
+      throw new ReplayBudgetExceededError();
+    }
+  }
+
+  if (!completed) {
+    throw new ReplayBudgetExceededError();
+  }
+
+  const decodedUnits = countReplayStructureUnits(completed.event);
+  if (decodedUnits === null) {
+    throw new ReplayBudgetExceededError();
+  }
+  const reservations = events.map((event, index) => {
+    const rawEvents = [event];
+    const rawUnits = countReplayStructureUnits(rawEvents);
+    if (rawUnits === null) {
+      throw new ReplayBudgetExceededError();
+    }
+    const allocatedUnits =
+      Math.floor(decodedUnits / events.length) + (index < decodedUnits % events.length ? 1 : 0);
+
+    return {
+      chunkIndex: chunkIndex + index,
+      bytes: Buffer.byteLength(JSON.stringify(rawEvents), 'utf8'),
+      structureUnits: Math.max(rawUnits, allocatedUnits),
+    };
+  });
+
+  completed.release();
+  return {
+    ...completed,
+    reservations,
+    charges: reservations.map(reservation => ({
+      chunkIndex: reservation.chunkIndex,
+      bytes: getReplayChargedBytes(reservation.bytes, reservation.structureUnits),
+      events: 1,
+    })),
+  };
+}

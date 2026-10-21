@@ -10,8 +10,9 @@ const operation1 = defineOperation({
   auth: 'bearer-or-share',
   operation: {
     operationId: 'getWebsiteRevenueTotal',
-    summary: 'Get website revenue total',
-    description: 'Returns only the total revenue for the selected currency and date range.',
+    summary: 'Get unverified historical revenue claim total',
+    description:
+      'Returns the unverified event-claim total for the selected currency and date range.',
     tags: ['Websites'],
     parameters: [
       {
@@ -339,8 +340,11 @@ const operation1 = defineOperation({
               type: 'object',
               properties: {
                 sum: {},
+                revenueProvenance: {
+                  type: 'string',
+                },
               },
-              required: ['sum'],
+              required: ['sum', 'revenueProvenance'],
             },
           },
         },

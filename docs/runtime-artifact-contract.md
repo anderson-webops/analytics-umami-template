@@ -58,6 +58,10 @@ The capability names have narrow meanings:
 - `guarded-forward-migrations-v1`: verify historical ledgers before mutation,
   rehearse pending forward migrations on a restored copy, then use the guarded
   source migration entrypoint without editing applied migration history.
+- `packaged-migration-tool-v1`: use only the independently inventoried Prisma
+  CLI and Linux ARM64 schema engine from the accepted runtime artifact for
+  migration checks and forward application. Do not install packages, execute
+  checkout scripts, or fetch a different migration tool on the host.
 - `retained-artifact-rollback-v1`: keep the exact prior artifact and its host
   configuration, and restore those bytes without a network fetch or rebuild.
 - `database-aware-recovery-v1`: when the retained runtime cannot start against
@@ -88,6 +92,56 @@ The capability names have narrow meanings:
   Preserve historical unmarked rows and bookmarks, test delayed messages, and
   rehearse protected migration and retained-runtime recovery. Read filtering
   or schema presence alone does not satisfy this capability.
+- `authenticated-advanced-collection-v1`: before activation, verify the
+  separately scoped backend collection-key configuration, site-owned proof and
+  consent integration, exact permit route, default denial of unverified revenue,
+  and strict replay masking. Rehearse anonymous pageviews, denied advanced
+  browser submissions, batch isolation, key revocation, permit expiry, and
+  retained-runtime rollback. A public website ID or allowed origin is not proof.
+- `owner-bound-collection-keys-v1`: require the forward-only website-generation
+  and durable deletion-tombstone migration. Verify that key provisioning binds
+  the current website owner and generation, and that transfer, domain change,
+  reset, deletion, and same-ID recreation revoke old keys and permits across
+  both database-backed and external-write paths. Preserve the tombstone through
+  backup and recovery; source configuration alone is not a revocation proof.
+- `session-property-trust-tier-v1`: require the forward-only PostgreSQL and
+  ClickHouse migration files in the verified artifact. Test historical tier-0
+  preservation, tier-1 backend-authorized writes, derived-report exclusion of
+  unverified rows, and exact PostgreSQL and ClickHouse query behavior. If Kafka
+  is configured, verify the independent consumer preserves `trust_tier` for
+  delayed and retried messages. Rehearse protected database recovery with the
+  exact retained runtime before changing production. A source producer test or
+  column-presence probe alone does not establish host support.
+- `identity-link-trust-tier-v1`: require the forward-only PostgreSQL
+  `session_link.trust_tier` migration in the verified artifact. Historical
+  links remain tier 0; only a backend-authorized identify request may create
+  or upgrade a tier-1 link. Verify that session detail and activity traverse
+  only tier-1 PostgreSQL links in both storage modes, while legacy ClickHouse
+  links remain usable only for bounded admission accounting. Rehearse the
+  exact retained runtime against a migrated copy and its database-aware
+  recovery before activation. Neither a legacy link nor its producer topic
+  establishes verified identity.
+- `event-claim-trust-tier-v1`: require the forward-only PostgreSQL and
+  ClickHouse event-column migrations in the verified artifact. Historical
+  event and event-property rows remain tier 0; only backend-authorized custom
+  events may be written as tier 1. Verify the independent Kafka consumer
+  preserves both event and property tiers before activation. This producer
+  marker alone does not make legacy aggregates or direct reads authoritative;
+  prove tier-aware reporting and retained-runtime database recovery separately.
+- `unverified-revenue-materialization-disabled-v1`: require the ClickHouse
+  migration in the verified artifact. Before removing the legacy view, verify
+  its retained definition and quiesce ingestion. The migration preserves the
+  revenue table and historical rows but stops deriving new revenue from
+  flattened browser event data. Test repeat migration, historical-row
+  preservation, denied advanced claims, and old-runtime recovery on a protected
+  copy. This does not classify legacy rows as verified or authorize direct
+  writes from an independently maintained consumer.
+- `attested-revenue-ledger-v1`: require the forward-only PostgreSQL movement
+  migration and its immutable, website-scoped capture constraints. Keep intake
+  disabled until the site backend verifies orders, provisions a revenue-scoped
+  key, supplies stable movement IDs, and passes duplicate, conflict, deletion,
+  and failed-activation recovery tests. Backend attestation is not settlement
+  proof, and this ledger does not make historical revenue reports authoritative.
 
 These are requirements, not claims of current host support. A host adapter
 should advertise its implemented capabilities under root-controlled policy and

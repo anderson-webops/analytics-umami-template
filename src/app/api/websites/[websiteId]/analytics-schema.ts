@@ -130,6 +130,12 @@ export const websiteEventSchema = z
     pageTitle: z.string().nullable().optional(),
     eventType: z.number().int(),
     eventName: z.string().nullable().optional(),
+    trustTier: z
+      .number()
+      .int()
+      .describe(
+        'Event provenance: 0 for an unverified browser claim, 1 for a website-backend-authorized submission. Authorization does not verify the reported fact.',
+      ),
     distinctId: z.string().nullable().optional(),
   })
   .meta({ id: 'WebsiteEvent' });

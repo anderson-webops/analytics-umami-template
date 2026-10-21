@@ -4,6 +4,7 @@ export const CLICKHOUSE_COLLECTION_TABLES = [
   'website_event_stats_hourly',
   'website_revenue',
   'event_data_pivot',
+  'event_data_pivot_verified',
   'session_data_pivot',
   'session_replay',
   'heatmap_event',

@@ -51,6 +51,8 @@ async function relationalQuery(
     ${cohortQuery}
     ${joinSessionQuery}
     where event_data.website_id = {{websiteId::uuid}}
+      and event_data.trust_tier = 1
+      and website_event.trust_tier = 1
       and event_data.created_at between {{startDate}} and {{endDate}}
       and event_data.data_key = {{propertyName}}
       and event_data.data_type = ${DATA_TYPE.date}
@@ -86,18 +88,23 @@ async function clickhouseQuery(
       ${getDateStringSQL('event_data.date_value', 'second', timezone)} as t,
       count() as y
     from event_data
-    any left join (
-          select *
+    left any join (
+          select *, 1 as admitted
           from website_event
           where website_id = {websiteId:UUID}
             and created_at between {startDate:DateTime64} and {endDate:DateTime64}
             and event_type = 2
+            and trust_tier = 1
             and event_name = {eventName:String}) website_event
     on website_event.event_id = event_data.event_id
       and website_event.session_id = event_data.session_id
-      and website_event.website_id = event_data.website_id
+        and website_event.website_id = event_data.website_id
+        and website_event.event_name = event_data.event_name
+        and website_event.url_path = event_data.url_path
     ${cohortQuery}
     where event_data.website_id = {websiteId:UUID}
+      and website_event.admitted = 1
+      and event_data.trust_tier = 1
       and event_data.created_at between {startDate:DateTime64} and {endDate:DateTime64}
       and event_data.event_name = {eventName:String}
       and event_data.data_key = {propertyName:String}

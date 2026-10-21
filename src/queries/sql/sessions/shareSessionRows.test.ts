@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest';
-import { LINKED_QUERY_TIMEOUT_MS, MAX_LINK_READ_ROWS } from '@/lib/share-query-budget';
+import { LINKED_QUERY_TIMEOUT_MS } from '@/lib/share-query-budget';
 
 async function loadQueries(mode: 'prisma' | 'clickhouse') {
   vi.resetModules();
@@ -39,7 +39,11 @@ test.each(['prisma', 'clickhouse'] as const)(
     for (const query of queries) {
       await query();
       const [sql, params] = rawQuery.mock.lastCall as [string, { rowLimit: number }];
-      expect(sql).toContain(mode === 'prisma' ? 'limit {{rowLimit}}' : 'limit {rowLimit:UInt32}');
+      const expectedLimit =
+        mode === 'clickhouse' && !sql.includes('session_link')
+          ? 'limit {rowLimit:UInt32}'
+          : 'limit {{rowLimit}}';
+      expect(sql).toContain(expectedLimit);
       expect(params.rowLimit).toBe(501);
     }
 
@@ -59,8 +63,12 @@ test.each(['prisma', 'clickhouse'] as const)(
     expect(rawQuery).not.toHaveBeenCalled();
 
     await getSessionData('website', 'session');
-    expect(rawQuery.mock.lastCall?.[0]).not.toContain('limit {{rowLimit}}');
-    expect(rawQuery.mock.lastCall?.[0]).not.toContain('limit {rowLimit:UInt32}');
+    const propertySql = rawQuery.mock.lastCall?.[0] as string;
+    expect(propertySql).not.toContain('limit {{rowLimit}}');
+    expect(propertySql).not.toContain('limit {rowLimit:UInt32}');
+    expect(propertySql).toContain(
+      mode === 'prisma' ? 'trust_tier as "trustTier"' : 'trust_tier as trustTier',
+    );
   },
 );
 
@@ -84,27 +92,14 @@ test.each(['prisma', 'clickhouse'] as const)(
       number | Record<string, number> | undefined,
     ];
 
-    if (mode === 'prisma') {
-      expect(identitySql).toContain('select distinct_id as "distinctId"');
-      expect(identitySql).not.toContain('select distinct distinct_id');
-      expect(linksSql).toContain('order by session_id');
-      expect(linksSql).not.toContain('group by session_id');
-      expect(identityLimits).toBe(LINKED_QUERY_TIMEOUT_MS);
-      expect(linksLimits).toBe(LINKED_QUERY_TIMEOUT_MS);
-    } else {
-      expect(identitySql).toContain('select distinct distinct_id');
-      expect(linksSql).toContain('group by session_id');
-      expect(identityLimits).toEqual({
-        maxExecutionTimeSeconds: LINKED_QUERY_TIMEOUT_MS / 1000,
-        maxResultRows: 2,
-        maxRowsToRead: MAX_LINK_READ_ROWS,
-      });
-      expect(linksLimits).toEqual({
-        maxExecutionTimeSeconds: LINKED_QUERY_TIMEOUT_MS / 1000,
-        maxResultRows: 501,
-        maxRowsToRead: MAX_LINK_READ_ROWS,
-      });
-    }
+    expect(identitySql).toContain('select distinct_id as "distinctId"');
+    expect(identitySql).toContain('trust_tier = 1');
+    expect(identitySql).not.toContain('select distinct distinct_id');
+    expect(linksSql).toContain('order by session_id');
+    expect(linksSql).toContain('trust_tier = 1');
+    expect(linksSql).not.toContain('group by session_id');
+    expect(identityLimits).toBe(LINKED_QUERY_TIMEOUT_MS);
+    expect(linksLimits).toBe(LINKED_QUERY_TIMEOUT_MS);
   },
 );
 

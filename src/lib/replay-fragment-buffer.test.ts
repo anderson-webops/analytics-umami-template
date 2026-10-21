@@ -1,5 +1,7 @@
 import { afterEach, expect, test, vi } from 'vitest';
-import { ReplayFragmentBuffer } from './replay-fragment-buffer';
+import { getReplayChargedBytes, MAX_REPLAY_BYTES } from './replay-budget';
+import { ReplayFragmentBuffer, reassembleReplayFragmentBatch } from './replay-fragment-buffer';
+import { countReplayStructureUnits } from './replay-structure';
 
 const websiteId = '11111111-1111-4111-8111-111111111111';
 const sessionId = '22222222-2222-4222-8222-222222222222';
@@ -43,8 +45,16 @@ function stage(
     sessionId,
     visitId,
   },
+  collectionGeneration = 0,
 ) {
-  return buffer.stage({ ...scope, accountType: 'user', accountId, chunkIndex, event });
+  return buffer.stage({
+    ...scope,
+    accountType: 'user',
+    accountId,
+    collectionGeneration,
+    chunkIndex,
+    event,
+  });
 }
 
 afterEach(() => {
@@ -59,13 +69,61 @@ test('reassembles a URL split across separately received chunks without storing 
   expect(
     stage(buffer, fragment('snapshot-1', 0, 2, serialized.slice(0, boundary)), 100),
   ).toBeNull();
-  expect(stage(buffer, fragment('snapshot-1', 1, 2, serialized.slice(boundary)), 101)).toEqual({
+  const completed = stage(buffer, fragment('snapshot-1', 1, 2, serialized.slice(boundary)), 101);
+  expect(completed).toMatchObject({
     event: snapshot,
     parts: [
       { id: 'snapshot-1', index: 0, total: 2, chunkIndex: 100, timestamp: snapshot.timestamp },
       { id: 'snapshot-1', index: 1, total: 2, chunkIndex: 101, timestamp: snapshot.timestamp },
     ],
   });
+  completed?.release();
+});
+
+test('charges decoded structure for a large snapshot sent in one batch', () => {
+  const event = {
+    type: 2,
+    timestamp: snapshot.timestamp,
+    data: {
+      node: {
+        type: 0,
+        id: 1,
+        childNodes: Array.from({ length: 7_500 }, (_, index) => ({
+          type: 2,
+          id: index + 2,
+          tagName: 'div',
+          attributes: {},
+          childNodes: [],
+        })),
+      },
+    },
+  };
+  const serialized = JSON.stringify(event);
+  expect(Buffer.byteLength(serialized, 'utf8')).toBeGreaterThan(500_000);
+  const boundary = Math.floor(serialized.length / 2);
+  const events = [serialized.slice(0, boundary), serialized.slice(boundary)].map((value, index) =>
+    fragment('dense-snapshot', index, 2, value),
+  );
+
+  const completed = reassembleReplayFragmentBatch({
+    websiteId,
+    sessionId,
+    visitId,
+    accountType: 'user',
+    accountId,
+    collectionGeneration: 0,
+    chunkIndex: 1000,
+    events,
+  });
+  const structureUnits = countReplayStructureUnits(event);
+  if (structureUnits === null) throw new Error('Expected bounded snapshot structure.');
+  const chargedBytes = completed.charges.reduce((total, charge) => total + charge.bytes, 0);
+
+  expect(completed.event).toEqual(event);
+  expect(chargedBytes).toBeGreaterThanOrEqual(
+    getReplayChargedBytes(Buffer.byteLength(serialized, 'utf8'), structureUnits),
+  );
+  expect(chargedBytes).toBeLessThanOrEqual(MAX_REPLAY_BYTES);
 });
 
 test('accepts out-of-order fragments but does not mix visits or sessions', () => {
@@ -83,6 +141,23 @@ test('accepts out-of-order fragments but does not mix visits or sessions', () =>
   );
 });
 
+test('keeps a completed group until the caller releases it', () => {
+  const buffer = new ReplayFragmentBuffer();
+  const serialized = JSON.stringify(snapshot);
+  const boundary = Math.floor(serialized.length / 2);
+  const first = fragment('retained', 0, 2, serialized.slice(0, boundary));
+  const last = fragment('retained', 1, 2, serialized.slice(boundary));
+
+  expect(stage(buffer, first, 220)).toBeNull();
+  const completed = stage(buffer, last, 221);
+  expect(completed?.event).toEqual(snapshot);
+  expect(stage(buffer, last, 221)).toBeNull();
+
+  completed?.release();
+  expect(stage(buffer, first, 220)).toBeNull();
+  expect(stage(buffer, last, 221)?.event).toEqual(snapshot);
+});
+
 test('does not combine fragments across a website ownership change', () => {
   const buffer = new ReplayFragmentBuffer();
   const serialized = JSON.stringify(snapshot);
@@ -98,11 +173,25 @@ test('does not combine fragments across a website ownership change', () => {
       visitId,
       accountType: 'team',
       accountId: '55555555-5555-4555-8555-555555555555',
+      collectionGeneration: 0,
       chunkIndex: 251,
       event: last,
     }),
   ).toBeNull();
   expect(stage(buffer, last, 251)?.event).toEqual(snapshot);
+});
+
+test('does not combine pending fragments across a deleted and recreated website', () => {
+  const buffer = new ReplayFragmentBuffer();
+  const first = fragment('recreated', 0, 2, '{"old":');
+  const replacement = fragment('recreated', 0, 2, '{"new":');
+  const last = fragment('recreated', 1, 2, 'true}');
+
+  expect(stage(buffer, first, 260)).toBeNull();
+  expect(stage(buffer, last, 261, { websiteId, sessionId, visitId }, 1)).toBeNull();
+  expect(stage(buffer, replacement, 260, { websiteId, sessionId, visitId }, 1)?.event).toEqual({
+    new: true,
+  });
 });
 
 test('rejects conflicting fragments and permits a fresh group after rejection', () => {

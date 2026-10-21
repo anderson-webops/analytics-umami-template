@@ -26,6 +26,12 @@ export class ReplayBudgetExceededError extends Error {
   }
 }
 
+export class ReplayWritePendingError extends Error {
+  constructor() {
+    super('Replay write is pending reconciliation.');
+  }
+}
+
 export function getReplayChargedBytes(bytes: number, structureUnits: number) {
   return Math.max(
     bytes,
@@ -38,6 +44,7 @@ interface ReserveReplayBudgetArgs extends RecorderAccount {
   visitId: string;
   chunkIndex: number;
   idempotent: boolean;
+  pendingExternalWrite?: boolean;
   bytes: number;
   events: number;
   structureUnits: number;
@@ -50,6 +57,7 @@ export async function reserveReplayBudget(
     visitId,
     chunkIndex,
     idempotent,
+    pendingExternalWrite = false,
     bytes,
     events,
     structureUnits,
@@ -62,7 +70,8 @@ export async function reserveReplayBudget(
     events > MAX_REPLAY_EVENTS ||
     !Number.isSafeInteger(structureUnits) ||
     structureUnits < 0 ||
-    structureUnits > MAX_REPLAY_STRUCTURE_UNITS
+    structureUnits > MAX_REPLAY_STRUCTURE_UNITS ||
+    (pendingExternalWrite && !idempotent)
   ) {
     throw new ReplayBudgetExceededError();
   }
@@ -77,18 +86,23 @@ export async function reserveReplayBudget(
     WHERE website_id = ${websiteId}::uuid AND scope = 'visit' AND scope_key = ${visitId}
   `;
 
+  if (idempotent && existing[0]?.chunkIndices.includes(-chunkIndex)) {
+    throw new ReplayWritePendingError();
+  }
+
   if (idempotent && existing[0]?.chunkIndices.includes(chunkIndex)) {
     return false;
   }
 
   const now = Date.now();
+  const marker = pendingExternalWrite ? -chunkIndex : chunkIndex;
   const visitExpiry = new Date(now + RECORDER_VISIT_BUDGET_RETENTION_MS);
   const visitBudget = await transaction.$queryRaw<Array<{ bytes: bigint }>>`
     INSERT INTO replay_ingest_budget
       (website_id, scope, scope_key, bytes, events, chunks, chunk_indices, expires_at)
     VALUES
       (${websiteId}::uuid, 'visit', ${visitId}, ${chargedBytes}::bigint, ${events}, 1,
-       CASE WHEN ${idempotent} THEN ARRAY[${chunkIndex}]::integer[]
+       CASE WHEN ${idempotent} THEN ARRAY[${marker}]::integer[]
          ELSE ARRAY[]::integer[] END, ${visitExpiry})
     ON CONFLICT (website_id, scope, scope_key) DO UPDATE SET
       bytes = replay_ingest_budget.bytes + EXCLUDED.bytes,
@@ -96,12 +110,14 @@ export async function reserveReplayBudget(
       chunks = replay_ingest_budget.chunks + 1,
       expires_at = GREATEST(COALESCE(replay_ingest_budget.expires_at, EXCLUDED.expires_at), EXCLUDED.expires_at),
       chunk_indices = CASE WHEN ${idempotent}
-        THEN array_append(replay_ingest_budget.chunk_indices, ${chunkIndex})
+        THEN array_append(replay_ingest_budget.chunk_indices, ${marker})
         ELSE replay_ingest_budget.chunk_indices END
     WHERE replay_ingest_budget.bytes + EXCLUDED.bytes <= ${MAX_REPLAY_BYTES}::bigint
       AND replay_ingest_budget.events + EXCLUDED.events <= ${MAX_REPLAY_EVENTS}
       AND replay_ingest_budget.chunks < ${MAX_REPLAY_CHUNKS}
-      AND (NOT ${idempotent} OR NOT ${chunkIndex} = ANY(replay_ingest_budget.chunk_indices))
+      AND (NOT ${idempotent} OR
+        (NOT ${chunkIndex} = ANY(replay_ingest_budget.chunk_indices)
+          AND NOT ${-chunkIndex} = ANY(replay_ingest_budget.chunk_indices)))
     RETURNING bytes
   `;
 
@@ -182,4 +198,72 @@ export async function reserveReplayBudget(
   `;
 
   return true;
+}
+
+export async function markUnstoredReplayChunkRetryable(
+  transaction: Prisma.TransactionClient,
+  websiteId: string,
+  visitId: string,
+  chunkIndex: number,
+  charge: { bytes: number; events: number },
+) {
+  if (
+    !Number.isSafeInteger(chunkIndex) ||
+    chunkIndex <= 0 ||
+    !Number.isSafeInteger(charge.bytes) ||
+    charge.bytes <= 0 ||
+    charge.bytes > MAX_REPLAY_BYTES ||
+    !Number.isSafeInteger(charge.events) ||
+    charge.events <= 0 ||
+    charge.events > MAX_REPLAY_EVENTS
+  ) {
+    throw new ReplayBudgetExceededError();
+  }
+
+  await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${websiteId}), hashtext(${visitId}))::text`;
+  const refunded = await transaction.$queryRaw<Array<{ bytes: bigint }>>`
+    UPDATE replay_ingest_budget
+    SET bytes = replay_ingest_budget.bytes - ${charge.bytes}::bigint,
+        events = replay_ingest_budget.events - ${charge.events},
+        chunks = replay_ingest_budget.chunks - 1,
+        chunk_indices = array_remove(chunk_indices, ${-chunkIndex})
+    WHERE website_id = ${websiteId}::uuid
+      AND scope = 'visit'
+      AND scope_key = ${visitId}
+      AND ${-chunkIndex} = ANY(chunk_indices)
+      AND replay_ingest_budget.bytes >= ${charge.bytes}::bigint
+      AND replay_ingest_budget.events >= ${charge.events}
+      AND replay_ingest_budget.chunks > 0
+    RETURNING bytes
+  `;
+
+  if (refunded.length !== 1) {
+    throw new ReplayBudgetExceededError();
+  }
+}
+
+export async function markAcknowledgedReplayChunk(
+  transaction: Prisma.TransactionClient,
+  websiteId: string,
+  visitId: string,
+  chunkIndex: number,
+) {
+  if (!Number.isSafeInteger(chunkIndex) || chunkIndex <= 0) {
+    throw new ReplayBudgetExceededError();
+  }
+
+  await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${websiteId}), hashtext(${visitId}))::text`;
+  const stored = await transaction.$queryRaw<Array<{ bytes: bigint }>>`
+    UPDATE replay_ingest_budget
+    SET chunk_indices = array_replace(chunk_indices, ${-chunkIndex}, ${chunkIndex})
+    WHERE website_id = ${websiteId}::uuid
+      AND scope = 'visit'
+      AND scope_key = ${visitId}
+      AND ${-chunkIndex} = ANY(chunk_indices)
+    RETURNING bytes
+  `;
+
+  if (stored.length !== 1) {
+    throw new Error('Replay reservation completion failed.');
+  }
 }

@@ -3,7 +3,7 @@ import { describe, expect, test } from 'vitest';
 import { CACHE_TOKEN_TYPE } from '@/lib/constants';
 import { hash } from '@/lib/crypto';
 import { createToken, parseToken } from '@/lib/jwt';
-import { createCacheToken, parseCacheToken } from './cache-token';
+import { createCacheToken, hasCurrentCacheGeneration, parseCacheToken } from './cache-token';
 
 const SECRET = 'synthetic-cache-secret-0123456789abcdef';
 const OTHER_SECRET = 'different-cache-secret-0123456789abcdef';
@@ -86,5 +86,27 @@ describe('collector cache token', () => {
 
     expect(parseCacheToken(incomplete, SECRET)).toBeNull();
     expect(parseCacheToken(wrongVersion, SECRET)).toBeNull();
+  });
+
+  test('binds new sessions to a nonnegative website generation while limiting legacy tokens to generation zero', () => {
+    const current = parseCacheToken(
+      createCacheToken({ ...payload, collectionGeneration: 2 }, SECRET, 3600),
+      SECRET,
+    );
+    const legacy = parseCacheToken(createCacheToken(payload, SECRET, 3600), SECRET);
+
+    expect(current && hasCurrentCacheGeneration(current, 2)).toBe(true);
+    expect(current && hasCurrentCacheGeneration(current, 1)).toBe(false);
+    expect(legacy && hasCurrentCacheGeneration(legacy, 0)).toBe(true);
+    expect(legacy && hasCurrentCacheGeneration(legacy, 2)).toBe(false);
+
+    for (const invalid of [-1, 1.5, '1', Number.MAX_SAFE_INTEGER + 1]) {
+      const token = createToken(
+        { ...payload, collectionGeneration: invalid, type: CACHE_TOKEN_TYPE, version: 2 },
+        SECRET,
+        { expiresIn: 3600 },
+      );
+      expect(parseCacheToken(token, SECRET)).toBeNull();
+    }
   });
 });

@@ -89,7 +89,8 @@ const operation1 = defineOperation({
                   },
                   urlQuery: {
                     type: 'string',
-                    description: 'Query string portion of the page URL.',
+                    description:
+                      'Bounded, allowlisted attribution query parameters from the page URL.',
                   },
                   referrerDomain: {
                     type: 'string',
@@ -102,6 +103,11 @@ const operation1 = defineOperation({
                   eventType: {
                     type: 'number',
                     description: 'Event type: 1 for a pageview or 2 for a custom event.',
+                  },
+                  trustTier: {
+                    type: 'number',
+                    description:
+                      'Property provenance: 0 for unverified historical data, 1 for a website-backend-authorized submission. Authorization does not prove the reported fact.',
                   },
                   eventName: {
                     type: 'string',
@@ -126,6 +132,7 @@ const operation1 = defineOperation({
                   'referrerDomain',
                   'eventId',
                   'eventType',
+                  'trustTier',
                   'eventName',
                   'visitId',
                   'hostname',

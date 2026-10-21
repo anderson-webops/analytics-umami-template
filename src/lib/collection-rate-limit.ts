@@ -1,5 +1,8 @@
 import type { Prisma } from '@/generated/prisma/client';
-import { CollectionBudgetExceededError } from '@/lib/collection-budget';
+import {
+  type CollectionAdmissionClass,
+  CollectionBudgetExceededError,
+} from '@/lib/collection-budget';
 import { hash } from '@/lib/crypto';
 import { getIpAddress } from '@/lib/ip';
 import prisma from '@/lib/prisma';
@@ -96,6 +99,7 @@ async function reserveSharedCounter(
   kind: CounterKind,
   key: string,
   overrideLimit?: number,
+  countNewKeyInPool = true,
 ): Promise<number | null> {
   const windowSeconds = getWindowSeconds();
   const limit = overrideLimit ?? (kind === 'ip' ? getPerIpLimit() : getPerSourceLimit());
@@ -125,7 +129,7 @@ async function reserveSharedCounter(
     return null;
   }
 
-  if (reserved[0].requests === 1n) {
+  if (reserved[0].requests === 1n && countNewKeyInPool) {
     const pool = await transaction.$queryRaw<Array<{ requests: bigint }>>`
           INSERT INTO collection_ingest_budget
             (subject_type, subject_key, scope, window_start, bytes, rows, requests, expires_at)
@@ -203,8 +207,22 @@ export function transferCollectionIpLimit(from: Request, to: Request): void {
 export async function reserveCollectionSourceLimit(
   transaction: Prisma.TransactionClient,
   sourceId: string,
+  admissionClass: CollectionAdmissionClass = 'anonymous',
 ): Promise<void> {
   const sourceKey = getSourceKey(sourceId);
+  if (admissionClass !== 'backend') {
+    const anonymousLimit = Math.max(1, Math.floor(getPerSourceLimit() / 4));
+    const anonymousCount = await reserveSharedCounter(
+      transaction,
+      'source',
+      `anonymous:${sourceKey}`,
+      anonymousLimit,
+      false,
+    ).catch(() => null);
+    if (anonymousCount === null) {
+      throw new CollectionBudgetExceededError(getWindowSeconds());
+    }
+  }
   const legacyCount = await getLegacySourceCount(sourceKey);
   const remaining = legacyCount === null ? 0 : getPerSourceLimit() - legacyCount;
   const count =

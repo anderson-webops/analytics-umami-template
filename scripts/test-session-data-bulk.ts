@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { Client } from 'pg';
+import { COLLECTION_TRUST_TIER } from '../src/lib/constants';
 import type { DynamicData } from '../src/lib/types';
 
 assert.equal(process.env.ALLOW_DESTRUCTIVE_MIGRATION_TEST, '1');
@@ -33,11 +34,22 @@ try {
       number_value numeric(19, 4),
       date_value timestamptz,
       data_type integer NOT NULL,
+      trust_tier smallint NOT NULL DEFAULT 0 CHECK (trust_tier IN (0, 1)),
       distinct_id varchar(50),
       created_at timestamptz DEFAULT now(),
       UNIQUE (session_id, data_key)
     )
   `);
+  await admin.query(
+    `INSERT INTO "${schema}".session_data
+      (session_data_id, website_id, session_id, data_key, string_value, data_type)
+     VALUES ($1, $2, $3, 'legacy-only', 'retained', 1)`,
+    [crypto.randomUUID(), websiteId, sessionId],
+  );
+  const legacy = await admin.query<{ trust_tier: number }>(
+    `SELECT trust_tier FROM "${schema}".session_data WHERE data_key = 'legacy-only'`,
+  );
+  assert.equal(legacy.rows[0].trust_tier, COLLECTION_TRUST_TIER.unverified);
 
   const [{ relationalQuery }, { default: prisma }] = await Promise.all([
     import('../src/queries/sql/sessions/saveSessionData'),
@@ -56,38 +68,43 @@ try {
     sessionData: Object.fromEntries(
       Array.from({ length: 99 }, (_, index) => [`property_${index}`, index]),
     ),
+    trustTier: COLLECTION_TRUST_TIER.backendAuthorized,
     distinctId: 'initial-identity',
     createdAt: initialCreatedAt,
   });
   const count = await admin.query<{ count: number }>(
     `SELECT count(*)::integer AS count FROM "${schema}".session_data`,
   );
-  assert.equal(count.rows[0].count, 99);
+  assert.equal(count.rows[0].count, 100);
 
   await write({
     websiteId,
     sessionId,
     sessionData: { 'plan.tier': 'old', plan: { tier: 'new' } } as unknown as DynamicData,
+    trustTier: COLLECTION_TRUST_TIER.backendAuthorized,
     distinctId: 'initial-identity',
     createdAt: initialCreatedAt,
   });
   const original = await admin.query<{
     session_data_id: string;
     string_value: string;
+    trust_tier: number;
     distinct_id: string;
     created_at: Date;
   }>(
-    `SELECT session_data_id, string_value, distinct_id, created_at
+    `SELECT session_data_id, string_value, trust_tier, distinct_id, created_at
      FROM "${schema}".session_data WHERE session_id = $1 AND data_key = 'plan.tier'`,
     [sessionId],
   );
   assert.equal(original.rows.length, 1);
   assert.equal(original.rows[0].string_value, 'new');
+  assert.equal(original.rows[0].trust_tier, COLLECTION_TRUST_TIER.backendAuthorized);
 
   await write({
     websiteId,
     sessionId,
     sessionData: { plan: { tier: 'changed' } } as unknown as DynamicData,
+    trustTier: COLLECTION_TRUST_TIER.backendAuthorized,
   });
   const preserved = await admin.query<{
     session_data_id: string;
@@ -108,6 +125,7 @@ try {
     websiteId,
     sessionId,
     sessionData: { 'plan.tier': 'final' },
+    trustTier: COLLECTION_TRUST_TIER.backendAuthorized,
     distinctId: 'updated-identity',
     createdAt: updatedCreatedAt,
   });
@@ -134,6 +152,7 @@ try {
       joined: '2026-07-30T10:00:00.000Z',
       "quoted'); DROP TABLE session_data; --": 'safe',
     },
+    trustTier: COLLECTION_TRUST_TIER.backendAuthorized,
   });
   const typed = await admin.query<{
     data_key: string;

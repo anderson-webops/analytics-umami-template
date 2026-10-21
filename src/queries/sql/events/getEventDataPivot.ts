@@ -42,10 +42,12 @@ async function relationalQuery(
       from website_event
       join event_data on event_data.website_event_id = website_event.event_id
         and event_data.website_id = {{websiteId::uuid}}
+        and event_data.trust_tier = 1
         and event_data.created_at between {{startDate}} and {{endDate}}
       ${cohortQuery}
       ${joinSessionQuery}
       where website_event.website_id = {{websiteId::uuid}}
+        and website_event.trust_tier = 1
         and website_event.created_at between {{startDate}} and {{endDate}}
         and website_event.event_name = {{eventName}}
         ${filterQuery}
@@ -75,6 +77,8 @@ async function relationalQuery(
       and website_event.website_id = {{websiteId::uuid}}
     join paged_events on paged_events.event_id = event_data.website_event_id
     where event_data.website_id = {{websiteId::uuid}}
+      and event_data.trust_tier = 1
+      and website_event.trust_tier = 1
       and event_data.created_at between {{startDate}} and {{endDate}}
     group by
       website_event.event_id,
@@ -124,19 +128,23 @@ async function clickhouseQuery(
         groupArrayMerge(property_values),
         groupArrayMerge(property_types)
       ) as propertyValues
-    from umami.event_data_pivot
-    any left join (
-          select *
+    from umami.event_data_pivot_verified as event_data_pivot
+    left any join (
+          select *, 1 as admitted
           from website_event
           where website_id = {websiteId:UUID}
             and created_at between {startDate:DateTime64} and {endDate:DateTime64}
             and event_type = 2
+            and trust_tier = 1
             and event_name = {eventName:String}) website_event
     on website_event.event_id = event_data_pivot.event_id
       and website_event.session_id = event_data_pivot.session_id
       and website_event.website_id = event_data_pivot.website_id
+      and website_event.event_name = event_data_pivot.event_name
+      and website_event.url_path = event_data_pivot.url_path
     ${cohortQuery}
     where event_data_pivot.website_id = {websiteId:UUID}
+      and website_event.admitted = 1
       and event_data_pivot.created_at between {startDate:DateTime64} and {endDate:DateTime64}
       and event_data_pivot.event_name = {eventName:String}
     ${filterQuery}

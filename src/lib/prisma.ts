@@ -2,8 +2,10 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import debug from 'debug';
 import { type Prisma, PrismaClient } from '@/generated/prisma/client';
 import {
+  COLLECTION_TRUST_TIER,
   DATA_TYPE,
   DEFAULT_PAGE_SIZE,
+  EVENT_TYPE,
   FILTER_COLUMNS,
   OPERATORS,
   SESSION_COLUMNS,
@@ -155,6 +157,43 @@ function mapFilter(
     name = name.slice('cohort_'.length);
   }
 
+  if (name === 'distinctId') {
+    const positiveOperator =
+      operator === OPERATORS.notEquals
+        ? OPERATORS.equals
+        : operator === OPERATORS.doesNotContain
+          ? OPERATORS.contains
+          : operator === OPERATORS.notRegex
+            ? OPERATORS.regex
+            : operator;
+    const condition = mapFilter(
+      'verified_link.distinct_id',
+      positiveOperator,
+      'verifiedIdentity',
+      type,
+      param,
+    );
+
+    if (!condition) {
+      throw new Error('INVALID_IDENTITY_FILTER');
+    }
+
+    const scopedLink = `from session_link verified_link
+      where verified_link.website_id = website_event.website_id
+        and verified_link.session_id = website_event.session_id
+        and verified_link.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}`;
+    const matchedLink = `exists (
+      select 1 ${scopedLink}
+        and ${condition}
+    )`;
+
+    if (positiveOperator !== operator) {
+      return `(exists (select 1 ${scopedLink}) and not ${matchedLink})`;
+    }
+
+    return matchedLink;
+  }
+
   const table = SESSION_COLUMNS.includes(name) ? 'session' : 'website_event';
   const field = column.includes('.') ? column : `${table}.${column}`;
 
@@ -235,6 +274,7 @@ function getCohortQuery(filters: QueryFilters = {}) {
       and session.website_id = website_event.website_id
     where website_event.website_id = {{websiteId}}
       and website_event.created_at between {{cohort_startDate}} and {{cohort_endDate}}
+      and (website_event.event_type != ${EVENT_TYPE.customEvent} or website_event.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})
       ${filterQuery}
     ) cohort
     on cohort.session_id = website_event.session_id
@@ -256,7 +296,7 @@ function getExcludeBounceQuery(filters: Record<string, any>) {
     having sum(case when event_type NOT IN (2, 5) then 1 else 0 end) > 1
       or (
         sum(case when event_type NOT IN (2, 5) then 1 else 0 end) = 1
-        and sum(case when event_type = 2 then 1 else 0 end) > 0
+        and sum(case when event_type = 2 and trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized} then 1 else 0 end) > 0
       )
     ) excludeBounce
     on excludeBounce.session_id = website_event.session_id
@@ -452,6 +492,7 @@ function getPropertyFilterQuery(
       from ${table}
       where website_id = website_event.website_id
         and session_id = website_event.session_id
+        and trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}
         and data_key = {{${keyParam}}}
         and data_type = ${dataType}
         and ${condition}
@@ -462,6 +503,7 @@ function getPropertyFilterQuery(
       from ${table}
       where website_id = {{websiteId::uuid}}
         ${dateFilter}
+        and trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}
         and data_key = {{${keyParam}}}
         and data_type = ${dataType}
         and ${condition}
@@ -578,6 +620,7 @@ function getEventPropertyFilterQuery(
       from event_data
       where website_id = {{websiteId::uuid}}
         and website_event_id = website_event.event_id
+        and trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}
         and created_at between {{startDate}} and {{endDate}}
         and data_key = {{${keyParam}}}
         and data_type = ${dataType}
@@ -701,6 +744,7 @@ function getSessionPropertyFilterQuery(
       from session_data
       where website_id = website_event.website_id
         and session_id = website_event.session_id
+        and trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}
         and data_key = {{${keyParam}}}
         and data_type = ${dataType}
         and ${condition}

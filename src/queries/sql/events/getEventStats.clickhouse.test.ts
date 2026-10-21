@@ -28,6 +28,7 @@ integrationTest(
         event_name String,
         created_at DateTime64(3, 'UTC'),
         event_type UInt32,
+        trust_tier UInt8 DEFAULT 0,
         is_bot UInt8
       ) ENGINE = MergeTree ORDER BY (website_id, created_at)`,
       });
@@ -54,6 +55,7 @@ integrationTest(
             event_name: eventName,
             created_at: firstDay,
             event_type: 2,
+            trust_tier: 1,
             is_bot: 0,
           })),
           {
@@ -62,6 +64,7 @@ integrationTest(
             event_name: names[0],
             created_at: secondDay,
             event_type: 2,
+            trust_tier: 1,
             is_bot: 0,
           },
           {
@@ -70,6 +73,7 @@ integrationTest(
             event_name: 'rare-event',
             created_at: firstDay,
             event_type: 2,
+            trust_tier: 1,
             is_bot: 0,
           },
           ...Array.from({ length: 100 }, () => ({
@@ -78,8 +82,17 @@ integrationTest(
             event_name: 'bot-heavy',
             created_at: firstDay,
             event_type: 2,
+            trust_tier: 1,
             is_bot: 1,
           })),
+          {
+            website_id: websiteId,
+            session_id: websiteId,
+            event_name: 'legacy-only',
+            created_at: firstDay,
+            event_type: 2,
+            is_bot: 0,
+          },
         ],
       });
       await client.insert({
@@ -106,6 +119,7 @@ integrationTest(
       const humanNames = new Set(humanSeries.map(row => row.x));
       expect(humanNames.size).toBe(50);
       expect(humanSeries.filter(row => row.x === names[0])).toHaveLength(2);
+      expect(humanNames.has('legacy-only')).toBe(false);
       expect(humanNames.has('bot-heavy')).toBe(false);
 
       const rareSeries = await getEventStats(

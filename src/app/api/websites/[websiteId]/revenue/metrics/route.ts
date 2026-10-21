@@ -1,3 +1,4 @@
+import { REVENUE_PROVENANCE, REVENUE_RESPONSE_HEADERS } from '@/lib/constants';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import { badRequest, json, unauthorized } from '@/lib/response';
 import { canViewWebsiteSection } from '@/permissions';
@@ -31,5 +32,10 @@ export async function GET(
   const parameters = { ...filters, currency } as RevenuParameters;
 
   const data = await getRevenueMetrics(websiteId, parameters, filters, type as RevenueMetricType);
-  return json(limit ? data.slice(0, limit) : data);
+  const rows = (limit ? data.slice(0, limit) : data).map(row => ({
+    ...row,
+    revenueProvenance: REVENUE_PROVENANCE,
+  }));
+
+  return json(rows, { headers: REVENUE_RESPONSE_HEADERS });
 }

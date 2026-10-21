@@ -1,4 +1,5 @@
 import { addCustomEvent, record } from 'rrweb';
+import { maskStrictReplayEvents } from './privacy.js';
 import { createReplayResourceRedactor } from './resources.js';
 import { getReplaySafeUrl, redactReplayNavigationEvent } from './url.js';
 
@@ -14,6 +15,7 @@ import { getReplaySafeUrl, redactReplayNavigationEvent } from './url.js';
 
   const website = config('website-id');
   const hostUrl = config('host-url');
+  const permitEndpoint = config('permit-endpoint');
 
   if (!website) return;
 
@@ -28,6 +30,9 @@ import { getReplaySafeUrl, redactReplayNavigationEvent } from './url.js';
   const REPLAY_FLUSH_EVENT_COUNT = 100;
   const REPLAY_FLUSH_INTERVAL = 2000;
   const REPLAY_MAX_PAYLOAD_SIZE = 500000;
+  const REPLAY_MAX_EVENT_SIZE = 8 * 1024 * 1024;
+  const REPLAY_MAX_GROUP_PAYLOAD_SIZE = 10 * 1024 * 1024;
+  const REPLAY_MAX_FRAGMENT_PARTS = 64;
   const REPLAY_FRAGMENT_TYPE = 'umami:rrweb-event-fragment';
   const REPLAY_FRAGMENT_TOTAL_PLACEHOLDER = 999999999;
   const RRWEB_EVENT_TYPE = {
@@ -35,6 +40,8 @@ import { getReplaySafeUrl, redactReplayNavigationEvent } from './url.js';
   };
   const HEATMAP_FLUSH_EVENT_COUNT = 20;
   const HEATMAP_FLUSH_INTERVAL = 5000;
+  const PERMIT_REFRESH_INTERVAL = 15_000;
+  const PERMIT_CAPTURE_DURATION = 30_000;
 
   let replayEnabled = false;
   let heatmapEnabled = false;
@@ -53,7 +60,36 @@ import { getReplaySafeUrl, redactReplayNavigationEvent } from './url.js';
   let replayLastChunkIndex = 0;
   let replayStopped = false;
   let heatmapStarted = false;
+  let heatmapStopFn = null;
+  const permits = new Map();
+  const permitRefreshTimers = new Map();
+  const permitExpiryTimers = new Map();
+  const permitEpochs = new Map();
   const redactReplayResourceEvent = createReplayResourceRedactor();
+
+  const revokeCapture = type => {
+    permitEpochs.set(type, (permitEpochs.get(type) || 0) + 1);
+    permits.delete(type);
+    const refreshTimer = permitRefreshTimers.get(type);
+    if (refreshTimer) clearInterval(refreshTimer);
+    permitRefreshTimers.delete(type);
+    const expiryTimer = permitExpiryTimers.get(type);
+    if (expiryTimer) clearTimeout(expiryTimer);
+    permitExpiryTimers.delete(type);
+    if (type === 'record') {
+      replayStopped = true;
+      replayBuffer = [];
+      if (replayFlushTimer) clearInterval(replayFlushTimer);
+      if (replayStopFn) replayStopFn();
+      replayStopFn = null;
+    } else {
+      heatmapStarted = false;
+      heatmapBuffer = [];
+      if (heatmapFlushTimer) clearTimeout(heatmapFlushTimer);
+      if (heatmapStopFn) heatmapStopFn();
+      heatmapStopFn = null;
+    }
+  };
 
   const getSessionCache = () => window.umami?.getSession?.()?.cache;
 
@@ -111,10 +147,87 @@ import { getReplaySafeUrl, redactReplayNavigationEvent } from './url.js';
 
   const isReplayFullSnapshot = event => event?.type === RRWEB_EVENT_TYPE.FullSnapshot;
 
-  const sendPayload = (type, payload, useKeepalive = false) => {
+  const hasLiveCapturePermit = type => {
+    const permit = permits.get(type);
+
+    if (!permit || permit.captureExpiresAt <= Date.now()) {
+      revokeCapture(type);
+      return false;
+    }
+
+    return true;
+  };
+
+  const getPermit = async (type, cache) => {
+    if (!cache || !permitEndpoint || !/^\/(?!\/)[^\\]*$/.test(permitEndpoint)) {
+      revokeCapture(type);
+      return null;
+    }
+
+    const epoch = permitEpochs.get(type) || 0;
+    const cached = permits.get(type);
+    if (cached && cached.captureExpiresAt <= Date.now()) {
+      revokeCapture(type);
+      return null;
+    }
+    if (cached?.cache === cache && cached.expiresAt > Date.now()) return cached.token;
+
+    const requestedAt = Date.now();
+
+    try {
+      const response = await fetch(new URL(permitEndpoint, window.location.origin), {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ website, cache, feature: type }),
+      });
+      if ((permitEpochs.get(type) || 0) !== epoch) return null;
+      if (!response.ok) {
+        revokeCapture(type);
+        return null;
+      }
+
+      const result = await response.json();
+      if ((permitEpochs.get(type) || 0) !== epoch) return null;
+      if (
+        typeof result?.permit !== 'string' ||
+        result.permit.length > 4096 ||
+        Date.now() >= requestedAt + PERMIT_CAPTURE_DURATION
+      ) {
+        revokeCapture(type);
+        return null;
+      }
+
+      const captureExpiresAt = requestedAt + PERMIT_CAPTURE_DURATION;
+      const permit = {
+        token: result.permit,
+        cache,
+        expiresAt: Date.now() + PERMIT_REFRESH_INTERVAL,
+        captureExpiresAt,
+      };
+      const previousExpiryTimer = permitExpiryTimers.get(type);
+      if (previousExpiryTimer) clearTimeout(previousExpiryTimer);
+      permits.set(type, permit);
+      permitExpiryTimers.set(
+        type,
+        setTimeout(() => {
+          if (permits.get(type) === permit) revokeCapture(type);
+        }, captureExpiresAt - Date.now()),
+      );
+      return result.permit;
+    } catch {
+      if ((permitEpochs.get(type) || 0) === epoch) revokeCapture(type);
+      return null;
+    }
+  };
+
+  const sendPayload = async (type, payload, useKeepalive = false) => {
     const cache = getSessionCache();
 
     if (!cache) return;
+
+    const permit = await getPermit(type, cache);
+    if (!permit || !hasLiveCapturePermit(type)) return;
 
     const body = getPayloadBody(type, payload);
 
@@ -127,6 +240,10 @@ import { getReplaySafeUrl, redactReplayNavigationEvent } from './url.js';
       headers: {
         'Content-Type': 'application/json',
         'x-umami-cache': cache,
+        'x-umami-permit': permit,
+        ...(type === 'record' && payload.events?.some(event => event?.type === REPLAY_FRAGMENT_TYPE)
+          ? { 'x-umami-record-batch': '1' }
+          : {}),
       },
       credentials: 'omit',
     }).catch(() => {});
@@ -147,6 +264,7 @@ import { getReplaySafeUrl, redactReplayNavigationEvent } from './url.js';
 
   const getReplayEventFragments = (event, chunkTimestamp) => {
     const value = JSON.stringify(event);
+    if (getPayloadSize(value) > REPLAY_MAX_EVENT_SIZE) return [];
     const id = getReplayFragmentId();
     const eventTimestamp = getReplayEventTimestamp(event);
     const fragments = [];
@@ -181,6 +299,7 @@ import { getReplaySafeUrl, redactReplayNavigationEvent } from './url.js';
       }
 
       fragments.push(value.slice(start, end));
+      if (fragments.length > REPLAY_MAX_FRAGMENT_PARTS) return [];
       start = end;
     }
 
@@ -192,11 +311,15 @@ import { getReplaySafeUrl, redactReplayNavigationEvent } from './url.js';
   const sendReplayEventFragments = (event, timestamp, useKeepalive = false) => {
     const fragments = getReplayEventFragments(event, timestamp);
 
-    fragments.forEach((fragment, index) => {
-      sendReplayChunk([fragment], timestamp + index, useKeepalive);
-    });
+    if (
+      fragments.length &&
+      getReplayPayloadSize(fragments, timestamp) <= REPLAY_MAX_GROUP_PAYLOAD_SIZE
+    ) {
+      sendReplayChunk(fragments, timestamp, useKeepalive);
+      replayLastChunkIndex = Math.max(replayLastChunkIndex, timestamp + fragments.length - 1);
+    }
 
-    return fragments.length;
+    return fragments.length || 1;
   };
 
   const sendReplayEvents = (events, timestamp, useKeepalive = false) => {
@@ -285,6 +408,8 @@ import { getReplaySafeUrl, redactReplayNavigationEvent } from './url.js';
   };
 
   const queueHeatmapEvent = event => {
+    if (!heatmapStarted || !hasLiveCapturePermit('heatmap')) return;
+
     heatmapBuffer.push({
       ...event,
       timestamp: Date.now(),
@@ -441,11 +566,13 @@ import { getReplaySafeUrl, redactReplayNavigationEvent } from './url.js';
 
     replayStopFn = record({
       emit(event) {
-        if (replayStopped) return;
+        if (replayStopped || !hasLiveCapturePermit('record')) return;
 
         event = redactReplayResourceEvent(redactReplayNavigationEvent(event));
 
         if (!event) return;
+
+        event = maskStrictReplayEvents([event])[0];
 
         if (Date.now() - replayStartTime > maxDuration) {
           stopReplay();
@@ -522,6 +649,7 @@ import { getReplaySafeUrl, redactReplayNavigationEvent } from './url.js';
     let scrollTimer = null;
 
     const flushScroll = () => {
+      if (!heatmapStarted || !hasLiveCapturePermit('heatmap')) return;
       if (maxScrollPct <= 0 || maxScrollPct <= lastFlushedScrollPct) return;
 
       const { pageW, pageH } = computePageMetrics({ includeBounds: true });
@@ -541,6 +669,7 @@ import { getReplaySafeUrl, redactReplayNavigationEvent } from './url.js';
     };
 
     const onClick = event => {
+      if (!heatmapStarted || !hasLiveCapturePermit('heatmap')) return;
       if (!event.isTrusted || event.button !== 0) return;
 
       const {
@@ -578,9 +707,11 @@ import { getReplaySafeUrl, redactReplayNavigationEvent } from './url.js';
     };
 
     const onScroll = () => {
+      if (!heatmapStarted || !hasLiveCapturePermit('heatmap')) return;
       if (scrollTimer) return;
 
       scrollTimer = setTimeout(() => {
+        if (!heatmapStarted || !hasLiveCapturePermit('heatmap')) return;
         const { pct } = computeScrollPct();
 
         if (pct > maxScrollPct) {
@@ -593,6 +724,7 @@ import { getReplaySafeUrl, redactReplayNavigationEvent } from './url.js';
     };
 
     const onUrlChange = () => {
+      if (!heatmapStarted || !hasLiveCapturePermit('heatmap')) return;
       if (location.href === scrollUrl) return;
 
       flushScroll();
@@ -607,40 +739,52 @@ import { getReplaySafeUrl, redactReplayNavigationEvent } from './url.js';
     const hookHistory = method => {
       const original = history[method];
 
-      history[method] = function (...args) {
+      const wrapped = function (...args) {
         const result = original.apply(this, args);
         onUrlChange();
         return result;
       };
+
+      history[method] = wrapped;
+      return () => {
+        if (history[method] === wrapped) history[method] = original;
+      };
     };
 
-    hookHistory('pushState');
-    hookHistory('replaceState');
+    const restorePushState = hookHistory('pushState');
+    const restoreReplaceState = hookHistory('replaceState');
     window.addEventListener('popstate', onUrlChange);
     window.addEventListener('scroll', onScroll, { passive: true });
     document.addEventListener('click', onClick, { capture: true, passive: true });
 
-    {
-      const { pct } = computeScrollPct();
-
-      if (pct > maxScrollPct) {
-        maxScrollPct = pct;
-      }
-
-      flushScroll();
-    }
-
-    document.addEventListener('visibilitychange', () => {
+    const onVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
         flushScroll();
         flushHeatmap(true);
       }
-    });
+    };
 
-    window.addEventListener('beforeunload', () => {
+    const onBeforeUnload = () => {
       flushScroll();
       flushHeatmap(true);
-    });
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('beforeunload', onBeforeUnload);
+
+    heatmapStopFn = () => {
+      if (scrollTimer) clearTimeout(scrollTimer);
+      restorePushState();
+      restoreReplaceState();
+      window.removeEventListener('popstate', onUrlChange);
+      window.removeEventListener('scroll', onScroll);
+      document.removeEventListener('click', onClick, true);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('beforeunload', onBeforeUnload);
+    };
+
+    const { pct } = computeScrollPct();
+    if (pct > maxScrollPct) maxScrollPct = pct;
+    flushScroll();
   };
 
   const waitForSession = (callback, attempts = 0) => {
@@ -654,19 +798,43 @@ import { getReplaySafeUrl, redactReplayNavigationEvent } from './url.js';
     setTimeout(() => waitForSession(callback, attempts + 1), 100);
   };
 
-  const startCaptures = () => {
-    const shouldRecordReplay = replayEnabled && shouldSample(sampleRate);
-    const shouldRecordHeatmap = heatmapEnabled && shouldSample(heatmapSampleRate);
+  const startCaptures = async () => {
+    const cache = getSessionCache();
+    if (!cache) return;
 
-    if (shouldRecordHeatmap) {
+    const shouldRecordReplay =
+      replayEnabled &&
+      maskLevel === 'strict' &&
+      shouldSample(sampleRate) &&
+      !!(await getPermit('record', cache));
+    const shouldRecordHeatmap =
+      heatmapEnabled && shouldSample(heatmapSampleRate) && !!(await getPermit('heatmap', cache));
+    const captureHeatmap = shouldRecordHeatmap && hasLiveCapturePermit('heatmap');
+    const captureReplay = shouldRecordReplay && hasLiveCapturePermit('record');
+
+    if (captureHeatmap) {
       beginHeatmapCapture();
     }
 
-    if (shouldRecordReplay) {
+    if (captureReplay) {
       beginReplayCapture();
     }
 
-    if (!shouldRecordHeatmap && !shouldRecordReplay) {
+    for (const [type, enabled] of [
+      ['heatmap', captureHeatmap],
+      ['record', captureReplay],
+    ]) {
+      if (enabled && !permitRefreshTimers.has(type)) {
+        permitRefreshTimers.set(
+          type,
+          setInterval(() => {
+            void getPermit(type, getSessionCache());
+          }, PERMIT_REFRESH_INTERVAL),
+        );
+      }
+    }
+
+    if (!captureHeatmap && !captureReplay) {
       return;
     }
 

@@ -158,11 +158,6 @@ const operation2 = defineOperation({
                       format: 'date-time',
                       description: 'Date and time the record was last updated.',
                     },
-                    deletedAt: {
-                      type: 'string',
-                      format: 'date-time',
-                      description: 'Date and time the record was deleted, if applicable.',
-                    },
                     name: {
                       type: 'string',
                       description: 'Display name of the resource.',
@@ -170,6 +165,11 @@ const operation2 = defineOperation({
                     teamId: {
                       type: 'string',
                       description: 'ID of the associated team.',
+                    },
+                    deletedAt: {
+                      type: 'string',
+                      format: 'date-time',
+                      description: 'Date and time the record was deleted, if applicable.',
                     },
                     slug: {
                       type: 'string',
@@ -181,9 +181,9 @@ const operation2 = defineOperation({
                     'userId',
                     'createdAt',
                     'updatedAt',
-                    'deletedAt',
                     'name',
                     'teamId',
+                    'deletedAt',
                     'slug',
                   ],
                 },
@@ -297,11 +297,6 @@ const operation3 = defineOperation({
                   format: 'date-time',
                   description: 'Date and time the record was last updated.',
                 },
-                deletedAt: {
-                  type: 'string',
-                  format: 'date-time',
-                  description: 'Date and time the record was deleted, if applicable.',
-                },
                 name: {
                   type: 'string',
                   description: 'Display name of the resource.',
@@ -309,6 +304,11 @@ const operation3 = defineOperation({
                 teamId: {
                   type: 'string',
                   description: 'ID of the associated team.',
+                },
+                deletedAt: {
+                  type: 'string',
+                  format: 'date-time',
+                  description: 'Date and time the record was deleted, if applicable.',
                 },
                 slug: {
                   type: 'string',
@@ -320,9 +320,9 @@ const operation3 = defineOperation({
                 'userId',
                 'createdAt',
                 'updatedAt',
-                'deletedAt',
                 'name',
                 'teamId',
+                'deletedAt',
                 'slug',
               ],
             },

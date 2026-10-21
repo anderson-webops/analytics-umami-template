@@ -24,6 +24,7 @@ describe('deleteClickhouseCollectionSources', () => {
     await deleteClickhouseCollectionSources(['source-1', 'source-1', 'source-2']);
 
     expect(CLICKHOUSE_COLLECTION_TABLES).toContain('session_link');
+    expect(CLICKHOUSE_COLLECTION_TABLES).toContain('event_data_pivot_verified');
     expect(command).toHaveBeenCalledTimes(CLICKHOUSE_COLLECTION_TABLES.length);
 
     for (const [index, table] of CLICKHOUSE_COLLECTION_TABLES.entries()) {
@@ -38,6 +39,10 @@ describe('deleteClickhouseCollectionSources', () => {
 
     expect(command).toHaveBeenCalledWith(
       'ALTER TABLE session_link DELETE WHERE website_id IN {sourceIds:Array(UUID)}',
+      { sourceIds: ['source-1', 'source-2'] },
+    );
+    expect(command).toHaveBeenCalledWith(
+      'ALTER TABLE event_data_pivot_verified DELETE WHERE website_id IN {sourceIds:Array(UUID)}',
       { sourceIds: ['source-1', 'source-2'] },
     );
   });

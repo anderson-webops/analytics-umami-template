@@ -22,11 +22,11 @@ test.describe('System', () => {
     expect(typeof response.body.updatesDisabled).toBe('boolean');
   });
 
-  test('GET /api/scripts/telemetry serves a javascript response', async ({ api }) => {
+  test('GET /api/scripts/telemetry is unavailable when telemetry is disabled', async ({ api }) => {
+    const config = await api.get('/api/config');
     const response = await api.get('/api/scripts/telemetry');
 
-    expect(response.status).toBe(200);
-    expect(response.headers['content-type']).toContain('javascript');
-    expect(response.text.length).toBeGreaterThan(0);
+    expect(config.body.telemetryDisabled).toBe(true);
+    expect(response.status).toBe(404);
   });
 });

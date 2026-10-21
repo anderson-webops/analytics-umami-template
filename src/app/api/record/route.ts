@@ -6,6 +6,7 @@ import {
   reserveCollectionClientBudget,
 } from '@/lib/collection-budget';
 import { getCollectionClientKeys } from '@/lib/collection-client-key';
+import { hasCollectionPermit } from '@/lib/collection-permit';
 import {
   getCollectionIpLimit,
   getCollectionSourceStatus,
@@ -28,10 +29,18 @@ import {
 } from '@/lib/replay';
 import {
   getReplayChargedBytes,
+  MAX_REPLAY_BYTES,
+  markAcknowledgedReplayChunk,
+  markUnstoredReplayChunkRetryable,
   ReplayBudgetExceededError,
+  ReplayWritePendingError,
   reserveReplayBudget,
 } from '@/lib/replay-budget';
-import { replayFragmentBuffer } from '@/lib/replay-fragment-buffer';
+import {
+  type CompletedReplayFragmentBatch,
+  MAX_FRAGMENT_PARTS,
+  reassembleReplayFragmentBatch,
+} from '@/lib/replay-fragment-buffer';
 import { countReplayStructureUnits } from '@/lib/replay-structure';
 import { parseRequest } from '@/lib/request';
 import {
@@ -48,10 +57,12 @@ import { getWebsite, withActiveCollectionSource } from '@/queries/prisma';
 import { saveReassembledRecordingFragments, saveRecording } from '@/queries/sql';
 import { saveHeatmapEvents } from '@/queries/sql/heatmap/saveHeatmapEvents';
 
-const MAX_RECORD_REQUEST_BYTES = 1024 * 1024;
+const MAX_RECORD_REQUEST_BYTES = MAX_REPLAY_BYTES + 2 * 1024 * 1024;
 const MAX_RECORD_EVENTS = 200;
+const MAX_CONCURRENT_REPLAY_BATCHES = 4;
 const MAX_REPLAY_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
+let activeReplayBatches = 0;
 
 const replayEventTimestampParam = z.coerce
   .number()
@@ -133,10 +144,14 @@ const schema = z.discriminatedUnion('type', [
 ]);
 
 export function OPTIONS() {
-  return corsPreflight();
+  return corsPreflight({
+    'Access-Control-Allow-Headers':
+      'Content-Type, x-umami-cache, x-umami-permit, x-umami-record-batch',
+  });
 }
 
 export async function POST(request: Request) {
+  let hasReplayBatchSlot = false;
   try {
     const collectionLimit = await getCollectionIpLimit(request);
 
@@ -144,9 +159,31 @@ export async function POST(request: Request) {
       return withCorsHeaders(tooManyRequests(collectionLimit.retryAfter));
     }
 
+    const cacheHeader = request.headers.get('x-umami-cache');
+    const cache: CacheToken | null = cacheHeader ? parseCacheToken(cacheHeader, secret()) : null;
+    const permit = request.headers.get('x-umami-permit');
+    const batchVersion = request.headers.get('x-umami-record-batch');
+    if (batchVersion && batchVersion !== '1') {
+      return withCorsHeaders(badRequest({ message: 'Unsupported replay batch version.' }));
+    }
+    const hasLargeBodyPermit =
+      batchVersion === '1' &&
+      cache?.type === CACHE_TOKEN_TYPE &&
+      !!cache.websiteId &&
+      !!cache.sessionId &&
+      !!cache.visitId &&
+      hasCollectionPermit(permit, cache, 'record', request.headers.get('origin'));
+    if (hasLargeBodyPermit) {
+      if (activeReplayBatches >= MAX_CONCURRENT_REPLAY_BATCHES) {
+        return withCorsHeaders(tooManyRequests(1));
+      }
+      activeReplayBatches += 1;
+      hasReplayBatchSlot = true;
+    }
+
     const { body, error } = await parseRequest(request, schema, {
       skipAuth: true,
-      maxBodyBytes: MAX_RECORD_REQUEST_BYTES,
+      maxBodyBytes: hasLargeBodyPermit ? MAX_RECORD_REQUEST_BYTES : 1024 * 1024,
       bodyPreflight: body => {
         if (!body || typeof body !== 'object' || Array.isArray(body)) {
           return false;
@@ -186,18 +223,14 @@ export async function POST(request: Request) {
     const { website: websiteId } = body.payload;
     const events = body.payload.events;
     const timestamp = body.payload.timestamp;
-    if (!events?.length) {
-      return withCorsHeaders(json({ ok: true }));
-    }
 
-    // Parse cache token to get session info
-    const cacheHeader = request.headers.get('x-umami-cache');
+    if (batchVersion === '1' && body.type !== 'record') {
+      return withCorsHeaders(badRequest({ message: 'Replay batch requires record events.' }));
+    }
 
     if (!cacheHeader) {
       return withCorsHeaders(badRequest({ message: 'Missing session token.' }));
     }
-
-    const cache: CacheToken | null = parseCacheToken(cacheHeader, secret());
 
     if (
       cache?.type !== CACHE_TOKEN_TYPE ||
@@ -207,6 +240,12 @@ export async function POST(request: Request) {
       !cache.visitId
     ) {
       return withCorsHeaders(badRequest({ message: 'Invalid session token.' }));
+    }
+
+    const feature = body.type === 'record' ? 'record' : 'heatmap';
+
+    if (!hasCollectionPermit(permit, cache, feature, request.headers.get('origin'))) {
+      return withCorsHeaders(forbidden({ message: 'Recording permission required.' }));
     }
 
     const sourceStatus = await getCollectionSourceStatus(websiteId);
@@ -249,6 +288,14 @@ export async function POST(request: Request) {
 
     const clientIp = getIpAddress(request.headers) || 'unknown';
 
+    let pendingExternalReplayChunkIndex: number | null = null;
+    let pendingExternalReplayGeneration: number | null = null;
+    let pendingExternalReplayCharge: { bytes: number; events: number } | null = null;
+    let externalSinkStarted = false;
+    let completedReplayFragment: CompletedReplayFragmentBatch | null = null;
+    let pendingFragmentGeneration: number | null = null;
+    let fragmentSinkStarted = false;
+
     try {
       const externalWrite = await withActiveCollectionSource(
         'website',
@@ -262,10 +309,25 @@ export async function POST(request: Request) {
             select: {
               recorderEnabled: true,
               replayConfig: true,
+              domain: true,
               userId: true,
               teamId: true,
+              collectionGeneration: true,
             },
           });
+
+          if (
+            !currentWebsite ||
+            !hasCollectionPermit(
+              permit,
+              cache,
+              feature,
+              request.headers.get('origin'),
+              currentWebsite,
+            )
+          ) {
+            throw new Error('COLLECTION_PERMIT_EXPIRED');
+          }
 
           if (!currentWebsite?.recorderEnabled) {
             throw new Error('RECORDER_DISABLED');
@@ -281,15 +343,24 @@ export async function POST(request: Request) {
 
           const recorderConfig = getRecorderConfig(currentWebsite.replayConfig);
           if (body.type === 'record') {
-            if (recorderConfig.replayEnabled !== true) {
+            if (recorderConfig.replayEnabled !== true || recorderConfig.maskLevel !== 'strict') {
               throw new Error('REPLAY_DISABLED');
+            }
+
+            if (events.length === 0) {
+              if (batchVersion === '1') throw new ReplayBudgetExceededError();
+              return null;
             }
 
             const hasFragment = events.some(event => event?.type === REPLAY_EVENT_FRAGMENT_TYPE);
 
             if (
-              hasFragment &&
-              (events.length !== 1 || timestamp === undefined || !isReplayEventFragment(events[0]))
+              (hasFragment &&
+                (batchVersion !== '1' ||
+                  timestamp === undefined ||
+                  events.length > MAX_FRAGMENT_PARTS ||
+                  events.some(event => !isReplayEventFragment(event)))) ||
+              (!hasFragment && batchVersion === '1')
             ) {
               throw new ReplayBudgetExceededError();
             }
@@ -308,22 +379,57 @@ export async function POST(request: Request) {
             const maxTimestamp = eventTimestamps.length ? Math.max(...eventTimestamps) : fallbackMs;
 
             const chunkIndex = timestamp || Math.floor(Date.now() / 1000);
-            const replayBytes = Buffer.byteLength(JSON.stringify(events), 'utf8');
-            const isNewChunk = await reserveReplayBudget(transaction, {
-              websiteId,
-              visitId,
-              accountType,
-              accountId,
-              chunkIndex,
-              idempotent: timestamp !== undefined,
-              bytes: replayBytes,
-              events: events.length,
-              structureUnits,
-            });
+            if (hasFragment) {
+              completedReplayFragment = reassembleReplayFragmentBatch({
+                websiteId,
+                sessionId,
+                visitId,
+                accountType,
+                accountId,
+                collectionGeneration: currentWebsite.collectionGeneration,
+                chunkIndex,
+                events,
+              });
 
-            if (!isNewChunk) {
-              return null;
+              if (!replayEventParam.safeParse(completedReplayFragment.event).success) {
+                throw new ReplayBudgetExceededError();
+              }
             }
+
+            let chargedBytes = 0;
+            let reservedChunks = 0;
+            const reservations = completedReplayFragment
+              ? completedReplayFragment.reservations
+              : [
+                  {
+                    chunkIndex,
+                    bytes: Buffer.byteLength(JSON.stringify(events), 'utf8'),
+                    structureUnits,
+                  },
+                ];
+            for (const reservation of reservations) {
+              const isNewChunk = await reserveReplayBudget(transaction, {
+                websiteId,
+                visitId,
+                accountType,
+                accountId,
+                chunkIndex: reservation.chunkIndex,
+                idempotent: timestamp !== undefined,
+                pendingExternalWrite:
+                  hasFragment || (clickhouse.enabled && timestamp !== undefined),
+                bytes: reservation.bytes,
+                events: hasFragment ? 1 : events.length,
+                structureUnits: reservation.structureUnits,
+              });
+
+              if (isNewChunk) reservedChunks += 1;
+              chargedBytes += getReplayChargedBytes(reservation.bytes, reservation.structureUnits);
+            }
+
+            if (hasFragment && reservedChunks !== events.length) {
+              throw new ReplayWritePendingError();
+            }
+            if (!hasFragment && reservedChunks === 0) return null;
 
             await reserveCollectionClientBudget(
               transaction,
@@ -336,7 +442,7 @@ export async function POST(request: Request) {
               },
               'replay',
               {
-                bytes: getReplayChargedBytes(replayBytes, structureUnits) + events.length * 512,
+                bytes: chargedBytes + events.length * 512,
                 rows: events.length,
                 requests: 1,
               },
@@ -355,19 +461,53 @@ export async function POST(request: Request) {
             };
 
             if (hasFragment) {
+              if (!completedReplayFragment) {
+                throw new ReplayBudgetExceededError();
+              }
+
+              if (!clickhouse.enabled) {
+                await saveReassembledRecordingFragments(
+                  {
+                    websiteId,
+                    sessionId,
+                    visitId,
+                    event: completedReplayFragment.event,
+                    parts: completedReplayFragment.parts,
+                    startedAt: recording.startedAt,
+                    endedAt: recording.endedAt,
+                  },
+                  transaction,
+                );
+                for (const part of completedReplayFragment.parts) {
+                  await markAcknowledgedReplayChunk(
+                    transaction,
+                    websiteId,
+                    visitId,
+                    part.chunkIndex,
+                  );
+                }
+                return null;
+              }
+
               return {
                 kind: 'replay-fragment' as const,
-                event: events[0],
-                chunkIndex,
                 startedAt: recording.startedAt,
                 endedAt: recording.endedAt,
                 accountType,
                 accountId,
+                collectionGeneration: currentWebsite.collectionGeneration,
               };
             }
 
             if (clickhouse.enabled) {
-              return { kind: 'replay' as const, recording, accountType, accountId };
+              return {
+                kind: 'replay' as const,
+                recording,
+                accountType,
+                accountId,
+                collectionGeneration: currentWebsite.collectionGeneration,
+                replayCharge: { bytes: chargedBytes, events: events.length },
+              };
             }
 
             await saveRecording(recording, transaction);
@@ -376,6 +516,10 @@ export async function POST(request: Request) {
 
           if (recorderConfig.heatmapEnabled !== true) {
             throw new Error('HEATMAP_DISABLED');
+          }
+
+          if (events.length === 0) {
+            return null;
           }
 
           const fallbackMs = (timestamp || Math.floor(Date.now() / 1000)) * 1000;
@@ -432,32 +576,41 @@ export async function POST(request: Request) {
       );
 
       if (externalWrite) {
-        const completed =
-          externalWrite.kind === 'replay-fragment'
-            ? replayFragmentBuffer.stage({
-                websiteId,
-                sessionId,
-                visitId,
-                accountType: externalWrite.accountType,
-                accountId: externalWrite.accountId,
-                chunkIndex: externalWrite.chunkIndex,
-                event: externalWrite.event,
-              })
-            : null;
-
-        if (completed && !replayEventParam.safeParse(completed.event).success) {
-          throw new ReplayBudgetExceededError();
+        if (externalWrite.kind === 'replay' && timestamp !== undefined) {
+          pendingExternalReplayChunkIndex = externalWrite.recording.chunkIndex;
+          pendingExternalReplayGeneration = externalWrite.collectionGeneration;
+          pendingExternalReplayCharge = externalWrite.replayCharge;
         }
 
-        if (externalWrite.kind === 'replay-fragment' && !completed) {
-          return withCorsHeaders(json({ ok: true }));
+        if (externalWrite.kind === 'replay-fragment') {
+          pendingFragmentGeneration = externalWrite.collectionGeneration;
         }
 
         await withActiveCollectionSource('website', websiteId, async transaction => {
           const currentWebsite = await transaction.website.findFirst({
             where: { id: websiteId, deletedAt: null },
-            select: { recorderEnabled: true, replayConfig: true, userId: true, teamId: true },
+            select: {
+              recorderEnabled: true,
+              replayConfig: true,
+              domain: true,
+              userId: true,
+              teamId: true,
+              collectionGeneration: true,
+            },
           });
+
+          if (
+            !currentWebsite ||
+            !hasCollectionPermit(
+              permit,
+              cache,
+              feature,
+              request.headers.get('origin'),
+              currentWebsite,
+            )
+          ) {
+            throw new Error('COLLECTION_PERMIT_EXPIRED');
+          }
 
           if (!currentWebsite?.recorderEnabled) {
             throw new Error('RECORDER_DISABLED');
@@ -473,32 +626,45 @@ export async function POST(request: Request) {
           const currentConfig = getRecorderConfig(currentWebsite.replayConfig);
 
           if (externalWrite.kind === 'replay-fragment') {
-            if (currentConfig.replayEnabled !== true) {
+            if (currentConfig.replayEnabled !== true || currentConfig.maskLevel !== 'strict') {
               throw new Error('REPLAY_DISABLED');
             }
 
-            if (!completed) {
+            if (!completedReplayFragment) {
               throw new ReplayBudgetExceededError();
             }
 
+            fragmentSinkStarted = true;
             await saveReassembledRecordingFragments(
               {
                 websiteId,
                 sessionId,
                 visitId,
-                event: completed.event,
-                parts: completed.parts,
+                event: completedReplayFragment.event,
+                parts: completedReplayFragment.parts,
                 startedAt: externalWrite.startedAt,
                 endedAt: externalWrite.endedAt,
               },
               clickhouse.enabled ? undefined : transaction,
             );
+            for (const part of completedReplayFragment.parts) {
+              await markAcknowledgedReplayChunk(transaction, websiteId, visitId, part.chunkIndex);
+            }
           } else if (externalWrite.kind === 'replay') {
-            if (currentConfig.replayEnabled !== true) {
+            if (currentConfig.replayEnabled !== true || currentConfig.maskLevel !== 'strict') {
               throw new Error('REPLAY_DISABLED');
             }
 
+            externalSinkStarted = true;
             await saveRecording(externalWrite.recording);
+            if (pendingExternalReplayChunkIndex !== null) {
+              await markAcknowledgedReplayChunk(
+                transaction,
+                websiteId,
+                visitId,
+                pendingExternalReplayChunkIndex,
+              );
+            }
           } else {
             if (currentConfig.heatmapEnabled !== true) {
               throw new Error('HEATMAP_DISABLED');
@@ -509,6 +675,63 @@ export async function POST(request: Request) {
         });
       }
     } catch (error: any) {
+      if (completedReplayFragment && pendingFragmentGeneration !== null && !fragmentSinkStarted) {
+        try {
+          await withActiveCollectionSource('website', websiteId, async transaction => {
+            const currentWebsite = await transaction.website.findFirst({
+              where: { id: websiteId, deletedAt: null },
+              select: { collectionGeneration: true },
+            });
+
+            if (currentWebsite?.collectionGeneration === pendingFragmentGeneration) {
+              for (const charge of completedReplayFragment.charges) {
+                await markUnstoredReplayChunkRetryable(
+                  transaction,
+                  websiteId,
+                  visitId,
+                  charge.chunkIndex,
+                  charge,
+                );
+              }
+            }
+          });
+        } catch {
+          return withCorsHeaders(serverError(new Error('Replay reservation recovery failed.')));
+        }
+      }
+
+      if (
+        pendingExternalReplayChunkIndex !== null &&
+        pendingExternalReplayGeneration !== null &&
+        pendingExternalReplayCharge !== null &&
+        (!externalSinkStarted || error?.code === 'KAFKA_MESSAGE_TOO_LARGE') &&
+        error?.message !== 'COLLECTION_SOURCE_NOT_FOUND'
+      ) {
+        const chunkIndex = pendingExternalReplayChunkIndex;
+        const charge = pendingExternalReplayCharge;
+
+        try {
+          await withActiveCollectionSource('website', websiteId, async transaction => {
+            const currentWebsite = await transaction.website.findFirst({
+              where: { id: websiteId, deletedAt: null },
+              select: { collectionGeneration: true },
+            });
+
+            if (currentWebsite?.collectionGeneration === pendingExternalReplayGeneration) {
+              await markUnstoredReplayChunkRetryable(
+                transaction,
+                websiteId,
+                visitId,
+                chunkIndex,
+                charge,
+              );
+            }
+          });
+        } catch {
+          return withCorsHeaders(serverError(new Error('Replay reservation recovery failed.')));
+        }
+      }
+
       if (error?.message === 'RECORDER_DISABLED') {
         return withCorsHeaders(json({ ok: false, reason: 'recorder_disabled' }));
       }
@@ -528,6 +751,20 @@ export async function POST(request: Request) {
       if (error?.message === 'COLLECTION_SOURCE_OWNER_CHANGED') {
         return withCorsHeaders(
           conflict({ message: 'Website ownership changed. Retry collection.' }),
+        );
+      }
+
+      if (error?.message === 'COLLECTION_PERMIT_EXPIRED') {
+        return withCorsHeaders(forbidden({ message: 'Recording permission required.' }));
+      }
+
+      if (error instanceof ReplayWritePendingError) {
+        return withCorsHeaders(conflict({ message: 'Replay write is pending reconciliation.' }));
+      }
+
+      if (error?.code === 'KAFKA_MESSAGE_TOO_LARGE') {
+        return withCorsHeaders(
+          payloadTooLarge({ message: 'Replay payload exceeds transport limit.' }),
         );
       }
 
@@ -552,10 +789,14 @@ export async function POST(request: Request) {
       }
 
       throw error;
+    } finally {
+      completedReplayFragment?.release();
     }
 
     return withCorsHeaders(json({ ok: true }));
   } catch (e) {
     return withCorsHeaders(serverError(e));
+  } finally {
+    if (hasReplayBatchSlot) activeReplayBatches -= 1;
   }
 }

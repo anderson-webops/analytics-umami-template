@@ -11,9 +11,9 @@ export const operations = [
     auth: 'bearer-or-share',
     operation: {
       operationId: 'getWebsiteRevenueMetrics',
-      summary: 'Get website revenue by dimension',
+      summary: 'Get unverified historical revenue claims by dimension',
       description:
-        'Returns revenue grouped by the requested dimension, such as country or referrer, for the selected currency and date range.',
+        'Returns unverified historical event claims grouped by the requested dimension, such as country or referrer. Values do not prove completed orders or payments.',
       tags: ['Websites'],
       requestParams: { path: z.object({ websiteId: z.uuid() }), query: revenueMetricsQuerySchema },
       responses: {
@@ -30,8 +30,12 @@ export const operations = [
                       properties: {
                         name: { type: 'string', description: 'Display name of the resource.' },
                         value: { type: 'number' },
+                        revenueProvenance: {
+                          type: 'string',
+                          enum: ['unverified_historical_event_claims'],
+                        },
                       },
-                      required: ['name', 'value'],
+                      required: ['name', 'value', 'revenueProvenance'],
                     },
                   },
                   {
@@ -42,8 +46,12 @@ export const operations = [
                         name: { type: 'string', description: 'Display name of the resource.' },
                         value: { type: 'number' },
                         country: { type: 'string', description: 'Country code of the visitor.' },
+                        revenueProvenance: {
+                          type: 'string',
+                          enum: ['unverified_historical_event_claims'],
+                        },
                       },
-                      required: ['name', 'value', 'country'],
+                      required: ['name', 'value', 'country', 'revenueProvenance'],
                     },
                   },
                 ],

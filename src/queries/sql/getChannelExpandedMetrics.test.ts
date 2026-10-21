@@ -87,6 +87,7 @@ describe('getChannelExpandedMetrics postgres branch', () => {
       'sum(case when visit_stats.c = 1 and coalesce(visit_events.has_custom_event, 0) = 0 then 1 else 0 end) as "bounces"',
     );
     expect(query).toContain('visit_events as');
+    expect(query).toContain('and trust_tier = 1');
     expect(query).toContain('left join visit_events');
     // getTimestampDiffSQL output is injected into the totaltime column
     expect(query).toContain('sum(ts_diff(min_time, max_time)) as "totaltime"');
@@ -157,6 +158,7 @@ describe('getChannelExpandedMetrics clickhouse branch', () => {
     expect(query).toContain('uniq(t.visit_id) as "visits"');
     expect(query).toContain('sumIf(1, t.c = 1 and ifNull(e.has_custom_event, 0) = 0) as "bounces"');
     expect(query).toContain('left join (');
+    expect(query).toContain('and trust_tier = 1');
     expect(query).toContain('sum(max_time-min_time) as "totaltime"');
     expect(query).toContain('where website_id = {websiteId:UUID}');
     expect(query).toContain(

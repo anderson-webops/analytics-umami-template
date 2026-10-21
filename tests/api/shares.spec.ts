@@ -54,7 +54,7 @@ test.describe('Shares', () => {
       parameters: { overview: true },
       createdAt: expect.any(String),
     });
-    expect(slug).toMatch(/^[A-Za-z0-9]{16}$/);
+    expect(slug).toMatch(/^[A-Za-z0-9_-]{24}$/);
 
     shareId = response.body.id;
   });
@@ -191,7 +191,7 @@ test.describe('Shares', () => {
 
     expect(rotated.status).toBe(200);
     expect(rotated.body.id).not.toBe(shareId);
-    expect(rotated.body.slug).toMatch(/^[A-Za-z0-9]{16}$/);
+    expect(rotated.body.slug).toMatch(/^[A-Za-z0-9_-]{24}$/);
     expect(rotated.body.slug).not.toBe(slug);
     expect((await api.get(`/api/share/${slug}`)).status).toBe(404);
     expect((await oldToken.get(`/api/websites/${websiteId}`)).status).toBe(401);
@@ -243,7 +243,7 @@ test.describe('Shares', () => {
       slug: expect.any(String),
       parameters: {},
     });
-    expect(response.body.slug).toHaveLength(16);
+    expect(response.body.slug).toHaveLength(24);
     expect(invalid.status).toBe(400);
     expect(denied.status).toBe(401);
 

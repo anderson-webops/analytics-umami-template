@@ -146,6 +146,9 @@ describe('getFunnel postgres branch', () => {
     const [query, params] = prismaRawQuery.mock.calls[0];
     expect(query).toContain('and event_name = {{0}}');
     expect(query).toContain('and exists (');
+    expect(query).toContain('(website_event.event_type != 2 or website_event.trust_tier = 1)');
+    expect(query).toContain('(we.event_type != 2 or we.trust_tier = 1)');
+    expect(query).toContain('_ed0_0.trust_tier = 1');
     expect(query).toContain('_ed0_0.data_key = {{f_0_0_k}}');
     expect(query).toContain('ilike {{f_0_0_v}}');
     // contains -> ilike operator, value wrapped in % ... %
@@ -244,7 +247,7 @@ describe('getFunnel clickhouse branch', () => {
     expect(params).toMatchObject({ param0: '/a/%', param1: '/b' });
   });
 
-  test('event data filters emit event_id IN subqueries with typed params', async () => {
+  test('event data filters match the parent event tuple with typed params', async () => {
     await getFunnel(
       'website-1',
       {
@@ -262,8 +265,11 @@ describe('getFunnel clickhouse branch', () => {
     );
 
     const [query, params] = clickhouseRawQuery.mock.calls[0];
-    // first step uses level0 alias for event_id
-    expect(query).toContain('and level0.event_id in (');
+    expect(query).toContain(
+      'and tuple(level0.event_id, level0.session_id, level0.event_name) in (',
+    );
+    expect(query).toContain('(event_type != 2 or trust_tier = 1)');
+    expect(query).toContain('and trust_tier = 1');
     expect(query).toContain('data_key = {f_0_0_k:String}');
     expect(query).toContain('like {f_0_0_v:String}');
     expect(params).toMatchObject({ f_0_0_k: 'plan', f_0_0_v: '%pro%' });

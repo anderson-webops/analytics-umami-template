@@ -1,5 +1,5 @@
 import clickhouse from '@/lib/clickhouse';
-import { EVENT_COLUMNS, EVENT_TYPE } from '@/lib/constants';
+import { COLLECTION_TRUST_TIER, EVENT_TYPE } from '@/lib/constants';
 import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
 import prisma from '@/lib/prisma';
 import type { QueryFilters } from '@/lib/types';
@@ -48,6 +48,7 @@ async function relationalQuery(
     where website_event.website_id = {{websiteId::uuid}}
       and website_event.created_at between {{startDate}} and {{endDate}}
       and website_event.event_type != ${EVENT_TYPE.performance}
+      and (website_event.event_type != ${EVENT_TYPE.customEvent} or website_event.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})
       ${filterQuery}
     `,
     queryParams,
@@ -62,10 +63,7 @@ async function clickhouseQuery(
   const { rawQuery, parseFilters } = clickhouse;
   const { filterQuery, cohortQuery, queryParams } = parseFilters({ ...filters, websiteId });
 
-  let sql = '';
-
-  if (EVENT_COLUMNS.some(item => Object.keys(filters).includes(item))) {
-    sql = `
+  const sql = `
     select
       sumIf(1, event_type = ${EVENT_TYPE.pageView}) as "pageviews",
       uniq(session_id) as "visitors",
@@ -77,24 +75,9 @@ async function clickhouseQuery(
     where website_id = {websiteId:UUID}
         and created_at between {startDate:DateTime64} and {endDate:DateTime64}
         and event_type != ${EVENT_TYPE.performance}
+        and (event_type != ${EVENT_TYPE.customEvent} or trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})
         ${filterQuery}
     `;
-  } else {
-    sql = `
-    select
-      sum(views) as "pageviews",
-      uniq(session_id) as "visitors",
-      uniq(visit_id) as "visits",
-      uniq(country) as "countries",
-      sum(length(event_name)) as "events"
-    from website_event_stats_hourly website_event
-    ${cohortQuery}
-    where website_id = {websiteId:UUID}
-        and created_at between {startDate:DateTime64} and {endDate:DateTime64}
-        and event_type != ${EVENT_TYPE.performance}
-        ${filterQuery}
-    `;
-  }
 
   return rawQuery(sql, queryParams, FUNCTION_NAME);
 }

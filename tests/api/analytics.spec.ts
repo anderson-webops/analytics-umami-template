@@ -48,6 +48,41 @@ test.describe('Analytics', () => {
     expect(Number(none.body.pageviews)).toBe(0);
   });
 
+  test('GET /api/websites/{websiteId}/stats/traffic returns only permitted traffic totals', async ({
+    admin,
+    share,
+    viewer,
+    seed,
+  }) => {
+    const path = `/api/websites/${seed.website.id}/stats/traffic`;
+    const params = dateRange(seed);
+    const response = await admin.get(path, { params });
+    const original = await admin.get(`/api/websites/${seed.website.id}/stats`, { params });
+    const shared = await (await share()).get(path, { params });
+    const denied = await viewer.get(path, { params });
+    const missingRange = await admin.get(path);
+
+    expect(response.status).toBe(200);
+    expect(Object.keys(response.body).sort()).toEqual([
+      'comparison',
+      'pageviews',
+      'visitors',
+      'visits',
+    ]);
+    for (const key of ['pageviews', 'visitors', 'visits']) {
+      expect(response.body[key]).toEqual(original.body[key]);
+      expect(response.body.comparison[key]).toEqual(original.body.comparison[key]);
+    }
+    expect(Object.keys(response.body.comparison).sort()).toEqual([
+      'pageviews',
+      'visitors',
+      'visits',
+    ]);
+    expect(shared.status).toBe(200);
+    expect(denied.status).toBe(401);
+    expect(missingRange.status).toBe(400);
+  });
+
   test('GET /api/websites/{websiteId}/stats validates params and permissions', async ({
     admin,
     api,
@@ -477,5 +512,44 @@ test.describe('Analytics', () => {
     expect(invalidUnit.status).toBe(400);
     expect(shared.status).toBe(200);
     expect(denied.status).toBe(401);
+  });
+
+  test('GET /api/realtime/{websiteId}/totals and /series enforce realtime access', async ({
+    admin,
+    share,
+    viewer,
+    seed,
+  }) => {
+    const path = `/api/realtime/${seed.website.id}`;
+    const totals = await admin.get(`${path}/totals`);
+    const series = await admin.get(`${path}/series`, {
+      params: { unit: 'minute', timezone: TIMEZONE },
+    });
+    const shared = await share();
+    const sharedTotals = await shared.get(`${path}/totals`);
+    const sharedSeries = await shared.get(`${path}/series`);
+    const deniedTotals = await viewer.get(`${path}/totals`);
+    const deniedSeries = await viewer.get(`${path}/series`);
+    const invalidUnit = await admin.get(`${path}/series`, { params: { unit: 'bogus' } });
+
+    expect(totals.status).toBe(200);
+    expect(Object.keys(totals.body)).toEqual(['totals']);
+    expect(totals.body.totals).toEqual({
+      views: expect.any(Number),
+      visitors: expect.any(Number),
+      events: expect.any(Number),
+      countries: expect.any(Number),
+    });
+    expect(series.status).toBe(200);
+    expect(Object.keys(series.body)).toEqual(['series']);
+    expect(series.body.series).toEqual({
+      views: expect.any(Array),
+      visitors: expect.any(Array),
+    });
+    expect(sharedTotals.status).toBe(200);
+    expect(sharedSeries.status).toBe(200);
+    expect(deniedTotals.status).toBe(401);
+    expect(deniedSeries.status).toBe(401);
+    expect(invalidUnit.status).toBe(400);
   });
 });

@@ -1,13 +1,12 @@
 import { createClient } from '@clickhouse/client';
 import { expect, test } from 'vitest';
 import clickhouse from '@/lib/clickhouse';
-import { getLegacyLinkedDistinctIds } from './getLinkedDistinctIds';
 import { getLegacyLinkedSessionIds } from './getLinkedSessionIds';
 
 const integrationTest = process.env.CLICKHOUSE_TEST_URL ? test : test.skip;
 
 integrationTest(
-  'linked-session reads retain identity history with a bounded ClickHouse scan',
+  'legacy ClickHouse links remain bounded admission evidence, not identity reads',
   async () => {
     const url = process.env.CLICKHOUSE_TEST_URL;
     expect(process.env.CLICKHOUSE_URL).toBe(url);
@@ -45,7 +44,6 @@ integrationTest(
         ],
       });
 
-      expect(await getLegacyLinkedDistinctIds(websiteId, sessionId, 2)).toEqual(['visitor-1']);
       const links = await getLegacyLinkedSessionIds(websiteId, 'visitor-1', 501);
       expect(new Set(links.map(link => link.sessionId))).toEqual(
         new Set([sessionId, linkedSessionId]),

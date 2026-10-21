@@ -28,6 +28,7 @@ export interface Dataset {
   range: { startAt: number; endAt: number };
   visits: Visit[];
   batch: SendPayload[];
+  legacyRevenue: SendPayload[];
   replay: { pageview: SendPayload; record: RecordPayload; heatmap: RecordPayload };
   realtime: SendPayload[];
   expected: { pageviews: number; website2Pageviews: number };
@@ -146,13 +147,12 @@ function identity(persona: Persona, index: number) {
 function pageview(
   website: string,
   persona: Persona,
-  index: number,
   page: { url: string; title: string },
   extra: Record<string, unknown>,
 ): SendPayload {
   return {
     type: 'event',
-    payload: { website, ...client(persona), ...identity(persona, index), ...page, ...extra },
+    payload: { website, ...client(persona), ...page, ...extra },
   };
 }
 
@@ -193,6 +193,7 @@ export function buildDataset(now = Date.now()): Dataset {
   const dayAnchor = (daysAgo: number) => todayStart - daysAgo * DAY + 12 * HOUR;
   const visits: Visit[] = [];
   const batch: SendPayload[] = [];
+  const legacyRevenue: SendPayload[] = [];
   let pageviews = 0;
   let website2Pageviews = 0;
 
@@ -205,7 +206,7 @@ export function buildDataset(now = Date.now()): Dataset {
 
       visits.push({
         events: pages.map((page, step) =>
-          pageview(SEED_IDS.website, persona, index, page, {
+          pageview(SEED_IDS.website, persona, page, {
             url: step === 0 && persona.utm ? `${page.url}?${UTM_QUERY}` : page.url,
             referrer: step === 0 && persona.referrer ? persona.referrer : undefined,
             tag: persona.tag,
@@ -231,20 +232,23 @@ export function buildDataset(now = Date.now()): Dataset {
       }
 
       if (index < IDENTIFIED_PERSONAS && [1, 3, 5].includes(day)) {
+        const purchaseData = {
+          quantity: 2,
+          items: ['sku-1', 'sku-2'],
+          orderedAt: new Date(afterPages * 1000).toISOString(),
+          premium: index === 0,
+        };
+
         batch.push(
+          customEvent(SEED_IDS.website, persona, index, 'purchase', purchaseData, afterPages + 30),
+        );
+        legacyRevenue.push(
           customEvent(
             SEED_IDS.website,
             persona,
             index,
             'purchase',
-            {
-              revenue: 49.5 + index * 10,
-              currency: CURRENCY,
-              quantity: 2,
-              items: ['sku-1', 'sku-2'],
-              orderedAt: new Date(afterPages * 1000).toISOString(),
-              premium: index === 0,
-            },
+            { ...purchaseData, revenue: 49.5 + index * 10, currency: CURRENCY },
             afterPages + 30,
           ),
         );
@@ -309,7 +313,7 @@ export function buildDataset(now = Date.now()): Dataset {
 
       visits.push({
         events: [
-          pageview(SEED_IDS.website2, persona, index, PAGES[day % PAGES.length], {
+          pageview(SEED_IDS.website2, persona, PAGES[day % PAGES.length], {
             hostname: SEED_WEBSITES.secondary.domain,
             timestamp,
           }),
@@ -320,6 +324,17 @@ export function buildDataset(now = Date.now()): Dataset {
   }
 
   batch.push(
+    customEvent(
+      SEED_IDS.website2,
+      PERSONAS[0],
+      0,
+      'purchase',
+      { quantity: 1 },
+      dayAnchor(2),
+      SEED_WEBSITES.secondary.domain,
+    ),
+  );
+  legacyRevenue.push(
     customEvent(
       SEED_IDS.website2,
       PERSONAS[0],
@@ -348,7 +363,7 @@ export function buildDataset(now = Date.now()): Dataset {
   // Live traffic (no timestamp): one recorded visit plus a few realtime pageviews.
   const replayPersona = PERSONAS[0];
   const replay = {
-    pageview: pageview(SEED_IDS.website, replayPersona, 0, PAGES[0], {}),
+    pageview: pageview(SEED_IDS.website, replayPersona, PAGES[0], {}),
     record: {
       type: 'record' as const,
       payload: {
@@ -407,7 +422,7 @@ export function buildDataset(now = Date.now()): Dataset {
   pageviews += 1;
 
   const realtime = PERSONAS.slice(1).map((persona, index) =>
-    pageview(SEED_IDS.website, persona, index + 1, PAGES[index % PAGES.length], {}),
+    pageview(SEED_IDS.website, persona, PAGES[index % PAGES.length], {}),
   );
   pageviews += realtime.length;
 
@@ -415,6 +430,7 @@ export function buildDataset(now = Date.now()): Dataset {
     range,
     visits,
     batch,
+    legacyRevenue,
     replay,
     realtime,
     expected: { pageviews, website2Pageviews },

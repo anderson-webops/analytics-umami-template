@@ -3,16 +3,13 @@ import { dateRange, TIMEZONE } from './helpers/dates';
 
 /**
  * Seeded event data on `seed.website` (see seed/dataset.ts):
- * - `purchase` x9 (3 identified personas x 3 days) with revenue 49.5 / 59.5 / 69.5,
- *   currency 'USD', quantity 2, items ['sku-1','sku-2'], orderedAt (date), premium (boolean).
+ * - `purchase` x9 (3 identified personas x 3 days) with quantity 2,
+ *   items ['sku-1','sku-2'], orderedAt (date), premium (boolean).
  * - `signup` x6 with plan 'free' | 'pro' and seats 1..6.
  * - `download` x6 with file 'guide.pdf'.
  * Other specs may ingest extra events concurrently, so list assertions use `toContain`
  * while `purchase`-scoped aggregates are asserted exactly.
  */
-
-const PURCHASE_REVENUES = [49.5, 59.5, 69.5];
-const PURCHASE_TOTAL = PURCHASE_REVENUES.reduce((sum, value) => sum + value, 0) * 3;
 
 test.describe('Event data', () => {
   let base = '';
@@ -59,14 +56,11 @@ test.describe('Event data', () => {
     for (const row of filtered.body.data) {
       expect(row.eventName).toBe('purchase');
       expect(row.eventProperties.map((p: any) => p.dataKey)).toEqual(
-        expect.arrayContaining([
-          'revenue',
-          'currency',
-          'quantity',
-          'items',
-          'orderedAt',
-          'premium',
-        ]),
+        expect.arrayContaining(['quantity', 'items', 'orderedAt', 'premium']),
+      );
+      expect(row.eventProperties.map((property: any) => property.dataKey)).not.toContain('revenue');
+      expect(row.eventProperties.map((property: any) => property.dataKey)).not.toContain(
+        'currency',
       );
     }
 
@@ -97,9 +91,10 @@ test.describe('Event data', () => {
     }
 
     const byKey = Object.fromEntries(response.body.map((row: any) => [row.dataKey, row]));
-    expect(byKey.currency).toMatchObject({ stringValue: seed.data.currency, dataType: 1 });
-    expect(PURCHASE_REVENUES).toContain(Number(byKey.revenue.numberValue));
-    expect(byKey.revenue.dataType).toBe(2);
+    expect(byKey.currency).toBeUndefined();
+    expect(byKey.revenue).toBeUndefined();
+    expect(Number(byKey.quantity.numberValue)).toBe(2);
+    expect(byKey.quantity.dataType).toBe(2);
     expect(byKey.premium.dataType).toBe(3);
     expect(byKey.orderedAt.dataType).toBe(4);
     expect(byKey.orderedAt.dateValue).toEqual(expect.any(String));
@@ -142,9 +137,8 @@ test.describe('Event data', () => {
     expect(filtered.body).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          propertyName: 'currency',
-          propertyValue: seed.data.currency,
-          dataType: 1,
+          propertyName: 'quantity',
+          dataType: 2,
           total: 9,
         }),
       ]),
@@ -174,19 +168,19 @@ test.describe('Event data', () => {
     expect(response.status).toBe(200);
     expect(response.body).toEqual(
       expect.arrayContaining([
-        { propertyName: 'currency', dataType: 1, total: 9 },
-        { propertyName: 'revenue', dataType: 2, total: 9 },
         { propertyName: 'premium', dataType: 3, total: 9 },
         { propertyName: 'orderedAt', dataType: 4, total: 9 },
         { propertyName: 'items', dataType: 5, total: 9 },
         { propertyName: 'quantity', dataType: 2, total: 9 },
       ]),
     );
+    expect(response.body.some((row: any) => row.propertyName === 'revenue')).toBe(false);
 
     expect(all.status).toBe(200);
     expect(all.body.map((row: any) => row.propertyName)).toEqual(
-      expect.arrayContaining(['revenue', 'plan', 'seats', 'file']),
+      expect.arrayContaining(['quantity', 'plan', 'seats', 'file']),
     );
+    expect(all.body.some((row: any) => row.propertyName === 'revenue')).toBe(false);
 
     expect(shared.status).toBe(200);
     expect(denied.status).toBe(401);
@@ -211,12 +205,13 @@ test.describe('Event data', () => {
     expect(response.status).toBe(200);
     expect(response.body).toEqual(
       expect.arrayContaining([
-        { eventName: 'purchase', propertyName: 'revenue', dataType: 2, total: 9 },
+        { eventName: 'purchase', propertyName: 'quantity', dataType: 2, total: 9 },
         { eventName: 'signup', propertyName: 'plan', dataType: 1, total: 6 },
         { eventName: 'signup', propertyName: 'seats', dataType: 2, total: 6 },
         { eventName: 'download', propertyName: 'file', dataType: 1, total: 6 },
       ]),
     );
+    expect(response.body.some((row: any) => row.propertyName === 'revenue')).toBe(false);
 
     expect(shared.status).toBe(200);
     expect(denied.status).toBe(401);
@@ -240,10 +235,10 @@ test.describe('Event data', () => {
     expect(Object.keys(response.body).sort()).toEqual(['events', 'properties', 'records']);
     // 9 purchases + 6 signups + 6 downloads (other specs may add more).
     expect(Number(response.body.events)).toBeGreaterThanOrEqual(21);
-    // purchase: 6 props, signup: 2, download: 1.
-    expect(Number(response.body.properties)).toBeGreaterThanOrEqual(9);
-    // 9*6 + 6*2 + 6*1 = 72 property records.
-    expect(Number(response.body.records)).toBeGreaterThanOrEqual(72);
+    // purchase: 4 props, signup: 2, download: 1.
+    expect(Number(response.body.properties)).toBeGreaterThanOrEqual(7);
+    // 9*4 + 6*2 + 6*1 = 54 property records.
+    expect(Number(response.body.records)).toBeGreaterThanOrEqual(54);
 
     expect(shared.status).toBe(200);
     expect(denied.status).toBe(401);
@@ -260,7 +255,7 @@ test.describe('Event data', () => {
       params: dateRange(seed, { propertyName: 'plan', eventName: 'signup' }),
     });
     const typed = await admin.get(`${base}/event-data/values`, {
-      params: dateRange(seed, { propertyName: 'revenue', eventName: 'purchase', dataType: 2 }),
+      params: dateRange(seed, { propertyName: 'quantity', eventName: 'purchase', dataType: 2 }),
     });
     const shared = await (await share()).get(`${base}/event-data/values`, {
       params: dateRange(seed, { propertyName: 'plan' }),
@@ -281,8 +276,7 @@ test.describe('Event data', () => {
     );
 
     expect(typed.status).toBe(200);
-    expect(typed.body.map((row: any) => Number(row.value)).sort()).toEqual(PURCHASE_REVENUES);
-    expect(typed.body.every((row: any) => row.total === 3)).toBe(true);
+    expect(typed.body.map((row: any) => [Number(row.value), Number(row.total)])).toEqual([[2, 9]]);
 
     expect(shared.status).toBe(200);
     expect(denied.status).toBe(401);
@@ -333,16 +327,9 @@ test.describe('Event data', () => {
         propertyValues: expect.any(Array),
       });
       // Key order is backend-specific (Postgres sorts, ClickHouse keeps insertion order).
-      expect([...row.propertyKeys].sort()).toEqual([
-        'currency',
-        'items',
-        'orderedAt',
-        'premium',
-        'quantity',
-        'revenue',
-      ]);
+      expect([...row.propertyKeys].sort()).toEqual(['items', 'orderedAt', 'premium', 'quantity']);
       expect(row.propertyValues).toHaveLength(row.propertyKeys.length);
-      expect(row.propertyValues[row.propertyKeys.indexOf('currency')]).toBe(seed.data.currency);
+      expect(Number(row.propertyValues[row.propertyKeys.indexOf('quantity')])).toBe(2);
     }
 
     expect(paged.status).toBe(200);
@@ -436,7 +423,7 @@ test.describe('Event data', () => {
   }) => {
     const params = dateRange(seed, {
       eventName: 'purchase',
-      propertyName: 'revenue',
+      propertyName: 'quantity',
       unit: 'day',
       timezone: TIMEZONE,
     });
@@ -463,13 +450,13 @@ test.describe('Event data', () => {
     expect(sum.body).toHaveLength(3);
     for (const point of sum.body) {
       expect(point).toEqual({ t: expect.any(String), y: expect.anything() });
-      expect(Number(point.y)).toBeCloseTo(PURCHASE_TOTAL / 3, 5);
+      expect(Number(point.y)).toBe(6);
     }
 
     expect(avg.status).toBe(200);
     expect(avg.body).toHaveLength(3);
     for (const point of avg.body) {
-      expect(Number(point.y)).toBeCloseTo(59.5, 5);
+      expect(Number(point.y)).toBe(2);
     }
 
     expect(count.status).toBe(200);
@@ -490,7 +477,7 @@ test.describe('Event data', () => {
     viewer,
     seed,
   }) => {
-    const params = dateRange(seed, { eventName: 'purchase', propertyName: 'revenue' });
+    const params = dateRange(seed, { eventName: 'purchase', propertyName: 'quantity' });
     const response = await admin.get(`${base}/event-data-pivot/numeric-stats`, { params });
     const shared = await (await share()).get(`${base}/event-data-pivot/numeric-stats`, { params });
     const denied = await viewer.get(`${base}/event-data-pivot/numeric-stats`, { params });
@@ -500,11 +487,11 @@ test.describe('Event data', () => {
 
     expect(response.status).toBe(200);
     expect(Object.keys(response.body).sort()).toEqual(['average', 'max', 'median', 'min', 'total']);
-    expect(Number(response.body.min)).toBeCloseTo(49.5, 5);
-    expect(Number(response.body.max)).toBeCloseTo(69.5, 5);
-    expect(Number(response.body.average)).toBeCloseTo(59.5, 5);
-    expect(Number(response.body.median)).toBeCloseTo(59.5, 5);
-    expect(Number(response.body.total)).toBeCloseTo(PURCHASE_TOTAL, 5);
+    expect(Number(response.body.min)).toBe(2);
+    expect(Number(response.body.max)).toBe(2);
+    expect(Number(response.body.average)).toBe(2);
+    expect(Number(response.body.median)).toBe(2);
+    expect(Number(response.body.total)).toBe(18);
 
     expect(shared.status).toBe(200);
     expect(denied.status).toBe(401);

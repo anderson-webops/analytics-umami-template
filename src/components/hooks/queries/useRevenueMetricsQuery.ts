@@ -10,6 +10,7 @@ export type RevenueMetricsData = {
   name: string;
   value: number;
   country?: string;
+  revenueProvenance: 'unverified_historical_event_claims';
 }[];
 
 export function useRevenueMetricsQuery(

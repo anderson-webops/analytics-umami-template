@@ -1,5 +1,5 @@
 import clickhouse from '@/lib/clickhouse';
-import { EVENT_TYPE } from '@/lib/constants';
+import { COLLECTION_TRUST_TIER, EVENT_TYPE } from '@/lib/constants';
 import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
 import prisma from '@/lib/prisma';
 import type { QueryFilters } from '@/lib/types';
@@ -41,6 +41,11 @@ async function relationalQuery(
   const { rawQuery, parseFilters } = prisma;
   const eventType = type === 'path' ? EVENT_TYPE.pageView : EVENT_TYPE.customEvent;
   const column = type === 'path' ? 'url_path' : 'event_name';
+  const targetTrustQuery =
+    type === 'path'
+      ? ''
+      : `and website_event.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}`;
+  const sourceTrustQuery = `and (we.event_type != ${EVENT_TYPE.customEvent} or we.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})`;
   const { filterQuery, joinSessionQuery, cohortQuery, queryParams } = parseFilters({
     ...filters,
     ...parameters,
@@ -60,6 +65,7 @@ async function relationalQuery(
     where we.website_id = {{websiteId::uuid}}
           and we.created_at between {{startDate}} and {{endDate}}
           and we.${utmColumn} != ''
+          ${sourceTrustQuery}
     group by 1
     order by 2 desc
     limit 20`;
@@ -75,6 +81,7 @@ async function relationalQuery(
         where website_event.website_id = {{websiteId::uuid}}
           and website_event.created_at between {{startDate}} and {{endDate}}
           and website_event.${column} = {{step}}
+          ${targetTrustQuery}
           ${filterQuery}
         group by 1),`;
 
@@ -88,6 +95,7 @@ async function relationalQuery(
     on we.session_id = e.session_id
     where we.website_id = {{websiteId::uuid}}
           and we.created_at between {{startDate}} and {{endDate}}
+          ${sourceTrustQuery}
     group by e.session_id)`
       : `\n
     model AS (select e.session_id,
@@ -98,6 +106,7 @@ async function relationalQuery(
     where we.website_id = {{websiteId::uuid}}
           and we.created_at between {{startDate}} and {{endDate}}
           and we.created_at < e.max_dt
+          ${sourceTrustQuery}
     group by e.session_id)`;
   }
 
@@ -117,6 +126,7 @@ async function relationalQuery(
           and we.created_at between {{startDate}} and {{endDate}}
           and we.referrer_domain != regexp_replace(we.hostname, '^www.', '')
           and we.referrer_domain != ''
+          ${sourceTrustQuery}
     group by 1
     order by 2 desc
     limit 20
@@ -146,6 +156,7 @@ async function relationalQuery(
         and we.session_id = m.session_id
     where we.website_id = {{websiteId::uuid}}
           and we.created_at between {{startDate}} and {{endDate}}
+          ${sourceTrustQuery}
     group by 1
     order by 2 desc
     limit 20)
@@ -213,6 +224,7 @@ async function relationalQuery(
     where website_event.website_id = {{websiteId::uuid}}
         and website_event.created_at between {{startDate}} and {{endDate}}
         and website_event.${column} = {{step}}
+        ${targetTrustQuery}
         ${filterQuery}
     `,
     queryParams,
@@ -239,6 +251,9 @@ async function clickhouseQuery(
   const { rawQuery, parseFilters } = clickhouse;
   const eventType = type === 'path' ? EVENT_TYPE.pageView : EVENT_TYPE.customEvent;
   const column = type === 'path' ? 'url_path' : 'event_name';
+  const targetTrustQuery =
+    type === 'path' ? '' : `and trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}`;
+  const sourceTrustQuery = `and (event_type != ${EVENT_TYPE.customEvent} or trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})`;
   const { filterQuery, cohortQuery, queryParams } = parseFilters({
     ...filters,
     ...parameters,
@@ -257,6 +272,7 @@ async function clickhouseQuery(
         from website_event
         where website_id = {websiteId:UUID}
           and created_at between {startDate:DateTime64} and {endDate:DateTime64}
+          ${sourceTrustQuery}
       ) we
       on we.created_at = m.created_at
           and we.session_id = m.session_id
@@ -278,6 +294,7 @@ async function clickhouseQuery(
           from website_event
           where website_id = {websiteId:UUID}
             and created_at between {startDate:DateTime64} and {endDate:DateTime64}
+            ${sourceTrustQuery}
         ) we
         on we.session_id = e.session_id
         group by e.session_id)
@@ -293,6 +310,7 @@ async function clickhouseQuery(
         from website_event
         where website_id = {websiteId:UUID}
           and created_at between {startDate:DateTime64} and {endDate:DateTime64}
+          ${sourceTrustQuery}
       ) we
       on we.session_id = e.session_id
       where we.created_at < e.max_dt
@@ -309,6 +327,7 @@ async function clickhouseQuery(
         where website_id = {websiteId:UUID}
           and created_at between {startDate:DateTime64} and {endDate:DateTime64}
           and ${column} = {step:String}
+          ${targetTrustQuery}
           ${filterQuery}
         group by 1),`;
 
@@ -329,6 +348,7 @@ async function clickhouseQuery(
       from website_event
       where website_id = {websiteId:UUID}
         and created_at between {startDate:DateTime64} and {endDate:DateTime64}
+        ${sourceTrustQuery}
     ) we
     on we.created_at = m.created_at
         and we.session_id = m.session_id
@@ -363,6 +383,7 @@ async function clickhouseQuery(
       from website_event
       where website_id = {websiteId:UUID}
         and created_at between {startDate:DateTime64} and {endDate:DateTime64}
+        ${sourceTrustQuery}
     ) we
     on we.created_at = m.created_at
         and we.session_id = m.session_id
@@ -455,6 +476,7 @@ async function clickhouseQuery(
     where website_id = {websiteId:UUID}
         and created_at between {startDate:DateTime64} and {endDate:DateTime64}
         and ${column} = {step:String}
+        ${targetTrustQuery}
         ${filterQuery}
     `,
     queryParams,

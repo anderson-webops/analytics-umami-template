@@ -2,11 +2,27 @@ import { randomUUID } from 'node:crypto';
 import { startOfHour } from 'date-fns';
 import { z } from 'zod';
 import type { Prisma } from '@/generated/prisma/client';
-import { type CacheToken, createCacheToken, parseCacheToken } from '@/lib/cache-token';
+import {
+  type CacheToken,
+  createCacheToken,
+  hasCurrentCacheGeneration,
+  parseCacheToken,
+} from '@/lib/cache-token';
 import clickhouse from '@/lib/clickhouse';
 import { CollectionBudgetExceededError } from '@/lib/collection-budget';
+import {
+  CollectionRequestReplayError,
+  type CollectionScope,
+  getBackendCollectionRequest,
+} from '@/lib/collection-proof';
 import { getCollectionIpLimit, getCollectionSourceStatus } from '@/lib/collection-rate-limit';
-import { CACHE_TOKEN_TYPE, COLLECTION_TYPE, EVENT_TYPE, FIELD_LENGTH } from '@/lib/constants';
+import {
+  CACHE_TOKEN_TYPE,
+  COLLECTION_TRUST_TIER,
+  COLLECTION_TYPE,
+  EVENT_TYPE,
+  FIELD_LENGTH,
+} from '@/lib/constants';
 import { corsPreflight, withTrackingOrigin } from '@/lib/cors';
 import { getSalt, hash, secret, uuid } from '@/lib/crypto';
 import { isUnsafeSpreadsheetValue } from '@/lib/csv';
@@ -16,7 +32,16 @@ import { truncateString } from '@/lib/format';
 import { getIpAddress } from '@/lib/ip';
 import { fetchWebsite } from '@/lib/load';
 import { parseRequest } from '@/lib/request';
-import { badRequest, json, serverError, tooManyRequests } from '@/lib/response';
+import {
+  badRequest,
+  conflict,
+  forbidden,
+  json,
+  serverError,
+  serviceUnavailable,
+  tooManyRequests,
+} from '@/lib/response';
+import { hasRevenueField, isFinancialEventName } from '@/lib/revenue-provenance';
 import { analyticsDataParam, domainParam, urlOrPathParam } from '@/lib/schema';
 import { getCacheTokenTtlSeconds, isAllowedTrackingHostname } from '@/lib/security';
 import { getAllowedTrackingOrigin } from '@/lib/tracking-origin';
@@ -25,6 +50,7 @@ import {
   getLink,
   getPixel,
   reserveActiveCollectionBudget,
+  reserveBackendCollectionRequest,
   withActiveCollectionSource,
 } from '@/queries/prisma';
 import {
@@ -46,14 +72,13 @@ function logSessionLinkError(error: unknown) {
 
   console.error('Failed to save session link', { name, ...(code ? { code } : {}) });
 }
-
 const truncateAttributionValue = (value?: string | null) =>
   value?.slice(0, MAX_ATTRIBUTION_VALUE_LENGTH);
 const safeStringParam = (maxLength: number) =>
   z
     .string()
     .max(maxLength)
-    .refine(val => !isUnsafeSpreadsheetValue(val), {
+    .refine((value: string): boolean => !isUnsafeSpreadsheetValue(value), {
       message: 'Value must not start with a spreadsheet formula or control character',
     });
 
@@ -93,7 +118,11 @@ const schema = z
         screen: z.string().max(11).optional(),
         title: z.string().max(500).optional(),
         url: urlOrPathParam.optional(),
-        name: safeStringParam(50).optional(),
+        name: safeStringParam(50)
+          .refine(value => /[\p{L}\p{N}\p{P}\p{S}]/u.test(value), {
+            message: 'Event name must contain a visible character.',
+          })
+          .optional(),
         tag: safeStringParam(50).optional(),
         ip: z.string().max(64).optional(),
         userAgent: z.string().max(512).optional(),
@@ -109,6 +138,7 @@ const schema = z
         fcp: z.number().nonnegative().max(60000).optional(),
         ttfb: z.number().nonnegative().max(60000).optional(),
       })
+      .strict()
       .refine(
         data => {
           const keys = [data.website, data.link, data.pixel];
@@ -121,6 +151,7 @@ const schema = z
         },
       ),
   })
+  .strict()
   .refine(data => data.type === 'event' || !!data.payload.website, {
     message: 'Identify and performance events require a website.',
     path: ['payload', 'website'],
@@ -131,6 +162,40 @@ const schema = z
         code: z.ZodIssueCode.custom,
         message: 'Website events require a hostname.',
         path: ['payload', 'hostname'],
+      });
+    }
+
+    if (data.type === COLLECTION_TYPE.event && data.payload.data && !data.payload.name) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Event properties require a named custom event.',
+        path: ['payload', 'name'],
+      });
+    }
+
+    if (
+      data.type === COLLECTION_TYPE.event &&
+      !data.payload.name &&
+      data.payload.id !== undefined
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Pageviews cannot carry an identity; use identify instead.',
+        path: ['payload', 'id'],
+      });
+    }
+
+    if (
+      (data.type === COLLECTION_TYPE.performance &&
+        (data.payload.id !== undefined ||
+          data.payload.name !== undefined ||
+          data.payload.data !== undefined)) ||
+      (data.type === COLLECTION_TYPE.identify && data.payload.name !== undefined)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'This collection type does not accept unrelated tracking fields.',
+        path: ['payload'],
       });
     }
 
@@ -218,6 +283,34 @@ export async function POST(request: Request) {
       return tooManyRequests(sourceStatus.retryAfter);
     }
 
+    const requiredScopes: CollectionScope[] = [];
+
+    if (type === COLLECTION_TYPE.identify || id !== undefined) {
+      requiredScopes.push('identity');
+    }
+
+    if (type === COLLECTION_TYPE.event && (name !== undefined || data !== undefined)) {
+      requiredScopes.push('event');
+    }
+
+    if (data && hasRevenueField(data, isFinancialEventName(name))) {
+      requiredScopes.push('revenue');
+    }
+
+    if (requiredScopes.includes('revenue')) {
+      return forbidden({ message: 'Verified revenue integration is not enabled.' });
+    }
+
+    const backendRequest =
+      requiredScopes.length && websiteId
+        ? getBackendCollectionRequest(request, websiteId, requiredScopes)
+        : null;
+    const backendKeyDigest = backendRequest?.keyDigest;
+
+    if (requiredScopes.length && !backendKeyDigest) {
+      return forbidden({ message: 'Backend collection authorization required.' });
+    }
+
     // Cache check
     let cache: CacheToken | null = null;
     let allowedOrigin: string | null = null;
@@ -225,7 +318,7 @@ export async function POST(request: Request) {
     if (websiteId) {
       const cacheHeader = request.headers.get('x-umami-cache');
 
-      if (cacheHeader) {
+      if (cacheHeader && !backendKeyDigest) {
         const result = parseCacheToken(cacheHeader, secret());
 
         if (
@@ -289,20 +382,50 @@ export async function POST(request: Request) {
       return new Response(null, { status: 204 });
     }
 
+    let collectionGeneration: number | undefined;
+    let reservedSource: Awaited<ReturnType<typeof reserveActiveCollectionBudget>>;
+
     try {
-      await reserveActiveCollectionBudget(
+      reservedSource = await reserveActiveCollectionBudget(
         sourceType,
         sourceId,
         body,
         getIpAddress(request.headers) || 'unknown',
+        backendKeyDigest ? 'backend' : 'anonymous',
+        ...(backendRequest ? [backendRequest] : []),
+        ...(backendRequest ? [!clickhouse.enabled] : []),
       );
+
+      if (websiteId) {
+        if (
+          typeof reservedSource.collectionGeneration !== 'number' ||
+          !Number.isSafeInteger(reservedSource.collectionGeneration) ||
+          reservedSource.collectionGeneration < 0
+        ) {
+          throw new Error('COLLECTION_SOURCE_GENERATION_MISSING');
+        }
+
+        collectionGeneration = reservedSource.collectionGeneration;
+
+        if (cache && !hasCurrentCacheGeneration(cache, collectionGeneration)) {
+          cache = null;
+          sessionLinkId = undefined;
+        }
+      }
     } catch (error: any) {
+      if (error instanceof CollectionRequestReplayError) {
+        return conflict({ message: 'Backend collection request already accepted.' });
+      }
       if (error instanceof CollectionBudgetExceededError) {
         return tooManyRequests(error.retryAfter);
       }
 
       if (error?.message === 'COLLECTION_SOURCE_NOT_FOUND') {
         return badRequest({ message: 'Tracking source not found.' });
+      }
+
+      if (error?.message === 'COLLECTION_KEY_OWNER_CHANGED') {
+        return forbidden({ message: 'Backend collection authorization required.' });
       }
 
       throw error;
@@ -317,13 +440,27 @@ export async function POST(request: Request) {
     const visitSalt = hash(startOfHour(createdAt).toUTCString());
 
     const identityHash = hash(distinctId ?? '');
-    const sessionId = !websiteId
-      ? uuid(sourceId, ip, userAgent, sessionSalt, distinctId ?? '')
-      : sessionSeed
-        ? uuid(sourceId, sessionSeed, sessionSalt, distinctId ?? '')
-        : cache?.identityHash === identityHash && cache.sessionSalt === sessionSalt
-          ? cache.sessionId
-          : randomUUID();
+    const sessionSourceId =
+      websiteId && collectionGeneration
+        ? `${sourceId}:generation:${collectionGeneration}`
+        : sourceId;
+    const sessionId = backendKeyDigest
+      ? sessionSeed || distinctId
+        ? uuid(
+            'verified-collection-v2',
+            sessionSourceId,
+            sessionSeed ?? '',
+            distinctId ?? '',
+            sessionSalt,
+          )
+        : randomUUID()
+      : !websiteId
+        ? uuid(sourceId, ip, userAgent, sessionSalt, distinctId ?? '')
+        : sessionSeed
+          ? uuid(sessionSourceId, sessionSeed, sessionSalt, distinctId ?? '')
+          : cache?.identityHash === identityHash && cache.sessionSalt === sessionSalt
+            ? cache.sessionId
+            : randomUUID();
     const sessionDrift = !!websiteId && !!cache?.sessionId && cache.sessionId !== sessionId;
     const shouldEnsureSession = !clickhouse.enabled && sessionDrift;
 
@@ -445,6 +582,9 @@ export async function POST(request: Request) {
             sessionId,
             visitId,
             eventType,
+            trustTier: backendKeyDigest
+              ? COLLECTION_TRUST_TIER.backendAuthorized
+              : COLLECTION_TRUST_TIER.unverified,
             createdAt,
 
             // Page
@@ -525,6 +665,7 @@ export async function POST(request: Request) {
               }
             } catch (error) {
               logSessionLinkError(error);
+              throw new Error('IDENTITY_LINK_WRITE_UNAVAILABLE');
             }
           }
         }
@@ -535,6 +676,7 @@ export async function POST(request: Request) {
               websiteId,
               sessionId,
               sessionData: data,
+              trustTier: COLLECTION_TRUST_TIER.backendAuthorized,
               distinctId,
               createdAt,
             },
@@ -554,6 +696,7 @@ export async function POST(request: Request) {
             urlPath,
             pageTitle: safeDecodeURIComponent(title),
             eventType: EVENT_TYPE.performance,
+            trustTier: COLLECTION_TRUST_TIER.unverified,
             browser,
             os,
             device,
@@ -575,28 +718,56 @@ export async function POST(request: Request) {
     };
 
     try {
-      await withActiveCollectionSource(sourceType, sourceId, async transaction => {
-        if (websiteId) {
-          const currentWebsite = await transaction.website.findFirst({
-            where: {
-              id: websiteId,
-              deletedAt: null,
-            },
-            select: {
-              domain: true,
-            },
-          });
+      await withActiveCollectionSource(
+        sourceType,
+        sourceId,
+        async transaction => {
+          if (websiteId) {
+            const currentWebsite = await transaction.website.findFirst({
+              where: {
+                id: websiteId,
+                deletedAt: null,
+              },
+              select: {
+                domain: true,
+                collectionGeneration: true,
+              },
+            });
 
-          if (!isAllowedTrackingHostname(currentWebsite?.domain, hostname, url)) {
-            throw new Error('COLLECTION_SOURCE_NOT_FOUND');
+            if (!isAllowedTrackingHostname(currentWebsite?.domain, hostname, url)) {
+              throw new Error('COLLECTION_SOURCE_NOT_FOUND');
+            }
+
+            if (currentWebsite?.collectionGeneration !== collectionGeneration) {
+              throw new Error('COLLECTION_SOURCE_CHANGED');
+            }
+
+            if (backendRequest && !clickhouse.enabled) {
+              await reserveBackendCollectionRequest(transaction, websiteId, backendRequest);
+            }
           }
-        }
 
-        await persistCollection(transaction, clickhouse.enabled ? undefined : transaction);
-      });
+          await persistCollection(transaction, clickhouse.enabled ? undefined : transaction);
+        },
+        backendRequest || undefined,
+        reservedSource,
+      );
     } catch (error: any) {
+      if (error instanceof CollectionRequestReplayError) {
+        return conflict({ message: 'Backend collection request already accepted.' });
+      }
       if (error?.message === 'COLLECTION_SOURCE_NOT_FOUND') {
         return badRequest({ message: 'Tracking source not found.' });
+      }
+      if (error?.message === 'COLLECTION_SOURCE_CHANGED') {
+        return conflict({ message: 'Tracking source changed; retry.' });
+      }
+      if (error?.message === 'COLLECTION_KEY_OWNER_CHANGED') {
+        return forbidden({ message: 'Backend collection authorization required.' });
+      }
+
+      if (error?.message === 'IDENTITY_LINK_WRITE_UNAVAILABLE') {
+        return serviceUnavailable({ code: 'identity-link-unavailable' });
       }
 
       throw error;
@@ -604,20 +775,42 @@ export async function POST(request: Request) {
 
     if (pendingClickhouseLink) {
       try {
-        await publishSessionLink(pendingClickhouseLink);
+        await withActiveCollectionSource(
+          'website',
+          pendingClickhouseLink.websiteId,
+          async () => publishSessionLink(pendingClickhouseLink),
+          backendRequest || undefined,
+        );
         sessionLinkId = hash(pendingClickhouseLink.sessionId, pendingClickhouseLink.distinctId);
       } catch (error) {
+        if (error instanceof Error && error.message === 'COLLECTION_KEY_OWNER_CHANGED') {
+          return forbidden({ message: 'Backend collection authorization required.' });
+        }
+        if (error instanceof Error && error.message === 'COLLECTION_SOURCE_NOT_FOUND') {
+          return badRequest({ message: 'Tracking source not found.' });
+        }
         logSessionLinkError(error);
+        return serviceUnavailable({ code: 'identity-link-unavailable' });
       }
     }
 
-    const token = websiteId
-      ? createCacheToken(
-          { websiteId, sessionId, visitId, iat, identityHash, sessionSalt, sessionLinkId },
-          secret(),
-          getCacheTokenTtlSeconds(),
-        )
-      : null;
+    const token =
+      websiteId && !backendKeyDigest
+        ? createCacheToken(
+            {
+              websiteId,
+              sessionId,
+              visitId,
+              collectionGeneration,
+              iat,
+              identityHash,
+              sessionSalt,
+              sessionLinkId,
+            },
+            secret(),
+            getCacheTokenTtlSeconds(),
+          )
+        : null;
     return withTrackingOrigin(json({ cache: token }), websiteId ? allowedOrigin : '*');
   } catch (e) {
     return serverError(e);

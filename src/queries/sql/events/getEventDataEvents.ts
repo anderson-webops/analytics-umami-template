@@ -42,6 +42,8 @@ async function relationalQuery(websiteId: string, filters: QueryFilters) {
       ${cohortQuery}
       ${joinSessionQuery}
       where event_data.website_id = {{websiteId::uuid}}
+        and event_data.trust_tier = 1
+        and website_event.trust_tier = 1
         and event_data.created_at between {{startDate}} and {{endDate}}
       ${filterQuery}
       `,
@@ -67,6 +69,8 @@ async function relationalQuery(websiteId: string, filters: QueryFilters) {
     ${cohortQuery}
     ${joinSessionQuery}
     where event_data.website_id = {{websiteId::uuid}}
+      and event_data.trust_tier = 1
+      and website_event.trust_tier = 1
       and event_data.created_at between {{startDate}} and {{endDate}}
     ${filterQuery}
     `,
@@ -104,17 +108,22 @@ async function clickhouseQuery(
         event_data.string_value as propertyValue,
         count(*) as total
       from event_data
-      any left join (
-            select *
+      left any join (
+            select *, 1 as admitted
             from website_event
             where website_id = {websiteId:UUID}
               and created_at between {startDate:DateTime64} and {endDate:DateTime64}
-              and event_type = 2) website_event
+              and event_type = 2
+              and trust_tier = 1) website_event
       on website_event.event_id = event_data.event_id
         and website_event.session_id = event_data.session_id
         and website_event.website_id = event_data.website_id
+        and website_event.event_name = event_data.event_name
+        and website_event.url_path = event_data.url_path
       ${cohortQuery}
       where event_data.website_id = {websiteId:UUID}
+        and website_event.admitted = 1
+        and event_data.trust_tier = 1
         and event_data.created_at between {startDate:DateTime64} and {endDate:DateTime64}
       ${filterQuery}
       group by
@@ -138,17 +147,22 @@ async function clickhouseQuery(
       event_data.data_type as dataType,
       count(*) as total
     from event_data
-    any left join (
-          select *
+    left any join (
+          select *, 1 as admitted
           from website_event
           where website_id = {websiteId:UUID}
             and created_at between {startDate:DateTime64} and {endDate:DateTime64}
-            and event_type = 2) website_event
+            and event_type = 2
+            and trust_tier = 1) website_event
     on website_event.event_id = event_data.event_id
       and website_event.session_id = event_data.session_id
       and website_event.website_id = event_data.website_id
+      and website_event.event_name = event_data.event_name
+      and website_event.url_path = event_data.url_path
     ${cohortQuery}
     where event_data.website_id = {websiteId:UUID}
+      and website_event.admitted = 1
+      and event_data.trust_tier = 1
       and event_data.created_at between {startDate:DateTime64} and {endDate:DateTime64}
     ${filterQuery}
     group by event_data.data_key, event_data.data_type, event_data.event_name

@@ -22,6 +22,10 @@ export PATH="$pg_bin:$PATH"
 export DATABASE_URL="postgresql://restore_test:synthetic-restore-password-000000@127.0.0.1:$port/postgres"
 export DATABASE_REPLICA_URL= DIRECT_DATABASE_URL= REDIS_URL= CLICKHOUSE_URL= KAFKA_URL=
 export LOGIN_RATE_LIMIT_ACCOUNT_FAILURES=10 LOGIN_RATE_LIMIT_WINDOW_SECONDS=900
+run_collector_values() {
+  POSTGRES_EVENT_SERIES_TEST_URL="$DATABASE_URL" pnpm exec vitest run \
+    src/queries/sql/getValues.postgres.test.ts --maxWorkers=1
+}
 run_two_factor_state_races() {
   ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 \
     APP_SECRET=synthetic-factor-race-secret-000000000000000000 \
@@ -72,6 +76,18 @@ if [[ "${1:-}" == --replay-retention ]]; then
     node --conditions=react-server --import tsx scripts/test-replay-retention.ts
   exit 0
 fi
+if [[ "${1:-}" == --recorder-budget-retention ]]; then
+  DOTENV_CONFIG_PATH=/dev/null pnpm run db:migrate
+  ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null REDIS_URL='' CLOUD_MODE='' \
+    node --conditions=react-server --import tsx scripts/test-recorder-budget-retention.ts
+  exit 0
+fi
+if [[ "${1:-}" == --replay-fragment-transaction ]]; then
+  DOTENV_CONFIG_PATH=/dev/null pnpm run db:migrate
+  ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null REDIS_URL='' CLOUD_MODE='' \
+    node --conditions=react-server --import tsx scripts/test-replay-fragment-transaction.ts
+  exit 0
+fi
 if [[ "${1:-}" == --login-admission ]]; then
   "$pg_bin/psql" -h 127.0.0.1 -p "$port" -U restore_test -d postgres \
     -v ON_ERROR_STOP=1 -c 'CREATE TABLE "app_setting" ("key" TEXT PRIMARY KEY, "value" TEXT NOT NULL)' \
@@ -84,9 +100,45 @@ if [[ "${1:-}" == --session-data-bulk ]]; then
   ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-session-data-bulk.ts
   exit 0
 fi
+if [[ "${1:-}" == --collection-budget ]]; then
+  DOTENV_CONFIG_PATH=/dev/null pnpm run db:migrate
+  ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null \
+    node --import tsx scripts/test-collection-budget.ts
+  exit 0
+fi
+if [[ "${1:-}" == --collection-generation-lifecycle ]]; then
+  DOTENV_CONFIG_PATH=/dev/null pnpm run db:migrate
+  ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null CLOUD_MODE='' \
+    node --import tsx scripts/test-collection-generation-lifecycle.ts
+  exit 0
+fi
+if [[ "${1:-}" == --revenue-sessions ]]; then
+  "$pg_bin/createdb" -h 127.0.0.1 -p "$port" -U restore_test umami_revenue_test
+  export DATABASE_URL="postgresql://restore_test:synthetic-restore-password-000000@127.0.0.1:$port/umami_revenue_test"
+  POSTGRES_REVENUE_TEST_URL="$DATABASE_URL" DOTENV_CONFIG_PATH=/dev/null \
+    pnpm exec vitest run src/queries/sql/revenue/getRevenueSessions.postgres.test.ts --maxWorkers=1
+  exit 0
+fi
+if [[ "${1:-}" == --attested-revenue-ledger ]]; then
+  DOTENV_CONFIG_PATH=/dev/null pnpm run db:migrate
+  "$pg_bin/psql" "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+    -f scripts/test-attested-revenue-ledger.sql
+  ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null REDIS_URL='' CLOUD_MODE='' \
+    node --import tsx scripts/test-attested-revenue-intake.ts
+  exit 0
+fi
+if [[ "${1:-}" == --collector-values ]]; then
+  run_collector_values
+  exit 0
+fi
+if [[ "${1:-}" == --collection-rate-limit ]]; then
+  DOTENV_CONFIG_PATH=/dev/null pnpm run db:migrate
+  ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null \
+    node --import tsx scripts/test-collection-rate-limit.ts
+  exit 0
+fi
 if [[ "${1:-}" == --session-link-admission ]]; then
-  "$pg_bin/psql" -h 127.0.0.1 -p "$port" -U restore_test -d postgres \
-    -v ON_ERROR_STOP=1 -f prisma/migrations/21_add_session_link/migration.sql >/dev/null
+  DOTENV_CONFIG_PATH=/dev/null pnpm run db:migrate
   ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null \
     node --import tsx scripts/test-session-link-admission.ts
   exit 0
@@ -99,12 +151,19 @@ if [[ "${1:-}" == --session-link-cross-store ]]; then
   export CLICKHOUSE_URL="$CLICKHOUSE_TEST_URL"
   "$pg_bin/psql" -h 127.0.0.1 -p "$port" -U restore_test -d postgres \
     -v ON_ERROR_STOP=1 -f prisma/migrations/21_add_session_link/migration.sql >/dev/null
+  "$pg_bin/psql" -h 127.0.0.1 -p "$port" -U restore_test -d postgres \
+    -v ON_ERROR_STOP=1 -f prisma/migrations/38_add_session_link_trust_tier/migration.sql >/dev/null
   ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null \
     node --import tsx scripts/test-session-link-cross-store.ts
   exit 0
 fi
+run_collector_values
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node scripts/test-postgres-restore.mjs "$@"
 pnpm run db:migrate
+"$pg_bin/psql" "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f scripts/test-attested-revenue-ledger.sql
+ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null REDIS_URL='' CLOUD_MODE='' \
+  node --import tsx scripts/test-attested-revenue-intake.ts
 run_two_factor_state_races
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null REDIS_URL='' CLOUD_MODE='' \
   node --conditions=react-server --import tsx scripts/test-team-join-role.ts
@@ -120,8 +179,12 @@ ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null \
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-heatmap-budget.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-replay-retention.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-recorder-budget-retention.ts
+ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null REDIS_URL='' CLOUD_MODE='' \
+  node --conditions=react-server --import tsx scripts/test-replay-fragment-transaction.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm run test:collection-rate-limit
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-collection-budget.ts
+ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null CLOUD_MODE='' \
+  node --import tsx scripts/test-collection-generation-lifecycle.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm exec tsx scripts/test-two-factor-admission.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm exec tsx scripts/test-password-verification-admission.ts
 APP_SECRET=synthetic-login-admission-secret-0000000000000000 \

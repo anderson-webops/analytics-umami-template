@@ -1,5 +1,5 @@
 import clickhouse from '@/lib/clickhouse';
-import { EVENT_TYPE } from '@/lib/constants';
+import { COLLECTION_TRUST_TIER, EVENT_TYPE } from '@/lib/constants';
 import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
 import prisma from '@/lib/prisma';
 import type { PropertyFilter, PropertyMetric, QueryFilters } from '@/lib/types';
@@ -44,6 +44,7 @@ async function relationalQuery(
         select 1 from session_data selected_property
         where selected_property.session_id = website_event.session_id
           and selected_property.website_id = website_event.website_id
+          and selected_property.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}
           and selected_property.data_key = {{propertyName}}
       )`
     : '';
@@ -57,8 +58,10 @@ async function relationalQuery(
     join session_data on session_data.session_id = website_event.session_id
       and session_data.website_id = website_event.website_id
     where website_event.website_id = {{websiteId::uuid}}
+      and session_data.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}
       and website_event.created_at between {{startDate}} and {{endDate}}
       and website_event.event_type != ${EVENT_TYPE.performance}
+      and (website_event.event_type != ${EVENT_TYPE.customEvent} or website_event.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})
       ${filterQuery}
       ${pfSQL}
       ${selectedPropertyFilter}
@@ -104,6 +107,7 @@ async function clickhouseQuery(
       where website_event.website_id = {websiteId:UUID}
         and website_event.created_at between {startDate:DateTime64} and {endDate:DateTime64}
         and website_event.event_type != ${EVENT_TYPE.performance}
+        and (website_event.event_type != ${EVENT_TYPE.customEvent} or website_event.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})
       ${filterQuery}
       ${pfSQL}
     ),
@@ -113,7 +117,8 @@ async function clickhouseQuery(
       join filtered_sessions
         on filtered_sessions.session_id = session_data.session_id
         and filtered_sessions.website_id = session_data.website_id
-      ${propertyName ? 'where session_data.data_key = {propertyName:String}' : ''}
+      where session_data.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}
+      ${propertyName ? 'and session_data.data_key = {propertyName:String}' : ''}
     )
     select
       data_key as propertyName,
@@ -124,6 +129,7 @@ async function clickhouseQuery(
       on session_data.session_id = selected_property_sessions.session_id
         and session_data.website_id = selected_property_sessions.website_id
     where session_data.website_id = {websiteId:UUID}
+      and session_data.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}
       and session_data.data_key != ''
     group by 1, 2
     order by 3 desc, 1 asc

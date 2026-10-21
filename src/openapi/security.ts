@@ -2,6 +2,12 @@ import { isApiKeyBlockedRequest } from '@/lib/api-key';
 import type { ApiAuth } from '@/openapi/operation';
 
 export const securitySchemes = {
+  backendCollectionKey: {
+    type: 'http' as const,
+    scheme: 'bearer',
+    description:
+      'Website-scoped server credential with revenue scope. Keep it on the site backend, never in browser code.',
+  },
   bearerAuth: {
     type: 'http' as const,
     scheme: 'bearer',
@@ -32,6 +38,10 @@ export const securitySchemes = {
 export function getSecurityRequirements(auth: ApiAuth, path: string, method: string) {
   if (auth === 'none') {
     return [];
+  }
+
+  if (auth === 'backend-key') {
+    return [{ backendCollectionKey: [] }];
   }
 
   if (isApiKeyBlockedRequest(path, method, { basePath: '', apiUrl: '' })) {

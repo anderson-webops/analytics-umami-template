@@ -13,6 +13,7 @@ import {
   type ReplayFragmentPart,
 } from '@/lib/replay-fragment-buffer';
 import { sanitizeReplayResourceEvents } from '@/lib/replay-resources.server';
+import { maskStrictReplayEvents } from '@/recorder/privacy';
 import { redactReplayNavigationEvents } from '@/recorder/url';
 
 export interface SaveRecordingArgs {
@@ -60,7 +61,9 @@ function getSafeFragmentRows(args: SaveReassembledRecordingArgs): SaveRecordingA
     throw new ReplayBudgetExceededError();
   }
 
-  const safeEvents = sanitizeReplayResourceEvents(redactReplayNavigationEvents([event]));
+  const safeEvents = maskStrictReplayEvents(
+    sanitizeReplayResourceEvents(redactReplayNavigationEvents([event])),
+  );
 
   if (safeEvents.length !== 1) {
     throw new ReplayBudgetExceededError();
@@ -161,7 +164,9 @@ export async function saveRecording(
     throw new Error('Raw replay fragments require pre-persistence reconstruction.');
   }
 
-  const safeEvents = sanitizeReplayResourceEvents(redactReplayNavigationEvents(args.events));
+  const safeEvents = maskStrictReplayEvents(
+    sanitizeReplayResourceEvents(redactReplayNavigationEvents(args.events)),
+  );
   const safeArgs = {
     ...args,
     events: safeEvents,

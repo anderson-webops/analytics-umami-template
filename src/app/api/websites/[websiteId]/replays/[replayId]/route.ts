@@ -8,6 +8,7 @@ import { badRequest, json, payloadTooLarge, unauthorized } from '@/lib/response'
 import { validateReplayData } from '@/lib/schema';
 import { canViewAuthenticatedWebsite } from '@/permissions';
 import { getReplayChunks } from '@/queries/sql';
+import { maskStrictReplayEvents } from '@/recorder/privacy';
 import { redactReplayNavigationEvents } from '@/recorder/url';
 
 function getEventTimestamp(event: any): number | null {
@@ -77,7 +78,7 @@ export async function GET(
       .nonnegative()
       .max(Date.now() + 5 * 60 * 1000)
       .optional(),
-    chunkIndex: z.coerce.number().int().nonnegative().max(10_000_000).optional(),
+    chunkIndex: z.coerce.number().int().nonnegative().max(2_147_483_647).optional(),
     eventIndex: z.coerce.number().int().nonnegative().max(10_000).optional(),
   });
   const { auth, query, error } = await parseRequest(request, schema);
@@ -118,7 +119,9 @@ export async function GET(
       throw new ReplayBudgetExceededError();
     }
 
-    const allEvents = sanitizeReplayResourceEvents(redactReplayNavigationEvents(restoredEvents));
+    const allEvents = maskStrictReplayEvents(
+      sanitizeReplayResourceEvents(redactReplayNavigationEvents(restoredEvents)),
+    );
     const sessionId = chunks.length > 0 ? chunks[0].sessionId : null;
     const startedAt = chunks.length > 0 ? chunks[0].startedAt : null;
     const endedAt = chunks.length > 0 ? chunks[chunks.length - 1].endedAt : null;

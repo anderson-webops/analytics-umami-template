@@ -1,4 +1,5 @@
 import clickhouse from '@/lib/clickhouse';
+import { COLLECTION_TRUST_TIER } from '@/lib/constants';
 import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
 import prisma from '@/lib/prisma';
 import { getConservativeSeriesBucketCount } from '@/lib/series-budget';
@@ -74,6 +75,7 @@ async function relationalQuery(
       where website_event.website_id = {{websiteId::uuid}}
         and website_event.created_at between {{startDate}} and {{endDate}}
         and website_event.event_type = 2
+        and website_event.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}
         ${filterQuery}
     ), top_names as (
       select event_name
@@ -110,10 +112,7 @@ async function clickhouseQuery(
     websiteId,
   });
 
-  let sql = '';
-
-  if (filterQuery || cohortQuery) {
-    sql = `
+  const sql = `
     select
       event_name x,
       ${getDateSQL('created_at', unit, timezone)} t,
@@ -123,6 +122,7 @@ async function clickhouseQuery(
     where website_id = {websiteId:UUID}
       and created_at between {startDate:DateTime64} and {endDate:DateTime64}
       and event_type = 2
+      and trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}
       ${filterQuery}
       and event_name in (
         select event_name
@@ -131,6 +131,7 @@ async function clickhouseQuery(
         where website_id = {websiteId:UUID}
           and created_at between {startDate:DateTime64} and {endDate:DateTime64}
           and event_type = 2
+          and trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}
           ${filterQuery}
         group by event_name
         order by count(*) desc, event_name
@@ -139,34 +140,6 @@ async function clickhouseQuery(
     group by x, t
     order by t
     `;
-  } else {
-    sql = `
-    select
-      event_name x,
-      ${getDateSQL('created_at', unit, timezone)} t,
-      count(*) y
-    from (
-      select arrayJoin(event_name) as event_name,
-        created_at
-      from website_event_stats_hourly website_event
-      where website_id = {websiteId:UUID}
-        and created_at between {startDate:DateTime64} and {endDate:DateTime64}
-        and event_type = 2
-    ) as g
-    where g.event_name in (
-      select arrayJoin(event_name) as ranked_name
-      from website_event_stats_hourly
-      where website_id = {websiteId:UUID}
-        and created_at between {startDate:DateTime64} and {endDate:DateTime64}
-        and event_type = 2
-      group by ranked_name
-      order by count(*) desc, ranked_name
-      limit {limit:UInt32}
-    )
-    group by x, t
-    order by t
-    `;
-  }
 
   return rawQuery(sql, { ...queryParams, limit }, FUNCTION_NAME, {
     maxExecutionTimeSeconds: EVENT_SERIES_QUERY_TIMEOUT_MS / 1000,

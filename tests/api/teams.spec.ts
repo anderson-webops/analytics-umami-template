@@ -259,6 +259,51 @@ test.describe('Teams', () => {
     }
   });
 
+  test('POST /api/teams/{teamId}/owner transfers only to an existing member', async ({
+    admin,
+    user,
+    viewer,
+    seed,
+  }) => {
+    const created = await admin.post('/api/teams', { name: uniqueName('ownership') });
+    expect(created.status).toBe(200);
+    const path = `/api/teams/${created.body.id}/owner`;
+
+    try {
+      const unknown = await admin.post(path, { userId: UNKNOWN_UUID });
+      const denied = await viewer.post(path, { userId: seed.user.id });
+      const added = await admin.post(`/api/teams/${created.body.id}/users`, {
+        userId: seed.user.id,
+        role: 'team-member',
+      });
+      const nonOwner = await user.post(path, { userId: seed.admin.id });
+      const transferred = await admin.post(path, { userId: seed.user.id });
+      const sameOwner = await user.post(path, { userId: seed.user.id });
+      const restored = await user.post(path, { userId: seed.admin.id });
+
+      expect(unknown.status).toBe(400);
+      expect(denied.status).toBe(401);
+      expect(added.status).toBe(200);
+      expect(nonOwner.status).toBe(401);
+      expect(transferred.status).toBe(200);
+      expect(transferred.body).toMatchObject({
+        teamId: created.body.id,
+        userId: seed.user.id,
+        role: 'team-owner',
+      });
+      expect(sameOwner.status).toBe(400);
+      expect(restored.status).toBe(200);
+      expect(restored.body).toMatchObject({
+        teamId: created.body.id,
+        userId: seed.admin.id,
+        role: 'team-owner',
+      });
+    } finally {
+      const removed = await admin.del(`/api/teams/${created.body.id}`);
+      expect(removed.status).toBe(200);
+    }
+  });
+
   test('DELETE /api/teams/{teamId} deletes the team', async ({ admin, user }) => {
     const denied = await user.del(`/api/teams/${teamId}`);
     const response = await admin.del(`/api/teams/${teamId}`);

@@ -219,6 +219,13 @@ function validateDeploymentContract(deployment) {
     'bounded-heatmap-retention-v1',
     'bounded-replay-retention-v1',
     'packaged-migration-tool-v1',
+    'authenticated-advanced-collection-v1',
+    'owner-bound-collection-keys-v1',
+    'session-property-trust-tier-v1',
+    'identity-link-trust-tier-v1',
+    'event-claim-trust-tier-v1',
+    'unverified-revenue-materialization-disabled-v1',
+    'attested-revenue-ledger-v1',
   ]);
   const knownHostControls = new Set([
     'service-user',
@@ -325,6 +332,85 @@ async function readContract(contractPath = defaultContractPath) {
     'requiredFiles',
   ]) {
     contract[key] = (contract[key] ?? []).map(normalizeRelative);
+  }
+
+  const permitRoute = '.next/server/app/api/collection-permit/route.js';
+  const collectionCapability = 'authenticated-advanced-collection-v1';
+  if (
+    contract.requiredFiles.includes(permitRoute) !==
+    (contract.deployment?.requiredAdapterCapabilities.includes(collectionCapability) ?? false)
+  ) {
+    throw new Error('Unsupported or incomplete deployment compatibility contract.');
+  }
+
+  const ownerBindingFile =
+    'prisma/migrations/39_bind_collection_keys_to_website_owner/migration.sql';
+  const ownerBindingCapability =
+    contract.deployment?.requiredAdapterCapabilities.includes('owner-bound-collection-keys-v1') ??
+    false;
+  if (contract.requiredFiles.includes(ownerBindingFile) !== ownerBindingCapability) {
+    throw new Error('Unsupported or incomplete deployment compatibility contract.');
+  }
+
+  const sessionTrustFiles = [
+    'db/clickhouse/migrations/17_add_session_data_trust_tier.sql',
+    'prisma/migrations/36_add_session_data_trust_tier/migration.sql',
+  ];
+  const sessionTrustDeclared = sessionTrustFiles.some(file =>
+    contract.requiredFiles.includes(file),
+  );
+  const sessionTrustCapability =
+    contract.deployment?.requiredAdapterCapabilities.includes('session-property-trust-tier-v1') ??
+    false;
+  if (
+    sessionTrustDeclared !== sessionTrustCapability ||
+    (sessionTrustCapability &&
+      !sessionTrustFiles.every(file => contract.requiredFiles.includes(file)))
+  ) {
+    throw new Error('Unsupported or incomplete deployment compatibility contract.');
+  }
+
+  const linkTrustFile = 'prisma/migrations/38_add_session_link_trust_tier/migration.sql';
+  const linkTrustCapability =
+    contract.deployment?.requiredAdapterCapabilities.includes('identity-link-trust-tier-v1') ??
+    false;
+  if (contract.requiredFiles.includes(linkTrustFile) !== linkTrustCapability) {
+    throw new Error('Unsupported or incomplete deployment compatibility contract.');
+  }
+
+  const eventTrustFiles = [
+    'db/clickhouse/migrations/19_add_event_collection_trust_tier.sql',
+    'db/clickhouse/migrations/20_add_verified_event_data_pivot.sql',
+    'prisma/migrations/37_add_event_collection_trust_tier/migration.sql',
+  ];
+  const eventTrustDeclared = eventTrustFiles.some(file => contract.requiredFiles.includes(file));
+  const eventTrustCapability =
+    contract.deployment?.requiredAdapterCapabilities.includes('event-claim-trust-tier-v1') ?? false;
+  if (
+    eventTrustDeclared !== eventTrustCapability ||
+    (eventTrustCapability && !eventTrustFiles.every(file => contract.requiredFiles.includes(file)))
+  ) {
+    throw new Error('Unsupported or incomplete deployment compatibility contract.');
+  }
+
+  const revenueDisableFile =
+    'db/clickhouse/migrations/18_disable_unverified_revenue_materialization.sql';
+  if (
+    contract.requiredFiles.includes(revenueDisableFile) !==
+    (contract.deployment?.requiredAdapterCapabilities.includes(
+      'unverified-revenue-materialization-disabled-v1',
+    ) ?? false)
+  ) {
+    throw new Error('Unsupported or incomplete deployment compatibility contract.');
+  }
+
+  const attestedRevenueFile = 'prisma/migrations/40_add_attested_revenue_movement/migration.sql';
+  if (
+    contract.requiredFiles.includes(attestedRevenueFile) !==
+    (contract.deployment?.requiredAdapterCapabilities.includes('attested-revenue-ledger-v1') ??
+      false)
+  ) {
+    throw new Error('Unsupported or incomplete deployment compatibility contract.');
   }
 
   const heatmapRetentionFiles = [

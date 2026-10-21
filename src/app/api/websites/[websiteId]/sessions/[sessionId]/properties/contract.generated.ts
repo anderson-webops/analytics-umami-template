@@ -12,7 +12,7 @@ const operation1 = defineOperation({
     operationId: 'getWebsiteSessionProperties',
     summary: "Get a session's custom properties",
     description:
-      'Returns custom property records, data types, and values for the specified website session.',
+      'Returns custom property records, data types, values, and provenance tiers for the specified website session. Historical unverified rows remain visible but do not enter derived session-property reports.',
     tags: ['Websites'],
     parameters: [
       {
@@ -60,6 +60,11 @@ const operation1 = defineOperation({
                     type: 'number',
                     description: 'Data type of the custom property.',
                   },
+                  trustTier: {
+                    type: 'number',
+                    description:
+                      'Property provenance: 0 for unverified historical data, 1 for a website-backend-authorized submission. Authorization does not prove the reported fact.',
+                  },
                   stringValue: {
                     type: 'string',
                     description: 'Custom property value stored as a string.',
@@ -98,6 +103,7 @@ const operation1 = defineOperation({
                   'sessionId',
                   'dataKey',
                   'dataType',
+                  'trustTier',
                   'stringValue',
                   'numberValue',
                   'dateValue',

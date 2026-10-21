@@ -289,7 +289,7 @@ test.describe('Session data', () => {
     const pro = response.body.find((row: any) => row.label === 'pro');
     expect(pro).toBeDefined();
     expect(Number(pro.sessions)).toBe(3);
-    expect(Number(pro.views)).toBeGreaterThan(0);
+    expect(Number(pro.views)).toBe(0);
 
     expect(shared.status).toBe(200);
     expect(denied.status).toBe(401);

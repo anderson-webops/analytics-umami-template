@@ -101,6 +101,10 @@ const operation1 = defineOperation({
                         format: 'date-time',
                         description: 'Date and time the record was last updated.',
                       },
+                      name: {
+                        type: 'string',
+                        description: 'Display name of the resource.',
+                      },
                       logoUrl: {
                         type: 'string',
                         description: 'URL of the logo image.',
@@ -114,19 +118,15 @@ const operation1 = defineOperation({
                         format: 'date-time',
                         description: 'Date and time the record was deleted, if applicable.',
                       },
-                      name: {
-                        type: 'string',
-                        description: 'Display name of the resource.',
-                      },
                     },
                     required: [
                       'id',
                       'createdAt',
                       'updatedAt',
+                      'name',
                       'logoUrl',
                       'twoFactorRequired',
                       'deletedAt',
-                      'name',
                     ],
                   },
                   description: 'Data returned by the operation.',

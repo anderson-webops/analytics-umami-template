@@ -1,10 +1,13 @@
-import { beforeEach, describe, expect, test, vi } from 'vitest';
-import { DATA_TYPE } from '@/lib/constants';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { COLLECTION_TRUST_TIER, DATA_TYPE } from '@/lib/constants';
+import kafka from '@/lib/kafka';
 import type { DynamicData } from '@/lib/types';
-import { relationalQuery } from './saveSessionData';
+import { relationalQuery, saveSessionData } from './saveSessionData';
 
-const { executeRawMock } = vi.hoisted(() => ({
+const { executeRawMock, insertMock, sendMessageMock } = vi.hoisted(() => ({
   executeRawMock: vi.fn(),
+  insertMock: vi.fn(),
+  sendMessageMock: vi.fn(),
 }));
 
 vi.mock('@/lib/prisma', () => ({
@@ -14,6 +17,20 @@ vi.mock('@/lib/prisma', () => ({
     },
   },
 }));
+vi.mock('@/lib/clickhouse', () => ({
+  default: {
+    insert: insertMock,
+    getUTCString: (date?: Date) => date?.toISOString() ?? '2026-01-01T00:00:00.000Z',
+  },
+}));
+vi.mock('@/lib/kafka', () => ({
+  default: { enabled: false, sendMessage: sendMessageMock },
+}));
+
+afterEach(() => {
+  kafka.enabled = false;
+  vi.unstubAllEnvs();
+});
 
 function getBulkWrite() {
   const [segments, payload, hasDistinctId, hasCreatedAt] = executeRawMock.mock.calls[0];
@@ -43,6 +60,7 @@ describe('relationalQuery', () => {
         amount: 12.5,
         joined: '2026-07-30T10:00:00.000Z',
       },
+      trustTier: COLLECTION_TRUST_TIER.backendAuthorized,
       distinctId: 'distinct-1',
       createdAt,
     });
@@ -50,6 +68,7 @@ describe('relationalQuery', () => {
     expect(executeRawMock).toHaveBeenCalledTimes(1);
     const { query, rows, hasDistinctId, hasCreatedAt } = getBulkWrite();
     expect(query).toContain('ON CONFLICT ("session_id", "data_key") DO UPDATE');
+    expect(query).toContain('"trust_tier" = EXCLUDED."trust_tier"');
     expect(query).toContain('jsonb_to_recordset(?::jsonb)');
     expect(hasDistinctId).toBe(true);
     expect(hasCreatedAt).toBe(true);
@@ -63,6 +82,7 @@ describe('relationalQuery', () => {
       number_value: null,
       date_value: null,
       data_type: DATA_TYPE.string,
+      trust_tier: COLLECTION_TRUST_TIER.backendAuthorized,
       distinct_id: 'distinct-1',
       created_at: createdAt.toISOString(),
     });
@@ -86,6 +106,7 @@ describe('relationalQuery', () => {
       sessionData: Object.fromEntries(
         Array.from({ length: 99 }, (_, index) => [`property-${index}`, index]),
       ),
+      trustTier: COLLECTION_TRUST_TIER.backendAuthorized,
     });
 
     expect(executeRawMock).toHaveBeenCalledTimes(1);
@@ -97,6 +118,7 @@ describe('relationalQuery', () => {
       websiteId: 'website-1',
       sessionId: 'session-1',
       sessionData: { 'plan.tier': 'old', plan: { tier: 'new' } } as unknown as DynamicData,
+      trustTier: COLLECTION_TRUST_TIER.backendAuthorized,
     });
 
     expect(getBulkWrite().rows).toHaveLength(1);
@@ -111,6 +133,7 @@ describe('relationalQuery', () => {
       websiteId: 'website-1',
       sessionId: 'session-1',
       sessionData: { plan: 'pro' },
+      trustTier: COLLECTION_TRUST_TIER.backendAuthorized,
     });
 
     const { rows, hasDistinctId, hasCreatedAt } = getBulkWrite();
@@ -125,8 +148,116 @@ describe('relationalQuery', () => {
       websiteId: 'website-1',
       sessionId: 'session-1',
       sessionData: {},
+      trustTier: COLLECTION_TRUST_TIER.backendAuthorized,
     });
 
     expect(executeRawMock).not.toHaveBeenCalled();
   });
+
+  test('rejects a missing or unverified provenance before writing', async () => {
+    await expect(
+      relationalQuery({
+        websiteId: 'website-1',
+        sessionId: 'session-1',
+        sessionData: { plan: 'pro' },
+        trustTier:
+          COLLECTION_TRUST_TIER.unverified as typeof COLLECTION_TRUST_TIER.backendAuthorized,
+      }),
+    ).rejects.toThrow('Session property provenance is required.');
+
+    expect(executeRawMock).not.toHaveBeenCalled();
+  });
+
+  test('rejects nested revenue properties at the direct PostgreSQL sink', async () => {
+    await expect(
+      relationalQuery({
+        websiteId: 'website-1',
+        sessionId: 'session-1',
+        sessionData: { order: { TOTAL_REVENUE: 42 } } as unknown as DynamicData,
+        trustTier: COLLECTION_TRUST_TIER.backendAuthorized,
+      }),
+    ).rejects.toThrow('Verified revenue collection is not enabled.');
+
+    expect(executeRawMock).not.toHaveBeenCalled();
+  });
+
+  test('preserves unrelated concurrency properties in PostgreSQL', async () => {
+    await relationalQuery({
+      websiteId: 'website-1',
+      sessionId: 'session-1',
+      sessionData: { concurrencyLimit: 8 },
+      trustTier: COLLECTION_TRUST_TIER.backendAuthorized,
+    });
+
+    expect(getBulkWrite().rows).toEqual([
+      expect.objectContaining({ data_key: 'concurrencyLimit', number_value: 8 }),
+    ]);
+  });
 });
+
+test.each([false, true])(
+  'ClickHouse mode includes provenance with Kafka enabled=%s',
+  async enabled => {
+    vi.stubEnv('CLICKHOUSE_URL', 'http://synthetic.invalid:8123/analytics');
+    kafka.enabled = enabled;
+    insertMock.mockReset();
+    sendMessageMock.mockReset();
+
+    const payload = {
+      websiteId: 'website-1',
+      sessionId: 'session-1',
+      sessionData: { plan: 'pro', concurrencyLimit: 8 },
+      trustTier: COLLECTION_TRUST_TIER.backendAuthorized,
+      createdAt: new Date('2026-10-17T00:00:00.000Z'),
+    };
+
+    await saveSessionData(payload);
+
+    const sink = enabled ? sendMessageMock : insertMock;
+    const unusedSink = enabled ? insertMock : sendMessageMock;
+    expect(sink).toHaveBeenCalledWith('session_data', [
+      expect.objectContaining({
+        data_key: 'plan',
+        string_value: 'pro',
+        trust_tier: COLLECTION_TRUST_TIER.backendAuthorized,
+      }),
+      expect.objectContaining({
+        data_key: 'concurrencyLimit',
+        number_value: 8,
+        trust_tier: COLLECTION_TRUST_TIER.backendAuthorized,
+      }),
+    ]);
+    expect(unusedSink).not.toHaveBeenCalled();
+
+    await expect(
+      saveSessionData({
+        ...payload,
+        trustTier:
+          COLLECTION_TRUST_TIER.unverified as typeof COLLECTION_TRUST_TIER.backendAuthorized,
+      }),
+    ).rejects.toThrow('Session property provenance is required.');
+    expect(sink).toHaveBeenCalledTimes(1);
+  },
+);
+
+test.each([false, true])(
+  'rejects session revenue before ClickHouse or Kafka delivery with Kafka enabled=%s',
+  async enabled => {
+    vi.stubEnv('CLICKHOUSE_URL', 'http://synthetic.invalid:8123/analytics');
+    kafka.enabled = enabled;
+    insertMock.mockReset();
+    sendMessageMock.mockReset();
+
+    await expect(
+      saveSessionData({
+        websiteId: 'website-1',
+        sessionId: 'session-1',
+        sessionData: { order: { currency: 'USD', amount: 42 } } as unknown as DynamicData,
+        trustTier: COLLECTION_TRUST_TIER.backendAuthorized,
+      }),
+    ).rejects.toThrow('Verified revenue collection is not enabled.');
+
+    expect(insertMock).not.toHaveBeenCalled();
+    expect(sendMessageMock).not.toHaveBeenCalled();
+  },
+);

@@ -17,6 +17,7 @@ test.describe('Websites', () => {
 
   let teamId = '';
   let websiteId = '';
+  let websiteDomain = '';
   let teamWebsiteId = '';
 
   test.beforeAll(async ({ admin }) => {
@@ -44,6 +45,7 @@ test.describe('Websites', () => {
     expect(response.body).toMatchObject({ name, domain, userId: seed.admin.id, shareId: null });
 
     websiteId = response.body.id;
+    websiteDomain = domain;
   });
 
   test('POST /api/websites creates a website for a team', async ({ admin }) => {
@@ -144,6 +146,7 @@ test.describe('Websites', () => {
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({ id: websiteId, name, domain });
     expect(denied.status).toBe(401);
+    websiteDomain = domain;
   });
 
   test('POST /api/websites/{websiteId} rejects custom slugs and can revoke shares', async ({
@@ -186,7 +189,7 @@ test.describe('Websites', () => {
 
     expect(rotated.status).toBe(200);
     const newSlug = rotated.body.slug;
-    expect(newSlug).toMatch(/^[A-Za-z0-9]{16}$/);
+    expect(newSlug).toMatch(/^[A-Za-z0-9_-]{24}$/);
     expect(newSlug).not.toBe(oldSlug);
     expect((await api.get(`/api/share/${oldSlug}`)).status).toBe(404);
     expect((await oldToken.get(`/api/websites/${websiteId}`)).status).toBe(401);
@@ -255,9 +258,10 @@ test.describe('Websites', () => {
     const enabled = await admin.post(`/api/websites/${websiteId}`, {
       replayConfig: { replayEnabled: true, sampleRate: 0.5, maskLevel: 'strict' },
     });
-    const recorder = await api.get(`/api/websites/${websiteId}/recorder`);
+    const headers = { origin: `https://${websiteDomain}` };
+    const recorder = await api.get(`/api/websites/${websiteId}/recorder`, { headers });
     const disabled = await admin.post(`/api/websites/${websiteId}`, { replayConfig: null });
-    const recorderOff = await api.get(`/api/websites/${websiteId}/recorder`);
+    const recorderOff = await api.get(`/api/websites/${websiteId}/recorder`, { headers });
 
     expect(enabled.status).toBe(200);
     expect(recorder.status).toBe(200);
@@ -268,16 +272,28 @@ test.describe('Websites', () => {
       sampleRate: 0.5,
       maskLevel: 'strict',
     });
+    expect(recorder.headers['access-control-allow-origin']).toBe(headers.origin);
     expect(disabled.status).toBe(200);
+    expect(recorderOff.status).toBe(200);
     expect(recorderOff.body).toEqual({ enabled: false });
   });
 
-  test('GET /api/websites/{websiteId}/recorder is public and CORS enabled', async ({ api }) => {
-    const response = await api.get(`/api/websites/${UNKNOWN_UUID}/recorder`);
+  test('GET /api/websites/{websiteId}/recorder rejects absent or unrelated origins', async ({
+    api,
+  }) => {
+    const missingOrigin = await api.get(`/api/websites/${websiteId}/recorder`);
+    const wrongOrigin = await api.get(`/api/websites/${websiteId}/recorder`, {
+      headers: { origin: 'https://unrelated.test' },
+    });
+    const unknownWebsite = await api.get(`/api/websites/${UNKNOWN_UUID}/recorder`, {
+      headers: { origin: `https://${websiteDomain}` },
+    });
 
-    expect(response.status).toBe(200);
-    expect(response.body).toEqual({ enabled: false });
-    expect(response.headers['access-control-allow-origin']).toBe('*');
+    for (const response of [missingOrigin, wrongOrigin, unknownWebsite]) {
+      expect(response.status).toBe(404);
+      expect(response.body).toEqual({ enabled: false });
+      expect(response.headers['access-control-allow-origin']).toBeUndefined();
+    }
   });
 
   test('GET /api/websites/charts returns chart data for accessible websites', async ({
@@ -442,7 +458,7 @@ test.describe('Websites', () => {
     expect(denied.status).toBe(401);
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ ok: true });
-    expect(gone.body).toBeNull();
+    expect(gone.status).toBe(401);
 
     websiteId = '';
   });

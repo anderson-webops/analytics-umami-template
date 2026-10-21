@@ -2,6 +2,7 @@ import { z } from 'zod';
 import * as send from '@/app/api/send/route';
 import { getCollectionIpLimit, transferCollectionIpLimit } from '@/lib/collection-rate-limit';
 import { corsPreflight, withTrackingOrigin } from '@/lib/cors';
+import { uuid } from '@/lib/crypto';
 import { parseRequest } from '@/lib/request';
 import { json, serverError, tooManyRequests } from '@/lib/response';
 import { anyObjectParam } from '@/lib/schema';
@@ -43,6 +44,7 @@ export async function POST(request: Request) {
     let cache = null;
     let cacheOrigin: string | null = null;
     const websiteCaches = new Map<string, string>();
+    const identicalItems = new Map<string, number>();
     const linkOrPixelOnly = body.every(data => {
       const payload = data.payload;
 
@@ -72,6 +74,19 @@ export async function POST(request: Request) {
       const headers = new Headers(request.headers);
       headers.set('content-type', 'application/json');
       headers.delete('content-length');
+      const requestId = request.headers.get('x-umami-request-id');
+      const childBody = JSON.stringify(data);
+
+      if (requestId && /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(requestId)) {
+        const occurrence = identicalItems.get(childBody) ?? 0;
+        identicalItems.set(childBody, occurrence + 1);
+        headers.set(
+          'x-umami-request-id',
+          occurrence === 0
+            ? uuid('collection-batch-v1', requestId.toLowerCase(), childBody)
+            : uuid('collection-batch-v1', requestId.toLowerCase(), childBody, `\0${occurrence}`),
+        );
+      }
       const websiteId =
         typeof data.payload?.website === 'string' ? data.payload.website.toLowerCase() : null;
       const sessionSeed = data.payload?.sessionSeed;
@@ -88,15 +103,18 @@ export async function POST(request: Request) {
       const newRequest = new Request(request.url, {
         method: 'POST',
         headers,
-        body: JSON.stringify(data),
+        body: childBody,
       });
 
       transferCollectionIpLimit(request, newRequest);
 
       const response = await send.POST(newRequest);
-      const responseJson = await response.json();
+      const responseJson =
+        response.status === 204
+          ? { error: { code: 'not-recorded', status: 204 } }
+          : await response.json();
 
-      if (!response.ok) {
+      if (!response.ok || response.status === 204) {
         errors.push({ index, response: responseJson });
         if (response.status === 429) {
           index++;

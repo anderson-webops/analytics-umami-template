@@ -2,6 +2,7 @@ import { LoadingPanel } from '@/components/common/LoadingPanel';
 import { useDateRange } from '@/components/hooks';
 import { useRevenueStatsQuery } from '@/components/hooks/queries/useRevenueStatsQuery';
 import { RevenueMetricsBar } from './RevenueMetricsBar';
+import { RevenueTrustNotice } from './RevenueTrustNotice';
 import { useBoardRevenueCurrency } from './useBoardRevenueCurrency';
 
 export function BoardRevenueMetricsBar({
@@ -21,7 +22,12 @@ export function BoardRevenueMetricsBar({
 
   return (
     <LoadingPanel data={data} isLoading={isLoading} isFetching={isFetching} error={error}>
-      {data && <RevenueMetricsBar data={data} currency={currency} />}
+      {data && (
+        <>
+          <RevenueTrustNotice />
+          <RevenueMetricsBar data={data} currency={currency} />
+        </>
+      )}
     </LoadingPanel>
   );
 }

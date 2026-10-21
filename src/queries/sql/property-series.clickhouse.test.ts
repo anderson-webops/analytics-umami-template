@@ -28,8 +28,10 @@ integrationTest(
         website_id UUID,
         session_id UUID,
         event_name String,
+        url_path String DEFAULT '/',
         created_at DateTime64(3, 'UTC'),
         event_type UInt32,
+        trust_tier UInt8 DEFAULT 0,
         is_bot UInt8
       ) ENGINE = MergeTree ORDER BY (website_id, created_at)`,
       });
@@ -39,9 +41,11 @@ integrationTest(
         website_id UUID,
         session_id UUID,
         event_name String,
+        url_path String DEFAULT '/',
         created_at DateTime64(3, 'UTC'),
         data_key String,
         data_type UInt32,
+        trust_tier UInt8 DEFAULT 0,
         string_value Nullable(String)
       ) ENGINE = MergeTree ORDER BY (website_id, event_id, data_key)`,
       });
@@ -52,7 +56,8 @@ integrationTest(
         created_at DateTime64(3, 'UTC'),
         data_key String,
         data_type UInt32,
-        string_value Nullable(String)
+        string_value Nullable(String),
+        trust_tier UInt8 DEFAULT 0
       ) ENGINE = ReplacingMergeTree ORDER BY (website_id, session_id, data_key, created_at)`,
       });
 
@@ -71,45 +76,97 @@ integrationTest(
         value,
         createdAt,
       }));
+      const legacyRows = Array.from({ length: 80 }, () => ({
+        eventId: randomUUID(),
+        sessionId: randomUUID(),
+      }));
+      const legacySessionId = randomUUID();
 
       await client.insert({
         table: 'website_event',
         format: 'JSONEachRow',
-        values: rows.map(({ eventId, sessionId, createdAt }) => ({
-          event_id: eventId,
-          website_id: websiteId,
-          session_id: sessionId,
-          event_name: 'signup',
-          created_at: createdAt,
-          event_type: 2,
-          is_bot: 0,
-        })),
+        values: [
+          ...rows.map(({ eventId, sessionId, createdAt }) => ({
+            event_id: eventId,
+            website_id: websiteId,
+            session_id: sessionId,
+            event_name: 'signup',
+            created_at: createdAt,
+            event_type: 2,
+            trust_tier: 1,
+            is_bot: 0,
+          })),
+          ...legacyRows.map(({ eventId, sessionId }) => ({
+            event_id: eventId,
+            website_id: websiteId,
+            session_id: sessionId,
+            event_name: 'signup',
+            created_at: firstDay,
+            event_type: 2,
+            is_bot: 0,
+          })),
+          {
+            event_id: randomUUID(),
+            website_id: websiteId,
+            session_id: legacySessionId,
+            event_name: 'pageview',
+            created_at: firstDay,
+            event_type: 1,
+            is_bot: 0,
+          },
+        ],
       });
       await client.insert({
         table: 'event_data',
         format: 'JSONEachRow',
-        values: rows.flatMap(({ eventId, sessionId, value, createdAt }) => [
-          {
-            event_id: eventId,
-            session_id: sessionId,
-            website_id: websiteId,
-            event_name: 'signup',
-            created_at: createdAt,
-            data_key: 'plan',
-            data_type: 1,
-            string_value: value,
-          },
-          {
-            event_id: eventId,
-            session_id: sessionId,
-            website_id: websiteId,
-            event_name: 'signup',
-            created_at: createdAt,
-            data_key: 'tags',
-            data_type: 5,
-            string_value: JSON.stringify([value]),
-          },
-        ]),
+        values: [
+          ...rows.flatMap(({ eventId, sessionId, value, createdAt }) => [
+            {
+              event_id: eventId,
+              session_id: sessionId,
+              website_id: websiteId,
+              event_name: 'signup',
+              created_at: createdAt,
+              data_key: 'plan',
+              data_type: 1,
+              trust_tier: 1,
+              string_value: value,
+            },
+            {
+              event_id: eventId,
+              session_id: sessionId,
+              website_id: websiteId,
+              event_name: 'signup',
+              created_at: createdAt,
+              data_key: 'tags',
+              data_type: 5,
+              trust_tier: 1,
+              string_value: JSON.stringify([value]),
+            },
+          ]),
+          ...legacyRows.flatMap(({ eventId, sessionId }) => [
+            {
+              event_id: eventId,
+              session_id: sessionId,
+              website_id: websiteId,
+              event_name: 'signup',
+              created_at: firstDay,
+              data_key: 'plan',
+              data_type: 1,
+              string_value: 'legacy-only',
+            },
+            {
+              event_id: eventId,
+              session_id: sessionId,
+              website_id: websiteId,
+              event_name: 'signup',
+              created_at: firstDay,
+              data_key: 'tags',
+              data_type: 5,
+              string_value: '["legacy-only"]',
+            },
+          ]),
+        ],
       });
       await client.insert({
         table: 'session_data',
@@ -122,6 +179,7 @@ integrationTest(
               created_at: createdAt,
               data_key: 'plan',
               data_type: 1,
+              trust_tier: 1,
               string_value: value,
             },
             {
@@ -130,7 +188,26 @@ integrationTest(
               created_at: createdAt,
               data_key: 'tags',
               data_type: 5,
+              trust_tier: 1,
               string_value: JSON.stringify([value]),
+            },
+          ]),
+          ...legacyRows.flatMap(({ sessionId }) => [
+            {
+              session_id: sessionId,
+              website_id: websiteId,
+              created_at: firstDay,
+              data_key: 'plan',
+              data_type: 1,
+              string_value: 'legacy-only',
+            },
+            {
+              session_id: sessionId,
+              website_id: websiteId,
+              created_at: firstDay,
+              data_key: 'tags',
+              data_type: 5,
+              string_value: '["legacy-only"]',
             },
           ]),
           {
@@ -139,7 +216,24 @@ integrationTest(
             created_at: '2026-08-01 12:00:00',
             data_key: 'plan',
             data_type: 1,
+            trust_tier: 1,
             string_value: 'out-of-range',
+          },
+          {
+            session_id: legacySessionId,
+            website_id: websiteId,
+            created_at: firstDay,
+            data_key: 'plan',
+            data_type: 1,
+            string_value: 'legacy-only',
+          },
+          {
+            session_id: legacySessionId,
+            website_id: websiteId,
+            created_at: firstDay,
+            data_key: 'tags',
+            data_type: 5,
+            string_value: '["legacy-only"]',
           },
         ],
       });
@@ -162,6 +256,7 @@ integrationTest(
         expect(series.filter(row => row.x === names[0])).toHaveLength(2);
         expect(series.some(row => row.x === names[59])).toBe(false);
         expect(series.some(row => row.x === 'out-of-range')).toBe(false);
+        expect(series.some(row => row.x === 'legacy-only')).toBe(false);
       }
       for (const series of [results[0], results[2]]) {
         expect(series.filter(row => row.x === null)).toHaveLength(2);

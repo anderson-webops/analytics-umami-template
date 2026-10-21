@@ -3,6 +3,7 @@ import { login } from '../helpers/auth';
 import { ADMIN_USER } from '../helpers/constants';
 import { assertStatus } from '../helpers/entities';
 import { buildDataset, CURRENCY, type Dataset, HOSTNAME } from './dataset';
+import { seedHistoricalRevenue } from './historical-revenue';
 import {
   SEED_IDS,
   SEED_LINK,
@@ -37,7 +38,7 @@ export function getRecordedReplayIdentity(rows: unknown) {
 
 async function ensureUser(
   admin: ApiClient,
-  credentials: { username: string; password: string; role: string },
+  credentials: { id?: string; username: string; password: string; role: string },
 ): Promise<SeedCredentials> {
   const created = await admin.post('/api/users', credentials);
 
@@ -61,6 +62,12 @@ async function ensureUser(
 
   if (!user) {
     throw new Error(`User ${credentials.username} exists but could not be found`);
+  }
+
+  if (credentials.id && user.id !== credentials.id) {
+    throw new Error(
+      `Existing disposable user ${credentials.username} has a different ID; reset the synthetic test database.`,
+    );
   }
 
   return { ...credentials, id: user.id };
@@ -231,6 +238,7 @@ export async function seedEnvironment(api: ApiClient): Promise<SeedState> {
         heatmapEnabled: true,
         sampleRate: 1,
         heatmapSampleRate: 1,
+        maskLevel: 'strict',
       },
     }),
     200,
@@ -248,7 +256,8 @@ export async function seedEnvironment(api: ApiClient): Promise<SeedState> {
   const team = await ensureTeam(admin, user.id);
 
   const dataset = buildDataset();
-  await ingestDataset(api, dataset);
+  await ingestDataset(api, { ...dataset, legacyRevenue: [] });
+  seedHistoricalRevenue(dataset, db);
   const { sessionId, eventId, replay } = await waitForAnalytics(admin, dataset);
 
   return {

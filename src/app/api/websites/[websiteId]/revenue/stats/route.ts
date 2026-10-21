@@ -1,22 +1,17 @@
-import { z } from 'zod';
+import { REVENUE_PROVENANCE, REVENUE_RESPONSE_HEADERS } from '@/lib/constants';
 import { getBoundedCompareDate, getQueryFilters, parseRequest } from '@/lib/request';
 import { json, unauthorized } from '@/lib/response';
-import { filterParams, withDateRange } from '@/lib/schema';
 import { canViewWebsiteSection } from '@/permissions';
 import type { RevenuParameters } from '@/queries/sql/revenue/getRevenueChart';
 import { getRevenueStats } from '@/queries/sql/revenue/getRevenueStats';
+import { revenueStatsQuerySchema } from './schema';
 
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ websiteId: string }> },
 ) {
   const { websiteId } = await params;
-  const schema = withDateRange({
-    currency: z.string(),
-    ...filterParams,
-  });
-
-  const { auth, query, error } = await parseRequest(request, schema, {
+  const { auth, query, error } = await parseRequest(request, revenueStatsQuerySchema, {
     budgetShareQuery: true,
     shareQueryContext: { section: 'revenue', websiteId },
     shareQueryWorkMultiplier: 3,
@@ -48,5 +43,13 @@ export async function GET(
     getRevenueStats(websiteId, comparisonParameters, filters),
   ]);
 
-  return json({ ...stats, comparison });
+  return json(
+    {
+      ...stats,
+      arpu: null,
+      comparison: { ...comparison, arpu: null },
+      revenueProvenance: REVENUE_PROVENANCE,
+    },
+    { headers: REVENUE_RESPONSE_HEADERS },
+  );
 }

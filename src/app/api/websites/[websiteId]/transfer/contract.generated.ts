@@ -73,6 +73,14 @@ const operation1 = defineOperation({
                   format: 'date-time',
                   description: 'Date and time the record was last updated.',
                 },
+                name: {
+                  type: 'string',
+                  description: 'Display name of the resource.',
+                },
+                teamId: {
+                  type: 'string',
+                  description: 'ID of the associated team.',
+                },
                 deletedAt: {
                   type: 'string',
                   format: 'date-time',
@@ -81,10 +89,6 @@ const operation1 = defineOperation({
                 createdBy: {
                   type: 'string',
                   description: 'ID of the user who created the resource.',
-                },
-                name: {
-                  type: 'string',
-                  description: 'Display name of the resource.',
                 },
                 domain: {
                   type: 'string',
@@ -95,9 +99,8 @@ const operation1 = defineOperation({
                   format: 'date-time',
                   description: 'Date and time the website analytics were last reset.',
                 },
-                teamId: {
-                  type: 'string',
-                  description: 'ID of the associated team.',
+                collectionGeneration: {
+                  type: 'number',
                 },
                 recorderEnabled: {
                   type: 'boolean',
@@ -165,12 +168,13 @@ const operation1 = defineOperation({
                 'userId',
                 'createdAt',
                 'updatedAt',
+                'name',
+                'teamId',
                 'deletedAt',
                 'createdBy',
-                'name',
                 'domain',
                 'resetAt',
-                'teamId',
+                'collectionGeneration',
                 'recorderEnabled',
                 'replayConfig',
               ],

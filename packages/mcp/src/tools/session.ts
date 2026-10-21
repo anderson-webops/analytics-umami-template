@@ -8,6 +8,7 @@ const HOUR = 60 * 60 * 1000;
 
 interface ActivityRow {
   createdAt?: string | Date;
+  trustTier?: number | null;
   urlPath?: string;
   urlQuery?: string | null;
   referrerDomain?: string | null;
@@ -21,6 +22,7 @@ interface ActivityRow {
 
 interface PropertyRow {
   dataKey?: string;
+  trustTier?: number | null;
   dataType?: number;
   stringValue?: string | null;
   numberValue?: number | null;
@@ -92,9 +94,15 @@ export const getSession = defineTool({
           .filter(row => row.dataKey)
           .map(row => [row.dataKey as string, propertyValue(row)]),
       ),
+      propertyTrustTier: Object.fromEntries(
+        (Array.isArray(properties) ? properties : [])
+          .filter(row => row.dataKey)
+          .map(row => [row.dataKey as string, row.trustTier ?? null]),
+      ),
       activity: rows.slice(0, MAX_SESSION_ACTIVITY).map(row => ({
         at: toIso(row.createdAt as string),
         type: row.eventType === 2 ? 'event' : 'pageview',
+        trustTier: row.trustTier ?? null,
         name: row.eventName ?? null,
         path: row.urlPath ?? null,
         query: row.urlQuery ?? null,

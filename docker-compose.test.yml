@@ -39,6 +39,7 @@ x-umami-env: &umami-env
   DISABLE_TELEMETRY: "1"
   DISABLE_UPDATES: "1"
   MCP_ENABLED: "1"
+  COLLECTION_SERVER_KEYS_JSON: ${UMAMI_TEST_COLLECTION_SERVER_KEYS_JSON:?Use scripts/test-api.ts to supply disposable test keys}
 
 services:
   db:

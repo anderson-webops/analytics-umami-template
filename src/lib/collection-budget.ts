@@ -16,6 +16,19 @@ export const COLLECTION_BUDGET_LIMITS = {
   },
 } as const;
 
+export const COLLECTION_ANONYMOUS_BUDGET_LIMITS = {
+  source: {
+    minute: { bytes: 32 * 1024 * 1024, rows: 50_000, requests: 10_000 },
+    day: { bytes: 512 * 1024 * 1024, rows: 1_000_000, requests: 250_000 },
+  },
+  account: {
+    minute: { bytes: 128 * 1024 * 1024, rows: 250_000, requests: 50_000 },
+    day: { bytes: 1024 * 1024 * 1024, rows: 2_000_000, requests: 1_000_000 },
+  },
+} as const;
+
+export type CollectionAdmissionClass = 'anonymous' | 'backend';
+
 export const COLLECTION_CLIENT_BUDGET_LIMITS = {
   send: {
     minute: { bytes: 16 * 1024 * 1024, rows: 25_000, requests: 1_000 },
@@ -77,6 +90,7 @@ interface BudgetSubject {
   key: string;
   limits:
     | (typeof COLLECTION_BUDGET_LIMITS)[keyof typeof COLLECTION_BUDGET_LIMITS]
+    | (typeof COLLECTION_ANONYMOUS_BUDGET_LIMITS)[keyof typeof COLLECTION_ANONYMOUS_BUDGET_LIMITS]
     | (typeof COLLECTION_CLIENT_BUDGET_LIMITS)[keyof typeof COLLECTION_CLIENT_BUDGET_LIMITS];
 }
 
@@ -120,13 +134,30 @@ export async function reserveCollectionBudget(
   transaction: Prisma.TransactionClient,
   identity: CollectionClientIdentity,
   cost: CollectionCost,
+  admissionClass: CollectionAdmissionClass = 'anonymous',
 ) {
   const { sourceType, sourceId, accountType, accountId } = identity;
+  const anonymousSubjects: BudgetSubject[] =
+    admissionClass === 'backend'
+      ? []
+      : [
+          {
+            type: 'source',
+            key: `anonymous:${sourceType}:${sourceId}`,
+            limits: COLLECTION_ANONYMOUS_BUDGET_LIMITS.source,
+          },
+          {
+            type: accountType,
+            key: `anonymous:${accountId}`,
+            limits: COLLECTION_ANONYMOUS_BUDGET_LIMITS.account,
+          },
+        ];
 
   return reserveBudget(
     transaction,
     [
       ...getClientBudgetSubjects(identity, 'send'),
+      ...anonymousSubjects,
       { type: 'source', key: `${sourceType}:${sourceId}`, limits: COLLECTION_BUDGET_LIMITS.source },
       { type: accountType, key: accountId, limits: COLLECTION_BUDGET_LIMITS.account },
     ],

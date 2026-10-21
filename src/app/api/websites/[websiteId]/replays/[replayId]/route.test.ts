@@ -158,8 +158,8 @@ test('redacts legacy stored navigation URLs before returning a replay', async ()
   const payload = await response.json();
 
   expect(response.status).toBe(200);
-  expect(payload.events[0].data).toEqual({ href: 'https://example.com/private', width: 800 });
-  expect(payload.events[1].data.payload.url).toBe('https://example.com/next');
+  expect(payload.events[0].data).toEqual({ href: '', width: 800 });
+  expect(payload.events[1].data.payload).toEqual({});
   expect(JSON.stringify(payload)).not.toContain('secret');
 });
 
@@ -193,9 +193,7 @@ test('redacts a historical navigation event restored from fragments', async () =
   const payload = await response.json();
 
   expect(response.status).toBe(200);
-  expect(payload.events).toMatchObject([
-    { type: 4, data: { href: 'https://example.com/private' } },
-  ]);
+  expect(payload.events).toMatchObject([{ type: 4, data: { href: '' } }]);
   expect(JSON.stringify(payload)).not.toContain('secret');
 });
 
@@ -245,5 +243,67 @@ test('removes resource URLs from a restored legacy snapshot before returning it'
 
   expect(response.status).toBe(200);
   expect(payload.events).toHaveLength(1);
-  expect(payload.events[0].data.node.childNodes[0].attributes).toEqual({ alt: 'Recorded image' });
+  expect(payload.events[0].data.node.childNodes[0].attributes).toEqual({});
+  expect(JSON.stringify(payload)).not.toContain('attacker.invalid');
+});
+
+test.each([false, true])('masks historical replay data (fragmented: %s)', async fragmented => {
+  const event = {
+    type: 2,
+    timestamp: 100,
+    data: {
+      node: {
+        type: 0,
+        id: 1,
+        childNodes: [
+          {
+            type: 2,
+            id: 2,
+            tagName: 'input',
+            attributes: { value: 'private-value', title: 'private-title' },
+            childNodes: [{ type: 3, id: 3, textContent: 'private-text' }],
+          },
+          { type: 2, id: 4, tagName: 'h1', attributes: {}, childNodes: [] },
+          { type: 2, id: 5, tagName: 'private-custom-tag', attributes: {}, childNodes: [] },
+        ],
+      },
+    },
+  };
+  const serialized = JSON.stringify(event);
+  const midpoint = Math.floor(serialized.length / 2);
+  const events = fragmented
+    ? [serialized.slice(0, midpoint), serialized.slice(midpoint)].map((value, index) => ({
+        type: 'umami:rrweb-event-fragment',
+        timestamp: 100,
+        data: { id: 'historical-snapshot', index, total: 2, value },
+      }))
+    : [event];
+  vi.mocked(getReplayChunks).mockResolvedValue([
+    {
+      sessionId: '33333333-3333-4333-8333-333333333333',
+      visitId: replayId,
+      events,
+      chunkIndex: 1,
+      eventCount: 1,
+      startedAt: new Date('2026-01-01T00:00:00Z'),
+      endedAt: new Date('2026-01-01T00:00:01Z'),
+    },
+  ]);
+
+  const response = await GET(request, params);
+  const payload = await response.json();
+
+  expect(response.status).toBe(200);
+  expect(payload.eventCount).toBe(1);
+  expect(payload.events[0].data.node.childNodes[0]).toMatchObject({
+    tagName: 'input',
+    attributes: {},
+    childNodes: [{ textContent: '' }],
+  });
+  const [, heading, fallback] = payload.events[0].data.node.childNodes;
+  expect(heading.tagName).toBe('h1');
+  expect(fallback.tagName).toBe('div');
+  expect(() => document.createElement(heading.tagName)).not.toThrow();
+  expect(() => document.createElement(fallback.tagName)).not.toThrow();
+  expect(JSON.stringify(payload)).not.toContain('private');
 });

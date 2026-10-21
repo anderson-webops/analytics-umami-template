@@ -1,5 +1,5 @@
 import clickhouse from '@/lib/clickhouse';
-import { EVENT_TYPE } from '@/lib/constants';
+import { COLLECTION_TRUST_TIER, EVENT_TYPE } from '@/lib/constants';
 import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
 import prisma from '@/lib/prisma';
 import type { PageResult, PropertyFilter, QueryFilters, SessionDataPivotRow } from '@/lib/types';
@@ -50,6 +50,7 @@ async function relationalQuery(
       where website_event.website_id = {{websiteId::uuid}}
         and website_event.created_at between {{startDate}} and {{endDate}}
         and website_event.event_type != ${EVENT_TYPE.performance}
+        and (website_event.event_type != ${EVENT_TYPE.customEvent} or website_event.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})
         ${filterQuery}
         ${pfSQL}
     ),
@@ -81,6 +82,7 @@ async function relationalQuery(
         join filtered_sessions
           on filtered_sessions.session_id = session_data.session_id
         where session_data.website_id = {{websiteId::uuid}}
+          and session_data.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}
       ) ranked
       where ranked.row_num = 1
     ),
@@ -148,6 +150,7 @@ async function clickhouseQuery(
       where website_event.website_id = {websiteId:UUID}
         and website_event.created_at between {startDate:DateTime64} and {endDate:DateTime64}
         and website_event.event_type != ${EVENT_TYPE.performance}
+        and (website_event.event_type != ${EVENT_TYPE.customEvent} or website_event.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})
       ${filterQuery}
       ${pfSQL}
     ),
@@ -165,6 +168,7 @@ async function clickhouseQuery(
       join filtered_sessions
         on filtered_sessions.session_id = session_data.session_id
       where session_data.website_id = {websiteId:UUID}
+        and session_data.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}
       group by
         session_data.session_id,
         session_data.data_key

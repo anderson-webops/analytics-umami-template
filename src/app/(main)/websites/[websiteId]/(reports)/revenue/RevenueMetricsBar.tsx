@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { useDateRange, useMessages } from '@/components/hooks';
+import { useDateRange } from '@/components/hooks';
 import type { RevenueStatsData } from '@/components/hooks/queries/useRevenueStatsQuery';
 import { MetricCard } from '@/components/metrics/MetricCard';
 import { MetricsBar } from '@/components/metrics/MetricsBar';
@@ -19,50 +19,40 @@ interface RevenueMetricItem {
 }
 
 export function RevenueMetricsBar({ data, currency }: RevenueMetricsBarProps) {
-  const { t, labels } = useMessages();
   const { isAllTime } = useDateRange();
-  const { sum, count, average, unique_count, arpu, comparison } = data;
+  const { sum, count, average, unique_count, comparison } = data;
+  const sumValue = Number(sum ?? 0);
+  const comparisonSumValue = Number(comparison?.sum ?? 0);
 
   const metrics: RevenueMetricItem[] = [
     {
-      value: sum,
-      label: t(labels.total),
-      change: comparison ? sum - comparison.sum : 0,
+      value: sumValue,
+      label: 'Unverified revenue claims',
+      tooltip: 'Historical event claims do not prove completed orders or payments.',
+      change: comparison ? sumValue - comparisonSumValue : 0,
       formatValue: (n: number) => formatLongCurrency(n, currency),
     },
     {
       value: average,
-      label: t(labels.aov),
+      label: 'Average claim',
       tooltip: (
         <>
-          <div>Average Order Value</div>
-          <div>(Total Revenue / Orders)</div>
+          <div>Reported revenue divided by revenue-bearing events.</div>
+          <div>This is not average order value.</div>
         </>
       ),
       change: comparison ? average - comparison.average : 0,
       formatValue: (n: number) => formatLongCurrency(n, currency),
     },
     {
-      value: arpu,
-      label: t(labels.arpu),
-      tooltip: (
-        <>
-          <div>Average Revenue Per User</div>
-          <div>(Total Revenue / All Sessions)</div>
-        </>
-      ),
-      change: comparison ? arpu - (comparison.arpu ?? 0) : 0,
-      formatValue: (n: number) => formatLongCurrency(n, currency),
-    },
-    {
       value: count,
-      label: t(labels.orders),
+      label: 'Revenue events',
       change: comparison ? count - comparison.count : 0,
       formatValue: formatLongNumber,
     },
     {
       value: unique_count,
-      label: t(labels.uniqueCustomers),
+      label: 'Sessions with claims',
       change: comparison ? unique_count - comparison.unique_count : 0,
       formatValue: formatLongNumber,
     },

@@ -3,7 +3,7 @@ import { Badge } from '@/components/common/Badge';
 import { Empty } from '@/components/common/Empty';
 import { LoadingPanel } from '@/components/common/LoadingPanel';
 import { useSessionDataQuery } from '@/components/hooks';
-import { DATA_TYPES } from '@/lib/constants';
+import { COLLECTION_TRUST_TIER, DATA_TYPES } from '@/lib/constants';
 
 export function SessionData({ websiteId, sessionId }: { websiteId: string; sessionId: string }) {
   const { data, isLoading, error } = useSessionDataQuery(websiteId, sessionId);
@@ -12,7 +12,7 @@ export function SessionData({ websiteId, sessionId }: { websiteId: string; sessi
     <LoadingPanel data={data} isLoading={isLoading} error={error}>
       {!data?.length && <Empty />}
       <Column gap="6">
-        {data?.map(({ dataKey, dataType, stringValue }) => {
+        {data?.map(({ dataKey, dataType, stringValue, trustTier }) => {
           return (
             <Column key={dataKey}>
               <Label>{dataKey}</Label>
@@ -20,6 +20,16 @@ export function SessionData({ websiteId, sessionId }: { websiteId: string; sessi
                 <Text>{stringValue}</Text>
                 <Badge variant="gray" dot={false}>
                   {DATA_TYPES[dataType]}
+                </Badge>
+                <Badge
+                  variant={
+                    trustTier === COLLECTION_TRUST_TIER.backendAuthorized ? 'good' : 'warning'
+                  }
+                  dot={false}
+                >
+                  {trustTier === COLLECTION_TRUST_TIER.backendAuthorized
+                    ? 'Website backend authorized'
+                    : 'Unverified'}
                 </Badge>
               </Row>
             </Column>

@@ -28,6 +28,20 @@ const replayRetentionPaths = [
   'prisma/migrations/35_expire_new_session_replays/migration.sql',
   'runtime-scripts/prune-expired-session-replays.mjs',
 ];
+const sessionTrustPaths = [
+  'db/clickhouse/migrations/17_add_session_data_trust_tier.sql',
+  'prisma/migrations/36_add_session_data_trust_tier/migration.sql',
+];
+const linkTrustPath = 'prisma/migrations/38_add_session_link_trust_tier/migration.sql';
+const ownerBindingPath = 'prisma/migrations/39_bind_collection_keys_to_website_owner/migration.sql';
+const eventTrustPaths = [
+  'db/clickhouse/migrations/19_add_event_collection_trust_tier.sql',
+  'db/clickhouse/migrations/20_add_verified_event_data_pivot.sql',
+  'prisma/migrations/37_add_event_collection_trust_tier/migration.sql',
+];
+const revenueDisablePath =
+  'db/clickhouse/migrations/18_disable_unverified_revenue_materialization.sql';
+const attestedRevenuePath = 'prisma/migrations/40_add_attested_revenue_movement/migration.sql';
 
 test('generated API client version matches the application release', async () => {
   const packageJson = JSON.parse(
@@ -86,7 +100,14 @@ async function createFixture() {
         capability =>
           capability !== 'bounded-heatmap-retention-v1' &&
           capability !== 'bounded-replay-retention-v1' &&
-          capability !== 'packaged-migration-tool-v1',
+          capability !== 'packaged-migration-tool-v1' &&
+          capability !== 'authenticated-advanced-collection-v1' &&
+          capability !== 'owner-bound-collection-keys-v1' &&
+          capability !== 'session-property-trust-tier-v1' &&
+          capability !== 'identity-link-trust-tier-v1' &&
+          capability !== 'event-claim-trust-tier-v1' &&
+          capability !== 'unverified-revenue-materialization-disabled-v1' &&
+          capability !== 'attested-revenue-ledger-v1',
       ),
     },
   };
@@ -135,6 +156,84 @@ async function addReplayRetentionFixture(root, contractPath) {
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
     await fs.writeFile(fullPath, 'synthetic replay retention file\n');
   }
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+}
+
+async function addSessionTrustFixture(root, contractPath) {
+  const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
+  contract.deployment.requiredAdapterCapabilities.push('session-property-trust-tier-v1');
+  for (const file of sessionTrustPaths) {
+    const allowedRoot = file.split('/')[0];
+    if (!contract.allowedRoots.includes(allowedRoot)) {
+      contract.allowedRoots.push(allowedRoot);
+    }
+    contract.requiredFiles.push(file);
+    const fullPath = path.join(root, file);
+    await fs.mkdir(path.dirname(fullPath), { recursive: true });
+    await fs.writeFile(fullPath, 'synthetic trust-tier migration\n');
+  }
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+}
+
+async function addLinkTrustFixture(root, contractPath) {
+  const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
+  contract.deployment.requiredAdapterCapabilities.push('identity-link-trust-tier-v1');
+  contract.allowedRoots.push('prisma');
+  contract.requiredFiles.push(linkTrustPath);
+  const fullPath = path.join(root, linkTrustPath);
+  await fs.mkdir(path.dirname(fullPath), { recursive: true });
+  await fs.writeFile(fullPath, 'synthetic link trust-tier migration\n');
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+}
+
+async function addOwnerBindingFixture(root, contractPath) {
+  const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
+  contract.deployment.requiredAdapterCapabilities.push('owner-bound-collection-keys-v1');
+  contract.allowedRoots.push('prisma');
+  contract.requiredFiles.push(ownerBindingPath);
+  const fullPath = path.join(root, ownerBindingPath);
+  await fs.mkdir(path.dirname(fullPath), { recursive: true });
+  await fs.writeFile(fullPath, 'synthetic owner-binding migration\n');
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+}
+
+async function addEventTrustFixture(root, contractPath) {
+  const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
+  contract.deployment.requiredAdapterCapabilities.push('event-claim-trust-tier-v1');
+  for (const file of eventTrustPaths) {
+    const allowedRoot = file.split('/')[0];
+    if (!contract.allowedRoots.includes(allowedRoot)) {
+      contract.allowedRoots.push(allowedRoot);
+    }
+    contract.requiredFiles.push(file);
+    const fullPath = path.join(root, file);
+    await fs.mkdir(path.dirname(fullPath), { recursive: true });
+    await fs.writeFile(fullPath, 'synthetic event trust-tier migration\n');
+  }
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+}
+
+async function addRevenueDisableFixture(root, contractPath) {
+  const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
+  contract.allowedRoots.push('db');
+  contract.requiredFiles.push(revenueDisablePath);
+  contract.deployment.requiredAdapterCapabilities.push(
+    'unverified-revenue-materialization-disabled-v1',
+  );
+  const fullPath = path.join(root, revenueDisablePath);
+  await fs.mkdir(path.dirname(fullPath), { recursive: true });
+  await fs.writeFile(fullPath, 'synthetic revenue-disable migration\n');
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+}
+
+async function addAttestedRevenueFixture(root, contractPath) {
+  const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
+  contract.allowedRoots.push('prisma');
+  contract.requiredFiles.push(attestedRevenuePath);
+  contract.deployment.requiredAdapterCapabilities.push('attested-revenue-ledger-v1');
+  const fullPath = path.join(root, attestedRevenuePath);
+  await fs.mkdir(path.dirname(fullPath), { recursive: true });
+  await fs.writeFile(fullPath, 'synthetic attested revenue migration\n');
   await fs.writeFile(contractPath, JSON.stringify(contract));
 }
 
@@ -449,6 +548,230 @@ test('replay retention files require complete packaging and host capability', as
   );
 });
 
+test('session trust-tier migrations require complete packaging and host capability', async () => {
+  const trustedContract = JSON.parse(
+    await fs.readFile(new URL('../deploy/runtime-artifact.json', import.meta.url), 'utf8'),
+  );
+  assert.ok(sessionTrustPaths.every(file => trustedContract.requiredFiles.includes(file)));
+  assert.ok(
+    trustedContract.deployment.requiredAdapterCapabilities.includes(
+      'session-property-trust-tier-v1',
+    ),
+  );
+
+  const { root, contractPath } = await createFixture();
+  await addSessionTrustFixture(root, contractPath);
+  const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
+  contract.deployment.requiredAdapterCapabilities =
+    contract.deployment.requiredAdapterCapabilities.filter(
+      capability => capability !== 'session-property-trust-tier-v1',
+    );
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await assert.rejects(
+    createRuntimeManifest(root, { contractPath, source }),
+    /deployment compatibility contract/,
+  );
+
+  contract.deployment.requiredAdapterCapabilities.push('session-property-trust-tier-v1');
+  contract.requiredFiles = contract.requiredFiles.filter(file => file !== sessionTrustPaths[1]);
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await assert.rejects(
+    createRuntimeManifest(root, { contractPath, source }),
+    /deployment compatibility contract/,
+  );
+
+  contract.requiredFiles.push(sessionTrustPaths[1]);
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await createRuntimeManifest(root, { contractPath, source });
+  await verifyRuntimeArtifact(root, { contractPath });
+});
+
+test('identity-link trust migration requires complete packaging and host capability', async () => {
+  const trustedContract = JSON.parse(
+    await fs.readFile(new URL('../deploy/runtime-artifact.json', import.meta.url), 'utf8'),
+  );
+  assert.ok(trustedContract.requiredFiles.includes(linkTrustPath));
+  assert.ok(
+    trustedContract.deployment.requiredAdapterCapabilities.includes('identity-link-trust-tier-v1'),
+  );
+
+  const { root, contractPath } = await createFixture();
+  await addLinkTrustFixture(root, contractPath);
+  const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
+  contract.deployment.requiredAdapterCapabilities =
+    contract.deployment.requiredAdapterCapabilities.filter(
+      capability => capability !== 'identity-link-trust-tier-v1',
+    );
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await assert.rejects(
+    createRuntimeManifest(root, { contractPath, source }),
+    /deployment compatibility contract/,
+  );
+
+  contract.deployment.requiredAdapterCapabilities.push('identity-link-trust-tier-v1');
+  contract.requiredFiles = contract.requiredFiles.filter(file => file !== linkTrustPath);
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await assert.rejects(
+    createRuntimeManifest(root, { contractPath, source }),
+    /deployment compatibility contract/,
+  );
+
+  contract.requiredFiles.push(linkTrustPath);
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await createRuntimeManifest(root, { contractPath, source });
+  await verifyRuntimeArtifact(root, { contractPath });
+});
+
+test('owner-bound collection keys require complete packaging and host capability', async () => {
+  const trustedContract = JSON.parse(
+    await fs.readFile(new URL('../deploy/runtime-artifact.json', import.meta.url), 'utf8'),
+  );
+  assert.ok(trustedContract.requiredFiles.includes(ownerBindingPath));
+  assert.ok(
+    trustedContract.deployment.requiredAdapterCapabilities.includes(
+      'owner-bound-collection-keys-v1',
+    ),
+  );
+
+  const { root, contractPath } = await createFixture();
+  await addOwnerBindingFixture(root, contractPath);
+  const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
+  contract.deployment.requiredAdapterCapabilities =
+    contract.deployment.requiredAdapterCapabilities.filter(
+      capability => capability !== 'owner-bound-collection-keys-v1',
+    );
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await assert.rejects(
+    createRuntimeManifest(root, { contractPath, source }),
+    /deployment compatibility contract/,
+  );
+
+  contract.deployment.requiredAdapterCapabilities.push('owner-bound-collection-keys-v1');
+  contract.requiredFiles = contract.requiredFiles.filter(file => file !== ownerBindingPath);
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await assert.rejects(
+    createRuntimeManifest(root, { contractPath, source }),
+    /deployment compatibility contract/,
+  );
+
+  contract.requiredFiles.push(ownerBindingPath);
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await createRuntimeManifest(root, { contractPath, source });
+  await verifyRuntimeArtifact(root, { contractPath });
+});
+
+test('event trust-tier migrations require complete packaging and host capability', async () => {
+  const trustedContract = JSON.parse(
+    await fs.readFile(new URL('../deploy/runtime-artifact.json', import.meta.url), 'utf8'),
+  );
+  assert.ok(eventTrustPaths.every(file => trustedContract.requiredFiles.includes(file)));
+  assert.ok(
+    trustedContract.deployment.requiredAdapterCapabilities.includes('event-claim-trust-tier-v1'),
+  );
+
+  const { root, contractPath } = await createFixture();
+  await addEventTrustFixture(root, contractPath);
+  const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
+  contract.deployment.requiredAdapterCapabilities =
+    contract.deployment.requiredAdapterCapabilities.filter(
+      capability => capability !== 'event-claim-trust-tier-v1',
+    );
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await assert.rejects(
+    createRuntimeManifest(root, { contractPath, source }),
+    /deployment compatibility contract/,
+  );
+
+  contract.deployment.requiredAdapterCapabilities.push('event-claim-trust-tier-v1');
+  contract.requiredFiles = contract.requiredFiles.filter(file => file !== eventTrustPaths[1]);
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await assert.rejects(
+    createRuntimeManifest(root, { contractPath, source }),
+    /deployment compatibility contract/,
+  );
+
+  contract.requiredFiles.push(eventTrustPaths[1]);
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await createRuntimeManifest(root, { contractPath, source });
+  await verifyRuntimeArtifact(root, { contractPath });
+});
+
+test('revenue materialization disablement requires packaging and host capability', async () => {
+  const trustedContract = JSON.parse(
+    await fs.readFile(new URL('../deploy/runtime-artifact.json', import.meta.url), 'utf8'),
+  );
+  assert.ok(trustedContract.requiredFiles.includes(revenueDisablePath));
+  assert.ok(
+    trustedContract.deployment.requiredAdapterCapabilities.includes(
+      'unverified-revenue-materialization-disabled-v1',
+    ),
+  );
+
+  const { root, contractPath } = await createFixture();
+  await addRevenueDisableFixture(root, contractPath);
+  const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
+  contract.deployment.requiredAdapterCapabilities =
+    contract.deployment.requiredAdapterCapabilities.filter(
+      capability => capability !== 'unverified-revenue-materialization-disabled-v1',
+    );
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await assert.rejects(
+    createRuntimeManifest(root, { contractPath, source }),
+    /deployment compatibility contract/,
+  );
+
+  contract.deployment.requiredAdapterCapabilities.push(
+    'unverified-revenue-materialization-disabled-v1',
+  );
+  contract.requiredFiles = contract.requiredFiles.filter(file => file !== revenueDisablePath);
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await assert.rejects(
+    createRuntimeManifest(root, { contractPath, source }),
+    /deployment compatibility contract/,
+  );
+
+  contract.requiredFiles.push(revenueDisablePath);
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await createRuntimeManifest(root, { contractPath, source });
+  await verifyRuntimeArtifact(root, { contractPath });
+});
+
+test('attested revenue ledger requires packaging and host capability', async () => {
+  const trustedContract = JSON.parse(
+    await fs.readFile(new URL('../deploy/runtime-artifact.json', import.meta.url), 'utf8'),
+  );
+  assert.ok(trustedContract.requiredFiles.includes(attestedRevenuePath));
+  assert.ok(
+    trustedContract.deployment.requiredAdapterCapabilities.includes('attested-revenue-ledger-v1'),
+  );
+
+  const { root, contractPath } = await createFixture();
+  await addAttestedRevenueFixture(root, contractPath);
+  const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
+  contract.deployment.requiredAdapterCapabilities =
+    contract.deployment.requiredAdapterCapabilities.filter(
+      capability => capability !== 'attested-revenue-ledger-v1',
+    );
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await assert.rejects(
+    createRuntimeManifest(root, { contractPath, source }),
+    /deployment compatibility contract/,
+  );
+
+  contract.deployment.requiredAdapterCapabilities.push('attested-revenue-ledger-v1');
+  contract.requiredFiles = contract.requiredFiles.filter(file => file !== attestedRevenuePath);
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await assert.rejects(
+    createRuntimeManifest(root, { contractPath, source }),
+    /deployment compatibility contract/,
+  );
+
+  contract.requiredFiles.push(attestedRevenuePath);
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await createRuntimeManifest(root, { contractPath, source });
+  await verifyRuntimeArtifact(root, { contractPath });
+});
+
 test('database-aware recovery requires its exact host capability and policy', async () => {
   const { root, contractPath } = await createFixture();
   const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
@@ -550,6 +873,27 @@ test('requires the pinned migration tool independently of the server entrypoint'
   );
 });
 
+test('requires the traced Linux replay CSS binding independently of the manifest inventory', async () => {
+  const trustedContract = JSON.parse(
+    await fs.readFile(new URL('../deploy/runtime-artifact.json', import.meta.url), 'utf8'),
+  );
+  const tracedBinding =
+    'node_modules/.pnpm/lightningcss@*/node_modules/lightningcss-linux-arm64-gnu';
+  assert.deepEqual(
+    trustedContract.requiredPatterns.find(requirement => requirement.pattern === tracedBinding),
+    { pattern: tracedBinding, minimum: 1 },
+  );
+
+  const { root, contractPath } = await createFixture();
+  const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
+  contract.requiredPatterns.push({ pattern: tracedBinding, minimum: 1 });
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await assert.rejects(
+    createRuntimeManifest(root, { contractPath, source }),
+    /Artifact pattern node_modules\/\.pnpm\/lightningcss@\*\/node_modules\/lightningcss-linux-arm64-gnu matched 0/,
+  );
+});
+
 test('rejects missing required modules and forbidden writable state', async () => {
   const { root, contractPath } = await createFixture();
   await fs.rm(path.join(root, 'server.js'));
@@ -594,6 +938,57 @@ test('requires the recorder bundle in the production artifact', async () => {
   );
 });
 
+test('binds advanced-collection capability to the permit route and verifies its bytes', async () => {
+  const route = '.next/server/app/api/collection-permit/route.js';
+  const capability = 'authenticated-advanced-collection-v1';
+  const trustedContract = JSON.parse(
+    await fs.readFile(new URL('../deploy/runtime-artifact.json', import.meta.url), 'utf8'),
+  );
+  assert.ok(trustedContract.requiredFiles.includes(route));
+  assert.ok(trustedContract.deployment.requiredAdapterCapabilities.includes(capability));
+
+  const { root, contractPath } = await createFixture();
+  const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
+  contract.requiredFiles.push(route);
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await assert.rejects(
+    createRuntimeManifest(root, { contractPath, source }),
+    /deployment compatibility contract/,
+  );
+
+  contract.deployment.requiredAdapterCapabilities.push(capability);
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await fs.mkdir(path.join(root, '.next/server/app/api/collection-permit'), { recursive: true });
+  await fs.writeFile(path.join(root, route), 'export const route = "synthetic";\n');
+  await createRuntimeManifest(root, { contractPath, source });
+  await fs.rm(path.join(root, route));
+  await assert.rejects(
+    verifyRuntimeArtifact(root, { contractPath }),
+    error => error instanceof Error && error.message.includes(`missing required file: ${route}`),
+  );
+});
+
+test('attested revenue intake route is present in the unpacked runtime', async () => {
+  const route = '.next/server/app/api/revenue/movements/route.js';
+  const trustedContract = JSON.parse(
+    await fs.readFile(new URL('../deploy/runtime-artifact.json', import.meta.url), 'utf8'),
+  );
+  assert.ok(trustedContract.requiredFiles.includes(route));
+
+  const { root, contractPath } = await createFixture();
+  const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
+  contract.requiredFiles.push(route);
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await fs.mkdir(path.dirname(path.join(root, route)), { recursive: true });
+  await fs.writeFile(path.join(root, route), 'export const route = "synthetic";\n');
+  await createRuntimeManifest(root, { contractPath, source });
+  await fs.rm(path.join(root, route));
+  await assert.rejects(
+    verifyRuntimeArtifact(root, { contractPath }),
+    error => error instanceof Error && error.message.includes(`missing required file: ${route}`),
+  );
+});
+
 test('requires the bounded heatmap cleanup command in every runtime artifact', async () => {
   const requiredPath = 'runtime-scripts/prune-expired-heatmap-events.mjs';
   const trustedContract = JSON.parse(
@@ -634,11 +1029,20 @@ test('requires the bounded replay cleanup command in every runtime artifact', as
 for (const migrationPath of [
   'db/clickhouse/migrations/15_expire_new_heatmap_events.sql',
   'db/clickhouse/migrations/16_expire_new_session_replays.sql',
+  'db/clickhouse/migrations/17_add_session_data_trust_tier.sql',
+  'db/clickhouse/migrations/18_disable_unverified_revenue_materialization.sql',
+  'db/clickhouse/migrations/19_add_event_collection_trust_tier.sql',
+  'db/clickhouse/migrations/20_add_verified_event_data_pivot.sql',
   'prisma/migrations/30_revoke_sessions_on_factor_reset/migration.sql',
   'prisma/migrations/31_bound_event_ingestion/migration.sql',
   'prisma/migrations/32_expire_replay_visit_budgets/migration.sql',
   'prisma/migrations/33_expire_new_heatmap_events/migration.sql',
   'prisma/migrations/35_expire_new_session_replays/migration.sql',
+  'prisma/migrations/36_add_session_data_trust_tier/migration.sql',
+  'prisma/migrations/37_add_event_collection_trust_tier/migration.sql',
+  'prisma/migrations/38_add_session_link_trust_tier/migration.sql',
+  'prisma/migrations/39_bind_collection_keys_to_website_owner/migration.sql',
+  'prisma/migrations/40_add_attested_revenue_movement/migration.sql',
 ]) {
   test(`requires ${migrationPath} in every runtime artifact`, async () => {
     const trustedContract = JSON.parse(
@@ -651,6 +1055,18 @@ for (const migrationPath of [
       await addHeatmapRetentionFixture(root, contractPath);
     } else if (replayRetentionPaths.includes(migrationPath)) {
       await addReplayRetentionFixture(root, contractPath);
+    } else if (sessionTrustPaths.includes(migrationPath)) {
+      await addSessionTrustFixture(root, contractPath);
+    } else if (migrationPath === linkTrustPath) {
+      await addLinkTrustFixture(root, contractPath);
+    } else if (migrationPath === ownerBindingPath) {
+      await addOwnerBindingFixture(root, contractPath);
+    } else if (migrationPath === attestedRevenuePath) {
+      await addAttestedRevenueFixture(root, contractPath);
+    } else if (eventTrustPaths.includes(migrationPath)) {
+      await addEventTrustFixture(root, contractPath);
+    } else if (migrationPath === revenueDisablePath) {
+      await addRevenueDisableFixture(root, contractPath);
     } else {
       const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
       contract.allowedRoots.push(migrationPath.split('/')[0]);
@@ -660,7 +1076,8 @@ for (const migrationPath of [
     const fullPath = path.join(root, migrationPath);
     if (
       !heatmapRetentionPaths.includes(migrationPath) &&
-      !replayRetentionPaths.includes(migrationPath)
+      !replayRetentionPaths.includes(migrationPath) &&
+      migrationPath !== revenueDisablePath
     ) {
       await fs.mkdir(path.dirname(fullPath), { recursive: true });
       await fs.writeFile(fullPath, 'synthetic migration\n');

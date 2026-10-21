@@ -18,86 +18,6 @@ export function TestConsolePage({ websiteId }: { websiteId: string }) {
       url: '/page-view',
       referrer: 'https://www.google.com',
     }));
-    window.umami.track('track-event-no-data');
-    window.umami.track('track-event-with-data', {
-      test: 'test-data',
-      boolean: true,
-      booleanError: 'true',
-      time: new Date().toISOString(),
-      user: `user${Math.round(Math.random() * 10)}`,
-      number: 1,
-      number2: Math.random() * 100,
-      time2: new Date().toISOString(),
-      nested: {
-        test: 'test-data',
-        number: 1,
-        object: {
-          test: 'test-data',
-        },
-      },
-      array: [1, 2, 3],
-    });
-  }
-
-  function handleRunRevenue() {
-    window.umami.track(props => ({
-      ...props,
-      url: '/checkout-cart',
-      referrer: 'https://www.google.com',
-    }));
-    window.umami.track('checkout-cart', {
-      revenue: parseFloat((Math.random() * 1000).toFixed(2)),
-      currency: 'USD',
-    });
-    window.umami.track('affiliate-link', {
-      revenue: parseFloat((Math.random() * 1000).toFixed(2)),
-      currency: 'USD',
-    });
-    window.umami.track('promotion-link', {
-      revenue: parseFloat((Math.random() * 1000).toFixed(2)),
-      currency: 'USD',
-    });
-    window.umami.track('checkout-cart', {
-      revenue: parseFloat((Math.random() * 1000).toFixed(2)),
-      currency: 'EUR',
-    });
-    window.umami.track('promotion-link', {
-      revenue: parseFloat((Math.random() * 1000).toFixed(2)),
-      currency: 'EUR',
-    });
-    window.umami.track('affiliate-link', {
-      item1: {
-        productIdentity: 'ABC424',
-        revenue: parseFloat((Math.random() * 10000).toFixed(2)),
-        currency: 'JPY',
-      },
-      item2: {
-        productIdentity: 'ZYW684',
-        revenue: parseFloat((Math.random() * 10000).toFixed(2)),
-        currency: 'JPY',
-      },
-    });
-  }
-
-  function handleRunIdentify() {
-    window.umami.identify({
-      userId: 123,
-      name: 'brian',
-      number: Math.random() * 100,
-      test: 'test-data',
-      boolean: true,
-      booleanError: 'true',
-      time: new Date().toISOString(),
-      time2: new Date().toISOString(),
-      nested: {
-        test: 'test-data',
-        number: 1,
-        object: {
-          test: 'test-data',
-        },
-      },
-      array: [1, 2, 3],
-    });
   }
 
   if (!data) {
@@ -117,93 +37,31 @@ export function TestConsolePage({ websiteId }: { websiteId: string }) {
           data-cache="true"
           data-performance="true"
         />
-        <Script
-          async
-          data-website-id={websiteId}
-          src={`${process.env.basePath || ''}/recorder.js`}
-        />
-        <Panel>
-          <Grid columns="1fr 1fr 1fr" gap>
+        <Panel
+          title="Public tracking"
+          description="This browser console sends unverified pageviews only. Identity, custom events, revenue, replay, and heatmaps require separately reviewed website integrations."
+        >
+          <Grid columns="1fr 1fr" gap>
             <Column gap>
               <Heading>Page links</Heading>
               <div>
                 <Link href={`/console/${websiteId}?page=1`}>page one</Link>
               </div>
               <div>
-                <Link href={`/console/${websiteId}?page=2 `}>page two</Link>
-              </div>
-              <div>
-                <a href="https://www.google.com" data-umami-event="external-link-direct">
-                  external link (direct)
-                </a>
-              </div>
-              <div>
-                <a
-                  href="https://www.google.com"
-                  data-umami-event="external-link-tab"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  external link (tab)
-                </a>
+                <Link href={`/console/${websiteId}?page=2`}>page two</Link>
               </div>
             </Column>
             <Column gap>
-              <Heading>Click events</Heading>
-              <Button id="send-event-button" data-umami-event="button-click" variant="primary">
-                Send event
-              </Button>
-              <Button
-                id="send-event-data-button"
-                data-umami-event="button-click"
-                data-umami-event-name="bob"
-                data-umami-event-id="123"
-                variant="primary"
-              >
-                Send event with data
-              </Button>
-              <Button
-                id="generate-revenue-button"
-                data-umami-event="checkout-cart"
-                data-umami-event-revenue={(Math.random() * 10000).toFixed(2).toString()}
-                data-umami-event-currency="USD"
-                variant="primary"
-              >
-                Generate revenue data
-              </Button>
-              <Button
-                id="button-with-div-button"
-                data-umami-event="button-click"
-                data-umami-event-name={'bob'}
-                data-umami-event-id="123"
-                variant="primary"
-              >
-                <div>Button with div</div>
-              </Button>
-              <div data-umami-event="div-click">DIV with attribute</div>
-              <div data-umami-event="div-click-one">
-                <div data-umami-event="div-click-two">
-                  <div data-umami-event="div-click-three">Nested DIV</div>
-                </div>
-              </div>
-            </Column>
-            <Column gap>
-              <Heading>Javascript events</Heading>
-              <Button id="manual-button" variant="primary" onClick={handleRunScript}>
-                Run script
-              </Button>
-              <Button id="manual-button" variant="primary" onClick={handleRunIdentify}>
-                Run identify
-              </Button>
-              <Button id="manual-button" variant="primary" onClick={handleRunRevenue}>
-                Revenue script
+              <Heading>Javascript pageview</Heading>
+              <Button id="manual-pageview-button" variant="primary" onClick={handleRunScript}>
+                Run pageview script
               </Button>
             </Column>
           </Grid>
         </Panel>
         <Heading>Pageviews</Heading>
         <WebsiteChart websiteId={websiteId} />
-        <Heading>Events</Heading>
+        <Heading>Historical events</Heading>
         <Panel>
           <EventsChart websiteId={websiteId} />
         </Panel>

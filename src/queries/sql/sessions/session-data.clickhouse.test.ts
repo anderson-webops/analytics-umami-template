@@ -26,6 +26,7 @@ integrationTest(
           website_id UUID,
           session_id UUID,
           data_key String,
+          trust_tier UInt8 DEFAULT 0,
           string_value Nullable(String),
           number_value Nullable(Float64),
           date_value Nullable(DateTime('UTC')),

@@ -243,7 +243,6 @@ type MetricEntry = PerformanceEntry & {
   const website = config('website-id');
   const hostUrl = config('host-url');
   const beforeSend = config('before-send');
-  const distinctId = config('distinct-id') || undefined;
   const tag = config('tag') || undefined;
   const autoTrack = config('auto-track') !== _false;
   const dnt = config('do-not-track') === _true;
@@ -289,7 +288,6 @@ type MetricEntry = PerformanceEntry & {
     url: currentUrl,
     referrer: stripOrigin(normalize(currentRef, false)),
     tag,
-    id: identity ? identity : undefined,
   });
 
   const hasDoNotTrack = () => {
@@ -440,7 +438,11 @@ type MetricEntry = PerformanceEntry & {
     }
   };
 
-  const send = async (payload: Payload | null | undefined, type = 'event'): Promise<void> => {
+  const send = async (
+    payload: Payload | null | undefined,
+    type = 'event',
+    onAccepted?: (data: { cache?: string; disabled?: boolean } | null, payload: Payload) => void,
+  ): Promise<void> => {
     if (trackingDisabled()) return;
 
     const callback = (window as unknown as Record<string, unknown>)[beforeSend as string] as
@@ -451,7 +453,9 @@ type MetricEntry = PerformanceEntry & {
       payload = await Promise.resolve(callback(type, payload as Payload));
     }
 
-    if (!payload) return;
+    if (!payload) {
+      return;
+    }
 
     if (
       (payload.url !== undefined &&
@@ -468,7 +472,9 @@ type MetricEntry = PerformanceEntry & {
       typeof payload.url === 'string' || payload.url instanceof URL
         ? normalize(payload.url)
         : undefined;
-    if (payload.url && !normalizedUrl) return;
+    if (payload.url && !normalizedUrl) {
+      return;
+    }
 
     payload = {
       ...payload,
@@ -479,7 +485,20 @@ type MetricEntry = PerformanceEntry & {
       }),
     };
 
+    const reportFailedRequest = (status: number) => {
+      if (
+        type === 'identify' ||
+        payload.id !== undefined ||
+        payload.name !== undefined ||
+        payload.data !== undefined
+      ) {
+        window.dispatchEvent(new CustomEvent('umami:tracking-error', { detail: { type, status } }));
+      }
+    };
+
     try {
+      const requestSessionVersion = sessionVersion;
+      const requestCache = type === 'identify' ? '' : cache;
       const res = await fetch(endpoint, {
         keepalive: true,
         method: 'POST',
@@ -488,19 +507,28 @@ type MetricEntry = PerformanceEntry & {
           'Content-Type': 'application/json',
           'x-umami-website-id': website as string,
           'x-umami-hostname': hostname,
-          ...(typeof cache !== 'undefined' && { 'x-umami-cache': cache }),
+          ...(typeof requestCache !== 'undefined' && { 'x-umami-cache': requestCache }),
         },
         credentials,
       });
 
+      if (!res.ok) {
+        reportFailedRequest(Number.isInteger(res.status) ? res.status : 0);
+        return;
+      }
+
       const data = (await res.json()) as { cache?: string; disabled?: boolean } | null;
-      if (data) {
-        disabled = !!data.disabled;
-        cache = data.cache;
+      if (data?.disabled) disabled = true;
+      if (!disabled) {
+        if (onAccepted) {
+          onAccepted(data, payload);
+        } else if (requestSessionVersion === sessionVersion && typeof data?.cache === 'string') {
+          cache = data.cache;
+        }
       }
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (_e) {
-      /* no-op */
+      reportFailedRequest(0);
     }
   };
 
@@ -529,18 +557,21 @@ type MetricEntry = PerformanceEntry & {
     data?: EventData,
   ): Promise<void> => {
     const nextIdentity = typeof id === 'string' ? id : id.id;
+    const attempt = ++identityAttempt;
 
-    if (nextIdentity !== undefined) {
-      identity = nextIdentity;
-    }
-
-    cache = '';
     return send(
       {
         ...getPayload(),
+        id: nextIdentity ?? identity,
         data: typeof id === 'object' ? id : data,
       },
       'identify',
+      (response, payload) => {
+        if (attempt !== identityAttempt) return;
+        if (typeof payload.id === 'string') identity = payload.id;
+        cache = typeof response?.cache === 'string' ? response.cache : undefined;
+        sessionVersion++;
+      },
     );
   };
 
@@ -552,7 +583,6 @@ type MetricEntry = PerformanceEntry & {
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     let isInitialLoad = true;
     let activationStart = 0;
-    let pageStartTime = 0;
 
     const observe = (type: string, callback: (entry: MetricEntry) => void) => {
       try {
@@ -681,8 +711,6 @@ type MetricEntry = PerformanceEntry & {
 
       applyFallbackMetrics();
       computeInp();
-      metrics.duration = Math.round(performance.now() - pageStartTime);
-
       sent = true;
       if (timeoutId) clearTimeout(timeoutId);
       send({ ...getPayload(), ...metrics }, 'performance');
@@ -695,7 +723,6 @@ type MetricEntry = PerformanceEntry & {
         delete metrics[k];
       });
       activationStart = 0;
-      pageStartTime = performance.now();
       clsSessionValue = 0;
       clsSessionEntries = [];
       interactions = {};
@@ -728,12 +755,10 @@ type MetricEntry = PerformanceEntry & {
   let initialized = false;
   let disabled = false;
   let cache: string | undefined;
-  let identity = distinctId;
+  let identity: string | undefined;
+  let identityAttempt = 0;
+  let sessionVersion = 0;
   let flushPerformance: (() => void) | undefined;
-
-  if (autoTrack && distinctId) {
-    void identify(distinctId);
-  }
 
   if (autoTrack && !trackingDisabled()) {
     if (document.readyState === 'complete') {

@@ -6,11 +6,64 @@ export interface RecorderConfig {
   maskLevel?: 'strict' | 'moderate';
   maxDuration?: number;
   blockSelector?: string;
+  permitEndpoint?: string | null;
 }
 
 const MIN_RECORDING_DURATION_MS = 60_000;
 const MAX_RECORDING_DURATION_MS = 3_600_000;
 const MAX_BLOCK_SELECTOR_LENGTH = 1_000;
+const MAX_PERMIT_ENDPOINT_LENGTH = 255;
+
+export function isRecorderPermitEndpoint(value: unknown): value is string {
+  if (
+    typeof value !== 'string' ||
+    value.length < 2 ||
+    value.length > MAX_PERMIT_ENDPOINT_LENGTH ||
+    !/^\/(?!\/)[^\\\s?#"'<>]+$/.test(value)
+  ) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(value, 'https://site.invalid');
+    return parsed.origin === 'https://site.invalid' && parsed.pathname === value;
+  } catch {
+    return false;
+  }
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return value.replace(/[&"'<>]/g, character => {
+    const entities: Record<string, string> = {
+      '&': '&amp;',
+      '"': '&quot;',
+      "'": '&#39;',
+      '<': '&lt;',
+      '>': '&gt;',
+    };
+    return entities[character];
+  });
+}
+
+export function getRecorderCode(
+  recorderUrl: string,
+  websiteId: string,
+  permitEndpoint: string,
+): string | null {
+  if (!isRecorderPermitEndpoint(permitEndpoint)) {
+    return null;
+  }
+
+  return (
+    '<script defer src="' +
+    escapeHtmlAttribute(recorderUrl) +
+    '" data-website-id="' +
+    escapeHtmlAttribute(websiteId) +
+    '" data-permit-endpoint="' +
+    escapeHtmlAttribute(permitEndpoint) +
+    '"></script>'
+  );
+}
 
 export function getRecorderConfig(value: unknown): RecorderConfig {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -64,6 +117,10 @@ export function getRecorderConfig(value: unknown): RecorderConfig {
     config.blockSelector.length <= MAX_BLOCK_SELECTOR_LENGTH
   ) {
     nextConfig.blockSelector = config.blockSelector;
+  }
+
+  if (isRecorderPermitEndpoint(config.permitEndpoint)) {
+    nextConfig.permitEndpoint = config.permitEndpoint;
   }
 
   return nextConfig;

@@ -13,6 +13,7 @@ export interface CacheToken {
   websiteId: string;
   sessionId: string;
   visitId: string;
+  collectionGeneration?: number;
   iat: number;
   identityHash: string;
   sessionSalt: string;
@@ -95,6 +96,8 @@ export function parseCacheToken(
     typeof payload.websiteId !== 'string' ||
     typeof payload.sessionId !== 'string' ||
     typeof payload.visitId !== 'string' ||
+    (payload.collectionGeneration !== undefined &&
+      (!Number.isSafeInteger(payload.collectionGeneration) || payload.collectionGeneration < 0)) ||
     typeof payload.iat !== 'number' ||
     typeof payload.identityHash !== 'string' ||
     !/^[0-9a-f]{128}$/.test(payload.identityHash) ||
@@ -106,4 +109,12 @@ export function parseCacheToken(
   }
 
   return payload as CacheToken;
+}
+
+export function hasCurrentCacheGeneration(cache: CacheToken, currentGeneration: number): boolean {
+  return (
+    Number.isSafeInteger(currentGeneration) &&
+    currentGeneration >= 0 &&
+    (cache.collectionGeneration ?? 0) === currentGeneration
+  );
 }

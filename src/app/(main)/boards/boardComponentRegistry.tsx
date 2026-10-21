@@ -252,7 +252,7 @@ const componentDefinitions: ComponentDefinition[] = [
   {
     type: 'RevenueMetricsBar',
     name: 'Revenue metrics bar',
-    description: 'Revenue summary: total, AOV, ARPU, orders, and customers',
+    description: 'Unverified historical revenue claims, event counts, and sessions',
     category: 'overview',
     group: 'Revenue',
     icon: PanelTop,
@@ -271,7 +271,7 @@ const componentDefinitions: ComponentDefinition[] = [
   {
     type: 'RevenueChart',
     name: 'Revenue chart',
-    description: 'Revenue over time',
+    description: 'Unverified historical revenue claims over time',
     category: 'visualization',
     group: 'Revenue',
     icon: ChartColumnBig,
@@ -290,7 +290,7 @@ const componentDefinitions: ComponentDefinition[] = [
   {
     type: 'RevenueMetricsTable',
     name: 'Revenue metrics table',
-    description: 'Revenue breakdown by source or location',
+    description: 'Unverified historical revenue claims by source or location',
     category: 'tables',
     group: 'Revenue',
     icon: Sheet,

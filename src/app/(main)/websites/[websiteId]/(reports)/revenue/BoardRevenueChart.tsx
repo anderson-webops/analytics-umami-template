@@ -2,6 +2,7 @@ import { LoadingPanel } from '@/components/common/LoadingPanel';
 import { useDateRange, useTimezone } from '@/components/hooks';
 import { useRevenueChartQuery } from '@/components/hooks/queries/useRevenueChartQuery';
 import { RevenueChart } from './RevenueChart';
+import { RevenueTrustNotice } from './RevenueTrustNotice';
 import { useBoardRevenueCurrency } from './useBoardRevenueCurrency';
 
 export function BoardRevenueChart({
@@ -21,13 +22,16 @@ export function BoardRevenueChart({
   return (
     <LoadingPanel data={data} isLoading={isLoading} isFetching={isFetching} error={error}>
       {data && (
-        <RevenueChart
-          data={data.chart}
-          unit={unit}
-          minDate={startDate}
-          maxDate={endDate}
-          currency={currency}
-        />
+        <>
+          <RevenueTrustNotice />
+          <RevenueChart
+            data={data.chart}
+            unit={unit}
+            minDate={startDate}
+            maxDate={endDate}
+            currency={currency}
+          />
+        </>
       )}
     </LoadingPanel>
   );

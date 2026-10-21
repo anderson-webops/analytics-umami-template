@@ -2532,15 +2532,18 @@ export const operations = {
       'distinctId',
       'language',
       'event',
+      'botName',
+      'botCategory',
+      'trafficType',
       'utmSource',
       'utmMedium',
       'utmCampaign',
       'utmContent',
       'utmTerm',
-      'excludeBounce',
       'segment',
       'cohort',
       'eventType',
+      'excludeBounce',
       'match',
     ],
     hasBody: false,
@@ -3097,6 +3100,14 @@ export const operations = {
     queryParams: [],
     hasBody: false,
   },
+  postCollectionPermit: {
+    operationId: 'postCollectionPermit',
+    method: 'post',
+    path: '/api/collection-permit',
+    pathParams: [],
+    queryParams: [],
+    hasBody: true,
+  },
   postTeamsTeamIdOwner: {
     operationId: 'postTeamsTeamIdOwner',
     method: 'post',
@@ -3109,6 +3120,14 @@ export const operations = {
     operationId: 'record',
     method: 'post',
     path: '/api/record',
+    pathParams: [],
+    queryParams: [],
+    hasBody: true,
+  },
+  recordAttestedRevenueMovement: {
+    operationId: 'recordAttestedRevenueMovement',
+    method: 'post',
+    path: '/api/revenue/movements',
     pathParams: [],
     queryParams: [],
     hasBody: true,
@@ -3317,7 +3336,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Send a batch of tracking requests
-   * Processes up to 500 tracking payloads and returns processed and failed counts, individual error details, and a tracking cache token.
+   * Processes up to 20 tracking payloads. Each child request must independently satisfy the same collection authorization as /api/send. Returns processed and failed counts, individual error details, and a tracking cache token.
    * `POST /api/batch`
    */
   batch(
@@ -3817,7 +3836,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Get an event's custom properties
-   * Returns the custom property records, data types, and values attached to a specific event.
+   * Returns custom property records, data types, values, and provenance tiers for the specified event. Historical unverified properties remain visible but do not enter verified custom-event summaries.
    * `GET /api/websites/{websiteId}/event-data/{eventId}`
    */
   getEventDataById(
@@ -4750,8 +4769,8 @@ export abstract class GeneratedUmamiClient {
   }
 
   /**
-   * Get website revenue over time
-   * Returns revenue chart data for the selected currency, date range, and website filters.
+   * Get unverified historical revenue claims over time
+   * Returns unverified historical event claims for the selected currency, date range, and website filters. Values do not prove completed orders or payments.
    * `GET /api/websites/{websiteId}/revenue/chart`
    */
   getWebsiteRevenueChart(
@@ -4762,8 +4781,8 @@ export abstract class GeneratedUmamiClient {
   }
 
   /**
-   * Get website revenue by dimension
-   * Returns revenue grouped by the requested dimension, such as country or referrer, for the selected currency and date range.
+   * Get unverified historical revenue claims by dimension
+   * Returns unverified historical event claims grouped by the requested dimension, such as country or referrer. Values do not prove completed orders or payments.
    * `GET /api/websites/{websiteId}/revenue/metrics`
    */
   getWebsiteRevenueMetrics(
@@ -4774,8 +4793,8 @@ export abstract class GeneratedUmamiClient {
   }
 
   /**
-   * List sessions with revenue
-   * Returns a paginated list of sessions with revenue in the selected currency and date range, applying website and search filters.
+   * List sessions with unverified revenue claims
+   * Returns sessions with unverified historical revenue claims in the selected currency and date range. Sessions are not verified customers.
    * `GET /api/websites/{websiteId}/revenue/sessions`
    */
   getWebsiteRevenueSessions(
@@ -4786,8 +4805,8 @@ export abstract class GeneratedUmamiClient {
   }
 
   /**
-   * Get website revenue totals
-   * Returns revenue summary statistics for the selected currency and date range, including totals for the comparison period.
+   * Get unverified historical revenue claim totals
+   * Returns unverified historical event claims and a comparison period. Event and session counts are not verified orders or users; ARPU is unavailable.
    * `GET /api/websites/{websiteId}/revenue/stats`
    */
   getWebsiteRevenueStats(
@@ -4798,8 +4817,8 @@ export abstract class GeneratedUmamiClient {
   }
 
   /**
-   * Get website revenue total
-   * Returns only the total revenue for the selected currency and date range.
+   * Get unverified historical revenue claim total
+   * Returns the unverified event-claim total for the selected currency and date range.
    * `GET /api/websites/{websiteId}/revenue/total`
    */
   getWebsiteRevenueTotal(
@@ -4905,7 +4924,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Get a session's custom properties
-   * Returns custom property records, data types, and values for the specified website session.
+   * Returns custom property records, data types, values, and provenance tiers for the specified website session. Historical unverified rows remain visible but do not enter derived session-property reports.
    * `GET /api/websites/{websiteId}/sessions/{sessionId}/properties`
    */
   getWebsiteSessionProperties(
@@ -5083,6 +5102,18 @@ export abstract class GeneratedUmamiClient {
   }
 
   /**
+   * Authorize consented website recording
+   * A website backend with recorder scope requests a short-lived permit after verifying its authenticated session and feature-specific consent. The permit is bound to the browser cache token, website, feature, and approved origin. The long-lived credential must never enter browser code.
+   * `POST /api/collection-permit`
+   */
+  postCollectionPermit(
+    input: OperationInput<'postCollectionPermit'>,
+    options?: RequestOptions,
+  ): Promise<OperationOutput<'postCollectionPermit'>> {
+    return this.execute('postCollectionPermit', input, options);
+  }
+
+  /**
    * Create or update teams team id owner
    * `POST /api/teams/{teamId}/owner`
    */
@@ -5095,7 +5126,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Send session recordings or heatmap data
-   * Stores session replay events or heatmap clicks and scrolls for a website, using a valid tracking cache token to identify the session and visit. Replay and heatmap intake have cumulative visit and website budgets; exceeding them returns 413 or 429.
+   * Stores session replay events or heatmap clicks and scrolls only with a valid tracking cache token and a separate feature-, session-, visit-, and origin-bound collection permit. The website must enable the feature; replay requires strict masking. Cumulative visit and website budgets can return 413 or 429.
    * `POST /api/record`
    */
   record(
@@ -5103,6 +5134,18 @@ export abstract class GeneratedUmamiClient {
     options?: RequestOptions,
   ): Promise<OperationOutput<'record'>> {
     return this.execute('record', input, options);
+  }
+
+  /**
+   * Submit a website-attested financial movement
+   * Default-off, capture-only server-to-server intake. Refunds are unsupported pending a reviewed reference and limit contract; these records are not net revenue. A website backend must verify its order or payment before submitting. Requires a website-scoped revenue credential, a fresh request UUID and Unix timestamp in X-Umami-Request-Id and X-Umami-Request-Timestamp, and a stable sourceMovementId for durable idempotency. occurredAt accepts UTC timestamps through millisecond precision. The result is backend-attested, not independently payment-verified, and historical reports remain unverified.
+   * `POST /api/revenue/movements`
+   */
+  recordAttestedRevenueMovement(
+    input: OperationInput<'recordAttestedRevenueMovement'>,
+    options?: RequestOptions,
+  ): Promise<OperationOutput<'recordAttestedRevenueMovement'>> {
+    return this.execute('recordAttestedRevenueMovement', input, options);
   }
 
   /**
@@ -5131,7 +5174,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Send tracking data
-   * Collects a pageview, custom event, visitor identification, or performance payload and returns an opaque tracking cache token for website events when accepted.
+   * Collects anonymous pageviews or performance data. Identity and non-revenue custom events require an authorized website-backend credential; revenue intake is disabled. A public website ID, Origin, or browser cache token is not backend authorization. Accepted browser pageviews receive an opaque tracking cache token.
    * `POST /api/send`
    */
   send(input: OperationInput<'send'>, options?: RequestOptions): Promise<OperationOutput<'send'>> {

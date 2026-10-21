@@ -10,9 +10,9 @@ const operation1 = defineOperation({
   auth: 'bearer-or-share',
   operation: {
     operationId: 'getWebsiteRevenueSessions',
-    summary: 'List sessions with revenue',
+    summary: 'List sessions with unverified revenue claims',
     description:
-      'Returns a paginated list of sessions with revenue in the selected currency and date range, applying website and search filters.',
+      'Returns sessions with unverified historical revenue claims in the selected currency and date range. Sessions are not verified customers.',
     tags: ['Websites'],
     parameters: [
       {
@@ -378,6 +378,9 @@ const operation1 = defineOperation({
             schema: {
               type: 'object',
               properties: {
+                revenueProvenance: {
+                  type: 'string',
+                },
                 data: {
                   type: 'array',
                   items: {
@@ -526,7 +529,7 @@ const operation1 = defineOperation({
                   description: 'Whether the results were truncated by the maximum result limit.',
                 },
               },
-              required: ['data', 'count', 'page', 'pageSize'],
+              required: ['revenueProvenance', 'data', 'count', 'page', 'pageSize'],
             },
           },
         },

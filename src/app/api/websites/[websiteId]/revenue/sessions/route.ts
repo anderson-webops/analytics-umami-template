@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { REVENUE_PROVENANCE, REVENUE_RESPONSE_HEADERS } from '@/lib/constants';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import { json, unauthorized } from '@/lib/response';
 import { filterParams, pagingParams, searchParams, withDateRange } from '@/lib/schema';
@@ -37,5 +38,8 @@ export async function GET(
 
   const data = await getRevenueSessions(websiteId, currency, filters);
 
-  return json(data);
+  return json(
+    { ...data, revenueProvenance: REVENUE_PROVENANCE },
+    { headers: REVENUE_RESPONSE_HEADERS },
+  );
 }

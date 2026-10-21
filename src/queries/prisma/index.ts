@@ -1,5 +1,6 @@
 export * from './annotation';
 export * from './apiKey';
+export * from './attestedRevenue';
 export * from './board';
 export * from './collection';
 export * from './link';

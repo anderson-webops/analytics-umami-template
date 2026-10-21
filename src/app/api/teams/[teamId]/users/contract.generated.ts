@@ -72,6 +72,10 @@ const operation1 = defineOperation({
             schema: {
               type: 'object',
               properties: {
+                isCapped: {
+                  type: 'boolean',
+                  description: 'Whether the results were truncated by the maximum result limit.',
+                },
                 data: {
                   description: 'Data returned by the operation.',
                 },
@@ -95,7 +99,7 @@ const operation1 = defineOperation({
                   description: 'Search text used to filter results.',
                 },
               },
-              required: ['data', 'count', 'page', 'pageSize', 'orderBy', 'search'],
+              required: ['isCapped', 'data', 'count', 'page', 'pageSize', 'orderBy', 'search'],
             },
           },
         },

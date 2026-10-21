@@ -26,26 +26,27 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-test('ClickHouse-mode reads use only links visible to the retained runtime', async () => {
+test('ClickHouse-mode trusted reads use canonical PostgreSQL links, not legacy claims', async () => {
   const { getLinkedDistinctIds, getLinkedSessionIds, relationalQuery, legacyQuery } =
     await loadQueries();
 
-  legacyQuery.mockResolvedValueOnce([{ distinctId: 'legacy' }]);
-  expect(await getLinkedDistinctIds('website', 'session', 3)).toEqual(['legacy']);
+  legacyQuery.mockResolvedValue([{ distinctId: 'legacy' }]);
+  relationalQuery.mockResolvedValueOnce([{ distinctId: 'verified' }]);
+  expect(await getLinkedDistinctIds('website', 'session', 3)).toEqual(['verified']);
 
-  legacyQuery.mockResolvedValueOnce([
+  relationalQuery.mockResolvedValueOnce([
     { sessionId: 'session-1', createdAt: '2026-01-01T00:00:00Z' },
   ]);
   expect(await getLinkedSessionIds('website', 'visitor', 4)).toEqual([
     { sessionId: 'session-1', createdAt: '2026-01-01T00:00:00Z' },
   ]);
-  expect(relationalQuery).not.toHaveBeenCalled();
-  expect(legacyQuery.mock.calls.every(([, params]) => params.rowLimit <= 4)).toBe(true);
+  expect(legacyQuery).not.toHaveBeenCalled();
+  expect(relationalQuery.mock.calls.every(([, params]) => params.rowLimit <= 4)).toBe(true);
 }, 20_000);
 
-test('ClickHouse reads preserve a sentinel row when history exceeds the caller limit', async () => {
-  const { getLinkedSessionIds, legacyQuery } = await loadQueries();
-  legacyQuery.mockResolvedValueOnce([
+test('trusted reads preserve a sentinel row when history exceeds the caller limit', async () => {
+  const { getLinkedSessionIds, relationalQuery } = await loadQueries();
+  relationalQuery.mockResolvedValueOnce([
     { sessionId: 'session-1', createdAt: '2026-01-01T00:00:00Z' },
     { sessionId: 'session-2', createdAt: '2026-01-02T00:00:00Z' },
     { sessionId: 'session-3', createdAt: '2026-01-03T00:00:00Z' },
@@ -54,9 +55,9 @@ test('ClickHouse reads preserve a sentinel row when history exceeds the caller l
   expect(await getLinkedSessionIds('website', 'visitor', 3)).toHaveLength(3);
 });
 
-test('a failed legacy read cannot silently return an incomplete linked identity', async () => {
-  const { getLinkedSessionIds, legacyQuery } = await loadQueries();
-  legacyQuery.mockRejectedValueOnce(new Error('read limit exceeded'));
+test('a failed trusted read cannot silently return an incomplete linked identity', async () => {
+  const { getLinkedSessionIds, relationalQuery } = await loadQueries();
+  relationalQuery.mockRejectedValueOnce(new Error('read limit exceeded'));
 
   await expect(getLinkedSessionIds('website', 'visitor', 3)).rejects.toThrow('read limit exceeded');
 });

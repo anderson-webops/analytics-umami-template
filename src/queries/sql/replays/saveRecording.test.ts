@@ -58,8 +58,8 @@ test('stores redacted navigation URLs without changing replay event counts', asy
 
   const storedEvents = JSON.parse(gunzipSync(payload.events).toString('utf8'));
 
-  expect(storedEvents[0].data.href).toBe('https://example.com/private');
-  expect(storedEvents[1].data.payload.url).toBe('https://example.com/next');
+  expect(storedEvents[0].data.href).toBe('');
+  expect(storedEvents[1].data.payload).toEqual({});
   expect(JSON.stringify(storedEvents)).not.toContain('secret');
   expect(payload.eventCount).toBe(events.length);
   expect(events[0].data.href).toContain('token=secret');
@@ -93,7 +93,7 @@ test('does not persist unrecognized custom replay URLs', async () => {
   const stored = create.mock.lastCall?.[0]?.data;
   expect(stored?.eventCount).toBe(1);
   expect(JSON.parse(gunzipSync(stored.events).toString('utf8'))).toEqual([
-    { type: 5, timestamp: 2, data: { tag: 'url-change', payload: { url: '/next' } } },
+    { type: 5, timestamp: 2, data: { payload: {} } },
   ]);
 });
 
@@ -118,7 +118,7 @@ test('does not persist resource URLs from snapshots or attribute mutations', asy
                 'data-resource-url': 'https://assets.example/private?key=data-secret',
                 style: 'background:url(https://assets.example/bg?key=style-secret)',
               },
-              childNodes: [],
+              childNodes: [{ type: 3, id: 3, textContent: 'private-snapshot-text' }],
             },
           ],
         },
@@ -142,6 +142,7 @@ test('does not persist resource URLs from snapshots or attribute mutations', asy
         removes: [],
       },
     },
+    { type: 3, timestamp: 3, data: { source: 5, id: 2, text: 'private-input-text' } },
   ];
 
   await saveRecording(
@@ -167,9 +168,11 @@ test('does not persist resource URLs from snapshots or attribute mutations', asy
   const storedEvents = JSON.parse(gunzipSync(payload.events).toString('utf8'));
   const serialized = JSON.stringify(storedEvents);
 
-  expect(serialized).not.toMatch(/snapshot-secret|data-secret|style-secret|mutation-secret/);
-  expect(storedEvents[0].data.node.childNodes[0].attributes.alt).toBe('Recorded image? #1');
-  expect(storedEvents[1].data.attributes[0].id).toBe(2);
+  expect(serialized).not.toMatch(
+    /snapshot-secret|data-secret|style-secret|mutation-secret|private-snapshot-text|private-input-text/,
+  );
+  expect(storedEvents[0].data.node.childNodes[0].attributes).toEqual({});
+  expect(storedEvents[1].data.attributes).toEqual({});
   expect(JSON.stringify(events)).toContain('snapshot-secret');
 });
 
@@ -232,7 +235,7 @@ test('does not persist resource CSS when a style-text mutation arrives in a late
     JSON.parse(gunzipSync(input.data.events).toString('utf8')),
   );
   expect(JSON.stringify(stored)).not.toMatch(/add-secret|text-secret|escaped-secret/);
-  expect(stored[1][0].data.texts[1].value).toBe('Visible ordinary text');
+  expect(stored[1][0].data.texts[1].value).toBe('');
 });
 
 test.each([true, false])('rejects raw replay fragments (valid=%s)', async valid => {
@@ -317,8 +320,7 @@ test('persists only sanitized fragment values and reconstructs the same safe sna
   expect(stored.map(chunk => chunk.chunkIndex)).toEqual([10, 11]);
   expect(JSON.stringify(stored)).not.toContain('fragment-secret');
   const [restored] = restoreReplayEventFragments(stored.flatMap(chunk => chunk.events));
-  expect(restored.data.node.childNodes[0].attributes.alt).toBe('Photo');
-  expect(restored.data.node.childNodes[0].attributes.src).toBeUndefined();
+  expect(restored.data.node.childNodes[0].attributes).toEqual({});
 });
 
 test('sends only sanitized fragment values to the external Kafka sink', async () => {
@@ -399,6 +401,39 @@ test('sends only sanitized fragment values to the external Kafka sink', async ()
   expect(kafka.sendMessage).not.toHaveBeenCalled();
 });
 
+test('surfaces a partial external fragment write instead of reporting success', async () => {
+  vi.stubEnv('CLICKHOUSE_URL', 'http://synthetic.invalid:8123/analytics');
+  const event = {
+    type: 2,
+    timestamp: 1,
+    data: { node: { type: 0, id: 1, childNodes: [] } },
+  };
+  vi.mocked(kafka.sendMessage)
+    .mockResolvedValueOnce([{} as Awaited<ReturnType<typeof kafka.sendMessage>>[number]])
+    .mockRejectedValueOnce(new Error('Synthetic second-fragment failure'));
+
+  await expect(
+    saveReassembledRecordingFragments({
+      websiteId: '11111111-1111-4111-8111-111111111111',
+      sessionId: '22222222-2222-4222-8222-222222222222',
+      visitId: '33333333-3333-4333-8333-333333333333',
+      event,
+      parts: [
+        { id: 'partial-snapshot', index: 0, total: 2, chunkIndex: 10, timestamp: 1 },
+        { id: 'partial-snapshot', index: 1, total: 2, chunkIndex: 11, timestamp: 1 },
+      ],
+      startedAt: new Date(1),
+      endedAt: new Date(1),
+    }),
+  ).rejects.toThrow('Synthetic second-fragment failure');
+
+  expect(kafka.sendMessage).toHaveBeenCalledTimes(2);
+  const messages = vi
+    .mocked(kafka.sendMessage)
+    .mock.calls.flatMap(([, message]) => (Array.isArray(message) ? message : [message]));
+  expect(messages.map(message => message.chunk_index)).toEqual([10, 11]);
+});
+
 test('sends only sanitized ordinary and reassembled events to direct ClickHouse', async () => {
   vi.stubEnv('CLICKHOUSE_URL', 'http://synthetic.invalid:8123/analytics');
   kafka.enabled = false;
@@ -448,6 +483,6 @@ test('sends only sanitized ordinary and reassembled events to direct ClickHouse'
   expect(
     restoreReplayEventFragments(rows.slice(0, 2).flatMap(row => JSON.parse(row.events))),
   ).toHaveLength(1);
-  expect(JSON.parse(rows[2].events)[0].data.node.childNodes[0].attributes.alt).toBe('Photo');
+  expect(JSON.parse(rows[2].events)[0].data.node.childNodes[0].attributes).toEqual({});
   expect(kafka.sendMessage).not.toHaveBeenCalled();
 });

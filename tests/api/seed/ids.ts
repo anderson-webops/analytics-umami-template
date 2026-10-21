@@ -1,6 +1,7 @@
 /**
- * Fixed identifiers for seeded entities. Using fixed UUIDs lets global setup
- * find and recreate them on re-runs against a kept stack (`--keep`).
+ * Fixed identifiers for seeded entities. Reuse the prior seed with
+ * `API_SKIP_SEED=1` on a kept stack; recreating a website with the same UUID
+ * advances its collection-key generation.
  */
 export const SEED_IDS = {
   website: '1e5a0000-0000-4000-8000-000000000001',
@@ -11,7 +12,12 @@ export const SEED_IDS = {
 
 export const SEED_USERS = {
   /** Regular user; owns the secondary website. */
-  user: { username: 'api-user', password: 'api-user-password', role: 'user' },
+  user: {
+    id: '1e5a0000-0000-4000-8000-000000000005',
+    username: 'api-user',
+    password: 'api-user-password',
+    role: 'user',
+  },
   /** View-only user that owns nothing — used for permission-denied cases. */
   viewer: { username: 'api-viewer', password: 'api-viewer-password', role: 'view-only' },
 } as const;

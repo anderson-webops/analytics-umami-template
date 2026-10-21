@@ -11,6 +11,7 @@ import {
   Text,
 } from '@umami/react-zen';
 import { Avatar } from '@/components/common/Avatar';
+import { Badge } from '@/components/common/Badge';
 import { DateDistance } from '@/components/common/DateDistance';
 import { IconLabel } from '@/components/common/IconLabel';
 import Link from '@/components/common/Link';
@@ -19,6 +20,7 @@ import { useFormat, useMessages, useNavigation, useShare } from '@/components/ho
 import { Eye, FileText } from '@/components/icons';
 import { EventData } from '@/components/metrics/EventData';
 import { Lightning } from '@/components/svg';
+import { COLLECTION_TRUST_TIER } from '@/lib/constants';
 import { canViewShareSection } from '@/lib/share';
 
 export function EventsTable(props: DataTableProps) {
@@ -64,6 +66,18 @@ export function EventsTable(props: DataTableProps) {
                   {row.eventName || renderLink(row.urlPath, row.hostname)}
                 </Text>
                 {row.hasData > 0 && <PropertiesButton websiteId={row.websiteId} eventId={row.id} />}
+                {row.eventName && (
+                  <Badge
+                    variant={
+                      row.trustTier === COLLECTION_TRUST_TIER.backendAuthorized ? 'good' : 'warning'
+                    }
+                    dot={false}
+                  >
+                    {row.trustTier === COLLECTION_TRUST_TIER.backendAuthorized
+                      ? 'Website backend authorized'
+                      : 'Unverified'}
+                  </Badge>
+                )}
               </Row>
             </Row>
           );

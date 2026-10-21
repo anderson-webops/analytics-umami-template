@@ -63,19 +63,21 @@ describe('getWebsiteStats default bounce path', () => {
 
     expect(query).toContain('t.c = 1 and t.has_custom_event = 0');
     expect(query).toContain(
-      'max(case when website_event.event_type = 2 then 1 else 0 end) as "has_custom_event"',
+      'max(case when website_event.event_type = 2 and website_event.trust_tier = 1 then 1 else 0 end) as "has_custom_event"',
     );
     expect(query).not.toContain('left join (');
   });
 
-  test('clickhouse uses the hourly aggregate view without the extra join', async () => {
+  test('clickhouse uses raw events to exclude unverified custom claims from bounces', async () => {
     const { getWebsiteStats, clickhouseRawQuery } = await loadModule({ mode: 'clickhouse' });
 
     await getWebsiteStats('website-1', {});
 
     const [query] = clickhouseRawQuery.mock.calls[0];
 
-    expect(query).toContain('from website_event_stats_hourly "website_event"');
+    expect(query).toContain('from website_event');
+    expect(query).not.toContain('website_event_stats_hourly');
+    expect(query).toContain('event_type = 2 and trust_tier = 1');
     expect(query).toContain('sumIf(1, t.c = 1 and t.has_custom_event = 0) as "bounces"');
     expect(query).toContain('has_custom_event');
     expect(query).not.toContain('left join (');
@@ -93,6 +95,7 @@ describe('getWebsiteStats filtered bounce path', () => {
     expect(query).toContain('left join (');
     expect(query).toContain('coalesce(e.has_custom_event, 0) = 0');
     expect(query).toContain('event_type = 2');
+    expect(query).toContain('trust_tier = 1');
   });
 
   test('clickhouse switches to the raw-event join when event filters are present', async () => {
@@ -105,6 +108,7 @@ describe('getWebsiteStats filtered bounce path', () => {
     expect(query).toContain('from website_event');
     expect(query).toContain('left join (');
     expect(query).toContain('ifNull(e.has_custom_event, 0) = 0');
+    expect(query).toContain('trust_tier = 1');
   });
 });
 

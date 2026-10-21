@@ -50,7 +50,7 @@ async function relationalQuery(websiteId: string, currency: string, filters: Que
       max(website_event.created_at) as "lastAt",
       count(distinct website_event.visit_id) as "visits",
       sum(case when website_event.event_type = 1 then 1 else 0 end) as "views",
-      sum(case when website_event.event_type = 2 then 1 else 0 end) as "events",
+      sum(case when website_event.event_type = 2 and website_event.trust_tier = 1 then 1 else 0 end) as "events",
       max(website_event.created_at) as "createdAt"
     from website_event
     ${cohortQuery}
@@ -123,7 +123,7 @@ async function clickhouseQuery(websiteId: string, currency: string, filters: Que
       ${getDateStringSQL('max(created_at)')} as lastAt,
       uniq(visit_id) as visits,
       sumIf(1, event_type = 1) as views,
-      sumIf(1, event_type = 2) as events,
+      sumIf(1, event_type = 2 and trust_tier = 1) as events,
       max(created_at) as createdAt
     from website_event
     ${cohortQuery}

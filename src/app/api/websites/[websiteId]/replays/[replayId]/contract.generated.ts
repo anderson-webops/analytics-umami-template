@@ -49,7 +49,7 @@ const operation1 = defineOperation({
         schema: {
           type: 'integer',
           minimum: 0,
-          maximum: 10000000,
+          maximum: 2147483647,
         },
       },
       {
@@ -75,10 +75,7 @@ const operation1 = defineOperation({
                   type: 'string',
                   description: 'ID of the visitor session.',
                 },
-                events: {
-                  type: 'array',
-                  items: {},
-                },
+                events: {},
                 startedAt: {
                   type: 'string',
                   format: 'date-time',
@@ -90,7 +87,6 @@ const operation1 = defineOperation({
                   description: 'Date and time the recording ended.',
                 },
                 eventCount: {
-                  type: 'number',
                   description: 'Number of recorded replay events.',
                 },
                 chunkCount: {

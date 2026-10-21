@@ -157,6 +157,21 @@ describe('bounded queries', () => {
 });
 
 describe('report filter parameters', () => {
+  test('qualifies event-history filters when joined tables share column names', () => {
+    const filters = clickhouse.parseFilters(
+      { path: 'eq./news', event: 'eq.purchase' },
+      {
+        columns: {
+          path: 'website_event.url_path',
+          event: 'website_event.event_name',
+        },
+      },
+    );
+
+    expect(filters.filterQuery).toContain('website_event.url_path IN {path:Array(String)}');
+    expect(filters.filterQuery).toContain('website_event.event_name IN {event:Array(String)}');
+  });
+
   test('keeps structured filter metadata out of ClickHouse queries', () => {
     const filters = clickhouse.parseFilters({
       path1: {

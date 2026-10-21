@@ -12,7 +12,7 @@ const operation1 = defineOperation({
     operationId: 'getEventDataById',
     summary: "Get an event's custom properties",
     description:
-      'Returns the custom property records, data types, and values attached to a specific event.',
+      'Returns custom property records, data types, values, and provenance tiers for the specified event. Historical unverified properties remain visible but do not enter verified custom-event summaries.',
     tags: ['Websites'],
     parameters: [
       {
@@ -97,6 +97,11 @@ const operation1 = defineOperation({
                     type: 'number',
                     description: 'Data type of the custom property.',
                   },
+                  trustTier: {
+                    type: 'number',
+                    description:
+                      'Property provenance: 0 for unverified historical data, 1 for a website-backend-authorized submission. Authorization does not prove the reported fact.',
+                  },
                 },
                 required: [
                   'id',
@@ -108,6 +113,7 @@ const operation1 = defineOperation({
                   'numberValue',
                   'dateValue',
                   'dataType',
+                  'trustTier',
                 ],
               },
             },
@@ -140,6 +146,23 @@ const operation1 = defineOperation({
                 message: 'Unauthorized.',
                 code: 'unauthorized',
                 status: 401,
+              },
+            },
+            schema: {
+              $ref: '#/components/schemas/ApiError',
+            },
+          },
+        },
+      },
+      '503': {
+        description: 'Service unavailable.',
+        content: {
+          'application/json': {
+            example: {
+              error: {
+                message: 'Service unavailable.',
+                code: 'service-unavailable',
+                status: 503,
               },
             },
             schema: {

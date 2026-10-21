@@ -36,6 +36,7 @@ const distinctId = 'synthetic-cross-store-identity';
 const legacySessionIds = Array.from({ length: MAX_AUTH_SESSION_ROWS - 1 }, () => randomUUID());
 let postgresConnected = false;
 let testTableCreated = false;
+let eventTableCreated = false;
 
 try {
   await postgres.connect();
@@ -49,6 +50,14 @@ try {
     ) ENGINE = ReplacingMergeTree ORDER BY (website_id, distinct_id, session_id)`,
   });
   testTableCreated = true;
+  await clickhouse.command({
+    query: `CREATE TABLE website_event (
+      website_id UUID,
+      session_id UUID,
+      is_bot UInt8
+    ) ENGINE = MergeTree ORDER BY (website_id, session_id)`,
+  });
+  eventTableCreated = true;
   await clickhouse.insert({
     table: 'session_link',
     format: 'JSONEachRow',
@@ -72,7 +81,7 @@ try {
   const admittedSessionId = candidates[outcomes.findIndex(Boolean)];
   assert.equal(
     (await getLinkedSessionIds(websiteId, distinctId, MAX_AUTH_SESSION_ROWS + 1)).length,
-    MAX_AUTH_SESSION_ROWS - 1,
+    1,
   );
   await publishSessionLink({ websiteId, distinctId, sessionId: admittedSessionId });
 
@@ -92,10 +101,36 @@ try {
   const legacyCount = (await clickhouseCount.json()) as { total: string }[];
   assert.equal(Number(legacyCount[0].total), MAX_AUTH_SESSION_ROWS);
 
+  await clickhouse.insert({
+    table: 'website_event',
+    format: 'JSONEachRow',
+    values: [admittedSessionId, legacySessionIds[0]].map(sessionId => ({
+      website_id: websiteId,
+      session_id: sessionId,
+      is_bot: 0,
+    })),
+  });
+  const filterRows = async (distinctIdFilter: string) => {
+    const { filterQuery, queryParams } = clickhouseStore.parseFilters({
+      websiteId,
+      distinctId: distinctIdFilter,
+    });
+    const rows = await clickhouseStore.rawQuery<{ sessionId: string }[]>(
+      `select toString(website_event.session_id) as sessionId
+       from website_event
+       where website_event.website_id = {websiteId:UUID} ${filterQuery}`,
+      queryParams,
+      'testVerifiedIdentityFilter',
+    );
+    return rows.map(row => row.sessionId).sort();
+  };
+  assert.deepEqual(await filterRows(`eq.${distinctId}`), [admittedSessionId]);
+  assert.deepEqual(await filterRows(`neq.${distinctId}`), []);
+
   const linked = await getLinkedSessionIds(websiteId, distinctId, MAX_AUTH_SESSION_ROWS + 1);
-  assert.equal(linked.length, MAX_AUTH_SESSION_ROWS);
+  assert.equal(linked.length, 1);
   assert.ok(linked.some(({ sessionId }) => sessionId === admittedSessionId));
-  assert.ok(linked.some(({ sessionId }) => sessionId === legacySessionIds[0]));
+  assert.ok(!linked.some(({ sessionId }) => sessionId === legacySessionIds[0]));
   assert.deepEqual(await getLinkedDistinctIds(websiteId, admittedSessionId, 2), [distinctId]);
   assert.equal(
     await saveSessionLink({ websiteId, distinctId, sessionId: legacySessionIds[0] }),
@@ -106,7 +141,15 @@ try {
      WHERE website_id = $1::uuid AND distinct_id = $2::text`,
     [websiteId, distinctId],
   );
-  assert.equal(persistedAfterLegacy.rows[0].total, 1);
+  assert.equal(persistedAfterLegacy.rows[0].total, 2);
+  assert.equal(
+    (await getLinkedSessionIds(websiteId, distinctId, MAX_AUTH_SESSION_ROWS + 1)).length,
+    2,
+  );
+  assert.deepEqual(
+    await filterRows(`eq.${distinctId}`),
+    [admittedSessionId, legacySessionIds[0]].sort(),
+  );
   assert.equal(await saveSessionLink({ websiteId, distinctId, sessionId: randomUUID() }), false);
 
   const delayedIdentity = 'synthetic-delayed-delivery';
@@ -132,11 +175,28 @@ try {
   } finally {
     clickhouseStore.insert = originalInsert;
   }
-  assert.deepEqual(await getLinkedSessionIds(websiteId, delayedIdentity, 2), []);
+  assert.deepEqual(
+    (await getLinkedSessionIds(websiteId, delayedIdentity, 2)).map(link => link.sessionId),
+    [delayedSessionId],
+  );
+  const missingDelivery = await clickhouse.query({
+    query: `SELECT count() AS total FROM session_link
+      WHERE website_id = {websiteId:UUID} AND distinct_id = {distinctId:String}`,
+    query_params: { websiteId, distinctId: delayedIdentity },
+    format: 'JSONEachRow',
+  });
+  assert.equal(Number(((await missingDelivery.json()) as { total: string }[])[0].total), 0);
   assert.equal(
     await saveSessionLink({ websiteId, distinctId: delayedIdentity, sessionId: delayedSessionId }),
     true,
   );
+  const recoveredDelivery = await clickhouse.query({
+    query: `SELECT count() AS total FROM session_link
+      WHERE website_id = {websiteId:UUID} AND distinct_id = {distinctId:String}`,
+    query_params: { websiteId, distinctId: delayedIdentity },
+    format: 'JSONEachRow',
+  });
+  assert.equal(Number(((await recoveredDelivery.json()) as { total: string }[])[0].total), 1);
   assert.deepEqual(
     (await getLinkedSessionIds(websiteId, delayedIdentity, 2)).map(link => link.sessionId),
     [delayedSessionId],
@@ -173,6 +233,9 @@ try {
   }
   if (testTableCreated) {
     await clickhouse.command({ query: 'DROP TABLE session_link' });
+  }
+  if (eventTableCreated) {
+    await clickhouse.command({ query: 'DROP TABLE website_event' });
   }
   await clickhouse.close();
   await prisma.client.$disconnect();

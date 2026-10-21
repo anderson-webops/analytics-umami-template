@@ -5,6 +5,7 @@ import { useFilterParameters } from '../useFilterParameters';
 
 interface RevenueTotalData {
   sum: number;
+  revenueProvenance: 'unverified_historical_event_claims';
 }
 
 export function useRevenueTotalQuery({

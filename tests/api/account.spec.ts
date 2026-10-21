@@ -10,7 +10,6 @@ test.describe('Account', () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({
-      token: expect.any(String),
       user: {
         id: seed.admin.id,
         username: seed.admin.username,
@@ -20,6 +19,7 @@ test.describe('Account', () => {
         twoFactorRequired: expect.any(Boolean),
       },
     });
+    expect(response.body).not.toHaveProperty('token');
     expect(response.body.user).not.toHaveProperty('password');
     expect(response.body).not.toHaveProperty('apiKey');
     expect(asUser.status).toBe(200);

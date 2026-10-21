@@ -26,6 +26,16 @@ async function copyRuntimePath(sourcePath, destinationPath) {
 async function copyReplayCssBindings(appDir) {
   const packageRoot = await fs.realpath(path.resolve('node_modules/lightningcss'));
   const dependencyRoot = path.dirname(packageRoot);
+  const runtimeNodeModules = path.join(appDir, 'node_modules');
+  const runtimeDependencyRoot = path.dirname(
+    await fs.realpath(path.join(runtimeNodeModules, 'lightningcss')),
+  );
+  if (
+    runtimeDependencyRoot !== runtimeNodeModules &&
+    !runtimeDependencyRoot.startsWith(`${runtimeNodeModules}${path.sep}`)
+  ) {
+    throw new Error('The traced lightningcss package escapes the standalone runtime.');
+  }
   const { version } = JSON.parse(await fs.readFile(path.join(packageRoot, 'package.json'), 'utf8'));
   const bindings = new Set(['lightningcss-linux-arm64-gnu']);
 
@@ -46,7 +56,18 @@ async function copyReplayCssBindings(appDir) {
       throw new Error(`The locked ${name} native binding is unavailable.`);
     }
 
-    await copyRuntimePath(sourcePath, path.join(appDir, 'node_modules', name));
+    const runtimeBinding = path.join(runtimeNodeModules, name);
+    await copyRuntimePath(sourcePath, runtimeBinding);
+
+    const tracedBinding = path.join(runtimeDependencyRoot, name);
+    if (tracedBinding !== runtimeBinding) {
+      try {
+        await fs.lstat(tracedBinding);
+      } catch (error) {
+        if (error?.code !== 'ENOENT') throw error;
+        await fs.symlink(path.relative(runtimeDependencyRoot, runtimeBinding), tracedBinding);
+      }
+    }
   }
 }
 
@@ -107,6 +128,22 @@ async function run() {
   await copyRuntimePath(
     path.resolve('db/clickhouse/migrations/16_expire_new_session_replays.sql'),
     path.join(appDir, 'db/clickhouse/migrations/16_expire_new_session_replays.sql'),
+  );
+  await copyRuntimePath(
+    path.resolve('db/clickhouse/migrations/17_add_session_data_trust_tier.sql'),
+    path.join(appDir, 'db/clickhouse/migrations/17_add_session_data_trust_tier.sql'),
+  );
+  await copyRuntimePath(
+    path.resolve('db/clickhouse/migrations/18_disable_unverified_revenue_materialization.sql'),
+    path.join(appDir, 'db/clickhouse/migrations/18_disable_unverified_revenue_materialization.sql'),
+  );
+  await copyRuntimePath(
+    path.resolve('db/clickhouse/migrations/19_add_event_collection_trust_tier.sql'),
+    path.join(appDir, 'db/clickhouse/migrations/19_add_event_collection_trust_tier.sql'),
+  );
+  await copyRuntimePath(
+    path.resolve('db/clickhouse/migrations/20_add_verified_event_data_pivot.sql'),
+    path.join(appDir, 'db/clickhouse/migrations/20_add_verified_event_data_pivot.sql'),
   );
 
   await fs.rm(path.join(appDir, 'geo'), { force: true, recursive: true });

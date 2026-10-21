@@ -19,6 +19,39 @@ export interface ApiResponse<T = any> {
   headers: Record<string, string>;
 }
 
+const authenticatedReadTimes: number[] = [];
+let authenticatedReadQueue: Promise<void> = Promise.resolve();
+
+async function paceAuthenticatedRead(
+  method: HttpMethod,
+  path: string,
+  headers: Record<string, string>,
+) {
+  const windowLimit = Number(process.env.API_TEST_AUTH_QUERY_WINDOW_LIMIT || 0);
+  if (
+    !Number.isSafeInteger(windowLimit) ||
+    windowLimit < 1 ||
+    !headers.authorization?.startsWith('Bearer ') ||
+    (method !== 'GET' && !(method === 'POST' && /^\/(?:compat\/)?api\/reports\//.test(path)))
+  ) {
+    return;
+  }
+
+  const admission = authenticatedReadQueue.then(async () => {
+    const now = Date.now();
+    while (authenticatedReadTimes[0] <= now - 61_000) authenticatedReadTimes.shift();
+    if (authenticatedReadTimes.length >= windowLimit) {
+      const waitMs = authenticatedReadTimes[0] + 61_000 - now;
+      await new Promise(resolve => setTimeout(resolve, waitMs));
+      const resumedAt = Date.now();
+      while (authenticatedReadTimes[0] <= resumedAt - 61_000) authenticatedReadTimes.shift();
+    }
+    authenticatedReadTimes.push(Date.now());
+  });
+  authenticatedReadQueue = admission.catch(() => {});
+  await admission;
+}
+
 /**
  * Thin wrapper over Playwright's APIRequestContext that carries default headers
  * (auth) and records every call for the coverage reporter. All specs must go
@@ -50,11 +83,13 @@ export class ApiClient {
         )
       : undefined;
 
+    const headers = { ...this.headers, ...options.headers };
+    await paceAuthenticatedRead(method, path, headers);
     const response = await this.context.fetch(path, {
       method,
       data: options.data,
       params: params as Record<string, string | number | boolean>,
-      headers: { ...this.headers, ...options.headers },
+      headers,
     });
 
     recordApiCall(method, path);

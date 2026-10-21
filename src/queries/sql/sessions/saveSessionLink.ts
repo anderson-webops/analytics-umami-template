@@ -1,6 +1,6 @@
 import type { Prisma } from '@/generated/prisma/client';
 import clickhouse from '@/lib/clickhouse';
-import { FIELD_LENGTH } from '@/lib/constants';
+import { COLLECTION_TRUST_TIER, FIELD_LENGTH } from '@/lib/constants';
 import { truncateString } from '@/lib/format';
 import kafka from '@/lib/kafka';
 import prisma from '@/lib/prisma';
@@ -114,11 +114,18 @@ async function admitLink(
 
   const existing = await transaction.sessionLink.findUnique({
     where: { websiteId_distinctId_sessionId: { ...where, sessionId } },
-    select: { sessionId: true },
+    select: { sessionId: true, trustTier: true },
   });
 
   if (existing) {
-    return 'existing';
+    if (existing.trustTier === COLLECTION_TRUST_TIER.backendAuthorized) {
+      return 'existing';
+    }
+    await transaction.sessionLink.update({
+      where: { websiteId_distinctId_sessionId: { ...where, sessionId } },
+      data: { trustTier: COLLECTION_TRUST_TIER.backendAuthorized },
+    });
+    return 'new';
   }
 
   if (clickhouse.enabled) {
@@ -131,21 +138,12 @@ async function admitLink(
       getLegacyLinkedSessionIds(websiteId, normalizedDistinctId, MAX_AUTH_SESSION_ROWS + 1),
     ]);
 
-    if (legacy.some(link => link.sessionId === sessionId)) {
-      return 'existing';
-    }
-
     const linkedSessionIds = new Set(persisted.map(({ sessionId }) => sessionId));
-
-    if (linkedSessionIds.size >= MAX_AUTH_SESSION_ROWS) {
-      return 'at-cap';
-    }
-
     for (const { sessionId } of legacy) {
       linkedSessionIds.add(sessionId);
-      if (linkedSessionIds.size >= MAX_AUTH_SESSION_ROWS) {
-        return 'at-cap';
-      }
+    }
+    if (!linkedSessionIds.has(sessionId) && linkedSessionIds.size >= MAX_AUTH_SESSION_ROWS) {
+      return 'at-cap';
     }
   } else if ((await transaction.sessionLink.count({ where })) >= MAX_AUTH_SESSION_ROWS) {
     return 'at-cap';
@@ -156,6 +154,7 @@ async function admitLink(
       websiteId,
       sessionId,
       distinctId: normalizedDistinctId,
+      trustTier: COLLECTION_TRUST_TIER.backendAuthorized,
       createdAt,
     },
   });

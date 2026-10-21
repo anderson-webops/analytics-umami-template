@@ -1,3 +1,4 @@
+import { REVENUE_PROVENANCE, REVENUE_RESPONSE_HEADERS } from '@/lib/constants';
 import {
   getBoundedCompareDate,
   getQueryFilters,
@@ -61,5 +62,16 @@ export async function POST(request: Request) {
     >,
   ]);
 
-  return json({ chart, total: { ...total, comparison }, country, region, referrer, channel });
+  return json(
+    {
+      chart,
+      total: { ...total, comparison },
+      country,
+      region,
+      referrer,
+      channel,
+      revenueProvenance: REVENUE_PROVENANCE,
+    },
+    { headers: REVENUE_RESPONSE_HEADERS },
+  );
 }

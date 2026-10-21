@@ -58,7 +58,9 @@ export function SessionActivity({
   return (
     <LoadingPanel data={data} isLoading={isLoading} error={error}>
       <Column gap>
-        {data?.map(({ eventId, createdAt, urlPath, eventName, visitId, hostname, hasData }) => {
+        {data?.map(item => {
+          const { eventId, createdAt, urlPath, eventName, visitId, hostname, hasData, trustTier } =
+            item;
           const showHeader = !lastDay || !isSameDay(new Date(lastDay), new Date(createdAt));
           lastDay = createdAt;
 
@@ -77,6 +79,9 @@ export function SessionActivity({
                   <Text weight="bold" style={{ maxWidth: isMobile ? '400px' : null }} truncate>
                     {eventName || renderLink(urlPath, hostname)}
                   </Text>
+                  {eventName && (
+                    <Text>{trustTier === 1 ? 'Website backend authorized' : 'Unverified'}</Text>
+                  )}
                   {hasData > 0 && <PropertiesButton websiteId={websiteId} eventId={eventId} />}
                 </Row>
               </Row>

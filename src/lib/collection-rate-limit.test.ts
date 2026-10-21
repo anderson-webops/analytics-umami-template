@@ -119,7 +119,7 @@ function reserveSource(
   id: string,
   reserve: typeof reserveCollectionSourceLimit = reserveCollectionSourceLimit,
 ) {
-  return prisma.transaction(transaction => reserve(transaction, id));
+  return prisma.transaction(transaction => reserve(transaction, id, 'backend'));
 }
 
 beforeEach(() => {
@@ -205,6 +205,26 @@ test('two independent module instances share source enforcement', async () => {
   });
   expect(sharedKeys('rate:source:')).toHaveLength(1);
   expect(state.sharedCounters.get(sharedKeys('rate:source:')[0])).toBe(100n);
+});
+
+test('anonymous sources stop at one quarter of the shared minute limit', async () => {
+  for (let attempt = 0; attempt < 25; attempt += 1) {
+    await prisma.transaction(transaction =>
+      reserveCollectionSourceLimit(transaction, sourceId, 'anonymous'),
+    );
+  }
+
+  await expect(
+    prisma.transaction(transaction =>
+      reserveCollectionSourceLimit(transaction, sourceId, 'anonymous'),
+    ),
+  ).rejects.toMatchObject({ retryAfter: 60 });
+
+  expect(await getCollectionSourceStatus(sourceId)).toEqual({ blocked: false, retryAfter: 60 });
+  await reserveSource(sourceId);
+  expect(await getCollectionSourceStatus(sourceId)).toEqual({ blocked: false, retryAfter: 60 });
+  expect(sharedKeys('rate:source:')).toHaveLength(2);
+  expect(state.sharedCounters.get(sharedKeys('rate:pool:source|')[0])).toBe(1n);
 });
 
 test('a full shared key pool rejects new keys without evicting active ones', async () => {
@@ -296,7 +316,7 @@ test('configured Redis remains the IP fast path while source admissions use Post
 test('source admission rolls back when a later client budget denies the same request', async () => {
   await expect(
     prisma.transaction(async transaction => {
-      await reserveCollectionSourceLimit(transaction, sourceId);
+      await reserveCollectionSourceLimit(transaction, sourceId, 'backend');
       throw new Error('client budget denied');
     }),
   ).rejects.toThrow('client budget denied');

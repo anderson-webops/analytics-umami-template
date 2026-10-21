@@ -42,6 +42,7 @@ CREATE TABLE umami.website_event
     ttfb Nullable(Decimal(10, 1)),
     --events
     event_type UInt32,
+    trust_tier UInt8 DEFAULT 0,
     event_name String,
     tag String,
     distinct_id String,
@@ -62,6 +63,7 @@ CREATE TABLE umami.event_data
     website_id UUID,
     session_id UUID,
     event_id UUID,
+    trust_tier UInt8 DEFAULT 0,
     url_path String,
     event_name String,
     data_key String,
@@ -81,6 +83,7 @@ CREATE TABLE umami.session_data
     website_id UUID,
     session_id UUID,
     data_key String,
+    trust_tier UInt8 DEFAULT 0,
     string_value Nullable(String),
     number_value Nullable(Decimal(22, 4)),
     date_value Nullable(DateTime('UTC')),
@@ -304,24 +307,6 @@ ENGINE = MergeTree
     SETTINGS index_granularity = 8192;
 
 
-CREATE MATERIALIZED VIEW umami.website_revenue_mv
-TO umami.website_revenue
-AS
-SELECT DISTINCT
-    ed.website_id,
-    ed.session_id,
-    ed.event_id,
-    ed.event_name,
-    c.currency,
-    coalesce(toDecimal64(ed.number_value, 2), toDecimal64(ed.string_value, 2)) revenue,
-    ed.created_at
-FROM umami.event_data ed
-JOIN (SELECT event_id, string_value as currency
-        FROM umami.event_data
-        WHERE positionCaseInsensitive(data_key, 'currency') > 0) c
-      ON c.event_id = ed.event_id
-WHERE positionCaseInsensitive(data_key, 'revenue') > 0;
-
 -- Create session_replay
 CREATE TABLE umami.session_replay
 (
@@ -380,6 +365,44 @@ AS SELECT
     )) AS property_values,
     groupArrayState(data_type) AS property_types
 FROM umami.event_data
+GROUP BY website_id, session_id, event_id, event_name, url_path, created_at;
+
+CREATE TABLE IF NOT EXISTS umami.event_data_pivot_verified
+(
+    website_id      UUID,
+    session_id      UUID,
+    event_id        UUID,
+    event_name      LowCardinality(String),
+    url_path        String,
+    created_at      DateTime('UTC'),
+    property_keys   AggregateFunction(groupArray, String),
+    property_values AggregateFunction(groupArray, String),
+    property_types  AggregateFunction(groupArray, UInt32)
+)
+ENGINE = AggregatingMergeTree()
+PARTITION BY toYYYYMM(created_at)
+ORDER BY (website_id, event_name, created_at, event_id, session_id, url_path)
+SETTINGS index_granularity = 8192;
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS umami.event_data_pivot_verified_mv
+TO umami.event_data_pivot_verified
+AS SELECT
+    website_id,
+    session_id,
+    event_id,
+    event_name,
+    url_path,
+    created_at,
+    groupArrayState(data_key) AS property_keys,
+    groupArrayState(multiIf(
+        data_type IN (1, 3, 5), ifNull(string_value, ''),
+        data_type = 2, toString(ifNull(number_value, 0)),
+        data_type = 4, toString(ifNull(date_value, toDateTime(0))),
+        ''
+    )) AS property_values,
+    groupArrayState(data_type) AS property_types
+FROM umami.event_data
+WHERE trust_tier = 1
 GROUP BY website_id, session_id, event_id, event_name, url_path, created_at;
 
 -- Create session_data_pivot

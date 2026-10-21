@@ -1,8 +1,9 @@
 import clickhouse from '@/lib/clickhouse';
-import { EVENT_COLUMNS, EVENT_TYPE, FILTER_COLUMNS } from '@/lib/constants';
+import { COLLECTION_TRUST_TIER, EVENT_TYPE, FILTER_COLUMNS } from '@/lib/constants';
 import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
 import prisma from '@/lib/prisma';
 import type { PageResult, QueryFilters, WebsiteSession } from '@/lib/types';
+import { getVerifiedIdentitySearchSessions } from './getVerifiedIdentitySearchSessions';
 
 const FUNCTION_NAME = 'getWebsiteSessions';
 const QUALIFIED_FILTER_COLUMNS = Object.fromEntries(
@@ -28,7 +29,12 @@ async function relationalQuery(websiteId: string, filters: QueryFilters) {
   });
 
   const searchQuery = search
-    ? `and (distinct_id ilike {{search}}
+    ? `and (exists (
+             select 1 from session_link verified_link
+             where verified_link.website_id = website_event.website_id
+               and verified_link.session_id = website_event.session_id
+               and verified_link.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}
+               and verified_link.distinct_id ilike {{search}})
            or city ilike {{search}}
            or browser ilike {{search}}
            or os ilike {{search}}
@@ -66,6 +72,7 @@ async function relationalQuery(websiteId: string, filters: QueryFilters) {
       and session.website_id = website_event.website_id
     where website_event.website_id = {{websiteId::uuid}}
       and website_event.event_type != ${EVENT_TYPE.performance}
+      and (website_event.event_type != ${EVENT_TYPE.customEvent} or website_event.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})
     ${dateQuery}
     ${filterQuery}
     ${searchQuery}
@@ -94,6 +101,9 @@ async function relationalQuery(websiteId: string, filters: QueryFilters) {
 async function clickhouseQuery(websiteId: string, filters: QueryFilters) {
   const { pagedRawQuery, parseFilters, getDateStringSQL } = clickhouse;
   const { search } = filters;
+  const verifiedSessionIds = search
+    ? await getVerifiedIdentitySearchSessions(websiteId, search)
+    : [];
   const { filterQuery, dateQuery, cohortQuery, queryParams } = parseFilters(
     {
       ...filters,
@@ -105,7 +115,7 @@ async function clickhouseQuery(websiteId: string, filters: QueryFilters) {
   );
 
   const searchQuery = search
-    ? `and ((positionCaseInsensitive(website_event.distinct_id, {search:String}) > 0)
+    ? `and (has({verifiedSessionIds:Array(UUID)}, website_event.session_id)
            or (positionCaseInsensitive(website_event.city, {search:String}) > 0)
            or (positionCaseInsensitive(website_event.browser, {search:String}) > 0)
            or (positionCaseInsensitive(website_event.os, {search:String}) > 0)
@@ -118,10 +128,7 @@ async function clickhouseQuery(websiteId: string, filters: QueryFilters) {
     'website_event.referrer_domain != website_event.hostname',
   );
 
-  let sql = '';
-
-  if (EVENT_COLUMNS.some(item => Object.keys(filters).includes(item))) {
-    sql = `
+  const sql = `
     select
       session_id as id,
       any(website_id) as websiteId,
@@ -147,46 +154,13 @@ async function clickhouseQuery(websiteId: string, filters: QueryFilters) {
     ${cohortQuery}
     where website_id = {websiteId:UUID}
       and event_type != ${EVENT_TYPE.performance}
+      and (event_type != ${EVENT_TYPE.customEvent} or trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})
     ${dateQuery}
     ${normalizedFilterQuery}
     ${searchQuery}
     group by session_id
     order by lastAt desc, id
     `;
-  } else {
-    sql = `
-    select
-      session_id as id,
-      any(website_id) as websiteId,
-      argMax(arrayFirst(x -> 1, hostname), max_time) as hostname,
-      argMax(browser, max_time) as browser,
-      argMax(os, max_time) as os,
-      argMax(device, max_time) as device,
-      argMax(screen, max_time) as screen,
-      argMax(language, max_time) as language,
-      argMax(country, max_time) as country,
-      argMax(region, max_time) as region,
-      argMax(city, max_time) as city,
-      argMax(is_bot, max_time) as isBot,
-      argMax(bot_name, max_time) as botName,
-      argMax(bot_category, max_time) as botCategory,
-      ${getDateStringSQL('min(min_time)')} as firstAt,
-      ${getDateStringSQL('max(max_time)')} as lastAt,
-      uniq(visit_id) as visits,
-      sumIf(views, event_type = ${EVENT_TYPE.pageView}) as views,
-      sum(length(event_name)) as events,
-      max(max_time) as createdAt
-    from website_event_stats_hourly as website_event
-    ${cohortQuery}
-    where website_id = {websiteId:UUID}
-      and event_type != ${EVENT_TYPE.performance}
-    ${dateQuery}
-    ${normalizedFilterQuery}
-    ${searchQuery}
-    group by session_id
-    order by lastAt desc, id
-    `;
-  }
 
-  return pagedRawQuery(sql, queryParams, filters, FUNCTION_NAME);
+  return pagedRawQuery(sql, { ...queryParams, verifiedSessionIds }, filters, FUNCTION_NAME);
 }

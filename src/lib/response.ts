@@ -2,8 +2,8 @@ export function ok() {
   return Response.json({ ok: true });
 }
 
-export function json(data: Record<string, any> = {}) {
-  return Response.json(data);
+export function json(data: Record<string, any> = {}, init?: ResponseInit) {
+  return Response.json(data, init);
 }
 
 export function badRequest(error?: Record<string, any>) {

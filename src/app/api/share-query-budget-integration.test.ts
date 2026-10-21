@@ -82,6 +82,8 @@ import { GET as getFunnelRoute } from './websites/[websiteId]/funnels/stats/rout
 import { GET as getJourneyRoute } from './websites/[websiteId]/journeys/route';
 import { GET as getMetricsRoute } from './websites/[websiteId]/metrics/route';
 import { GET as getPageviewsRoute } from './websites/[websiteId]/pageviews/route';
+import { GET as getRevenueChartRoute } from './websites/[websiteId]/revenue/chart/route';
+import { GET as getRevenueMetricsRoute } from './websites/[websiteId]/revenue/metrics/route';
 import { GET as getRevenueSessionsRoute } from './websites/[websiteId]/revenue/sessions/route';
 import { GET as getRevenueStatsRoute } from './websites/[websiteId]/revenue/stats/route';
 import { GET as getRevenueTotalRoute } from './websites/[websiteId]/revenue/total/route';
@@ -1535,11 +1537,38 @@ test('a board revenue table receives only its displayed total', async () => {
   );
 
   expect(response.status).toBe(200);
-  expect(await response.json()).toEqual({ sum: 125 });
+  expect(await response.json()).toEqual({
+    sum: 125,
+    revenueProvenance: 'unverified_historical_event_claims',
+  });
+  expect(response.headers.get('X-Revenue-Provenance')).toBe('unverified_historical_event_claims');
   expect(getRevenueStatsMock).toHaveBeenCalledTimes(1);
 });
 
-test('a revenue bar retains the complete stats response', async () => {
+test('a revenue chart labels its historical claims for typed callers', async () => {
+  const shareId = `revenue-chart-${crypto.randomUUID()}`;
+  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  canViewWebsiteSectionMock.mockResolvedValue(true);
+  getRevenueChartMock.mockResolvedValueOnce({
+    chart: [{ x: 'purchase', t: '2025-01-01', y: 25, count: 1 }],
+  });
+
+  const response = await getRevenueChartRoute(
+    new Request(
+      `https://analytics.example/api/websites/${WEBSITE_ID}/revenue/chart?startAt=${Date.UTC(2025, 0, 1)}&endAt=${Date.UTC(2025, 0, 31)}&currency=USD`,
+    ),
+    pathParams,
+  );
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({
+    chart: [{ x: 'purchase', t: '2025-01-01', y: 25, count: 1 }],
+    revenueProvenance: 'unverified_historical_event_claims',
+  });
+  expect(response.headers.get('X-Revenue-Provenance')).toBe('unverified_historical_event_claims');
+});
+
+test('a revenue bar cannot report ARPU from unverified claims', async () => {
   const shareId = `revenue-stats-${crypto.randomUUID()}`;
   checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
   canViewWebsiteSectionMock.mockResolvedValue(true);
@@ -1555,8 +1584,59 @@ test('a revenue bar retains the complete stats response', async () => {
   );
 
   expect(response.status).toBe(200);
-  expect(await response.json()).toEqual({ ...stats, comparison });
+  expect(await response.json()).toEqual({
+    ...stats,
+    arpu: null,
+    comparison: { ...comparison, arpu: null },
+    revenueProvenance: 'unverified_historical_event_claims',
+  });
+  expect(response.headers.get('X-Revenue-Provenance')).toBe('unverified_historical_event_claims');
   expect(getRevenueStatsMock).toHaveBeenCalledTimes(2);
+});
+
+test('all historical revenue response shapes expose unverified provenance', async () => {
+  checkAuthMock.mockImplementation(
+    async () => ({ user: { id: crypto.randomUUID() }, source: 'cookie' }) as any,
+  );
+  canViewWebsiteSectionMock.mockResolvedValue(true);
+  getRevenueMetricsMock.mockResolvedValueOnce([{ name: 'United States', value: 25 }] as any);
+  getRevenueSessionsMock.mockResolvedValueOnce({ data: [], count: 0 } as any);
+
+  const query = `startAt=${Date.UTC(2025, 0, 1)}&endAt=${Date.UTC(2025, 0, 31)}&currency=USD`;
+  const metrics = await getRevenueMetricsRoute(
+    new Request(
+      `https://analytics.example/api/websites/${WEBSITE_ID}/revenue/metrics?${query}&type=country`,
+    ),
+    pathParams,
+  );
+  const emptyMetrics = await getRevenueMetricsRoute(
+    new Request(
+      `https://analytics.example/api/websites/${WEBSITE_ID}/revenue/metrics?${query}&type=country`,
+    ),
+    pathParams,
+  );
+  const sessions = await getRevenueSessionsRoute(
+    new Request(`https://analytics.example/api/websites/${WEBSITE_ID}/revenue/sessions?${query}`),
+    pathParams,
+  );
+  const compatibility = await getRevenueReport(compatibilityRequest(compatibilityReports[1]));
+
+  for (const response of [metrics, emptyMetrics, sessions, compatibility]) {
+    expect(response.status).toBe(200);
+    expect(response.headers.get('X-Revenue-Provenance')).toBe('unverified_historical_event_claims');
+  }
+  expect(await metrics.json()).toEqual([
+    { name: 'United States', value: 25, revenueProvenance: 'unverified_historical_event_claims' },
+  ]);
+  expect(await emptyMetrics.json()).toEqual([]);
+  expect(await sessions.json()).toEqual({
+    data: [],
+    count: 0,
+    revenueProvenance: 'unverified_historical_event_claims',
+  });
+  await expect(compatibility.json()).resolves.toMatchObject({
+    revenueProvenance: 'unverified_historical_event_claims',
+  });
 });
 
 test('public session activity charges a linked historical range before querying events', async () => {

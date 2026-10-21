@@ -1,19 +1,20 @@
 import type { Prisma } from '@/generated/prisma/client';
 import clickhouse from '@/lib/clickhouse';
-import { FIELD_LENGTH } from '@/lib/constants';
+import { COLLECTION_TRUST_TIER, EVENT_TYPE, FIELD_LENGTH } from '@/lib/constants';
 import { uuid } from '@/lib/crypto';
 import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
 import { truncateString } from '@/lib/format';
 import kafka from '@/lib/kafka';
 import prisma from '@/lib/prisma';
+import { hasRevenueField, isFinancialEventName } from '@/lib/revenue-provenance';
 import { saveEventData } from './saveEventData';
-import { saveRevenue } from './saveRevenue';
 
 export interface SaveEventArgs {
   websiteId: string;
   sessionId: string;
   visitId: string;
   eventType: number;
+  trustTier: (typeof COLLECTION_TRUST_TIER)[keyof typeof COLLECTION_TRUST_TIER];
   createdAt?: Date;
 
   // Page
@@ -68,6 +69,19 @@ export interface SaveEventArgs {
 }
 
 export async function saveEvent(args: SaveEventArgs, transaction?: Prisma.TransactionClient) {
+  if (
+    (args.eventType === EVENT_TYPE.customEvent &&
+      args.trustTier !== COLLECTION_TRUST_TIER.backendAuthorized) ||
+    (args.eventType !== EVENT_TYPE.customEvent &&
+      args.trustTier !== COLLECTION_TRUST_TIER.unverified)
+  ) {
+    throw new Error('Event collection provenance is invalid.');
+  }
+
+  if (hasRevenueField(args.eventData, isFinancialEventName(args.eventName))) {
+    throw new Error('Verified revenue collection is not enabled.');
+  }
+
   if (transaction) {
     return relationalQuery(args, transaction);
   }
@@ -84,6 +98,7 @@ async function relationalQuery(
     sessionId,
     visitId,
     eventType,
+    trustTier,
     createdAt,
     pageTitle,
     hostname,
@@ -143,6 +158,7 @@ async function relationalQuery(
       lifatid: truncateString(lifatid, FIELD_LENGTH.fieldValue),
       twclid: truncateString(twclid, FIELD_LENGTH.fieldValue),
       eventType,
+      trustTier,
       eventName: truncateString(eventName, FIELD_LENGTH.eventName) ?? null,
       tag: truncateString(tag, FIELD_LENGTH.tag),
       hostname: truncateString(hostname, FIELD_LENGTH.hostname),
@@ -167,27 +183,11 @@ async function relationalQuery(
         urlPath: truncateString(urlPath, FIELD_LENGTH.url),
         eventName: truncateString(eventName, FIELD_LENGTH.eventName),
         eventData,
+        trustTier,
         createdAt,
       },
       transaction,
     );
-
-    const { revenue, currency } = eventData;
-
-    if (revenue > 0 && currency) {
-      await saveRevenue(
-        {
-          websiteId,
-          sessionId,
-          eventId: websiteEventId,
-          eventName: truncateString(eventName, FIELD_LENGTH.eventName),
-          currency,
-          revenue,
-          createdAt,
-        },
-        transaction,
-      );
-    }
   }
 }
 
@@ -196,6 +196,7 @@ async function clickhouseQuery({
   sessionId,
   visitId,
   eventType,
+  trustTier,
   createdAt,
   pageTitle,
   hostname,
@@ -268,6 +269,7 @@ async function clickhouseQuery({
     li_fat_id: truncateString(lifatid, FIELD_LENGTH.fieldValue),
     twclid: truncateString(twclid, FIELD_LENGTH.fieldValue),
     event_type: eventType,
+    trust_tier: trustTier,
     event_name: truncateString(eventName, FIELD_LENGTH.eventName) ?? null,
     tag: truncateString(tag, FIELD_LENGTH.tag),
     distinct_id: truncateString(distinctId, FIELD_LENGTH.distinctId),
@@ -289,12 +291,6 @@ async function clickhouseQuery({
     ttfb: ttfb,
   };
 
-  if (kafka.enabled) {
-    await sendMessage('event', message);
-  } else {
-    await insert('website_event', [message]);
-  }
-
   if (eventData) {
     await saveEventData({
       websiteId,
@@ -303,7 +299,14 @@ async function clickhouseQuery({
       urlPath: truncateString(urlPath, FIELD_LENGTH.url),
       eventName: truncateString(eventName, FIELD_LENGTH.eventName),
       eventData,
+      trustTier,
       createdAt,
     });
+  }
+
+  if (kafka.enabled) {
+    await sendMessage('event', message);
+  } else {
+    await insert('website_event', [message]);
   }
 }

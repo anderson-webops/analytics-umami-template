@@ -9,7 +9,7 @@ function runBody(seed: SeedState, type: string, parameters: Record<string, unkno
   return {
     websiteId: seed.website.id,
     type,
-    filters: { ...dateRange(seed), timezone: 'UTC', unit: 'day' },
+    filters: { timezone: 'UTC', unit: 'day' },
     parameters: { ...dateRangeIso(seed), ...parameters },
   };
 }
@@ -27,12 +27,20 @@ test.describe('Saved reports', () => {
 
   test('POST /api/reports creates a report', async ({ admin, seed }) => {
     const name = uniqueName('report');
+    const parameters = {
+      ...dateRangeIso(seed),
+      window: 60,
+      steps: [
+        { type: 'path', value: '/' },
+        { type: 'event', value: 'signup' },
+      ],
+    };
     const response = await admin.post('/api/reports', {
       websiteId: seed.website.id,
       type: 'funnel',
       name,
       description: 'created by the api suite',
-      parameters: { window: 60, steps: [] },
+      parameters,
     });
 
     expect(response.status).toBe(200);
@@ -43,7 +51,7 @@ test.describe('Saved reports', () => {
       type: 'funnel',
       name,
       description: 'created by the api suite',
-      parameters: { window: 60, steps: [] },
+      parameters,
     });
 
     reportId = response.body.id;
@@ -79,7 +87,12 @@ test.describe('Saved reports', () => {
     api,
     seed,
   }) => {
-    const body = { websiteId: seed.website.id, type: 'goal', name: 'x', parameters: {} };
+    const body = {
+      websiteId: seed.website.id,
+      type: 'goal',
+      name: 'x',
+      parameters: { ...dateRangeIso(seed), type: 'path', value: '/' },
+    };
     const denied = await viewer.post('/api/reports', body);
     const otherOwner = await user.post('/api/reports', body);
     const anonymous = await api.post('/api/reports', body);
@@ -191,7 +204,14 @@ test.describe('Saved reports', () => {
       type: 'funnel',
       name,
       description: 'updated',
-      parameters: { window: 30, steps: [{ type: 'path', value: '/' }] },
+      parameters: {
+        ...dateRangeIso(seed),
+        window: 30,
+        steps: [
+          { type: 'path', value: '/' },
+          { type: 'event', value: 'signup' },
+        ],
+      },
     };
     const response = await admin.post(`/api/reports/${reportId}`, body);
     const invalid = await admin.post(`/api/reports/${reportId}`, { name });

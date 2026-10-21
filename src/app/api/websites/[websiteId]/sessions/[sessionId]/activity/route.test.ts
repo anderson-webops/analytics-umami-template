@@ -1,7 +1,6 @@
 import { endOfMonth, startOfMonth } from 'date-fns';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { getQueryFilters, parseRequest } from '@/lib/request';
-import { MAX_AUTH_SESSION_ROWS } from '@/lib/share-query-budget';
 import { canViewWebsiteSection } from '@/permissions';
 import {
   getLinkedDistinctIds,
@@ -182,7 +181,7 @@ test('rejects a supplied identity when the anchor has collided identities', asyn
   expect(getSessionActivityMock).not.toHaveBeenCalled();
 });
 
-test('uses the existing session identity when there are no link rows', async () => {
+test('rejects a legacy claimed identity when there is no authorized link', async () => {
   parseRequestMock.mockResolvedValue({
     auth: { user: { id: `activity-user-${crypto.randomUUID()}` } },
     query: { startAt: 1, endAt: 2, distinctId: 'bob@aol.com' },
@@ -198,25 +197,19 @@ test('uses the existing session identity when there are no link rows', async () 
     params: Promise.resolve({ websiteId: WEBSITE_ID, sessionId: SESSION_ID }),
   });
 
-  expect(response.status).toBe(200);
-  expect(getLinkedSessionIdsMock).toHaveBeenCalledWith(WEBSITE_ID, 'bob@aol.com', 2001);
-  expect(getSessionActivityMock).toHaveBeenCalledWith(WEBSITE_ID, [SESSION_ID], {});
+  expect(response.status).toBe(400);
+  expect(getLinkedSessionIdsMock).not.toHaveBeenCalled();
+  expect(getSessionActivityMock).not.toHaveBeenCalled();
 });
 
-test('an unadmitted session at the identity cap reads only its own activity', async () => {
+test('an unadmitted session reads only its own activity without a claimed identity', async () => {
   parseRequestMock.mockResolvedValue({
     auth: { user: { id: `activity-user-${crypto.randomUUID()}` } },
-    query: { startAt: 1, endAt: 2, distinctId: 'bob@aol.com' },
+    query: { startAt: 1, endAt: 2 },
     error: undefined,
   });
   canViewWebsiteSectionMock.mockResolvedValue(true);
   getLinkedDistinctIdsMock.mockResolvedValue([]);
-  getLinkedSessionIdsMock.mockResolvedValue(
-    Array.from({ length: MAX_AUTH_SESSION_ROWS }, (_, index) => ({
-      sessionId: `00000000-0000-4000-8000-${(index + 10).toString().padStart(12, '0')}`,
-      createdAt: '2026-01-01T00:00:00.000Z',
-    })),
-  );
   getQueryFiltersMock.mockResolvedValue({});
   getSessionActivityMock.mockResolvedValue([]);
 
@@ -226,6 +219,7 @@ test('an unadmitted session at the identity cap reads only its own activity', as
 
   expect(response.status).toBe(200);
   expect(getSessionActivityMock).toHaveBeenCalledWith(WEBSITE_ID, [SESSION_ID], {});
+  expect(getLinkedSessionIdsMock).not.toHaveBeenCalled();
 });
 
 test('rejects an unknown anchor even when the caller supplies an identity', async () => {

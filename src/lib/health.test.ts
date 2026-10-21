@@ -67,7 +67,11 @@ beforeEach(() => {
       }),
   );
   dependencyState.clickhouseReadResult.mockResolvedValue([]);
-  dependencyState.clickhouseQuery.mockResolvedValue({ json: dependencyState.clickhouseReadResult });
+  dependencyState.clickhouseQuery.mockImplementation(async ({ query }: { query: string }) => ({
+    json: query.startsWith('SELECT name, engine FROM system.tables')
+      ? async () => [{ name: 'event_data_pivot_verified_mv', engine: 'MaterializedView' }]
+      : dependencyState.clickhouseReadResult,
+  }));
   dependencyState.clickhouseConnect.mockResolvedValue({
     query: dependencyState.clickhouseQuery,
   });
@@ -126,7 +130,33 @@ describe('monitor probes', () => {
       format: 'JSONEachRow',
       abort_signal: expect.any(AbortSignal),
     });
-    expect(dependencyState.clickhouseReadResult).toHaveBeenCalledTimes(2);
+    expect(dependencyState.clickhouseQuery).toHaveBeenCalledWith({
+      query: 'SELECT trust_tier FROM session_data LIMIT 0',
+      format: 'JSONEachRow',
+      abort_signal: expect.any(AbortSignal),
+    });
+    expect(dependencyState.clickhouseQuery).toHaveBeenCalledWith({
+      query: 'SELECT trust_tier FROM website_event LIMIT 0',
+      format: 'JSONEachRow',
+      abort_signal: expect.any(AbortSignal),
+    });
+    expect(dependencyState.clickhouseQuery).toHaveBeenCalledWith({
+      query: 'SELECT trust_tier FROM event_data LIMIT 0',
+      format: 'JSONEachRow',
+      abort_signal: expect.any(AbortSignal),
+    });
+    expect(dependencyState.clickhouseQuery).toHaveBeenCalledWith({
+      query: 'SELECT event_id FROM event_data_pivot_verified LIMIT 0',
+      format: 'JSONEachRow',
+      abort_signal: expect.any(AbortSignal),
+    });
+    expect(dependencyState.clickhouseQuery).toHaveBeenCalledWith({
+      query:
+        "SELECT name, engine FROM system.tables WHERE database = currentDatabase() AND name IN ('event_data_pivot_verified_mv', 'website_revenue_mv')",
+      format: 'JSONEachRow',
+      abort_signal: expect.any(AbortSignal),
+    });
+    expect(dependencyState.clickhouseReadResult).toHaveBeenCalledTimes(6);
 
     resetReadinessStateForTests();
     dependencyState.redisPing.mockRejectedValueOnce(new Error('private redis host'));
@@ -145,6 +175,47 @@ describe('monitor probes', () => {
       new Error('missing retention columns'),
     );
     expect(await getReadiness()).toBe(false);
+  });
+
+  test.each([
+    { views: [] },
+    { views: [{ name: 'event_data_pivot_verified_mv', engine: 'MergeTree' }] },
+    {
+      views: [
+        { name: 'event_data_pivot_verified_mv', engine: 'MaterializedView' },
+        { name: 'website_revenue_mv', engine: 'MaterializedView' },
+      ],
+    },
+  ])('rejects incomplete or legacy ClickHouse materialization views: %j', async ({ views }) => {
+    dependencyState.clickhouseEnabled = true;
+    dependencyState.clickhouseQuery.mockImplementation(async ({ query }: { query: string }) => ({
+      json: async () => (query.startsWith('SELECT name, engine FROM system.tables') ? views : []),
+    }));
+
+    expect(await getReadiness()).toBe(false);
+  });
+
+  test('checks independent ClickHouse dependencies within the readiness deadline', async () => {
+    vi.useFakeTimers();
+    dependencyState.clickhouseEnabled = true;
+    dependencyState.clickhouseQuery.mockImplementation(async ({ query }: { query: string }) => ({
+      json: () =>
+        new Promise(resolve =>
+          setTimeout(
+            () =>
+              resolve(
+                query.startsWith('SELECT name, engine FROM system.tables')
+                  ? [{ name: 'event_data_pivot_verified_mv', engine: 'MaterializedView' }]
+                  : [],
+              ),
+            250,
+          ),
+        ),
+    }));
+
+    const readiness = getReadiness();
+    await vi.advanceTimersByTimeAsync(2_000);
+    await expect(readiness).resolves.toBe(true);
   });
 
   test('coalesces concurrent checks and reuses the bounded result cache', async () => {

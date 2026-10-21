@@ -10,7 +10,7 @@ export interface RevenueStatsResult {
   count: number;
   average: number;
   unique_count: number;
-  arpu: number;
+  arpu: null;
 }
 
 export async function getRevenueStats(
@@ -63,15 +63,14 @@ async function relationalQuery(
     select
       sum(filtered_revenue.revenue) as sum,
       count(distinct filtered_revenue.event_id) as count,
-      count(distinct filtered_revenue.session_id) as unique_count,
-      (select count(*) from filtered_sessions) as total_sessions
+      count(distinct filtered_revenue.session_id) as unique_count
     from filtered_revenue
     `,
     queryParams,
   ).then(result => result?.[0]);
 
   total.average = total.count > 0 ? Number(total.sum) / Number(total.count) : 0;
-  total.arpu = total.total_sessions > 0 ? Number(total.sum) / Number(total.total_sessions) : 0;
+  total.arpu = null;
 
   return total;
 }
@@ -95,7 +94,6 @@ async function clickhouseQuery(
     sum: number;
     count: number;
     unique_count: number;
-    total_sessions: number;
   }>(
     `
     with
@@ -122,15 +120,14 @@ async function clickhouseQuery(
     select
       sum(filtered_revenue.revenue) as sum,
       uniqExact(filtered_revenue.event_id) as count,
-      uniqExact(filtered_revenue.session_id) as unique_count,
-      (select count() from filtered_sessions) as total_sessions
+      uniqExact(filtered_revenue.session_id) as unique_count
     from filtered_revenue
     `,
     queryParams,
   ).then(result => result?.[0]);
 
   total.average = total.count > 0 ? total.sum / total.count : 0;
-  total.arpu = total.total_sessions > 0 ? total.sum / total.total_sessions : 0;
+  total.arpu = null;
 
   return total;
 }

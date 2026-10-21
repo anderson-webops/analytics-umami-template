@@ -1,5 +1,5 @@
 import clickhouse from '@/lib/clickhouse';
-import { EVENT_TYPE } from '@/lib/constants';
+import { COLLECTION_TRUST_TIER, EVENT_TYPE } from '@/lib/constants';
 import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
 import prisma from '@/lib/prisma';
 import type { QueryFilters, RealtimeActivity } from '@/lib/types';
@@ -42,6 +42,7 @@ async function relationalQuery(websiteId: string, filters: QueryFilters) {
         and session.website_id = website_event.website_id
     where website_event.website_id = {{websiteId::uuid}}
       and website_event.event_type != ${EVENT_TYPE.performance}
+      and (website_event.event_type != ${EVENT_TYPE.customEvent} or website_event.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})
     ${filterQuery}
     ${dateQuery}
     order by website_event.created_at desc
@@ -79,6 +80,7 @@ async function clickhouseQuery(
         ${cohortQuery}
         where website_id = {websiteId:UUID}
           and event_type != ${EVENT_TYPE.performance}
+          and (event_type != ${EVENT_TYPE.customEvent} or trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})
         ${filterQuery}
         ${dateQuery}
         order by createdAt desc

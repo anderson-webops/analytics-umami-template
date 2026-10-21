@@ -12,7 +12,7 @@ const operation1 = defineOperation({
     operationId: 'send',
     summary: 'Send tracking data',
     description:
-      'Collects a pageview, custom event, visitor identification, or performance payload and returns an opaque tracking cache token for website events when accepted.',
+      'Collects anonymous pageviews or performance data. Identity and non-revenue custom events require an authorized website-backend credential; revenue intake is disabled. A public website ID, Origin, or browser cache token is not backend authorization. Accepted browser pageviews receive an opaque tracking cache token.',
     tags: ['Collection'],
     requestBody: {
       required: true,
@@ -90,6 +90,10 @@ const operation1 = defineOperation({
                     type: 'string',
                     maxLength: 50,
                     description: 'Unique identifier of the resource.',
+                  },
+                  sessionSeed: {
+                    type: 'string',
+                    format: 'uuid',
                   },
                   browser: {
                     type: 'string',
@@ -184,6 +188,23 @@ const operation1 = defineOperation({
           },
         },
       },
+      '403': {
+        description: 'Forbidden.',
+        content: {
+          'application/json': {
+            example: {
+              error: {
+                message: 'Forbidden.',
+                code: 'forbidden',
+                status: 403,
+              },
+            },
+            schema: {
+              $ref: '#/components/schemas/ApiError',
+            },
+          },
+        },
+      },
       '500': {
         description: 'Server error.',
         content: {
@@ -193,6 +214,23 @@ const operation1 = defineOperation({
                 message: 'Server error.',
                 code: 'server-error',
                 status: 500,
+              },
+            },
+            schema: {
+              $ref: '#/components/schemas/ApiError',
+            },
+          },
+        },
+      },
+      '503': {
+        description: 'Service unavailable.',
+        content: {
+          'application/json': {
+            example: {
+              error: {
+                message: 'Service unavailable.',
+                code: 'service-unavailable',
+                status: 503,
               },
             },
             schema: {

@@ -12,7 +12,7 @@ export const API_HTTP_METHODS = [
 
 export type ApiHttpMethod = (typeof API_HTTP_METHODS)[number];
 export type ApiAudience = 'public' | 'internal' | 'collect';
-export type ApiAuth = 'none' | 'bearer' | 'bearer-or-share';
+export type ApiAuth = 'none' | 'bearer' | 'bearer-or-share' | 'backend-key';
 
 export interface ApiOperationContract {
   method: ApiHttpMethod;

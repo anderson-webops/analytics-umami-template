@@ -356,6 +356,81 @@ async function checkSchemaCompatibility() {
           AND table_name = 'website'
           AND column_name = 'recorder_enabled'
       ) AS recorder_enabled,
+      (
+        EXISTS (
+          SELECT 1
+          FROM pg_attribute attribute_definition
+          JOIN pg_attrdef default_definition
+            ON default_definition.adrelid = attribute_definition.attrelid
+           AND default_definition.adnum = attribute_definition.attnum
+          WHERE attribute_definition.attrelid = to_regclass(
+              format('%I.%I', current_schema(), 'website')
+            )
+            AND attribute_definition.attname = 'collection_generation'
+            AND attribute_definition.atttypid = 'pg_catalog.int4'::regtype
+            AND attribute_definition.attnotnull
+            AND NOT attribute_definition.attisdropped
+            AND pg_get_expr(default_definition.adbin, default_definition.adrelid) = '0'
+        )
+        AND EXISTS (
+          SELECT 1
+          FROM pg_constraint constraint_definition
+          WHERE constraint_definition.conrelid = to_regclass(
+              format('%I.%I', current_schema(), 'website')
+            )
+            AND constraint_definition.conname = 'website_collection_generation_check'
+            AND constraint_definition.contype = 'c'
+            AND constraint_definition.convalidated
+            AND pg_get_constraintdef(constraint_definition.oid, true)
+              = 'CHECK (collection_generation >= 0)'
+        )
+      ) AS website_collection_generation,
+      (
+        EXISTS (
+          SELECT 1
+          FROM pg_class tombstone_table
+          JOIN pg_namespace tombstone_schema
+            ON tombstone_schema.oid = tombstone_table.relnamespace
+          JOIN pg_attribute website_column
+            ON website_column.attrelid = tombstone_table.oid
+           AND website_column.attname = 'website_id'
+          JOIN pg_attribute generation_column
+            ON generation_column.attrelid = tombstone_table.oid
+           AND generation_column.attname = 'next_generation'
+          WHERE tombstone_schema.nspname = current_schema()
+            AND tombstone_table.relname = 'website_collection_tombstone'
+            AND tombstone_table.relkind = 'r'
+            AND website_column.atttypid = 'pg_catalog.uuid'::regtype
+            AND website_column.attnotnull
+            AND NOT website_column.attisdropped
+            AND generation_column.atttypid = 'pg_catalog.int4'::regtype
+            AND generation_column.attnotnull
+            AND NOT generation_column.attisdropped
+        )
+        AND EXISTS (
+          SELECT 1
+          FROM pg_constraint constraint_definition
+          WHERE constraint_definition.conrelid = to_regclass(
+              format('%I.%I', current_schema(), 'website_collection_tombstone')
+            )
+            AND constraint_definition.contype = 'p'
+            AND constraint_definition.convalidated
+            AND pg_get_constraintdef(constraint_definition.oid, true)
+              = 'PRIMARY KEY (website_id)'
+        )
+        AND EXISTS (
+          SELECT 1
+          FROM pg_constraint constraint_definition
+          WHERE constraint_definition.conrelid = to_regclass(
+              format('%I.%I', current_schema(), 'website_collection_tombstone')
+            )
+            AND constraint_definition.conname = 'website_collection_tombstone_generation_check'
+            AND constraint_definition.contype = 'c'
+            AND constraint_definition.convalidated
+            AND pg_get_constraintdef(constraint_definition.oid, true)
+              = 'CHECK (next_generation > 0)'
+        )
+      ) AS website_collection_tombstone,
       EXISTS (
         SELECT 1
         FROM information_schema.columns
@@ -532,6 +607,122 @@ async function checkSchemaCompatibility() {
           AND pg_get_indexdef(index_definition.indexrelid, 1, true) = 'session_id'
           AND pg_get_indexdef(index_definition.indexrelid, 2, true) = 'data_key'
       ) AS session_data_unique_index,
+      (
+        EXISTS (
+          SELECT 1
+          FROM pg_attribute attribute_definition
+          JOIN pg_attrdef default_definition
+            ON default_definition.adrelid = attribute_definition.attrelid
+           AND default_definition.adnum = attribute_definition.attnum
+          WHERE attribute_definition.attrelid = to_regclass(
+              format('%I.%I', current_schema(), 'session_link')
+            )
+            AND attribute_definition.attname = 'trust_tier'
+            AND attribute_definition.atttypid = 'pg_catalog.int2'::regtype
+            AND attribute_definition.attnotnull
+            AND NOT attribute_definition.attisdropped
+            AND pg_get_expr(default_definition.adbin, default_definition.adrelid) = '0'
+        )
+        AND EXISTS (
+          SELECT 1
+          FROM pg_constraint constraint_definition
+          WHERE constraint_definition.conrelid = to_regclass(
+              format('%I.%I', current_schema(), 'session_link')
+            )
+            AND constraint_definition.conname = 'session_link_trust_tier_check'
+            AND constraint_definition.contype = 'c'
+            AND constraint_definition.convalidated
+            AND pg_get_constraintdef(constraint_definition.oid, true)
+              = 'CHECK (trust_tier = ANY (ARRAY[0, 1]))'
+        )
+      ) AS session_link_trust_tier,
+      (
+        EXISTS (
+          SELECT 1
+          FROM pg_attribute attribute_definition
+          JOIN pg_attrdef default_definition
+            ON default_definition.adrelid = attribute_definition.attrelid
+           AND default_definition.adnum = attribute_definition.attnum
+          WHERE attribute_definition.attrelid = to_regclass(
+              format('%I.%I', current_schema(), 'session_data')
+            )
+            AND attribute_definition.attname = 'trust_tier'
+            AND attribute_definition.atttypid = 'pg_catalog.int2'::regtype
+            AND attribute_definition.attnotnull
+            AND NOT attribute_definition.attisdropped
+            AND pg_get_expr(default_definition.adbin, default_definition.adrelid) = '0'
+        )
+        AND EXISTS (
+          SELECT 1
+          FROM pg_constraint constraint_definition
+          WHERE constraint_definition.conrelid = to_regclass(
+              format('%I.%I', current_schema(), 'session_data')
+            )
+            AND constraint_definition.conname = 'session_data_trust_tier_check'
+            AND constraint_definition.contype = 'c'
+            AND constraint_definition.convalidated
+            AND pg_get_constraintdef(constraint_definition.oid, true)
+              = 'CHECK (trust_tier = ANY (ARRAY[0, 1]))'
+        )
+      ) AS session_data_trust_tier,
+      (
+        EXISTS (
+          SELECT 1
+          FROM pg_attribute attribute_definition
+          JOIN pg_attrdef default_definition
+            ON default_definition.adrelid = attribute_definition.attrelid
+           AND default_definition.adnum = attribute_definition.attnum
+          WHERE attribute_definition.attrelid = to_regclass(
+              format('%I.%I', current_schema(), 'website_event')
+            )
+            AND attribute_definition.attname = 'trust_tier'
+            AND attribute_definition.atttypid = 'pg_catalog.int2'::regtype
+            AND attribute_definition.attnotnull
+            AND NOT attribute_definition.attisdropped
+            AND pg_get_expr(default_definition.adbin, default_definition.adrelid) = '0'
+        )
+        AND EXISTS (
+          SELECT 1
+          FROM pg_constraint constraint_definition
+          WHERE constraint_definition.conrelid = to_regclass(
+              format('%I.%I', current_schema(), 'website_event')
+            )
+            AND constraint_definition.conname = 'website_event_trust_tier_check'
+            AND constraint_definition.contype = 'c'
+            AND constraint_definition.convalidated
+            AND pg_get_constraintdef(constraint_definition.oid, true)
+              = 'CHECK (trust_tier = ANY (ARRAY[0, 1]))'
+        )
+      ) AS website_event_trust_tier,
+      (
+        EXISTS (
+          SELECT 1
+          FROM pg_attribute attribute_definition
+          JOIN pg_attrdef default_definition
+            ON default_definition.adrelid = attribute_definition.attrelid
+           AND default_definition.adnum = attribute_definition.attnum
+          WHERE attribute_definition.attrelid = to_regclass(
+              format('%I.%I', current_schema(), 'event_data')
+            )
+            AND attribute_definition.attname = 'trust_tier'
+            AND attribute_definition.atttypid = 'pg_catalog.int2'::regtype
+            AND attribute_definition.attnotnull
+            AND NOT attribute_definition.attisdropped
+            AND pg_get_expr(default_definition.adbin, default_definition.adrelid) = '0'
+        )
+        AND EXISTS (
+          SELECT 1
+          FROM pg_constraint constraint_definition
+          WHERE constraint_definition.conrelid = to_regclass(
+              format('%I.%I', current_schema(), 'event_data')
+            )
+            AND constraint_definition.conname = 'event_data_trust_tier_check'
+            AND constraint_definition.contype = 'c'
+            AND constraint_definition.convalidated
+            AND pg_get_constraintdef(constraint_definition.oid, true)
+              = 'CHECK (trust_tier = ANY (ARRAY[0, 1]))'
+        )
+      ) AS event_data_trust_tier,
       EXISTS (
         SELECT 1
         FROM pg_index index_definition
@@ -637,6 +828,8 @@ async function checkSchemaCompatibility() {
 
   if (
     !schema?.recorder_enabled ||
+    !schema?.website_collection_generation ||
+    !schema?.website_collection_tombstone ||
     !schema?.user_session_generation ||
     !schema?.replay_config ||
     !schema?.session_replay ||
@@ -651,6 +844,10 @@ async function checkSchemaCompatibility() {
     !schema?.heatmap_retention ||
     !schema?.heatmap_retention_index ||
     !schema?.session_data_unique_index ||
+    !schema?.session_link_trust_tier ||
+    !schema?.session_data_trust_tier ||
+    !schema?.website_event_trust_tier ||
+    !schema?.event_data_trust_tier ||
     !schema?.authorization_membership_unique_index ||
     !schema?.authorization_owner_unique_index ||
     !schema?.authorization_username_unique_index ||

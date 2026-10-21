@@ -74,7 +74,14 @@ async function getSavedCohortRange(
     const parsed = savedSegmentSchema.safeParse(cohort);
 
     if (!parsed.success || parsed.data.type !== 'cohort') return null;
-    if (!isSavedSegmentWithinQueryBudget(parsed.data.parameters.filters ?? [])) return null;
+    if (
+      !isSavedSegmentWithinQueryBudget(
+        parsed.data.parameters.filters ?? [],
+        [],
+        parsed.data.parameters.action.type,
+      )
+    )
+      return null;
 
     let range: ReturnType<typeof parseDateRange>;
 
@@ -616,7 +623,9 @@ export async function getQueryFilters(
 
       const cohortParams = parsedCohort.data.parameters;
 
-      if (!isSavedSegmentWithinQueryBudget(cohortParams.filters ?? [])) {
+      if (
+        !isSavedSegmentWithinQueryBudget(cohortParams.filters ?? [], [], cohortParams.action.type)
+      ) {
         throw new Error('INVALID_SAVED_COHORT');
       }
 

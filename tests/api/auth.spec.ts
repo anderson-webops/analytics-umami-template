@@ -1,5 +1,6 @@
 import { expect, test } from './fixtures';
 import { login } from './helpers/auth';
+import { createUser, deleteUser } from './helpers/entities';
 
 test.describe('Auth', () => {
   test('POST /api/auth/login returns a token and the user', async ({ api, seed }) => {
@@ -130,14 +131,19 @@ test.describe('Auth', () => {
     expect(viaApiKey.status).toBe(401);
   });
 
-  test('POST /api/auth/logout acknowledges the logout', async ({ api, seed }) => {
-    // Use a dedicated session so the shared worker tokens are never touched.
-    const token = await login(api, seed.viewer);
-    const response = await api.bearer(token).post('/api/auth/logout');
+  test('POST /api/auth/logout acknowledges the logout', async ({ admin, api }) => {
+    const created = await createUser(admin);
 
-    expect(response.status).toBe(200);
-    expect(response.body).toEqual({ ok: true });
-    // Without Redis the stateless token remains valid, so no follow-up 401 is asserted.
+    try {
+      const token = await login(api, created);
+      const response = await api.bearer(token).post('/api/auth/logout');
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ ok: true });
+      expect((await api.bearer(token).get('/api/me')).status).toBe(401);
+    } finally {
+      await deleteUser(admin, created.id);
+    }
   });
 
   test('POST /api/auth/logout requires a session', async ({ api, apiKey }) => {

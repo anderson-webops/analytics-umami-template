@@ -27,6 +27,7 @@ async function relationalQuery(websiteId: string, eventId: string, rowLimit?: nu
        event_data.number_value as "numberValue",
        event_data.date_value as "dateValue",
        event_data.data_type as "dataType",
+       case when event_data.trust_tier = 1 and website_event.trust_tier = 1 then 1 else 0 end as "trustTier",
        event_data.created_at as "createdAt"
     from event_data
     join website_event on website_event.event_id = event_data.website_event_id
@@ -49,18 +50,24 @@ async function clickhouseQuery(
 
   return rawQuery(
     `
-      select website_id as websiteId,
-        event_id as eventId,
-        event_name as eventName,
-        data_key as dataKey,
-        string_value as stringValue,
-        number_value as numberValue,
-        date_value as dateValue,
-        data_type as dataType,
-        created_at as createdAt
+      select event_data.website_id as websiteId,
+        event_data.event_id as eventId,
+        website_event.event_name as eventName,
+        event_data.data_key as dataKey,
+        event_data.string_value as stringValue,
+        event_data.number_value as numberValue,
+        event_data.date_value as dateValue,
+        event_data.data_type as dataType,
+        if(event_data.trust_tier = 1 and website_event.trust_tier = 1
+          and event_data.event_name = website_event.event_name
+          and event_data.url_path = website_event.url_path, 1, 0) as trustTier,
+        event_data.created_at as createdAt
       from event_data
-      where website_id = {websiteId:UUID}
-        and event_id = {eventId:UUID}
+      inner join website_event on website_event.event_id = event_data.event_id
+        and website_event.website_id = event_data.website_id
+        and website_event.session_id = event_data.session_id
+      where event_data.website_id = {websiteId:UUID}
+        and event_data.event_id = {eventId:UUID}
       ${rowLimit === undefined ? '' : 'limit {rowLimit:UInt32}'}
     `,
     { websiteId, eventId, rowLimit },

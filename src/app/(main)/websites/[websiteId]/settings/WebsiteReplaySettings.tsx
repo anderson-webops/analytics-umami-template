@@ -16,7 +16,12 @@ import { EmptyPlaceholder } from '@/components/common/EmptyPlaceholder';
 import { useMessages, useSubscription, useUpdateQuery, useWebsite } from '@/components/hooks';
 import { Video } from '@/components/icons';
 import { openNewTab } from '@/lib/open-new-tab';
-import { getRecorderConfig, type RecorderConfig } from '@/lib/recorder';
+import {
+  getRecorderCode,
+  getRecorderConfig,
+  isRecorderPermitEndpoint,
+  type RecorderConfig,
+} from '@/lib/recorder';
 
 const RECORDER_NAME = 'recorder.js';
 
@@ -34,6 +39,7 @@ export function WebsiteReplaySettings({ websiteId }: { websiteId: string }) {
   const [maskLevel, setMaskLevel] = useState(config.maskLevel ?? 'moderate');
   const [maxDuration, setMaxDuration] = useState(String(config.maxDuration ?? 300000));
   const [blockSelector, setBlockSelector] = useState(config.blockSelector ?? '');
+  const [permitEndpoint, setPermitEndpoint] = useState(config.permitEndpoint ?? '');
 
   useEffect(() => {
     setReplayEnabled(config.replayEnabled === true);
@@ -43,8 +49,10 @@ export function WebsiteReplaySettings({ websiteId }: { websiteId: string }) {
     setMaskLevel(config.maskLevel ?? 'moderate');
     setMaxDuration(String(config.maxDuration ?? 300000));
     setBlockSelector(config.blockSelector ?? '');
+    setPermitEndpoint(config.permitEndpoint ?? '');
   }, [
     config.blockSelector,
+    config.permitEndpoint,
     config.heatmapEnabled,
     config.heatmapSampleRate,
     config.maskLevel,
@@ -57,7 +65,11 @@ export function WebsiteReplaySettings({ websiteId }: { websiteId: string }) {
     ? `${process.env.cloudUrl}/${RECORDER_NAME}`
     : `${window?.location?.origin || ''}${process.env.basePath || ''}/${RECORDER_NAME}`;
 
-  const recorderCode = `<script defer src="${recorderUrl}" data-website-id="${websiteId}"></script>`;
+  const replayReady =
+    !replayEnabled || (config.replayEnabled === true && config.maskLevel === 'strict');
+  const recorderCode = replayReady ? getRecorderCode(recorderUrl, websiteId, permitEndpoint) : null;
+  const invalidPermitEndpoint =
+    permitEndpoint.length > 0 && !isRecorderPermitEndpoint(permitEndpoint);
   const sectionLabel = `${t(labels.replays)} & ${t(labels.heatmaps)}`;
 
   const saveRecorderConfig = async (nextConfig: RecorderConfig, rollback?: () => void) => {
@@ -88,6 +100,7 @@ export function WebsiteReplaySettings({ websiteId }: { websiteId: string }) {
     maskLevel,
     maxDuration: parseInt(maxDuration, 10) || 300000,
     blockSelector,
+    permitEndpoint: permitEndpoint || null,
     ...overrides,
   });
 
@@ -140,24 +153,52 @@ export function WebsiteReplaySettings({ websiteId }: { websiteId: string }) {
   return (
     <Column gap="4">
       <Label>{sectionLabel}</Label>
-      <Switch isSelected={replayEnabled} onChange={handleReplayToggle} isDisabled={isPending}>
+      <Switch
+        isSelected={replayEnabled}
+        onChange={handleReplayToggle}
+        isDisabled={isPending || invalidPermitEndpoint}
+      >
         {t(labels.replays)}
       </Switch>
-      <Switch isSelected={heatmapEnabled} onChange={handleHeatmapToggle} isDisabled={isPending}>
+      <Switch
+        isSelected={heatmapEnabled}
+        onChange={handleHeatmapToggle}
+        isDisabled={isPending || invalidPermitEndpoint}
+      >
         {t(labels.heatmaps)}
       </Switch>
       {(replayEnabled || heatmapEnabled) && (
         <>
-          <Label>{t(labels.recorderCode)}</Label>
-          <Text color="muted">{t(messages.trackingCode)}</Text>
           <TextField
-            value={recorderCode}
-            isReadOnly
-            allowCopy
-            asTextArea
-            resize="none"
-            className="code-textarea"
+            label="Site consent endpoint path"
+            placeholder="/analytics-permit"
+            value={permitEndpoint}
+            onChange={setPermitEndpoint}
+            autoComplete="off"
           />
+          <Text color="muted">
+            {invalidPermitEndpoint
+              ? 'Enter a same-origin path without a query or fragment.'
+              : permitEndpoint
+                ? 'Your site must verify consent before returning a recorder permit.'
+                : 'Enter a site-owned consent endpoint path to generate recorder code.'}
+          </Text>
+          {replayEnabled && !replayReady && (
+            <Text color="muted">Select strict masking and save before using replay code.</Text>
+          )}
+          {recorderCode && (
+            <>
+              <Label>{t(labels.recorderCode)}</Label>
+              <TextField
+                value={recorderCode}
+                isReadOnly
+                allowCopy
+                asTextArea
+                resize="none"
+                className="code-textarea"
+              />
+            </>
+          )}
           {heatmapEnabled && (
             <Slider
               label={`Heatmap ${t(labels.sampleRate).toLowerCase()}`}
@@ -213,7 +254,11 @@ export function WebsiteReplaySettings({ websiteId }: { websiteId: string }) {
             </>
           )}
           <Row>
-            <Button variant="primary" onPress={handleSave} isDisabled={isPending}>
+            <Button
+              variant="primary"
+              onPress={handleSave}
+              isDisabled={isPending || invalidPermitEndpoint}
+            >
               {t(labels.save)}
             </Button>
           </Row>

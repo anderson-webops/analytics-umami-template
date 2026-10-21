@@ -84,19 +84,38 @@ async function checkClickhouse() {
       return false;
     }
 
-    const result = await client.query({
-      query: 'SELECT retention_policy, ingested_at FROM heatmap_event LIMIT 0',
-      format: 'JSONEachRow',
-      abort_signal: AbortSignal.timeout(READINESS_DEPENDENCY_TIMEOUT_MS),
-    });
-    await result.json();
-    const replayResult = await client.query({
-      query: 'SELECT retention_policy, ingested_at FROM session_replay LIMIT 0',
-      format: 'JSONEachRow',
-      abort_signal: AbortSignal.timeout(READINESS_DEPENDENCY_TIMEOUT_MS),
-    });
-    await replayResult.json();
-    return true;
+    const structureQueries = [
+      'SELECT retention_policy, ingested_at FROM heatmap_event LIMIT 0',
+      'SELECT retention_policy, ingested_at FROM session_replay LIMIT 0',
+      ...['session_data', 'website_event', 'event_data'].map(
+        table => `SELECT trust_tier FROM ${table} LIMIT 0`,
+      ),
+      'SELECT event_id FROM event_data_pivot_verified LIMIT 0',
+    ];
+    const structureChecks = Promise.all(
+      structureQueries.map(async query => {
+        const result = await client.query({
+          query,
+          format: 'JSONEachRow',
+          abort_signal: AbortSignal.timeout(READINESS_DEPENDENCY_TIMEOUT_MS),
+        });
+        await result.json();
+      }),
+    );
+    const viewCheck = client
+      .query({
+        query:
+          "SELECT name, engine FROM system.tables WHERE database = currentDatabase() AND name IN ('event_data_pivot_verified_mv', 'website_revenue_mv')",
+        format: 'JSONEachRow',
+        abort_signal: AbortSignal.timeout(READINESS_DEPENDENCY_TIMEOUT_MS),
+      })
+      .then(result => result.json<{ name: string; engine: string }>());
+    const [, views] = await Promise.all([structureChecks, viewCheck]);
+    return (
+      views.some(
+        view => view.name === 'event_data_pivot_verified_mv' && view.engine === 'MaterializedView',
+      ) && !views.some(view => view.name === 'website_revenue_mv')
+    );
   } catch {
     return false;
   }

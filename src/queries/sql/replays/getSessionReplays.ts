@@ -1,7 +1,9 @@
 import clickhouse from '@/lib/clickhouse';
+import { COLLECTION_TRUST_TIER } from '@/lib/constants';
 import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
 import prisma from '@/lib/prisma';
 import type { PageResult, QueryFilters, SessionReplaySummary } from '@/lib/types';
+import { getVerifiedIdentitySearchSessions } from '../sessions/getVerifiedIdentitySearchSessions';
 
 const FUNCTION_NAME = 'getSessionReplays';
 
@@ -41,7 +43,12 @@ async function relationalQuery(websiteId: string, filters: QueryFilters, session
   const sessionFilter = sessionId ? 'and sr.session_id = {{sessionId::uuid}}' : '';
 
   const searchQuery = search
-    ? `and (session.distinct_id ilike {{search}}
+    ? `and (exists (
+             select 1 from session_link verified_link
+             where verified_link.website_id = sr.website_id
+               and verified_link.session_id = sr.session_id
+               and verified_link.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}
+               and verified_link.distinct_id ilike {{search}})
            or session.city ilike {{search}}
            or session.browser ilike {{search}}
            or session.os ilike {{search}}
@@ -98,6 +105,9 @@ async function relationalQuery(websiteId: string, filters: QueryFilters, session
 async function clickhouseQuery(websiteId: string, filters: QueryFilters, sessionId?: string) {
   const { pagedRawQuery, parseFilters } = clickhouse;
   const { search, minDuration } = filters;
+  const verifiedSessionIds = search
+    ? await getVerifiedIdentitySearchSessions(websiteId, search, sessionId)
+    : [];
   const minDurationMs = minDuration && minDuration > 0 ? minDuration * 1000 : undefined;
   const { queryParams, cohortQuery, filterQuery } = parseFilters({
     ...filters,
@@ -107,7 +117,7 @@ async function clickhouseQuery(websiteId: string, filters: QueryFilters, session
   const sessionFilter = sessionId ? 'and session_replay.session_id = {sessionId:UUID}' : '';
 
   const searchQuery = search
-    ? `and ((positionCaseInsensitive(distinct_id, {search:String}) > 0)
+    ? `and (has({verifiedSessionIds:Array(UUID)}, website_event.session_id)
            or (positionCaseInsensitive(city, {search:String}) > 0)
            or (positionCaseInsensitive(browser, {search:String}) > 0)
            or (positionCaseInsensitive(os, {search:String}) > 0)
@@ -156,7 +166,7 @@ async function clickhouseQuery(websiteId: string, filters: QueryFilters, session
     ${havingQuery}
     order by max(created_at) desc
     `,
-    { ...queryParams, sessionId, minDurationMs },
+    { ...queryParams, sessionId, minDurationMs, verifiedSessionIds },
     filters,
     FUNCTION_NAME,
   );

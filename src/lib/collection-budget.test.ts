@@ -1,6 +1,9 @@
 import { expect, test, vi } from 'vitest';
 import type { Prisma } from '@/generated/prisma/client';
 import {
+  COLLECTION_ANONYMOUS_BUDGET_LIMITS,
+  COLLECTION_BUDGET_LIMITS,
+  COLLECTION_CLIENT_BUDGET_LIMITS,
   CollectionBudgetExceededError,
   getCollectionCost,
   reserveCollectionAccountBudget,
@@ -23,6 +26,22 @@ const identity = {
   ),
 };
 const cost = { bytes: 2_048, rows: 3, requests: 1 };
+
+test('anonymous source and owner envelopes leave capacity for backend submissions', () => {
+  for (const scope of ['minute', 'day'] as const) {
+    for (const measure of ['bytes', 'rows', 'requests'] as const) {
+      expect(COLLECTION_CLIENT_BUDGET_LIMITS.send[scope][measure]).toBeLessThan(
+        COLLECTION_ANONYMOUS_BUDGET_LIMITS.source[scope][measure],
+      );
+      expect(COLLECTION_ANONYMOUS_BUDGET_LIMITS.source[scope][measure]).toBeLessThan(
+        COLLECTION_BUDGET_LIMITS.source[scope][measure],
+      );
+      expect(COLLECTION_ANONYMOUS_BUDGET_LIMITS.account[scope][measure]).toBeLessThan(
+        COLLECTION_BUDGET_LIMITS.account[scope][measure],
+      );
+    }
+  }
+});
 
 function transaction(responses: unknown[]) {
   const query = vi.fn().mockImplementation(async () => responses.shift());
@@ -80,6 +99,29 @@ test('client keys separate sources and IPs while sharing an owner across sources
   expect(JSON.stringify(sourceA)).not.toContain('192.0.2.10');
 });
 
+test('backend and anonymous traffic from one IP cannot consume each others client budgets', () => {
+  const anonymousKeys = getCollectionClientKeys(
+    identity.sourceType,
+    identity.sourceId,
+    identity.accountType,
+    identity.accountId,
+    '192.0.2.10',
+    'anonymous',
+  );
+  const backendKeys = getCollectionClientKeys(
+    identity.sourceType,
+    identity.sourceId,
+    identity.accountType,
+    identity.accountId,
+    '192.0.2.10',
+    'backend',
+  );
+
+  expect(backendKeys.sourceClientHash).not.toBe(anonymousKeys.sourceClientHash);
+  expect(backendKeys.accountClientHash).not.toBe(anonymousKeys.accountClientHash);
+  expect(JSON.stringify(backendKeys)).not.toContain('192.0.2.10');
+});
+
 test('identify, performance, and team-owned sources use the same budget boundary', async () => {
   expect(getCollectionCost({ type: 'identify', payload: { data: { key: 'value' } } }).rows).toBe(5);
   expect(getCollectionCost({ type: 'performance', payload: {} }).rows).toBe(2);
@@ -103,6 +145,7 @@ test('identify, performance, and team-owned sources use the same budget boundary
       ),
     },
     cost,
+    'backend',
   );
   expect(query.mock.calls[7][1]).toBe('team');
   expect(query.mock.calls[7][2]).toBe(identity.accountId);
@@ -123,7 +166,7 @@ test('source and account minute/day reservations use distinct atomic keys', asyn
     ...Array.from({ length: 8 }, () => [{ requests: 1n }]),
   ]);
 
-  await reserveCollectionBudget(client, identity, cost);
+  await reserveCollectionBudget(client, identity, cost, 'backend');
 
   expect(query).toHaveBeenCalledTimes(9);
   expect(query.mock.calls.slice(1).map(call => call.slice(1, 4))).toEqual([
@@ -137,6 +180,43 @@ test('source and account minute/day reservations use distinct atomic keys', asyn
     ['user', identity.accountId, 'day'],
   ]);
   expect(execute).toHaveBeenCalledOnce();
+});
+
+test('anonymous clients charge capped source and owner lanes before shared capacity', async () => {
+  const { client, query } = transaction([
+    [{ currentTime: new Date('2026-10-06T11:30:00Z') }],
+    ...Array.from({ length: 12 }, () => [{ requests: 1n }]),
+  ]);
+
+  await reserveCollectionBudget(client, identity, cost, 'anonymous');
+
+  expect(query.mock.calls.slice(1).map(call => call.slice(1, 4))).toEqual([
+    ['source', `client:send:${identity.sourceClientHash}`, 'minute'],
+    ['source', `client:send:${identity.sourceClientHash}`, 'day'],
+    ['source', `client:account:${identity.accountClientHash}`, 'minute'],
+    ['source', `client:account:${identity.accountClientHash}`, 'day'],
+    ['source', `anonymous:website:${identity.sourceId}`, 'minute'],
+    ['source', `anonymous:website:${identity.sourceId}`, 'day'],
+    ['user', `anonymous:${identity.accountId}`, 'minute'],
+    ['user', `anonymous:${identity.accountId}`, 'day'],
+    ['source', `website:${identity.sourceId}`, 'minute'],
+    ['source', `website:${identity.sourceId}`, 'day'],
+    ['user', identity.accountId, 'minute'],
+    ['user', identity.accountId, 'day'],
+  ]);
+});
+
+test('anonymous lane exhaustion rejects before charging the shared envelopes', async () => {
+  const { client, query } = transaction([
+    [{ currentTime: new Date('2026-10-06T11:30:00Z') }],
+    ...Array.from({ length: 4 }, () => [{ requests: 1n }]),
+    [],
+  ]);
+
+  await expect(reserveCollectionBudget(client, identity, cost, 'anonymous')).rejects.toMatchObject({
+    retryAfter: 60,
+  });
+  expect(query).toHaveBeenCalledTimes(6);
 });
 
 test.each(['replay', 'heatmap'] as const)(
@@ -202,14 +282,18 @@ test('exhausted source and account windows fail with bounded retry intervals', a
   const clock = [{ currentTime: new Date('2026-10-06T11:30:00Z') }];
   const source = transaction([clock, ...Array.from({ length: 4 }, () => [{ requests: 2n }]), []]);
 
-  await expect(reserveCollectionBudget(source.client, identity, cost)).rejects.toMatchObject({
+  await expect(
+    reserveCollectionBudget(source.client, identity, cost, 'backend'),
+  ).rejects.toMatchObject({
     retryAfter: 60,
   });
   expect(source.execute).not.toHaveBeenCalled();
 
   const account = transaction([clock, ...Array.from({ length: 7 }, () => [{ requests: 2n }]), []]);
 
-  await expect(reserveCollectionBudget(account.client, identity, cost)).rejects.toMatchObject({
+  await expect(
+    reserveCollectionBudget(account.client, identity, cost, 'backend'),
+  ).rejects.toMatchObject({
     retryAfter: 86_400,
   });
   expect(account.execute).not.toHaveBeenCalled();

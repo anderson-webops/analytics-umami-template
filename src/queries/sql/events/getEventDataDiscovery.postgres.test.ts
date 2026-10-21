@@ -21,6 +21,7 @@ integrationTest(
     const viewEventId = '4a147eee-7e6d-4d73-b4a0-f50d06a51005';
     const attackEventId = '4a147eee-7e6d-4d73-b4a0-f50d06a51006';
     const attackPurchaseEventId = '4a147eee-7e6d-4d73-b4a0-f50d06a51007';
+    const legacyEventId = '4a147eee-7e6d-4d73-b4a0-f50d06a51008';
     const now = new Date('2026-10-15T12:00:00Z');
     const filters = {
       startDate: new Date('2026-10-15T00:00:00Z'),
@@ -36,7 +37,9 @@ integrationTest(
         session_id UUID NOT NULL,
         event_name TEXT NOT NULL,
         event_type INTEGER NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL
+        is_bot BOOLEAN NOT NULL DEFAULT false,
+        created_at TIMESTAMPTZ NOT NULL,
+        trust_tier SMALLINT NOT NULL DEFAULT 0
       )`);
       await client.query(`CREATE TABLE event_data (
         website_event_id UUID NOT NULL,
@@ -45,7 +48,9 @@ integrationTest(
         data_key TEXT NOT NULL,
         data_type INTEGER NOT NULL,
         string_value TEXT,
-        date_value TIMESTAMPTZ
+        number_value NUMERIC(19, 4),
+        date_value TIMESTAMPTZ,
+        trust_tier SMALLINT NOT NULL DEFAULT 0
       )`);
       await client.query(`CREATE TABLE session_data (
         session_id UUID NOT NULL,
@@ -53,15 +58,18 @@ integrationTest(
         data_key TEXT NOT NULL,
         data_type INTEGER NOT NULL,
         string_value TEXT,
-        date_value TIMESTAMPTZ
+        date_value TIMESTAMPTZ,
+        trust_tier SMALLINT NOT NULL DEFAULT 0
       )`);
 
       await client.query(
-        `INSERT INTO website_event VALUES
-          ($1, $4, $5, 'purchase', 2, $6),
-          ($2, $4, $5, 'view', 2, $6),
-          ($3, $7, $8, 'attack', 2, $6),
-          ($9, $7, $8, 'purchase', 2, $6)`,
+        `INSERT INTO website_event
+          (event_id, website_id, session_id, event_name, event_type, created_at, trust_tier)
+         VALUES
+          ($1, $4, $5, 'purchase', 2, $6, 1),
+          ($2, $4, $5, 'view', 2, $6, 1),
+          ($3, $7, $8, 'attack', 2, $6, 1),
+          ($9, $7, $8, 'purchase', 2, $6, 1)`,
         [
           purchaseEventId,
           viewEventId,
@@ -75,27 +83,39 @@ integrationTest(
         ],
       );
       await client.query(
+        `INSERT INTO website_event (event_id, website_id, session_id, event_name, event_type, created_at)
+         VALUES ($1, $2, $3, 'legacy', 2, $4)`,
+        [legacyEventId, websiteId, sessionId, now],
+      );
+      await client.query(
         `INSERT INTO event_data
-          (website_event_id, website_id, created_at, data_key, data_type, string_value)
-         VALUES ($1, $3, $4, 'currency', 1, 'USD'),
-           ($1, $3, $4, 'tags', 5, '["red","blue"]'),
-           ($2, $3, $4, 'currency', 1, 'EUR')`,
+          (website_event_id, website_id, created_at, data_key, data_type, string_value, trust_tier)
+         VALUES ($1, $3, $4, 'currency', 1, 'USD', 1),
+           ($1, $3, $4, 'tags', 5, '["red","blue"]', 1),
+           ($2, $3, $4, 'currency', 1, 'EUR', 1)`,
         [purchaseEventId, viewEventId, websiteId, now],
       );
       await client.query(
         `INSERT INTO event_data
-          (website_event_id, website_id, created_at, data_key, data_type, string_value)
-         VALUES ($1, $2, $3, 'currency', 1, 'USD')`,
+          (website_event_id, website_id, created_at, data_key, data_type, string_value, trust_tier)
+         VALUES ($1, $2, $3, 'currency', 1, 'USD', 1)`,
         [attackPurchaseEventId, attackWebsiteId, now],
       );
       await client.query(
-        `INSERT INTO session_data (session_id, website_id, data_key, data_type, string_value)
-         VALUES ($1, $2, 'category', 1, 'vip'),
-           ($1, $2, 'tags', 5, '["alpha","beta"]'),
-           ($3, $4, 'category', 1, 'attack')`,
+        `INSERT INTO event_data (website_event_id, website_id, created_at, data_key, data_type, string_value)
+         VALUES ($1, $2, $3, 'legacy-only', 1, 'unverified')`,
+        [legacyEventId, websiteId, now],
+      );
+      await client.query(
+        `INSERT INTO session_data (session_id, website_id, data_key, data_type, string_value, trust_tier)
+         VALUES ($1, $2, 'category', 1, 'vip', 1),
+           ($1, $2, 'tags', 5, '["alpha","beta"]', 1),
+           ($3, $4, 'category', 1, 'attack', 1),
+           ($1, $2, 'legacy-only', 1, 'unverified', 0)`,
         [sessionId, websiteId, attackSessionId, attackWebsiteId],
       );
 
+      const { EventDataPageTooBroadError, getEventData } = await import('./getEventData');
       const { getEventDataEvents } = await import('./getEventDataEvents');
       const { getEventDataFields } = await import('./getEventDataFields');
       const { getEventDataProperties } = await import('./getEventDataProperties');
@@ -108,6 +128,7 @@ integrationTest(
         { propertyName: 'currency', dataType: 1, total: 1 },
         { propertyName: 'tags', dataType: 5, total: 1 },
       ]);
+      expect(await getEventDataFields(websiteId, 'legacy', filters)).toEqual([]);
       const propertyFilters = {
         ...filters,
         eventPropertyFilters: [
@@ -218,6 +239,9 @@ integrationTest(
           { propertyName: 'tags', dataType: 5, total: 1 },
         ]),
       );
+      expect(sessionPropertyRows).not.toContainEqual(
+        expect.objectContaining({ propertyName: 'legacy-only' }),
+      );
       const sessionValues = await getSessionDataValues(websiteId, {
         ...filters,
         propertyName: 'category',
@@ -238,10 +262,13 @@ integrationTest(
 
       await client.query(
         `INSERT INTO event_data
-          (website_event_id, website_id, created_at, data_key, data_type, string_value)
-         SELECT $1, $2, $3, 'key-' || n, 1, n::text
+          (website_event_id, website_id, created_at, data_key, data_type, string_value, trust_tier)
+         SELECT $1, $2, $3, 'key-' || n, 1, n::text, 1
          FROM generate_series(1, 50001) n`,
         [attackEventId, attackWebsiteId, now],
+      );
+      await expect(getEventData(attackWebsiteId, filters)).rejects.toBeInstanceOf(
+        EventDataPageTooBroadError,
       );
       expect(await getEventDataFields(attackWebsiteId, 'purchase', filters)).toEqual([
         { propertyName: 'currency', dataType: 1, total: 1 },
@@ -283,8 +310,8 @@ integrationTest(
 
       await client.query(
         `INSERT INTO event_data
-          (website_event_id, website_id, created_at, data_key, data_type, string_value)
-         SELECT $1, $2, $3, 'high-value', 1, n::text
+          (website_event_id, website_id, created_at, data_key, data_type, string_value, trust_tier)
+         SELECT $1, $2, $3, 'high-value', 1, n::text, 1
          FROM generate_series(1, 50001) n`,
         [attackEventId, attackWebsiteId, now],
       );
@@ -298,8 +325,8 @@ integrationTest(
 
       await client.query(
         `INSERT INTO website_event (event_id, website_id, session_id, event_name,
-          event_type, created_at)
-         SELECT md5(n::text)::uuid, $1, $2, 'attack', 2, $3
+          event_type, created_at, trust_tier)
+         SELECT md5(n::text)::uuid, $1, $2, 'attack', 2, $3, 1
          FROM generate_series(1, 50001) n`,
         [attackWebsiteId, attackSessionId, now],
       );

@@ -127,59 +127,96 @@ const operation2 = defineOperation({
                       description: 'Description of the resource.',
                     },
                     parameters: {
-                      anyOf: [
-                        {
+                      type: 'object',
+                      properties: {
+                        websiteId: {
                           type: 'string',
+                          description: 'ID of the website.',
                         },
-                        {
-                          type: 'number',
+                        pixelId: {
+                          type: 'string',
+                          description: 'ID of the tracking pixel.',
                         },
-                        {
-                          const: false,
+                        linkId: {
+                          type: 'string',
+                          description: 'ID of the tracked link.',
                         },
-                        {
-                          const: true,
-                        },
-                        {
-                          type: 'object',
-                          properties: {},
-                          additionalProperties: {
-                            anyOf: [
-                              {
+                        rows: {
+                          type: 'array',
+                          items: {
+                            type: 'object',
+                            properties: {
+                              id: {
                                 type: 'string',
+                                description: 'Unique identifier of the resource.',
                               },
-                              {
+                              columns: {
+                                type: 'array',
+                                items: {
+                                  type: 'object',
+                                  properties: {
+                                    id: {
+                                      type: 'string',
+                                      description: 'Unique identifier of the resource.',
+                                    },
+                                    component: {
+                                      type: 'object',
+                                      properties: {
+                                        type: {
+                                          type: 'string',
+                                        },
+                                        entityType: {
+                                          anyOf: [
+                                            {
+                                              const: 'link',
+                                            },
+                                            {
+                                              const: 'website',
+                                            },
+                                            {
+                                              const: 'pixel',
+                                            },
+                                          ],
+                                        },
+                                        entityId: {
+                                          type: 'string',
+                                          description: 'ID of the resource being shared.',
+                                        },
+                                        websiteId: {
+                                          type: 'string',
+                                          description: 'ID of the website.',
+                                        },
+                                        title: {
+                                          type: 'string',
+                                          description: 'Title of the page.',
+                                        },
+                                        description: {
+                                          type: 'string',
+                                          description: 'Description of the resource.',
+                                        },
+                                        props: {
+                                          type: 'object',
+                                          properties: {},
+                                          additionalProperties: {},
+                                        },
+                                      },
+                                      required: ['type'],
+                                    },
+                                    size: {
+                                      type: 'number',
+                                    },
+                                  },
+                                  required: ['id'],
+                                },
+                              },
+                              size: {
                                 type: 'number',
                               },
-                              {
-                                const: false,
-                              },
-                              {
-                                const: true,
-                              },
-                              {},
-                              {
-                                type: 'object',
-                                properties: {
-                                  length: {
-                                    type: 'number',
-                                  },
-                                },
-                                required: ['length'],
-                              },
-                            ],
-                          },
-                        },
-                        {
-                          type: 'object',
-                          properties: {
-                            length: {
-                              type: 'number',
                             },
+                            required: ['id', 'columns'],
                           },
-                          required: ['length'],
                         },
-                      ],
+                      },
                       description: 'Configuration parameters for the resource.',
                     },
                     createdAt: {

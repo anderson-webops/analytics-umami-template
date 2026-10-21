@@ -47,7 +47,7 @@ for (const [type, path, parameters] of calculations) {
     const body = {
       websiteId: seed.website.id,
       type,
-      filters: range,
+      filters: { timezone: 'UTC', unit: 'day' },
       parameters: {
         startDate: new Date(range.startAt).toISOString(),
         endDate: new Date(range.endAt).toISOString(),
@@ -139,7 +139,7 @@ test('performance and UTM datasets reproduce legacy aggregates', async ({
   const body = (type: string) => ({
     websiteId: seed.website.id,
     type,
-    filters: range,
+    filters: { timezone: 'UTC', unit: 'day' },
     parameters: {
       startDate: new Date(range.startAt).toISOString(),
       endDate: new Date(range.endAt).toISOString(),

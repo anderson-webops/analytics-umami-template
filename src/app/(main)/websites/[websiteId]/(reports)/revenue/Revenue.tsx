@@ -29,6 +29,7 @@ import { RevenueChart } from './RevenueChart';
 import { RevenueMetricsBar } from './RevenueMetricsBar';
 import { RevenueMetricsTable } from './RevenueMetricsTable';
 import { RevenueSessionsDataTable } from './RevenueSessionsDataTable';
+import { RevenueTrustNotice } from './RevenueTrustNotice';
 
 type RevenueChartMode = 'period' | 'cumulative';
 type SourceTab = 'referrer' | 'channel';
@@ -81,6 +82,7 @@ export function Revenue({ websiteId, startDate, endDate, unit }: RevenueProps) {
 
   return (
     <Column gap>
+      <RevenueTrustNotice />
       <Grid columns="280px" gap>
         <CurrencySelect value={currency} onChange={handleCurrencyChange} />
       </Grid>
@@ -178,7 +180,7 @@ export function Revenue({ websiteId, startDate, endDate, unit }: RevenueProps) {
               </GridRow>
             </Grid>
             <Panel>
-              <Heading size="2xl">{t(labels.customers)}</Heading>
+              <Heading size="2xl">Sessions with revenue claims</Heading>
               <RevenueSessionsDataTable websiteId={websiteId} currency={currency} />
             </Panel>
           </Column>

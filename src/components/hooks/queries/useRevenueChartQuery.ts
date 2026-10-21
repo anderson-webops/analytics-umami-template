@@ -6,6 +6,7 @@ import { useFilterParameters } from '../useFilterParameters';
 
 export interface RevenueChartData {
   chart: { x: string; t: string; y: number; count: number }[];
+  revenueProvenance: 'unverified_historical_event_claims';
 }
 
 export function useRevenueChartQuery(

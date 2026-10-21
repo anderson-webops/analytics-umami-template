@@ -77,6 +77,7 @@ async function relationalQuery(websiteId: string, filters: QueryFilters) {
       from event_data
       join paged_events on paged_events.event_id = event_data.website_event_id
       where event_data.website_id = {{websiteId::uuid}}
+        and event_data.trust_tier = 1
       ${hasDataDateQuery}
     )
     select
@@ -98,7 +99,8 @@ async function relationalQuery(websiteId: string, filters: QueryFilters) {
       website_event.page_title as "pageTitle",
       website_event.event_type as "eventType",
       website_event.event_name as "eventName",
-      (paged_event_data.event_id is not null) as "hasData"
+      website_event.trust_tier as "trustTier",
+      (website_event.trust_tier = 1 and paged_event_data.event_id is not null) as "hasData"
     from paged_events
     join website_event on website_event.event_id = paged_events.event_id
     left join session on session.session_id = website_event.session_id
@@ -186,7 +188,8 @@ async function clickhouseQuery(websiteId: string, filters: QueryFilters) {
         browser,
         page_title as pageTitle,
         event_type as eventType,
-        event_name as eventName
+        event_name as eventName,
+        trust_tier as trustTier
       from website_event
       ${cohortQuery}
       where website_id = {websiteId:UUID}
@@ -199,19 +202,33 @@ async function clickhouseQuery(websiteId: string, filters: QueryFilters) {
     ),
     paged_event_data as (
       select
-        event_id,
+        event_data_pivot.event_id,
+        event_data_pivot.website_id,
+        event_data_pivot.session_id,
+        event_data_pivot.event_name,
+        event_data_pivot.url_path,
         toUInt8(1) as has_data
-      from umami.event_data_pivot
+      from umami.event_data_pivot_verified as event_data_pivot
       inner join paged_events on paged_events.id = event_data_pivot.event_id
+        and paged_events.websiteId = event_data_pivot.website_id
+        and paged_events.sessionId = event_data_pivot.session_id
+        and paged_events.eventName = event_data_pivot.event_name
+        and paged_events.urlPath = event_data_pivot.url_path
       where website_id = {websiteId:UUID}
+        and paged_events.trustTier = 1
       ${hasDataDateQuery}
-      group by event_id
+      group by event_data_pivot.event_id, event_data_pivot.website_id,
+        event_data_pivot.session_id, event_data_pivot.event_name, event_data_pivot.url_path
     )
     select
       paged_events.*,
       ifNull(paged_event_data.has_data, 0) as hasData
     from paged_events
     left join paged_event_data on paged_event_data.event_id = paged_events.id
+      and paged_event_data.website_id = paged_events.websiteId
+      and paged_event_data.session_id = paged_events.sessionId
+      and paged_event_data.event_name = paged_events.eventName
+      and paged_event_data.url_path = paged_events.urlPath
     order by paged_events.createdAt desc
     `,
     queryParams,

@@ -1,20 +1,27 @@
+import { createHash, randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 // Set a deterministic secret before anything reads it so that real crypto/jwt
 // helpers used by the route and by the test produce matching tokens.
 process.env.APP_SECRET = 'route-send-test-secret-0123456789abcdef';
 
+import { POST as batchPOST } from '@/app/api/batch/route';
 import { createCacheToken, parseCacheToken } from '@/lib/cache-token';
 import clickhouse from '@/lib/clickhouse';
 import { CollectionBudgetExceededError } from '@/lib/collection-budget';
+import { CollectionRequestReplayError } from '@/lib/collection-proof';
 import { getCollectionIpLimit, getCollectionSourceStatus } from '@/lib/collection-rate-limit';
-import { CACHE_TOKEN_TYPE, EVENT_TYPE } from '@/lib/constants';
+import { CACHE_TOKEN_TYPE, COLLECTION_TRUST_TIER, EVENT_TYPE } from '@/lib/constants';
 import { getSalt, hash, secret } from '@/lib/crypto';
 import { getClientInfo, hasBlockedIp } from '@/lib/detect';
 import { createToken, parseToken } from '@/lib/jwt';
 import { fetchWebsite } from '@/lib/load';
 import { parseRequest } from '@/lib/request';
-import { reserveActiveCollectionBudget, withActiveCollectionSource } from '@/queries/prisma';
+import {
+  reserveActiveCollectionBudget,
+  reserveBackendCollectionRequest,
+  withActiveCollectionSource,
+} from '@/queries/prisma';
 import {
   createSession,
   publishSessionLink,
@@ -30,6 +37,7 @@ vi.mock('@/lib/clickhouse', () => ({ default: { enabled: false } }));
 vi.mock('@/lib/collection-rate-limit', () => ({
   getCollectionIpLimit: vi.fn(async () => ({ blocked: false, retryAfter: 60 })),
   getCollectionSourceStatus: vi.fn(async () => ({ blocked: false, retryAfter: 60 })),
+  transferCollectionIpLimit: vi.fn(),
 }));
 
 vi.mock('@/lib/detect', () => ({
@@ -48,11 +56,12 @@ vi.mock('@/lib/request', () => ({
 vi.mock('@/queries/prisma', () => ({
   getLink: vi.fn(async id => ({ id, deletedAt: null })),
   getPixel: vi.fn(async id => ({ id, deletedAt: null })),
-  reserveActiveCollectionBudget: vi.fn(async () => {}),
+  reserveActiveCollectionBudget: vi.fn(async () => admittedWebsite()),
+  reserveBackendCollectionRequest: vi.fn(async () => {}),
   withActiveCollectionSource: vi.fn(async (_type, _id, operation) =>
     operation({
       website: {
-        findFirst: vi.fn(async () => ({ domain: 'example.com' })),
+        findFirst: vi.fn(async () => ({ domain: 'example.com', collectionGeneration: 0 })),
       },
     }),
   ),
@@ -78,12 +87,21 @@ const saveSessionLinkMock = vi.mocked(saveSessionLink);
 const publishSessionLinkMock = vi.mocked(publishSessionLink);
 const updateSessionMock = vi.mocked(updateSession);
 const reserveActiveCollectionBudgetMock = vi.mocked(reserveActiveCollectionBudget);
+const reserveBackendCollectionRequestMock = vi.mocked(reserveBackendCollectionRequest);
 const withActiveCollectionSourceMock = vi.mocked(withActiveCollectionSource);
 
 const WEBSITE_ID = '11111111-1111-4111-8111-111111111111';
+const admittedWebsite = (collectionGeneration = 0) => ({
+  sourceType: 'website' as const,
+  sourceId: WEBSITE_ID,
+  accountType: 'user' as const,
+  accountId: '44444444-4444-4444-8444-444444444444',
+  collectionGeneration,
+});
 const LINK_ID = '22222222-2222-4222-8222-222222222222';
 const PIXEL_ID = '33333333-3333-4333-8333-333333333333';
 const SESSION_SEED = '44444444-4444-4444-8444-444444444444';
+const BACKEND_CREDENTIAL = 'a'.repeat(43);
 
 const defaultClientInfo = {
   ip: '203.0.113.5',
@@ -103,7 +121,10 @@ const defaultClientInfo = {
  */
 function callPOST(
   { type, payload }: { type: string; payload: Record<string, any> },
-  { headers }: { headers?: Record<string, string> } = {},
+  {
+    headers,
+    unauthenticated = false,
+  }: { headers?: Record<string, string>; unauthenticated?: boolean } = {},
 ) {
   const normalizedPayload =
     payload.website && !payload.hostname ? { ...payload, hostname: 'example.com' } : payload;
@@ -115,7 +136,14 @@ function callPOST(
   return POST(
     new Request('http://localhost/api/send', {
       method: 'POST',
-      headers,
+      headers: {
+        'x-umami-request-id': randomUUID(),
+        'x-umami-request-timestamp': String(Math.floor(Date.now() / 1000)),
+        ...((type === 'identify' || payload.id || payload.name || payload.data) && !unauthenticated
+          ? { authorization: `Bearer ${BACKEND_CREDENTIAL}` }
+          : {}),
+        ...headers,
+      },
     }),
   );
 }
@@ -152,12 +180,30 @@ function makeCacheToken(overrides: Record<string, any> = {}, ttlSeconds = 3600) 
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubEnv(
+    'COLLECTION_SERVER_KEYS_JSON',
+    JSON.stringify({
+      [WEBSITE_ID]: [
+        {
+          sha256: createHash('sha256').update(BACKEND_CREDENTIAL).digest('hex'),
+          scopes: ['identity', 'event', 'revenue'],
+          ownerType: 'user',
+          ownerId: '44444444-4444-4444-8444-444444444444',
+          generation: 0,
+        },
+      ],
+    }),
+  );
   (clickhouse as any).enabled = false;
   delete process.env.REMOVE_TRAILING_SLASH;
   delete process.env.SALT_ROTATION;
 
   hasBlockedIpMock.mockReturnValue(false);
-  fetchWebsiteMock.mockResolvedValue({ id: WEBSITE_ID, domain: 'example.com' } as any);
+  fetchWebsiteMock.mockResolvedValue({
+    id: WEBSITE_ID,
+    domain: 'example.com',
+    collectionGeneration: 0,
+  } as any);
   getClientInfoMock.mockResolvedValue({ ...defaultClientInfo } as any);
   createSessionMock.mockResolvedValue(undefined as any);
   saveEventMock.mockResolvedValue(undefined as any);
@@ -165,7 +211,8 @@ beforeEach(() => {
   saveSessionLinkMock.mockResolvedValue(true);
   publishSessionLinkMock.mockResolvedValue(undefined);
   updateSessionMock.mockResolvedValue(undefined as any);
-  reserveActiveCollectionBudgetMock.mockResolvedValue(undefined);
+  reserveActiveCollectionBudgetMock.mockResolvedValue(admittedWebsite());
+  reserveBackendCollectionRequestMock.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -198,11 +245,39 @@ test.each([false, true])(
       WEBSITE_ID,
       { type: 'event', payload: { ...payload, hostname: 'example.com' } },
       '192.0.2.10',
+      'backend',
+      expect.objectContaining({
+        keyDigest: createHash('sha256').update(BACKEND_CREDENTIAL).digest('hex'),
+        requestId: expect.any(String),
+      }),
+      !enabled,
     );
     expect(createSessionMock).not.toHaveBeenCalled();
     expect(saveEventMock).not.toHaveBeenCalled();
   },
 );
+
+test('a prior-owner key cannot reserve backend collection or write after transfer', async () => {
+  reserveActiveCollectionBudgetMock.mockRejectedValueOnce(
+    new Error('COLLECTION_KEY_OWNER_CHANGED'),
+  );
+  const deniedAtAdmission = await callPOST({
+    type: 'identify',
+    payload: { website: WEBSITE_ID, id: 'verified-user' },
+  });
+
+  expect(deniedAtAdmission.status).toBe(403);
+  expect(withActiveCollectionSourceMock).not.toHaveBeenCalled();
+
+  withActiveCollectionSourceMock.mockRejectedValueOnce(new Error('COLLECTION_KEY_OWNER_CHANGED'));
+  const deniedAtWrite = await callPOST({
+    type: 'identify',
+    payload: { website: WEBSITE_ID, id: 'verified-user' },
+  });
+
+  expect(deniedAtWrite.status).toBe(403);
+  expect(saveSessionLinkMock).not.toHaveBeenCalled();
+});
 
 describe('parseRequest error handling', () => {
   test('returns the parseRequest error response and does not process the event', async () => {
@@ -251,6 +326,39 @@ describe('schema validation', () => {
       safeParse: (value: unknown) => { success: boolean };
     };
   }
+
+  test('rejects ignored identity and advanced fields instead of accepting them as pageviews', async () => {
+    const schema = await getSchema();
+    const payload = { website: WEBSITE_ID, hostname: 'example.com', url: '/' };
+
+    expect(schema.safeParse({ type: 'event', payload }).success).toBe(true);
+    expect(
+      schema.safeParse({ type: 'event', payload: { ...payload, id: 'claimed-user' } }).success,
+    ).toBe(false);
+    expect(
+      schema.safeParse({ type: 'event', payload: { ...payload, name: 'signup', id: 'user-42' } })
+        .success,
+    ).toBe(true);
+    expect(
+      schema.safeParse({ type: 'event', payload: { ...payload, userId: 'claimed-user' } }).success,
+    ).toBe(false);
+    expect(
+      schema.safeParse({ type: 'event', payload: { ...payload, data: { plan: 'private' } } })
+        .success,
+    ).toBe(false);
+    expect(
+      schema.safeParse({ type: 'performance', payload: { ...payload, id: 'claimed-user' } })
+        .success,
+    ).toBe(false);
+    expect(
+      schema.safeParse({ type: 'performance', payload: { ...payload, data: { plan: 'private' } } })
+        .success,
+    ).toBe(false);
+    expect(
+      schema.safeParse({ type: 'identify', payload: { ...payload, name: 'ignored-event' } })
+        .success,
+    ).toBe(false);
+  });
 
   test('rejects an invalid type enum value', async () => {
     const schema = await getSchema();
@@ -463,6 +571,7 @@ describe('website lookup', () => {
       WEBSITE_ID,
       expect.anything(),
       expect.any(String),
+      'anonymous',
     );
     expect(vi.mocked(getCollectionIpLimit).mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(getCollectionSourceStatus).mock.invocationCallOrder[0],
@@ -472,6 +581,22 @@ describe('website lookup', () => {
     );
     expect(fetchWebsiteMock.mock.invocationCallOrder[0]).toBeLessThan(
       reserveActiveCollectionBudgetMock.mock.invocationCallOrder[0],
+    );
+  });
+
+  test('a bearer header cannot turn an ordinary browser pageview into backend admission', async () => {
+    const response = await callPOST(
+      { type: 'event', payload: { website: WEBSITE_ID, url: '/' } },
+      { headers: { authorization: `Bearer ${BACKEND_CREDENTIAL}` } },
+    );
+
+    expect(response.status).toBe(200);
+    expect(reserveActiveCollectionBudgetMock).toHaveBeenCalledWith(
+      'website',
+      WEBSITE_ID,
+      expect.anything(),
+      expect.any(String),
+      'anonymous',
     );
   });
 
@@ -527,6 +652,35 @@ describe('eventType selection ladder', () => {
     await callPOST({ type: 'event', payload: { pixel: PIXEL_ID, url: '/' } });
 
     expect(saveEventMock.mock.calls[0][0]).toMatchObject({ eventType: EVENT_TYPE.pixelEvent });
+  });
+
+  test.each([
+    { sourceType: 'link' as const, sourceId: LINK_ID },
+    { sourceType: 'pixel' as const, sourceId: PIXEL_ID },
+  ])('$sourceType events reject an owner change after budget admission', async source => {
+    const admission = {
+      ...admittedWebsite(),
+      sourceType: source.sourceType,
+      sourceId: source.sourceId,
+      collectionGeneration: null,
+    };
+    reserveActiveCollectionBudgetMock.mockResolvedValueOnce(admission);
+    withActiveCollectionSourceMock.mockRejectedValueOnce(new Error('COLLECTION_SOURCE_CHANGED'));
+
+    const response = await callPOST({
+      type: 'event',
+      payload: { [source.sourceType]: source.sourceId, url: '/' },
+    });
+
+    expect(response.status).toBe(409);
+    expect(withActiveCollectionSourceMock).toHaveBeenCalledWith(
+      source.sourceType,
+      source.sourceId,
+      expect.any(Function),
+      undefined,
+      admission,
+    );
+    expect(saveEventMock).not.toHaveBeenCalled();
   });
 
   test('named website events use the customEvent type', async () => {
@@ -769,6 +923,152 @@ describe('event url and referrer parsing', () => {
 });
 
 describe('cache token handling', () => {
+  test('a recreated website does not reuse a public session or visit from its prior generation', async () => {
+    const token = makeCacheToken({ sessionId: 'prior-session', visitId: 'prior-visit' });
+    reserveActiveCollectionBudgetMock.mockResolvedValueOnce(admittedWebsite(1));
+    withActiveCollectionSourceMock.mockImplementationOnce(async (_type, _id, operation) =>
+      operation({
+        website: {
+          findFirst: vi.fn(async () => ({ domain: 'example.com', collectionGeneration: 1 })),
+        },
+      } as any),
+    );
+    fetchWebsiteMock.mockResolvedValueOnce({
+      id: WEBSITE_ID,
+      domain: 'example.com',
+      collectionGeneration: 1,
+    } as any);
+
+    const response = await callPOST(
+      { type: 'event', payload: { website: WEBSITE_ID, url: '/' } },
+      { headers: { 'x-umami-cache': token } },
+    );
+
+    expect(response.status).toBe(200);
+    expect(createSessionMock).toHaveBeenCalledOnce();
+    const savedEvent = saveEventMock.mock.calls[0][0] as Record<string, any>;
+    const cache = await readCache(response);
+    expect(savedEvent.sessionId).not.toBe('prior-session');
+    expect(savedEvent.visitId).not.toBe('prior-visit');
+    expect(cache.sessionId).toBe(savedEvent.sessionId);
+    expect(cache.collectionGeneration).toBe(1);
+  });
+
+  test('a browser session seed cannot select the prior generation session after recreation', async () => {
+    const first = await callPOST({
+      type: 'event',
+      payload: { website: WEBSITE_ID, url: '/', sessionSeed: SESSION_SEED },
+    });
+    const oldSessionId = saveEventMock.mock.calls[0][0].sessionId;
+    const oldCache = (await first.json()).cache;
+
+    reserveActiveCollectionBudgetMock.mockResolvedValueOnce(admittedWebsite(1));
+    withActiveCollectionSourceMock.mockImplementationOnce(async (_type, _id, operation) =>
+      operation({
+        website: {
+          findFirst: vi.fn(async () => ({ domain: 'example.com', collectionGeneration: 1 })),
+        },
+      } as any),
+    );
+
+    const second = await callPOST(
+      { type: 'event', payload: { website: WEBSITE_ID, url: '/', sessionSeed: SESSION_SEED } },
+      { headers: { 'x-umami-cache': oldCache } },
+    );
+
+    expect(second.status).toBe(200);
+    expect(saveEventMock.mock.calls[1][0].sessionId).not.toBe(oldSessionId);
+    expect((await readCache(second)).collectionGeneration).toBe(1);
+  });
+
+  test('a rotated backend credential cannot select the prior verified session generation', async () => {
+    await callPOST({
+      type: 'event',
+      payload: { website: WEBSITE_ID, url: '/', name: 'signup', sessionSeed: SESSION_SEED },
+    });
+    const oldSessionId = saveEventMock.mock.calls[0][0].sessionId;
+
+    vi.stubEnv(
+      'COLLECTION_SERVER_KEYS_JSON',
+      JSON.stringify({
+        [WEBSITE_ID]: [
+          {
+            sha256: createHash('sha256').update(BACKEND_CREDENTIAL).digest('hex'),
+            scopes: ['event'],
+            ownerType: 'user',
+            ownerId: '44444444-4444-4444-8444-444444444444',
+            generation: 1,
+          },
+        ],
+      }),
+    );
+    reserveActiveCollectionBudgetMock.mockResolvedValueOnce(admittedWebsite(1));
+    withActiveCollectionSourceMock.mockImplementationOnce(async (_type, _id, operation) =>
+      operation({
+        website: {
+          findFirst: vi.fn(async () => ({ domain: 'example.com', collectionGeneration: 1 })),
+        },
+      } as any),
+    );
+
+    const response = await callPOST({
+      type: 'event',
+      payload: { website: WEBSITE_ID, url: '/', name: 'signup', sessionSeed: SESSION_SEED },
+    });
+
+    expect(response.status).toBe(200);
+    expect(saveEventMock.mock.calls[1][0].sessionId).not.toBe(oldSessionId);
+  });
+
+  test('the current generation may reuse its matching public session and visit', async () => {
+    const token = makeCacheToken({ collectionGeneration: 1 });
+    reserveActiveCollectionBudgetMock.mockResolvedValueOnce(admittedWebsite(1));
+    withActiveCollectionSourceMock.mockImplementationOnce(async (_type, _id, operation) =>
+      operation({
+        website: {
+          findFirst: vi.fn(async () => ({ domain: 'example.com', collectionGeneration: 1 })),
+        },
+      } as any),
+    );
+    fetchWebsiteMock.mockResolvedValueOnce({
+      id: WEBSITE_ID,
+      domain: 'example.com',
+      collectionGeneration: 1,
+    } as any);
+
+    const response = await callPOST(
+      { type: 'event', payload: { website: WEBSITE_ID, url: '/' } },
+      { headers: { 'x-umami-cache': token } },
+    );
+
+    expect(response.status).toBe(200);
+    expect(createSessionMock).not.toHaveBeenCalled();
+    expect((await readCache(response)).visitId).toBe('cached-visit');
+  });
+
+  test.each([false, true])(
+    'a generation change after budget reservation rejects the write under the source lock with ClickHouse %s',
+    async enabled => {
+      (clickhouse as any).enabled = enabled;
+      withActiveCollectionSourceMock.mockImplementationOnce(async (_type, _id, operation) =>
+        operation({
+          website: {
+            findFirst: vi.fn(async () => ({ domain: 'example.com', collectionGeneration: 1 })),
+          },
+        } as any),
+      );
+
+      const response = await callPOST({
+        type: 'event',
+        payload: { website: WEBSITE_ID, url: '/' },
+      });
+
+      expect(response.status).toBe(409);
+      expect(saveEventMock).not.toHaveBeenCalled();
+      expect(createSessionMock).not.toHaveBeenCalled();
+    },
+  );
+
   test('a valid cache token revalidates the website without recreating the matching session', async () => {
     const timestamp = 1704067200;
     const token = makeCacheToken({
@@ -799,6 +1099,7 @@ describe('cache token handling', () => {
       WEBSITE_ID,
       expect.anything(),
       expect.any(String),
+      'anonymous',
     );
   });
 
@@ -822,7 +1123,7 @@ describe('cache token handling', () => {
     expect(cache.visitId).toBe(savedEvent.visitId);
   });
 
-  test('a valid cache token creates the computed session before identify writes when the cached session differs', async () => {
+  test('a browser cache token cannot select the verified identity session', async () => {
     const token = makeCacheToken({ sessionId: 'cached-session' });
 
     const response = await callPOST(
@@ -835,14 +1136,12 @@ describe('cache token handling', () => {
     const savedLink = saveSessionLinkMock.mock.calls[0][0] as Record<string, any>;
     const updatedSession = updateSessionMock.mock.calls[0][0] as Record<string, any>;
     const savedSessionData = saveSessionDataMock.mock.calls[0][0] as Record<string, any>;
-    const cache = await readCache(response);
-
     expect(createdSession.id).not.toBe('cached-session');
     expect(savedLink.sessionId).toBe(createdSession.id);
     expect(updatedSession.sessionId).toBe(createdSession.id);
     expect(savedSessionData.sessionId).toBe(createdSession.id);
-    expect(cache.sessionId).toBe(createdSession.id);
-    expect(cache.visitId).not.toBe('cached-visit');
+    expect(await response.json()).toEqual({ cache: null });
+    expect(savedLink.sessionId).not.toBe('cached-session');
   });
 
   test('a drifted cache token resets the visit in clickhouse mode without creating a session row', async () => {
@@ -908,17 +1207,14 @@ describe('cache token handling', () => {
     expect(firstCache.visitId).not.toBe(secondCache.visitId);
   });
 
-  test('rotates the cached session when explicit identity changes without a tracker seed', async () => {
+  test('does not return a reusable public cache for a verified identity', async () => {
     const token = makeCacheToken();
     const response = await callPOST(
       { type: 'identify', payload: { website: WEBSITE_ID, id: 'new-visitor' } },
       { headers: { 'x-umami-cache': token } },
     );
-    const cache = await readCache(response);
-
-    expect(cache.sessionId).not.toBe('cached-session');
-    expect(cache.visitId).not.toBe('cached-visit');
-    expect(cache.identityHash).toBe(hash('new-visitor'));
+    expect(createSessionMock.mock.calls[0][0].id).not.toBe('cached-session');
+    expect(await response.json()).toEqual({ cache: null });
   });
 
   test('keeps one browser session across requests using its tracker seed', async () => {
@@ -1108,6 +1404,472 @@ describe('collector response privacy', () => {
   });
 });
 
+describe('anonymous authoritative collection boundary', () => {
+  async function callBatch(
+    items: Array<{ type: string; payload: Record<string, unknown> }>,
+    headers: Record<string, string> = {},
+  ) {
+    parseRequestMock.mockImplementation(async (request, requestSchema) => ({
+      body: requestSchema.parse(await request.json()),
+      error: undefined,
+    }));
+
+    try {
+      return await batchPOST(
+        new Request('http://localhost/api/batch', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-umami-request-id': randomUUID(),
+            'x-umami-request-timestamp': String(Math.floor(Date.now() / 1000)),
+            ...headers,
+          },
+          body: JSON.stringify(items),
+        }),
+      );
+    } finally {
+      parseRequestMock.mockReset();
+    }
+  }
+
+  test.each([false, true])(
+    'a repeated authorized event is rejected before another write in ClickHouse mode %s',
+    async enabled => {
+      (clickhouse as any).enabled = enabled;
+      const requestId = randomUUID();
+      const headers = { 'x-umami-request-id': requestId };
+      const event = { type: 'event', payload: { website: WEBSITE_ID, url: '/', name: 'signup' } };
+
+      const first = await callPOST(event, { headers });
+      const reservation = enabled
+        ? reserveActiveCollectionBudgetMock
+        : reserveBackendCollectionRequestMock;
+      reservation.mockRejectedValueOnce(new CollectionRequestReplayError());
+      const second = await callPOST(event, { headers });
+
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(409);
+      expect(saveEventMock).toHaveBeenCalledOnce();
+    },
+  );
+
+  test('batch preserves ordinary anonymous pageviews', async () => {
+    const response = await callBatch([
+      { type: 'event', payload: { website: WEBSITE_ID, hostname: 'example.com', url: '/' } },
+    ]);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ size: 1, processed: 1, errors: 0 });
+    expect(saveEventMock).toHaveBeenCalledOnce();
+    expect(saveEventMock.mock.calls[0][0].distinctId).toBeUndefined();
+    expect(saveEventMock.mock.calls[0][0].trustTier).toBe(COLLECTION_TRUST_TIER.unverified);
+  });
+
+  test.each(['', ' \u0085 '])(
+    'batch rejects a blank named event %j without dropping an ordinary pageview',
+    async name => {
+      const response = await callBatch(
+        [
+          {
+            type: 'event',
+            payload: { website: WEBSITE_ID, hostname: 'example.com', url: '/', name },
+          },
+          { type: 'event', payload: { website: WEBSITE_ID, hostname: 'example.com', url: '/' } },
+        ],
+        { authorization: `Bearer ${BACKEND_CREDENTIAL}` },
+      );
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ size: 2, processed: 1, errors: 1 });
+      expect(saveEventMock).toHaveBeenCalledOnce();
+      expect(saveEventMock.mock.calls[0][0].trustTier).toBe(COLLECTION_TRUST_TIER.unverified);
+    },
+  );
+
+  test.each([false, true])(
+    'verified events cannot reuse a public session seed or cache in ClickHouse mode %s',
+    async enabled => {
+      (clickhouse as any).enabled = enabled;
+      const publicResponse = await callPOST({
+        type: 'event',
+        payload: { website: WEBSITE_ID, url: '/', sessionSeed: SESSION_SEED },
+      });
+      const publicCache = ((await publicResponse.json()) as { cache: string }).cache;
+      const publicSessionId = saveEventMock.mock.calls[0][0].sessionId;
+      const verifiedResponse = await callPOST(
+        {
+          type: 'event',
+          payload: { website: WEBSITE_ID, url: '/', sessionSeed: SESSION_SEED, name: 'signup' },
+        },
+        { headers: { 'x-umami-cache': publicCache } },
+      );
+      const verifiedSessionId = saveEventMock.mock.calls[1][0].sessionId;
+
+      expect(verifiedResponse.status).toBe(200);
+      expect(await verifiedResponse.json()).toEqual({ cache: null });
+      expect(verifiedSessionId).not.toBe(publicSessionId);
+      expect(saveEventMock.mock.calls[0][0].trustTier).toBe(COLLECTION_TRUST_TIER.unverified);
+      expect(saveEventMock.mock.calls[1][0].trustTier).toBe(
+        COLLECTION_TRUST_TIER.backendAuthorized,
+      );
+
+      const anotherPublicResponse = await callPOST(
+        { type: 'event', payload: { website: WEBSITE_ID, url: '/', sessionSeed: SESSION_SEED } },
+        { headers: { 'x-umami-cache': publicCache } },
+      );
+
+      expect(anotherPublicResponse.status).toBe(200);
+      expect(saveEventMock.mock.calls[2][0].sessionId).toBe(publicSessionId);
+      expect(saveEventMock.mock.calls[2][0].sessionId).not.toBe(verifiedSessionId);
+    },
+  );
+
+  test('verified identity and custom event can share only a server-derived session', async () => {
+    const payload = { website: WEBSITE_ID, url: '/', sessionSeed: SESSION_SEED, id: 'user-42' };
+    const identity = await callPOST({ type: 'identify', payload });
+    const customEvent = await callPOST({
+      type: 'event',
+      payload: { ...payload, name: 'signup' },
+    });
+
+    expect(identity.status).toBe(200);
+    expect(customEvent.status).toBe(200);
+    expect(saveSessionLinkMock.mock.calls[0][0].sessionId).toBe(
+      saveEventMock.mock.calls[0][0].sessionId,
+    );
+    expect(await identity.json()).toEqual({ cache: null });
+    expect(await customEvent.json()).toEqual({ cache: null });
+  });
+
+  test('batch cannot promote an anonymous identity or revenue claim while preserving pageviews', async () => {
+    const items = [
+      { type: 'event', payload: { website: WEBSITE_ID, hostname: 'example.com', url: '/' } },
+      {
+        type: 'identify',
+        payload: { website: WEBSITE_ID, hostname: 'example.com', id: 'claimed-person' },
+      },
+      {
+        type: 'event',
+        payload: {
+          website: WEBSITE_ID,
+          hostname: 'example.com',
+          url: '/checkout',
+          name: 'purchase',
+          data: { currency: 'USD', revenue: 500 },
+        },
+      },
+    ];
+    const response = await callBatch(items);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ size: 3, processed: 1, errors: 2 });
+    expect(saveEventMock).toHaveBeenCalledOnce();
+    expect(saveSessionLinkMock).not.toHaveBeenCalled();
+    expect(saveSessionDataMock).not.toHaveBeenCalled();
+  });
+
+  test('batch checks the backend credential against each child website', async () => {
+    const response = await callBatch(
+      [
+        { type: 'event', payload: { website: WEBSITE_ID, hostname: 'example.com', url: '/' } },
+        {
+          type: 'identify',
+          payload: {
+            website: '22222222-2222-4222-8222-222222222222',
+            hostname: 'example.com',
+            id: 'claimed-person',
+          },
+        },
+      ],
+      { authorization: `Bearer ${BACKEND_CREDENTIAL}` },
+    );
+
+    expect(await response.json()).toMatchObject({ processed: 1, errors: 1 });
+    expect(saveEventMock).toHaveBeenCalledOnce();
+    expect(saveSessionLinkMock).not.toHaveBeenCalled();
+  });
+
+  test('mixed authorized batches cannot attach verified events to public sessions', async () => {
+    const response = await callBatch(
+      [
+        {
+          type: 'event',
+          payload: {
+            website: WEBSITE_ID,
+            hostname: 'example.com',
+            url: '/',
+            sessionSeed: SESSION_SEED,
+          },
+        },
+        {
+          type: 'event',
+          payload: {
+            website: WEBSITE_ID,
+            hostname: 'example.com',
+            url: '/',
+            sessionSeed: SESSION_SEED,
+            name: 'signup',
+          },
+        },
+      ],
+      { authorization: `Bearer ${BACKEND_CREDENTIAL}` },
+    );
+
+    expect(await response.json()).toMatchObject({ size: 2, processed: 2, errors: 0 });
+    expect(saveEventMock.mock.calls[0][0].sessionId).not.toBe(
+      saveEventMock.mock.calls[1][0].sessionId,
+    );
+    expect(saveEventMock.mock.calls.map(([args]) => args.trustTier)).toEqual([
+      COLLECTION_TRUST_TIER.unverified,
+      COLLECTION_TRUST_TIER.backendAuthorized,
+    ]);
+    expect(reserveActiveCollectionBudgetMock.mock.calls.map(call => call[4])).toEqual([
+      'anonymous',
+      'backend',
+    ]);
+  });
+
+  test('anonymous custom properties never reach either event-data sink', async () => {
+    const response = await callPOST(
+      {
+        type: 'event',
+        payload: { website: WEBSITE_ID, url: '/', name: 'signup', data: { plan: 'private' } },
+      },
+      { unauthenticated: true },
+    );
+
+    expect(response.status).toBe(403);
+    expect(saveEventMock).not.toHaveBeenCalled();
+  });
+
+  test('an ordinary public pageview rejects a caller-claimed identity', async () => {
+    const response = await callPOST(
+      { type: 'event', payload: { website: WEBSITE_ID, url: '/about', id: 'claimed-person' } },
+      { unauthenticated: true },
+    );
+
+    expect(response.status).toBe(403);
+    expect(saveEventMock).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ['empty event name', { name: '' }],
+    ['whitespace event name', { name: '  ' }],
+    ['invisible Unicode event name', { name: ' \u0085 ' }],
+    ['zero-width Unicode event name', { name: ' \u200b ' }],
+    ['pageview identity with backend proof', { id: 'claimed-person' }],
+  ])('rejects %s during request validation', async (_description, fields) => {
+    parseRequestMock.mockImplementationOnce(async (request, requestSchema) => {
+      const parsed = requestSchema.safeParse(await request.json());
+      return parsed.success
+        ? { body: parsed.data, error: undefined }
+        : { body: undefined, error: () => new Response(null, { status: 400 }) };
+    });
+
+    const response = await POST(
+      new Request('http://localhost/api/send', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${BACKEND_CREDENTIAL}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          type: 'event',
+          payload: { website: WEBSITE_ID, hostname: 'example.com', url: '/about', ...fields },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(saveEventMock).not.toHaveBeenCalled();
+  });
+
+  test('preserves a valid padded custom-event name', async () => {
+    const payload = {
+      website: WEBSITE_ID,
+      hostname: 'example.com',
+      url: '/about',
+      name: ' signup ',
+    };
+    const response = await callPOST({ type: 'event', payload });
+    const requestSchema = parseRequestMock.mock.calls[0][1];
+
+    expect(requestSchema.safeParse({ type: 'event', payload }).success).toBe(true);
+    expect(response.status).toBe(200);
+    expect(saveEventMock.mock.calls[0][0].eventName).toBe(' signup ');
+  });
+
+  test('an originless caller cannot bind a claimed person to a website session', async () => {
+    const response = await callPOST(
+      {
+        type: 'identify',
+        payload: { website: WEBSITE_ID, id: 'claimed-person', data: { plan: 'enterprise' } },
+      },
+      { unauthenticated: true },
+    );
+    const schema = parseRequestMock.mock.calls[0][1];
+
+    expect(
+      schema.safeParse({
+        type: 'identify',
+        payload: {
+          website: WEBSITE_ID,
+          hostname: 'example.com',
+          id: 'claimed-person',
+          data: { plan: 'enterprise' },
+        },
+      }).success,
+    ).toBe(true);
+
+    expect.soft(response.status).toBeGreaterThanOrEqual(400);
+    expect.soft(saveSessionLinkMock).not.toHaveBeenCalled();
+    expect.soft(saveSessionDataMock).not.toHaveBeenCalled();
+  });
+
+  test('a claimed allowed Origin cannot authorize a caller-supplied identity', async () => {
+    const response = await callPOST(
+      {
+        type: 'identify',
+        payload: { website: WEBSITE_ID, id: 'claimed-person', data: { plan: 'enterprise' } },
+      },
+      { headers: { Origin: 'https://example.com' }, unauthenticated: true },
+    );
+
+    expect.soft(response.status).toBeGreaterThanOrEqual(400);
+    expect.soft(saveSessionLinkMock).not.toHaveBeenCalled();
+    expect.soft(saveSessionDataMock).not.toHaveBeenCalled();
+  });
+
+  test('an originless caller cannot create an authoritative revenue event', async () => {
+    const response = await callPOST(
+      {
+        type: 'event',
+        payload: {
+          website: WEBSITE_ID,
+          url: '/checkout',
+          name: 'purchase',
+          data: { currency: 'USD', revenue: 500 },
+        },
+      },
+      { unauthenticated: true },
+    );
+    const schema = parseRequestMock.mock.calls[0][1];
+
+    expect(
+      schema.safeParse({
+        type: 'event',
+        payload: {
+          website: WEBSITE_ID,
+          hostname: 'example.com',
+          url: '/checkout',
+          name: 'purchase',
+          data: { currency: 'USD', revenue: 500 },
+        },
+      }).success,
+    ).toBe(true);
+
+    expect.soft(response.status).toBeGreaterThanOrEqual(400);
+    expect.soft(saveEventMock).not.toHaveBeenCalled();
+  });
+
+  test('a backend credential cannot submit revenue before durable order deduplication exists', async () => {
+    const response = await callPOST({
+      type: 'event',
+      payload: {
+        website: WEBSITE_ID,
+        url: '/checkout',
+        name: 'purchase',
+        data: { order: { currency: 'USD', revenue: 500 } },
+      },
+    });
+
+    expect(response.status).toBe(403);
+    expect(saveEventMock).not.toHaveBeenCalled();
+  });
+
+  test('a backend credential cannot submit a purchase price without verified-order provenance', async () => {
+    const response = await callPOST({
+      type: 'event',
+      payload: {
+        website: WEBSITE_ID,
+        url: '/checkout',
+        name: 'purchase',
+        data: { price: 500 },
+      },
+    });
+
+    expect(response.status).toBe(403);
+    expect(saveEventMock).not.toHaveBeenCalled();
+  });
+
+  test.each(['grossrevenue', 'prerevenueEstimate'])(
+    'a backend credential cannot submit legacy substring revenue key %s',
+    async revenueKey => {
+      const response = await callPOST({
+        type: 'event',
+        payload: {
+          website: WEBSITE_ID,
+          url: '/checkout',
+          name: 'purchase',
+          data: { grosscurrency: 'USD', [revenueKey]: 500 },
+        },
+      });
+
+      expect(response.status).toBe(403);
+      expect(saveEventMock).not.toHaveBeenCalled();
+    },
+  );
+
+  test('a backend credential cannot hide revenue inside identity properties', async () => {
+    const response = await callPOST({
+      type: 'identify',
+      payload: {
+        website: WEBSITE_ID,
+        id: 'customer-1',
+        data: { purchase: { totalRevenue: 500 } },
+      },
+    });
+
+    expect(response.status).toBe(403);
+    expect(saveSessionLinkMock).not.toHaveBeenCalled();
+    expect(saveSessionDataMock).not.toHaveBeenCalled();
+  });
+
+  test('a backend credential can submit unrelated concurrency properties', async () => {
+    const response = await callPOST({
+      type: 'identify',
+      payload: {
+        website: WEBSITE_ID,
+        id: 'customer-1',
+        data: { concurrencyLimit: 8 },
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(saveSessionDataMock).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionData: { concurrencyLimit: 8 } }),
+      expect.anything(),
+    );
+  });
+
+  test('an originless caller cannot write nested revenue fields used by ClickHouse', async () => {
+    const eventData = { order: { currency: 'USD', revenue: 500 } };
+    const payload = {
+      website: WEBSITE_ID,
+      hostname: 'example.com',
+      url: '/checkout',
+      name: 'purchase',
+      data: eventData,
+    };
+    const response = await callPOST({ type: 'event', payload }, { unauthenticated: true });
+    const schema = parseRequestMock.mock.calls[0][1];
+
+    expect(schema.safeParse({ type: 'event', payload }).success).toBe(true);
+    expect(response.status).toBe(403);
+    expect(saveEventMock).not.toHaveBeenCalled();
+  });
+});
+
 describe('30-minute visit expiry', () => {
   test('regenerates the visit when the cached iat is older than 30 minutes', async () => {
     const oldIat = Math.floor(Date.now() / 1000) - 2000;
@@ -1167,16 +1929,18 @@ describe('identify collection', () => {
       payload: { website: WEBSITE_ID, id: 'user-2' },
     });
 
-    const firstCache = await readCache(first);
-    const secondCache = await readCache(second);
+    const firstSessionId = createSessionMock.mock.calls[0][0].id;
+    const secondSessionId = createSessionMock.mock.calls[1][0].id;
 
-    expect(firstCache.sessionId).not.toBe(secondCache.sessionId);
+    expect(await first.json()).toEqual({ cache: null });
+    expect(await second.json()).toEqual({ cache: null });
+    expect(firstSessionId).not.toBe(secondSessionId);
     expect(createSessionMock.mock.calls[0][0]).toMatchObject({
-      id: firstCache.sessionId,
+      id: firstSessionId,
       distinctId: 'user-1',
     });
     expect(createSessionMock.mock.calls[1][0]).toMatchObject({
-      id: secondCache.sessionId,
+      id: secondSessionId,
       distinctId: 'user-2',
     });
   });
@@ -1192,10 +1956,9 @@ describe('identify collection', () => {
       payload: { website: WEBSITE_ID, id: `${prefix}-second`, sessionSeed: SESSION_SEED },
     });
 
-    const firstCache = await readCache(first);
-    const secondCache = await readCache(second);
-
-    expect(firstCache.sessionId).toBe(secondCache.sessionId);
+    expect(await first.json()).toEqual({ cache: null });
+    expect(await second.json()).toEqual({ cache: null });
+    expect(createSessionMock.mock.calls[0][0].id).toBe(createSessionMock.mock.calls[1][0].id);
     expect(createSessionMock.mock.calls[0][0]).toMatchObject({ distinctId: prefix });
     expect(createSessionMock.mock.calls[1][0]).toMatchObject({ distinctId: prefix });
   });
@@ -1221,13 +1984,11 @@ describe('identify collection', () => {
       type: 'identify',
       payload: { website: WEBSITE_ID, id: 'user-42', data: { plan: 'pro' } },
     });
-    const cache = await readCache(response);
-
     expect(response.status).toBe(200);
     expect(saveSessionLinkMock).toHaveBeenCalledTimes(1);
     expect(updateSessionMock).not.toHaveBeenCalled();
     expect(saveSessionDataMock).toHaveBeenCalledTimes(1);
-    expect(cache.sessionLinkId).toBeUndefined();
+    expect(await response.json()).toEqual({ cache: null });
   });
 
   test('uses the active source transaction for ClickHouse link admission', async () => {
@@ -1262,7 +2023,9 @@ describe('identify collection', () => {
     let committed = false;
     withActiveCollectionSourceMock.mockImplementationOnce(async (_type, _id, operation) => {
       const result = await operation({
-        website: { findFirst: vi.fn(async () => ({ domain: 'example.com' })) },
+        website: {
+          findFirst: vi.fn(async () => ({ domain: 'example.com', collectionGeneration: 0 })),
+        },
       } as any);
       committed = true;
       return result;
@@ -1275,14 +2038,43 @@ describe('identify collection', () => {
       type: 'identify',
       payload: { website: WEBSITE_ID, id: 'user-42' },
     });
-    const cache = await readCache(response);
-
     expect(response.status).toBe(200);
-    expect(cache.sessionLinkId).toBeDefined();
+    expect(await response.json()).toEqual({ cache: null });
+    expect(publishSessionLinkMock).toHaveBeenCalledTimes(1);
+    expect(withActiveCollectionSourceMock).toHaveBeenCalledTimes(2);
+    expect(withActiveCollectionSourceMock.mock.calls[1][3]).toMatchObject({
+      ownerType: 'user',
+      requestId: expect.any(String),
+    });
     expect(updateSessionMock).not.toHaveBeenCalled();
   });
 
-  test('a failed ClickHouse delivery keeps collection available without claiming the link', async () => {
+  test.each([
+    ['COLLECTION_KEY_OWNER_CHANGED', 403],
+    ['COLLECTION_SOURCE_NOT_FOUND', 400],
+  ])('does not publish a pending link after %s', async (failure, expectedStatus) => {
+    (clickhouse as any).enabled = true;
+    withActiveCollectionSourceMock
+      .mockImplementationOnce(async (_type, _id, operation) =>
+        operation({
+          website: {
+            findFirst: vi.fn(async () => ({ domain: 'example.com', collectionGeneration: 0 })),
+          },
+        } as any),
+      )
+      .mockRejectedValueOnce(new Error(failure));
+
+    const response = await callPOST({
+      type: 'identify',
+      payload: { website: WEBSITE_ID, id: 'user-42' },
+    });
+
+    expect(response.status).toBe(expectedStatus);
+    expect(withActiveCollectionSourceMock).toHaveBeenCalledTimes(2);
+    expect(publishSessionLinkMock).not.toHaveBeenCalled();
+  });
+
+  test('a failed ClickHouse delivery reports partial identity failure without claiming the link', async () => {
     (clickhouse as any).enabled = true;
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     publishSessionLinkMock.mockRejectedValueOnce(new Error('synthetic delivery failure'));
@@ -1291,11 +2083,11 @@ describe('identify collection', () => {
       type: 'identify',
       payload: { website: WEBSITE_ID, id: 'user-42', data: { plan: 'pro' } },
     });
-    const cache = await readCache(response);
-
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(503);
     expect(saveSessionDataMock).toHaveBeenCalledTimes(1);
-    expect(cache.sessionLinkId).toBeUndefined();
+    expect(await response.json()).toMatchObject({
+      error: { code: 'identity-link-unavailable', status: 503 },
+    });
     consoleError.mockRestore();
   });
 
@@ -1304,7 +2096,9 @@ describe('identify collection', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     withActiveCollectionSourceMock.mockImplementationOnce(async (_type, _id, operation) => {
       await operation({
-        website: { findFirst: vi.fn(async () => ({ domain: 'example.com' })) },
+        website: {
+          findFirst: vi.fn(async () => ({ domain: 'example.com', collectionGeneration: 0 })),
+        },
       } as any);
       throw new Error('synthetic transaction rollback');
     });
@@ -1319,27 +2113,51 @@ describe('identify collection', () => {
     consoleError.mockRestore();
   });
 
-  test('skips identity writes when the cached sessionLinkId already matches', async () => {
-    // First identify establishes the link and returns a cache token carrying
-    // the resulting sessionLinkId.
+  test('repeated verified identity uses its isolated session without a browser cache', async () => {
     const first = await callPOST({
       type: 'identify',
       payload: { website: WEBSITE_ID, id: 'user-42' },
     });
-    const firstBody = (await first.json()) as Record<string, any>;
-    const token = firstBody.cache;
-
-    saveSessionLinkMock.mockClear();
-    updateSessionMock.mockClear();
-
-    // Replaying with that token should recognise the same identity and skip.
-    await callPOST(
+    const second = await callPOST(
       { type: 'identify', payload: { website: WEBSITE_ID, id: 'user-42' } },
-      { headers: { 'x-umami-cache': token } },
+      { headers: { 'x-umami-cache': makeCacheToken() } },
     );
 
-    expect(saveSessionLinkMock).not.toHaveBeenCalled();
-    expect(updateSessionMock).not.toHaveBeenCalled();
+    expect(await first.json()).toEqual({ cache: null });
+    expect(await second.json()).toEqual({ cache: null });
+    expect(saveSessionLinkMock).toHaveBeenCalledTimes(2);
+    expect(saveSessionLinkMock.mock.calls[0][0].sessionId).toBe(
+      saveSessionLinkMock.mock.calls[1][0].sessionId,
+    );
+  });
+
+  test('rotating a website credential preserves its verified session identity', async () => {
+    const rotatedCredential = 'b'.repeat(43);
+    vi.stubEnv(
+      'COLLECTION_SERVER_KEYS_JSON',
+      JSON.stringify({
+        [WEBSITE_ID]: [BACKEND_CREDENTIAL, rotatedCredential].map(credential => ({
+          sha256: createHash('sha256').update(credential).digest('hex'),
+          scopes: ['identity'],
+          ownerType: 'user',
+          ownerId: '44444444-4444-4444-8444-444444444444',
+          generation: 0,
+        })),
+      }),
+    );
+
+    const payload = { website: WEBSITE_ID, id: 'user-42', sessionSeed: SESSION_SEED };
+    const first = await callPOST({ type: 'identify', payload });
+    const second = await callPOST(
+      { type: 'identify', payload },
+      { headers: { authorization: `Bearer ${rotatedCredential}` } },
+    );
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(saveSessionLinkMock.mock.calls[0][0].sessionId).toBe(
+      saveSessionLinkMock.mock.calls[1][0].sessionId,
+    );
   });
 
   test('does not write identity records without a website id', async () => {
@@ -1352,7 +2170,7 @@ describe('identify collection', () => {
     expect(updateSessionMock).not.toHaveBeenCalled();
   });
 
-  test('identity link failures do not block session data writes', async () => {
+  test('identity link write failures reject before session data is saved', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     saveSessionLinkMock.mockRejectedValue(new Error('link failed'));
 
@@ -1361,8 +2179,12 @@ describe('identify collection', () => {
       payload: { website: WEBSITE_ID, id: 'user-42', data: { plan: 'pro' } },
     });
 
-    expect(response.status).toBe(200);
-    expect(saveSessionDataMock).toHaveBeenCalledTimes(1);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      error: { code: 'identity-link-unavailable', status: 503 },
+    });
+    expect(saveSessionDataMock).not.toHaveBeenCalled();
+    expect(updateSessionMock).not.toHaveBeenCalled();
     consoleError.mockRestore();
   });
 });

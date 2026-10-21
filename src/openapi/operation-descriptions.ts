@@ -105,7 +105,7 @@ export const operationDescriptions: Record<string, OperationDescription> = {
   'POST /api/batch': {
     summary: 'Send a batch of tracking requests',
     description:
-      'Processes up to 500 tracking payloads and returns processed and failed counts, individual error details, and a tracking cache token.',
+      'Processes up to 20 tracking payloads. Each child request must independently satisfy the same collection authorization as /api/send. Returns processed and failed counts, individual error details, and a tracking cache token.',
   },
   'GET /api/boards': {
     summary: 'List my boards',
@@ -281,15 +281,20 @@ export const operationDescriptions: Record<string, OperationDescription> = {
     summary: 'Get real-time chart series',
     description: 'Returns only the pageview and visitor time series for the real-time view.',
   },
+  'POST /api/collection-permit': {
+    summary: 'Authorize consented website recording',
+    description:
+      'A website backend with recorder scope requests a short-lived permit after verifying its authenticated session and feature-specific consent. The permit is bound to the browser cache token, website, feature, and approved origin. The long-lived credential must never enter browser code.',
+  },
   'POST /api/record': {
     summary: 'Send session recordings or heatmap data',
     description:
-      'Stores session replay events or heatmap clicks and scrolls for a website, using a valid tracking cache token to identify the session and visit. Replay and heatmap intake have cumulative visit and website budgets; exceeding them returns 413 or 429.',
+      'Stores session replay events or heatmap clicks and scrolls only with a valid tracking cache token and a separate feature-, session-, visit-, and origin-bound collection permit. The website must enable the feature; replay requires strict masking. Cumulative visit and website budgets can return 413 or 429.',
   },
   'POST /api/send': {
     summary: 'Send tracking data',
     description:
-      'Collects a pageview, custom event, visitor identification, or performance payload and returns an opaque tracking cache token for website events when accepted.',
+      'Collects anonymous pageviews or performance data. Identity and non-revenue custom events require an authorized website-backend credential; revenue intake is disabled. A public website ID, Origin, or browser cache token is not backend authorization. Accepted browser pageviews receive an opaque tracking cache token.',
   },
   'POST /api/share': {
     summary: 'Create a share',
@@ -504,7 +509,7 @@ export const operationDescriptions: Record<string, OperationDescription> = {
   'GET /api/websites/{websiteId}/event-data/{eventId}': {
     summary: "Get an event's custom properties",
     description:
-      'Returns the custom property records, data types, and values attached to a specific event.',
+      'Returns custom property records, data types, values, and provenance tiers for the specified event. Historical unverified properties remain visible but do not enter verified custom-event summaries.',
   },
   'GET /api/websites/{websiteId}/event-data/events': {
     summary: 'Summarize properties by event',
@@ -600,28 +605,29 @@ export const operationDescriptions: Record<string, OperationDescription> = {
       "Clears the website's collected analytics data while keeping the website configuration.",
   },
   'GET /api/websites/{websiteId}/revenue/chart': {
-    summary: 'Get website revenue over time',
+    summary: 'Get unverified historical revenue claims over time',
     description:
-      'Returns revenue chart data for the selected currency, date range, and website filters.',
+      'Returns unverified historical event claims for the selected currency, date range, and website filters. Values do not prove completed orders or payments.',
   },
   'GET /api/websites/{websiteId}/revenue/metrics': {
-    summary: 'Get website revenue by dimension',
+    summary: 'Get unverified historical revenue claims by dimension',
     description:
-      'Returns revenue grouped by the requested dimension, such as country or referrer, for the selected currency and date range.',
+      'Returns unverified historical event claims grouped by the requested dimension, such as country or referrer. Values do not prove completed orders or payments.',
   },
   'GET /api/websites/{websiteId}/revenue/sessions': {
-    summary: 'List sessions with revenue',
+    summary: 'List sessions with unverified revenue claims',
     description:
-      'Returns a paginated list of sessions with revenue in the selected currency and date range, applying website and search filters.',
+      'Returns sessions with unverified historical revenue claims in the selected currency and date range. Sessions are not verified customers.',
   },
   'GET /api/websites/{websiteId}/revenue/stats': {
-    summary: 'Get website revenue totals',
+    summary: 'Get unverified historical revenue claim totals',
     description:
-      'Returns revenue summary statistics for the selected currency and date range, including totals for the comparison period.',
+      'Returns unverified historical event claims and a comparison period. Event and session counts are not verified orders or users; ARPU is unavailable.',
   },
   'GET /api/websites/{websiteId}/revenue/total': {
-    summary: 'Get website revenue total',
-    description: 'Returns only the total revenue for the selected currency and date range.',
+    summary: 'Get unverified historical revenue claim total',
+    description:
+      'Returns the unverified event-claim total for the selected currency and date range.',
   },
   'GET /api/websites/{websiteId}/segments': {
     summary: 'List website segments and cohorts',
@@ -713,7 +719,7 @@ export const operationDescriptions: Record<string, OperationDescription> = {
   'GET /api/websites/{websiteId}/sessions/{sessionId}/properties': {
     summary: "Get a session's custom properties",
     description:
-      'Returns custom property records, data types, and values for the specified website session.',
+      'Returns custom property records, data types, values, and provenance tiers for the specified website session. Historical unverified rows remain visible but do not enter derived session-property reports.',
   },
   'GET /api/websites/{websiteId}/sessions/{sessionId}/replays': {
     summary: "List a visitor's session replays",

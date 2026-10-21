@@ -62,11 +62,7 @@ export async function GET(
     return tooLarge();
   }
 
-  const distinctIds = linkedDistinctIds.length
-    ? linkedDistinctIds
-    : data.distinctId
-      ? [data.distinctId]
-      : [];
+  const distinctIds = linkedDistinctIds;
   const distinctId = distinctIds.length === 1 ? distinctIds[0] : undefined;
 
   // A collided legacy session cannot be safely attributed to one identity.
@@ -88,9 +84,7 @@ export async function GET(
       }
     }
 
-    if (linkedDistinctIds.length === 0 && links.length >= rowLimit) {
-      links = [];
-    } else if (links.length >= queryLimit) {
+    if (links.length >= queryLimit) {
       return tooLarge();
     }
 

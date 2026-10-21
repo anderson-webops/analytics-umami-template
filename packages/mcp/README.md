@@ -32,7 +32,7 @@ user/team permission checks as the web app.
 | `run_journey`         | Most common paths visitors take.                                        |
 | `run_retention`       | Cohort retention table.                                                 |
 | `run_attribution`     | First/last-click attribution for a conversion.                          |
-| `get_revenue`         | Revenue totals, series and breakdowns.                                  |
+| `get_revenue`         | Unverified historical revenue claims, series and breakdowns; no verified orders, customers or ARPU. Its result labels provenance and suppresses legacy ARPU fields. |
 | `get_performance`     | Core Web Vitals (LCP, INP, CLS, FCP, TTFB) percentiles, trend, breakdown. |
 
 All tools are read-only. Dates are ISO 8601; results are paginated with a hard cap on page size.

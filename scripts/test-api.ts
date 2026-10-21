@@ -17,6 +17,7 @@ import { connect } from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertDisposableTarget } from '../tests/api/paths';
+import { getTestCollectionServerKeysJson } from '../tests/api/seed/collection-keys';
 
 const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const COMPOSE_FILE = 'docker-compose.test.yml';
@@ -26,6 +27,10 @@ const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || `http://localhost:${PORT}`;
 // PLAYWRIGHT_BASE_URL selects an already-running server: no Compose stack is
 // built, started, or torn down for it.
 const EXTERNAL_TARGET = !!process.env.PLAYWRIGHT_BASE_URL;
+if (!EXTERNAL_TARGET) {
+  process.env.UMAMI_TEST_COLLECTION_SERVER_KEYS_JSON = getTestCollectionServerKeysJson();
+  process.env.UMAMI_TEST_LOCAL_COMPOSE = '1';
+}
 const HEARTBEAT_TIMEOUT_MS = 180_000;
 // Mirrors RUNTIME_DIR in tests/api/paths.ts (one state dir per target host).
 const LOG_FILE = path.join(
@@ -56,8 +61,13 @@ Environment:
                       Compose stack (pass --clickhouse if it stores analytics there)
   API_ALLOW_DESTRUCTIVE=1  Required for non-loopback PLAYWRIGHT_BASE_URL targets: the suite
                       recreates websites, ingests data and toggles global 2FA
-  API_SKIP_SEED=1     Reuse the previous seed when re-running against a kept stack
-                      (each run seeds additively otherwise)
+  API_SKIP_SEED=1     Reuse the previous seed when re-running against a kept stack.
+                      Deleting and recreating fixed test IDs advances their key
+                      generation; a fresh seed requires a fresh disposable stack.
+  API_TEST_AUTH_QUERY_WINDOW_LIMIT  Authenticated reads per 61-second test window
+                      (default 50 for the full suite; 0 for focused runs)
+  The local Compose stack receives only digests for two deterministic,
+  disposable website-scoped test credentials. They are not production keys.
 `;
 
 interface Options {
@@ -314,7 +324,7 @@ async function main() {
       options.keep = true;
       console.log(
         `\nRun tests with: PLAYWRIGHT_BASE_URL=${BASE_URL} UMAMI_TEST_DB=${profile} pnpm test:api:run` +
-          '\nRe-running against the same stack? Add API_SKIP_SEED=1 (seeding is additive).' +
+          '\nRe-running against the same stack? Add API_SKIP_SEED=1 (fixed-ID key generations cannot be reseeded).' +
           '\nStop the stack with: pnpm test:api:down',
       );
       return 0;
@@ -339,6 +349,8 @@ async function main() {
       PLAYWRIGHT_BASE_URL: BASE_URL,
       PLAYWRIGHT_SKIP_WEB_SERVER: '1',
       UMAMI_TEST_DB: profile,
+      API_TEST_AUTH_QUERY_WINDOW_LIMIT:
+        process.env.API_TEST_AUTH_QUERY_WINDOW_LIMIT ?? (options.grep ? '0' : '50'),
       API_COVERAGE:
         process.env.API_COVERAGE ?? (options.grep || options.coverageReport ? 'report' : 'enforce'),
     });

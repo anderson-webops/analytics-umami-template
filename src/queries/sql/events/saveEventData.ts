@@ -1,12 +1,13 @@
 import type { Prisma } from '@/generated/prisma/client';
 import clickhouse from '@/lib/clickhouse';
-import { DATA_TYPE, FIELD_LENGTH } from '@/lib/constants';
+import { COLLECTION_TRUST_TIER, DATA_TYPE, FIELD_LENGTH } from '@/lib/constants';
 import { uuid } from '@/lib/crypto';
 import { flattenJSON, getStoredStringValue } from '@/lib/data';
 import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
 import { truncateString } from '@/lib/format';
 import kafka from '@/lib/kafka';
 import prisma from '@/lib/prisma';
+import { hasRevenueField, isFinancialEventName } from '@/lib/revenue-provenance';
 import type { DynamicData } from '@/lib/types';
 
 export interface SaveEventDataArgs {
@@ -16,6 +17,7 @@ export interface SaveEventDataArgs {
   urlPath?: string;
   eventName?: string;
   eventData: DynamicData;
+  trustTier: (typeof COLLECTION_TRUST_TIER)[keyof typeof COLLECTION_TRUST_TIER];
   createdAt?: Date;
 }
 
@@ -23,6 +25,14 @@ export async function saveEventData(
   data: SaveEventDataArgs,
   transaction?: Prisma.TransactionClient | typeof prisma.client,
 ) {
+  if (data.trustTier !== COLLECTION_TRUST_TIER.backendAuthorized) {
+    throw new Error('Event properties require backend collection authorization.');
+  }
+
+  if (hasRevenueField(data.eventData, isFinancialEventName(data.eventName))) {
+    throw new Error('Verified revenue collection is not enabled.');
+  }
+
   if (transaction) {
     return relationalQuery(data, transaction);
   }
@@ -37,7 +47,7 @@ async function relationalQuery(
   data: SaveEventDataArgs,
   transaction: Prisma.TransactionClient | typeof prisma.client = prisma.client,
 ) {
-  const { websiteId, eventId, eventData, createdAt } = data;
+  const { websiteId, eventId, eventData, trustTier, createdAt } = data;
 
   const jsonKeys = flattenJSON(eventData);
 
@@ -51,6 +61,7 @@ async function relationalQuery(
     numberValue: a.dataType === DATA_TYPE.number ? a.value : null,
     dateValue: a.dataType === DATA_TYPE.date ? new Date(a.value) : null,
     dataType: a.dataType,
+    trustTier,
     createdAt,
   }));
 
@@ -60,7 +71,8 @@ async function relationalQuery(
 }
 
 async function clickhouseQuery(data: SaveEventDataArgs) {
-  const { websiteId, sessionId, eventId, urlPath, eventName, eventData, createdAt } = data;
+  const { websiteId, sessionId, eventId, urlPath, eventName, eventData, trustTier, createdAt } =
+    data;
 
   const { insert, getUTCString } = clickhouse;
   const { sendMessage } = kafka;
@@ -72,6 +84,7 @@ async function clickhouseQuery(data: SaveEventDataArgs) {
       website_id: websiteId,
       session_id: sessionId,
       event_id: eventId,
+      trust_tier: trustTier,
       url_path: truncateString(urlPath, FIELD_LENGTH.url),
       event_name: truncateString(eventName, FIELD_LENGTH.eventName),
       data_key: truncateString(key, FIELD_LENGTH.dataKey),

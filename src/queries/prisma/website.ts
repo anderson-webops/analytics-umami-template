@@ -19,6 +19,10 @@ import {
   runSerializable,
 } from './authorization';
 import { lockCollectionSources } from './collection';
+import {
+  getNextWebsiteCollectionGeneration,
+  recordDeletedWebsiteCollectionGenerations,
+} from './collection-generation';
 
 const WEBSITE_SORT_FIELDS = ['name', 'domain', 'createdAt'] as const;
 
@@ -36,6 +40,10 @@ async function deleteWebsiteDependentData(tx: any, websiteId: string) {
   });
 
   await tx.revenue.deleteMany({
+    where: { websiteId },
+  });
+
+  await tx.attestedRevenueMovement.deleteMany({
     where: { websiteId },
   });
 
@@ -202,6 +210,8 @@ export async function createWebsite(
   const { activeOwnerWebsiteLimit, customEntityId = false } = options;
 
   return runSerializable(async transaction => {
+    await lockCollectionSources(transaction, [data.id]);
+
     if (
       activeOwnerWebsiteLimit !== undefined &&
       (!Number.isInteger(activeOwnerWebsiteLimit) || activeOwnerWebsiteLimit < 1)
@@ -247,7 +257,10 @@ export async function createWebsite(
     await assertEntityIdAvailable(transaction, data.id);
 
     const website = await transaction.website.create({
-      data,
+      data: {
+        ...data,
+        collectionGeneration: await getNextWebsiteCollectionGeneration(transaction, data.id),
+      },
     });
     return { website };
   });
@@ -255,7 +268,7 @@ export async function createWebsite(
 
 export async function updateWebsite(
   websiteId: string,
-  data: Prisma.WebsiteUncheckedUpdateInput,
+  data: { name?: string; domain?: string },
   actorUserId: string,
   options: {
     auth: Auth;
@@ -277,12 +290,15 @@ export async function updateWebsite(
     );
 
     let recorderUpdate: Prisma.WebsiteUncheckedUpdateInput = {};
+    const currentWebsite =
+      data.domain !== undefined || replayConfig !== undefined
+        ? await transaction.website.findUnique({
+            where: { id: websiteId },
+            select: { domain: true, replayConfig: true },
+          })
+        : null;
 
     if (replayConfig !== undefined) {
-      const currentWebsite = await transaction.website.findUnique({
-        where: { id: websiteId },
-        select: { replayConfig: true },
-      });
       const nextReplayConfig = getRecorderConfig(
         replayConfig === null
           ? {}
@@ -305,6 +321,9 @@ export async function updateWebsite(
       data: {
         ...data,
         ...recorderUpdate,
+        ...(data.domain !== undefined && data.domain !== currentWebsite?.domain
+          ? { collectionGeneration: { increment: 1 } }
+          : {}),
       },
     });
     let share;
@@ -456,10 +475,11 @@ export async function transferWebsiteByActor(
       }
     }
 
-    if (
+    const ownershipChanged =
       currentWebsite.userId !== nextOwnership.userId ||
-      currentWebsite.teamId !== nextOwnership.teamId
-    ) {
+      currentWebsite.teamId !== nextOwnership.teamId;
+
+    if (ownershipChanged) {
       await transaction.share.deleteMany({
         where: {
           entityId: websiteId,
@@ -472,7 +492,10 @@ export async function transferWebsiteByActor(
       where: {
         id: websiteId,
       },
-      data: nextOwnership,
+      data: {
+        ...nextOwnership,
+        ...(ownershipChanged ? { collectionGeneration: { increment: 1 } } : {}),
+      },
     });
   });
 
@@ -504,6 +527,7 @@ export async function resetWebsite(websiteId: string, actorUserId: string, auth:
         where: { id: websiteId },
         data: {
           resetAt: new Date(),
+          collectionGeneration: { increment: 1 },
         },
       });
 
@@ -569,6 +593,10 @@ export async function deleteWebsite(websiteId: string, actorUserId: string, auth
         : await tx.website.delete({
             where: { id: websiteId },
           });
+
+      if (!cloudMode) {
+        await recordDeletedWebsiteCollectionGenerations(tx, [website]);
+      }
 
       return website;
     },

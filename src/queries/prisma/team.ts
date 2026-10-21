@@ -14,6 +14,7 @@ import {
   runSerializable,
 } from './authorization';
 import { lockCollectionSources } from './collection';
+import { recordDeletedWebsiteCollectionGenerations } from './collection-generation';
 
 import TeamFindManyArgs = Prisma.TeamFindManyArgs;
 
@@ -400,11 +401,17 @@ export async function deleteTeam(teamId: string, actorUserId: string, auth: Auth
       await transaction.revenue.deleteMany({
         where: { websiteId: { in: sourceIds } },
       });
+      await transaction.attestedRevenueMovement.deleteMany({
+        where: { websiteId: { in: websiteIds } },
+      });
       await transaction.eventData.deleteMany({
         where: { websiteId: { in: sourceIds } },
       });
       await transaction.sessionData.deleteMany({
         where: { websiteId: { in: sourceIds } },
+      });
+      await transaction.sessionLink.deleteMany({
+        where: { websiteId: { in: websiteIds } },
       });
       await transaction.websiteEvent.deleteMany({
         where: { websiteId: { in: sourceIds } },
@@ -450,7 +457,12 @@ export async function deleteTeam(teamId: string, actorUserId: string, auth: Auth
         await transaction.link.deleteMany({ where: { teamId } });
         await transaction.pixel.deleteMany({ where: { teamId } });
         await transaction.board.deleteMany({ where: { teamId } });
-        await transaction.website.deleteMany({ where: { teamId } });
+        const deletedWebsites = await transaction.website.findMany({
+          where: { id: { in: websiteIds }, teamId },
+          select: { id: true, collectionGeneration: true },
+        });
+        await recordDeletedWebsiteCollectionGenerations(transaction, deletedWebsites);
+        await transaction.website.deleteMany({ where: { id: { in: websiteIds }, teamId } });
         await transaction.teamUser.deleteMany({ where: { teamId } });
         await transaction.team.deleteMany({ where: { id: teamId } });
       }

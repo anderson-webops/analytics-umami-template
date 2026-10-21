@@ -1,4 +1,5 @@
 import clickhouse from '@/lib/clickhouse';
+import { COLLECTION_TRUST_TIER, EVENT_TYPE } from '@/lib/constants';
 import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
 import prisma from '@/lib/prisma';
 import type { QueryFilters } from '@/lib/types';
@@ -91,6 +92,7 @@ async function relationalQuery(
           where _ed${stepIndex}_${fi}.website_event_id = ${eventAlias}.event_id
             and _ed${stepIndex}_${fi}.website_id = {{websiteId::uuid}}
             and _ed${stepIndex}_${fi}.created_at between {{startDate}} and {{endDate}}
+            and _ed${stepIndex}_${fi}.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}
             and _ed${stepIndex}_${fi}.data_key = {{${keyParam}}}
             and case when _ed${stepIndex}_${fi}.data_type = 2 then replace(_ed${stepIndex}_${fi}.string_value, '.0000', '') else _ed${stepIndex}_${fi}.string_value end ${op} {{${valParam}}}
         )`;
@@ -143,6 +145,7 @@ async function relationalQuery(
             ${joinSessionQuery}
             where website_event.website_id = {{websiteId::uuid}}
               and website_event.created_at between {{startDate}} and {{endDate}}
+              and (website_event.event_type != ${EVENT_TYPE.customEvent} or website_event.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})
               and ${column} ${operator} {{${i}}}
               ${filterQuery}
               ${existsClause}
@@ -159,6 +162,7 @@ async function relationalQuery(
                   `l.created_at `,
                   `${window} minute`,
                 )}
+                and (we.event_type != ${EVENT_TYPE.customEvent} or we.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})
                 and we.${column} ${operator} {{${i}}}
                 and we.created_at <= {{endDate}}
                 ${existsClause}
@@ -239,10 +243,11 @@ async function clickhouseQuery(
         }
         params[valParam] = val;
 
-        return `and ${eventAlias}.event_id in (
-          select event_id from event_data
+        return `and tuple(${eventAlias}.event_id, ${eventAlias}.session_id, ${eventAlias}.event_name) in (
+          select event_id, session_id, event_name from event_data
           where website_id = {websiteId:UUID}
             and created_at between {startDate:DateTime64} and {endDate:DateTime64}
+            and trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}
             and data_key = {${keyParam}:String}
             and multiIf(data_type = 2, replaceAll(string_value, '.0000', ''), string_value) ${op} {${valParam}:String}
         )`;
@@ -337,6 +342,7 @@ async function clickhouseQuery(
       where (${stepFilterQuery})
         and website_id = {websiteId:UUID}
         and created_at between {startDate:DateTime64} and {endDate:DateTime64}
+        and (event_type != ${EVENT_TYPE.customEvent} or trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})
        ${filterQuery}
     ),
     ${levelOneQuery}

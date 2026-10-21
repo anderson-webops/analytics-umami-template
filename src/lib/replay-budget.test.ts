@@ -4,7 +4,10 @@ import { reserveCollectionAccountBudget } from '@/lib/collection-budget';
 import {
   MAX_REPLAY_BYTES,
   MAX_REPLAY_EVENTS,
+  markAcknowledgedReplayChunk,
+  markUnstoredReplayChunkRetryable,
   ReplayBudgetExceededError,
+  ReplayWritePendingError,
   reserveReplayBudget,
 } from './replay-budget';
 
@@ -82,6 +85,117 @@ test('returns an idempotent result for a previously accepted chunk', async () =>
 
   expect(await reserveReplayBudget(client, args)).toBe(false);
   expect(query).toHaveBeenCalledTimes(2);
+  expect(execute).not.toHaveBeenCalled();
+  expect(reserveCollectionAccountBudget).not.toHaveBeenCalled();
+});
+
+test('an external reservation remains pending until its sink acknowledges it', async () => {
+  const { client, query, execute } = transaction([
+    [],
+    [],
+    [{ bytes: 100n }],
+    [{ bytes: 100n }],
+    [{ bytes: 100n }],
+    [{ chunks: 1 }],
+    [{ chunks: 1 }],
+    [{ requests: 1n }],
+    [{ requests: 1n }],
+  ]);
+
+  expect(await reserveReplayBudget(client, { ...args, pendingExternalWrite: true })).toBe(true);
+  expect(query.mock.calls[2]).toContain(-args.chunkIndex);
+  expect(execute).toHaveBeenCalledOnce();
+});
+
+test('a concurrent retry cannot report success for a pending external write', async () => {
+  const { client, query } = transaction([[], [{ chunkIndices: [-args.chunkIndex] }]]);
+
+  await expect(reserveReplayBudget(client, args)).rejects.toBeInstanceOf(ReplayWritePendingError);
+  expect(query).toHaveBeenCalledTimes(2);
+  expect(reserveCollectionAccountBudget).not.toHaveBeenCalled();
+});
+
+test('only a pending external marker can be confirmed after sink acknowledgement', async () => {
+  const { client, query } = transaction([[], [{ bytes: 100n }]]);
+
+  await markAcknowledgedReplayChunk(client, args.websiteId, args.visitId, args.chunkIndex);
+  expect(query.mock.calls[1][0].join('')).toContain('array_replace(chunk_indices,');
+  expect(query.mock.calls[1]).toContain(-args.chunkIndex);
+  expect(query.mock.calls[1]).toContain(args.chunkIndex);
+});
+
+test('a missing pending marker cannot be confirmed', async () => {
+  const { client, query } = transaction([[], []]);
+
+  await expect(
+    markAcknowledgedReplayChunk(client, args.websiteId, args.visitId, args.chunkIndex),
+  ).rejects.toThrow('Replay reservation completion failed.');
+  expect(query).toHaveBeenCalledTimes(2);
+});
+
+test('an unwritten external chunk refunds only its visit reservation', async () => {
+  const { client, query, execute } = transaction([[], [{ bytes: 0n }]]);
+
+  await markUnstoredReplayChunkRetryable(client, args.websiteId, args.visitId, args.chunkIndex, {
+    bytes: 100,
+    events: 1,
+  });
+
+  expect(query).toHaveBeenCalledTimes(2);
+  expect(query.mock.calls[1][0].join('')).toContain('array_remove(chunk_indices,');
+  expect(query.mock.calls[1][0].join('')).toContain('bytes -');
+  expect(query.mock.calls[1][0].join('')).toContain('events -');
+  expect(query.mock.calls[1][0].join('')).toContain('chunks - 1');
+  expect(query.mock.calls[1]).toContain(args.chunkIndex);
+  expect(query.mock.calls[1]).toContain(-args.chunkIndex);
+  expect(execute).not.toHaveBeenCalled();
+  expect(reserveCollectionAccountBudget).not.toHaveBeenCalled();
+});
+
+test('a missing or mismatched replay reservation cannot be refunded', async () => {
+  const { client, query } = transaction([[], []]);
+
+  await expect(
+    markUnstoredReplayChunkRetryable(client, args.websiteId, args.visitId, args.chunkIndex, {
+      bytes: 100,
+      events: 1,
+    }),
+  ).rejects.toBeInstanceOf(ReplayBudgetExceededError);
+  expect(query).toHaveBeenCalledTimes(2);
+});
+
+test('retrying a released chunk charges the current payload against every budget', async () => {
+  const { client, query, execute } = transaction([
+    [],
+    [{ chunkIndices: [] }],
+    [{ bytes: 200n }],
+    [{ bytes: 200n }],
+    [{ bytes: 200n }],
+  ]);
+
+  expect(await reserveReplayBudget(client, { ...args, bytes: 200 })).toBe(true);
+  expect(query).toHaveBeenCalledTimes(5);
+  expect(query.mock.calls[2][0].join('')).toContain(
+    'array_append(replay_ingest_budget.chunk_indices,',
+  );
+  expect(query.mock.calls[2][0].join('')).toContain('bytes +');
+  expect(query.mock.calls[2]).toContain(200);
+  expect(reserveCollectionAccountBudget).toHaveBeenCalledWith(
+    client,
+    { accountType: args.accountType, accountId: args.accountId },
+    { bytes: 712, rows: args.events, requests: 1 },
+  );
+  expect(execute).toHaveBeenCalledOnce();
+});
+
+test('an unwritten chunk retry fails closed when the larger payload exceeds its visit budget', async () => {
+  const { client, query, execute } = transaction([[], [{ chunkIndices: [] }], []]);
+
+  await expect(
+    reserveReplayBudget(client, { ...args, bytes: MAX_REPLAY_BYTES }),
+  ).rejects.toBeInstanceOf(ReplayBudgetExceededError);
+  expect(query).toHaveBeenCalledTimes(3);
+  expect(query.mock.calls[2][0].join('')).toContain('bytes +');
   expect(execute).not.toHaveBeenCalled();
   expect(reserveCollectionAccountBudget).not.toHaveBeenCalled();
 });

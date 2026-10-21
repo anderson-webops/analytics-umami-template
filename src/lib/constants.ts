@@ -31,6 +31,11 @@ export const DEFAULT_PAGE_SIZE = 20;
 export const MAX_PAGING_RESULTS = 10000;
 export const DEFAULT_DATE_COMPARE = 'prev';
 export const DEFAULT_CURRENCY = 'USD';
+export const REVENUE_PROVENANCE = 'unverified_historical_event_claims';
+export const REVENUE_RESPONSE_HEADERS = {
+  'X-Revenue-Provenance': REVENUE_PROVENANCE,
+  'Access-Control-Expose-Headers': 'X-Revenue-Provenance',
+} as const;
 
 export const REALTIME_RANGE = 30;
 export const REALTIME_INTERVAL = 10000;
@@ -67,6 +72,8 @@ export const SESSION_COLUMNS = [
   'region',
   'distinctId',
 ];
+
+export const MAX_VERIFIED_IDENTITY_FILTERS = 8;
 
 export const SEGMENT_TYPES = {
   segment: 'segment',
@@ -143,6 +150,11 @@ export const DATA_TYPE = {
   boolean: 3,
   date: 4,
   array: 5,
+} as const;
+
+export const COLLECTION_TRUST_TIER = {
+  unverified: 0,
+  backendAuthorized: 1,
 } as const;
 
 export const OPERATORS = {

@@ -1,6 +1,7 @@
 /* eslint-disable no-console */
 import 'dotenv/config';
 import ipaddr from 'ipaddr.js';
+import { parseCollectionServerKeys } from './collection-key-config.mjs';
 import { isPrivateDatabaseHost } from './database-host-policy.mjs';
 import { assertDatabaseTransport, DatabaseTransportError } from './database-transport.mjs';
 
@@ -26,6 +27,7 @@ const FORBIDDEN_CLIENT_IP_HEADERS = new Set([
   'host',
   'proxy-authorization',
   'x-umami-cache',
+  'x-umami-permit',
   'x-umami-client-info-key',
   'x-umami-share-token',
 ]);
@@ -437,6 +439,10 @@ function checkServiceConfiguration({ production = false } = {}) {
   if (mechanism && !['plain', 'scram-sha-256', 'scram-sha-512'].includes(mechanism)) {
     fail('KAFKA_SASL_MECHANISM must be plain, scram-sha-256, or scram-sha-512.');
   }
+
+  if (production && (process.env.KAFKA_URL || process.env.KAFKA_BROKER)) {
+    fail('Kafka collection requires a reviewed consumer and backlog transition for this release.');
+  }
 }
 
 const booleanVariables = [
@@ -454,6 +460,7 @@ const booleanVariables = [
   'KAFKA_SSL_ALLOW_UNAUTHORIZED',
   'LOG_QUERY',
   'PRIVATE_MODE',
+  'REVENUE_ATTESTED_INTAKE_ENABLED',
   'REMOVE_TRAILING_SLASH',
   'SKIP_BUILD_GEO',
   'SKIP_DB_CHECK',
@@ -500,6 +507,12 @@ checkHeaderName('CLIENT_IP_HEADER');
 checkIgnoredIps();
 checkUuid('UMAMI_SELF_TRACK');
 checkUuid('UMAMI_SELF_RECORD');
+if (
+  process.env.COLLECTION_SERVER_KEYS_JSON &&
+  !parseCollectionServerKeys(process.env.COLLECTION_SERVER_KEYS_JSON)
+) {
+  fail('COLLECTION_SERVER_KEYS_JSON must contain valid, bounded website-scoped key records.');
+}
 checkServiceConfiguration({ production: process.env.NODE_ENV === 'production' });
 checkMissing(['APP_SECRET']);
 checkMinimumBytes('APP_SECRET', 32);

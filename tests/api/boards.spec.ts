@@ -2,6 +2,8 @@ import { expect, test } from './fixtures';
 import { UNKNOWN_UUID } from './helpers/constants';
 import { uniqueName } from './helpers/entities';
 
+const ROW_ID = '11111111-1111-4111-8111-111111111111';
+
 test.describe('Boards', () => {
   test.describe.configure({ mode: 'serial' });
 
@@ -146,10 +148,8 @@ test.describe('Boards', () => {
     expect(teamMember.body.id).toBe(teamBoardId);
     expect(denied.status).toBe(401);
     expect(anonymous.status).toBe(401);
-    // Non-admins are refused before the lookup; admins bypass the check and get null.
     expect(unknown.status).toBe(401);
-    expect(adminUnknown.status).toBe(200);
-    expect(adminUnknown.body).toBeNull();
+    expect(adminUnknown.status).toBe(401);
   });
 
   test('POST /api/boards/{boardId} updates a board', async ({ admin, user, viewer, seed }) => {
@@ -157,7 +157,7 @@ test.describe('Boards', () => {
     const response = await admin.post(`/api/boards/${boardId}`, {
       name,
       description: 'updated',
-      parameters: { websiteId: seed.website.id, rows: [{ id: 'row-1', columns: [] }] },
+      parameters: { websiteId: seed.website.id, rows: [{ id: ROW_ID, columns: [] }] },
     });
     const longName = await admin.post(`/api/boards/${boardId}`, { name: 'x'.repeat(201) });
     const denied = await viewer.post(`/api/boards/${boardId}`, { name });
@@ -168,7 +168,7 @@ test.describe('Boards', () => {
       id: boardId,
       name,
       description: 'updated',
-      parameters: { websiteId: seed.website.id, rows: [{ id: 'row-1', columns: [] }] },
+      parameters: { websiteId: seed.website.id, rows: [{ id: ROW_ID, columns: [] }] },
     });
     expect(longName.status).toBe(400);
     expect(denied.status).toBe(401);
@@ -224,7 +224,7 @@ test.describe('Boards', () => {
       slug: expect.any(String),
       parameters: { theme: 'dark' },
     });
-    expect(response.body.slug).toHaveLength(16);
+    expect(response.body.slug).toHaveLength(24);
     expect(missingName.status).toBe(400);
     expect(denied.status).toBe(401);
     expect(unknown.status).toBe(401);
@@ -265,8 +265,7 @@ test.describe('Boards', () => {
     expect(notOwner.status).toBe(401);
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ ok: true });
-    expect(gone.status).toBe(200);
-    expect(gone.body).toBeNull();
+    expect(gone.status).toBe(401);
     expect(member.status).toBe(200);
   });
 });
@@ -288,7 +287,7 @@ test.describe('Dashboard', () => {
     const updated = await user.post('/api/dashboard', {
       name: `${name}-2`,
       description: 'api suite dashboard',
-      parameters: { rows: [{ id: 'row-1', columns: [] }] },
+      parameters: { rows: [{ id: ROW_ID, columns: [] }] },
     });
     const invalid = await user.post('/api/dashboard', { name: 'x'.repeat(201) });
     const anonymous = await api.post('/api/dashboard', { name, description: '' });
@@ -305,7 +304,7 @@ test.describe('Dashboard', () => {
     expect(updated.body).toMatchObject({
       id: seed.user.id,
       name: `${name}-2`,
-      parameters: { rows: [{ id: 'row-1', columns: [] }] },
+      parameters: { rows: [{ id: ROW_ID, columns: [] }] },
     });
     expect(invalid.status).toBe(400);
     expect(anonymous.status).toBe(401);
@@ -320,7 +319,7 @@ test.describe('Dashboard', () => {
       id: seed.user.id,
       type: 'dashboard',
       userId: seed.user.id,
-      parameters: { rows: [{ id: 'row-1', columns: [] }] },
+      parameters: { rows: [{ id: ROW_ID, columns: [] }] },
     });
     expect(anonymous.status).toBe(401);
   });

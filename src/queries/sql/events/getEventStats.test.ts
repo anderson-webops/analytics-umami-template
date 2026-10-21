@@ -78,6 +78,7 @@ describe('event series SQL', () => {
     expect(sql).toContain('join cohort on cohort.session_id = website_event.session_id');
     expect(sql).toContain('join session on session.session_id = website_event.session_id');
     expect(sql).toContain('and website_event.event_name = ANY({{eventName}})');
+    expect(sql).toContain('and website_event.trust_tier = 1');
     expect(sql).toContain('from matched_events\n      group by event_name');
     expect(sql).toContain('order by count(*) desc, event_name');
     expect(sql).toContain('limit {{limit}}');
@@ -97,6 +98,7 @@ describe('event series SQL', () => {
       2,
     );
     expect(sql.match(/and event_name IN \{eventName:Array\(String\)\}/g)).toHaveLength(2);
+    expect(sql.match(/and trust_tier = 1/g)).toHaveLength(2);
     expect(sql).toContain('order by count(*) desc, event_name');
     expect(sql).toContain('limit {limit:UInt32}');
     expect(params).toMatchObject({ limit: 1, eventName: ['rare-event'] });
@@ -104,16 +106,16 @@ describe('event series SQL', () => {
     expect(limits).toEqual({ maxExecutionTimeSeconds: 10, maxResultRows: 50_000 });
   });
 
-  test('ClickHouse hourly path expands names before applying the ranked-name filter', async () => {
+  test('ClickHouse unfiltered path reads verified raw rows, not mixed hourly aggregates', async () => {
     const { getEventStats, rawQuery } = await loadModule('clickhouse', false);
 
     await getEventStats('website-1', {}, { startDate, endDate, unit: 'day' });
 
     const [sql, params] = rawQuery.mock.calls[0];
-    expect(sql).toContain('select arrayJoin(event_name) as event_name');
-    expect(sql).toContain('where g.event_name in (');
-    expect(sql).toContain('select arrayJoin(event_name) as ranked_name');
-    expect(sql).toContain('group by ranked_name');
+    expect(sql).not.toContain('website_event_stats_hourly');
+    expect(sql.match(/and trust_tier = 1/g)).toHaveLength(2);
+    expect(sql).toContain('and event_name in (');
+    expect(sql).toContain('group by event_name');
     expect(sql).toContain('limit {limit:UInt32}');
     expect(params.limit).toBe(50);
   });

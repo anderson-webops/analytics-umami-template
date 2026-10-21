@@ -35,6 +35,11 @@ test.each(['prisma', 'clickhouse'] as const)(
       mode === 'prisma' ? 'limit {{rowLimit}}' : 'limit {rowLimit:UInt32}',
     );
     expect(sharedParams).toEqual({ websiteId: 'website-id', eventId: 'event-id', rowLimit: 501 });
+    expect(sharedSql).toContain('website_event.trust_tier = 1');
+    expect(sharedSql).toContain('event_data.trust_tier = 1');
+    if (mode === 'clickhouse') {
+      expect(sharedSql).toContain('event_data.url_path = website_event.url_path');
+    }
 
     await getEventDataById('website-id', 'event-id');
     const [ownerSql] = rawQuery.mock.lastCall as [string];

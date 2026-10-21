@@ -104,7 +104,6 @@ test.describe('Pixels', () => {
     const denied = await viewer.get(`/api/pixels/${pixelId}`);
     const anonymous = await api.get(`/api/pixels/${pixelId}`);
     const unknown = await user.get(`/api/pixels/${UNKNOWN_UUID}`);
-    // Admins bypass the ownership check, so an unknown id yields an empty 200.
     const adminUnknown = await admin.get(`/api/pixels/${UNKNOWN_UUID}`);
 
     expect(response.status).toBe(200);
@@ -112,8 +111,7 @@ test.describe('Pixels', () => {
     expect(denied.status).toBe(401);
     expect(anonymous.status).toBe(401);
     expect(unknown.status).toBe(401);
-    expect(adminUnknown.status).toBe(200);
-    expect(adminUnknown.body).toBeNull();
+    expect(adminUnknown.status).toBe(401);
   });
 
   test('POST /api/pixels/{pixelId} updates a pixel', async ({ admin, user, seed }) => {
@@ -209,8 +207,7 @@ test.describe('Pixels', () => {
     expect(denied.status).toBe(401);
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ ok: true });
-    expect(gone.status).toBe(200);
-    expect(gone.body).toBeNull();
+    expect(gone.status).toBe(401);
 
     pixelId = '';
   });

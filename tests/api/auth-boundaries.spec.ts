@@ -37,9 +37,13 @@ const cases = [
 for (const scenario of cases) {
   test(`annotation list and detail respect ${scenario.name} share permissions`, async ({
     request,
-  }) => {
+  }, testInfo) => {
     const api = new ApiClient(request);
     const admin = api.bearer(await login(api, ADMIN_USER));
+    const publicContext = await playwrightRequest.newContext({
+      baseURL: testInfo.project.use.baseURL,
+    });
+    const publicApi = new ApiClient(publicContext);
     const website = await createWebsite(admin);
     let shareId: string | undefined;
 
@@ -60,11 +64,11 @@ for (const scenario of cases) {
       ).body;
       shareId = share.id;
       const resolved = assertStatus(
-        await api.get(`/api/share/${share.slug}`),
+        await publicApi.get(`/api/share/${share.slug}`),
         200,
         'resolve share',
       );
-      const shared = api.with({
+      const shared = publicApi.with({
         [SHARE_TOKEN_HEADER]: resolved.body.token,
         [SHARE_CONTEXT_HEADER]: '1',
       });
@@ -72,13 +76,17 @@ for (const scenario of cases) {
       for (const endpoint of [base, `${base}/${annotation.id}`]) {
         expect((await admin.get(endpoint)).status).toBe(200);
         expect((await shared.get(endpoint)).status).toBe(scenario.status);
-        expect((await api.get(endpoint)).status).toBe(401);
+        expect((await publicApi.get(endpoint)).status).toBe(401);
       }
     } finally {
-      if (shareId) {
-        assertStatus(await admin.del(`/api/share/id/${shareId}`), 200, 'remove synthetic share');
+      try {
+        if (shareId) {
+          assertStatus(await admin.del(`/api/share/id/${shareId}`), 200, 'remove synthetic share');
+        }
+        await deleteWebsite(admin, website.id);
+      } finally {
+        await publicContext.dispose();
       }
-      await deleteWebsite(admin, website.id);
     }
   });
 }
@@ -128,15 +136,25 @@ for (const entity of [
           [SHARE_TOKEN_HEADER]: resolved.body.token,
           [SHARE_CONTEXT_HEADER]: '1',
         });
-        const response = assertStatus(
-          await shared.get(chartPath, { params: { ids: created.id } }),
-          200,
-          'read shared charts',
-        );
+        const response = await shared.get(chartPath, { params: { ids: created.id } });
 
-        expect(Object.keys(response.body.data)).toEqual(
-          scenario.name === 'restricted' ? [] : [created.id],
-        );
+        if (entity.name === 'website') {
+          expect(response.status).toBe(200);
+          expect(Object.keys(response.body.data)).toEqual(
+            scenario.name === 'restricted' || scenario.name === 'compare' ? [] : [created.id],
+          );
+        } else {
+          expect(response.status).toBe(401);
+          const now = Date.now();
+          const pageviewsPath = `/api/websites/${created.id}/pageviews`;
+          const pageviewsParams = { startAt: now - 60_000, endAt: now };
+          expect((await publicApi.get(pageviewsPath, { params: pageviewsParams })).status).toBe(
+            401,
+          );
+          expect((await shared.get(pageviewsPath, { params: pageviewsParams })).status).toBe(
+            scenario.name === 'restricted' ? 401 : 200,
+          );
+        }
 
         if (scenario.name === 'restricted') {
           const ownerWithShare = admin.with({

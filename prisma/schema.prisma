@@ -94,6 +94,7 @@ model SessionLink {
   websiteId  String    @map("website_id") @db.Uuid
   sessionId  String    @map("session_id") @db.Uuid
   distinctId String    @map("distinct_id") @db.VarChar(50)
+  trustTier  Int       @default(0) @map("trust_tier") @db.SmallInt
   createdAt  DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@id([websiteId, distinctId, sessionId])
@@ -113,6 +114,7 @@ model Website {
   updatedAt DateTime? @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
 
+  collectionGeneration Int @default(0) @map("collection_generation")
   recorderEnabled Boolean @default(false) @map("recorder_enabled")
   replayConfig    Json?   @map("replay_config")
 
@@ -123,6 +125,7 @@ model Website {
   eventData           EventData[]
   reports             Report[]
   revenue             Revenue[]
+  attestedRevenueMovements AttestedRevenueMovement[]
   segments            Segment[]
   sessionData         SessionData[]
   sessionReplays      SessionReplay[]
@@ -135,6 +138,13 @@ model Website {
   @@index([createdAt])
   @@index([createdBy])
   @@map("website")
+}
+
+model WebsiteCollectionTombstone {
+  websiteId      String @id @map("website_id") @db.Uuid
+  nextGeneration Int    @map("next_generation")
+
+  @@map("website_collection_tombstone")
 }
 
 model WebsiteEvent {
@@ -161,6 +171,7 @@ model WebsiteEvent {
   lifatid        String?   @map("li_fat_id") @db.VarChar(255)
   twclid         String?   @db.VarChar(255)
   eventType      Int       @default(1) @map("event_type") @db.Integer
+  trustTier      Int       @default(0) @map("trust_tier") @db.SmallInt
   eventName      String?   @map("event_name") @db.VarChar(50)
   tag            String?   @db.VarChar(50)
   hostname       String?   @db.VarChar(100)
@@ -203,6 +214,7 @@ model EventData {
   numberValue    Decimal?  @map("number_value") @db.Decimal(19, 4)
   dateValue      DateTime? @map("date_value") @db.Timestamptz(6)
   dataType       Int       @map("data_type") @db.Integer
+  trustTier      Int       @default(0) @map("trust_tier") @db.SmallInt
   createdAt      DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
 
   website      Website      @relation(fields: [websiteId], references: [id])
@@ -226,6 +238,7 @@ model SessionData {
   dateValue   DateTime? @map("date_value") @db.Timestamptz(6)
   dataType    Int       @map("data_type") @db.Integer
   distinctId  String?   @map("distinct_id") @db.VarChar(50)
+  trustTier   Int       @default(0) @map("trust_tier") @db.SmallInt
   createdAt   DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
 
   website Website @relation(fields: [websiteId], references: [id])
@@ -347,6 +360,27 @@ model Revenue {
   @@index([websiteId, createdAt])
   @@index([websiteId, sessionId, createdAt])
   @@map("revenue")
+}
+
+model AttestedRevenueMovement {
+  id                   String   @id() @map("movement_id") @db.Uuid
+  websiteId            String   @map("website_id") @db.Uuid
+  source               String   @db.VarChar(40)
+  sourceMovementId     String   @map("source_movement_id") @db.Uuid
+  orderId              String   @map("order_id") @db.Uuid
+  customerId           String?  @map("customer_id") @db.Uuid
+  kind                 String   @db.VarChar(7)
+  amount               Decimal  @db.Decimal(19, 4)
+  currency             String   @db.Char(3)
+  collectionGeneration Int      @map("collection_generation")
+  occurredAt           DateTime @map("occurred_at") @db.Timestamptz(6)
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  website Website @relation(fields: [websiteId], references: [id], onDelete: Cascade)
+
+  @@unique([websiteId, sourceMovementId], map: "attested_revenue_movement_idempotency_key")
+  @@index([websiteId, currency, occurredAt], map: "attested_revenue_movement_report_idx")
+  @@map("attested_revenue_movement")
 }
 
 model Link {

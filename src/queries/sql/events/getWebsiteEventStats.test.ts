@@ -63,6 +63,7 @@ describe('getWebsiteEventStats', () => {
     expect(query).toContain('count(distinct website_event.visit_id) as "visits"');
     expect(query).toContain('count(distinct website_event.event_name) as "uniqueEvents"');
     expect(query).toContain('from website_event');
+    expect(query).toContain('and website_event.trust_tier = 1');
     expect(query).toContain('join session on session.session_id = website_event.session_id');
     expect(query).not.toContain('group by 1, 2, 3');
     expect(query).not.toContain('sum(t.c)');
@@ -82,11 +83,12 @@ describe('getWebsiteEventStats', () => {
     expect(query).toContain('uniq(visit_id) as "visits"');
     expect(query).toContain('uniq(event_name) as "uniqueEvents"');
     expect(query).toContain('from website_event');
+    expect(query).toContain('and trust_tier = 1');
     expect(query).not.toContain('group by session_id, visit_id, event_name');
     expect(query).not.toContain('sum(t.c)');
   });
 
-  test('clickhouse uses the hourly rollup when there are no extra filters', async () => {
+  test('clickhouse avoids mixed-trust hourly rollups when there are no extra filters', async () => {
     vi.resetModules();
 
     const clickhouseRawQuery = vi.fn().mockResolvedValue([{}]);
@@ -118,9 +120,10 @@ describe('getWebsiteEventStats', () => {
 
     const [query] = clickhouseRawQuery.mock.calls[0];
 
-    expect(query).toContain('sum(length(event_name)) as "events"');
-    expect(query).toContain('uniqArray(event_name) as "uniqueEvents"');
-    expect(query).toContain('from website_event_stats_hourly website_event');
-    expect(query).not.toContain('from website_event\n');
+    expect(query).toContain('count(*) as "events"');
+    expect(query).toContain('uniq(event_name) as "uniqueEvents"');
+    expect(query).toContain('from website_event');
+    expect(query).toContain('and trust_tier = 1');
+    expect(query).not.toContain('website_event_stats_hourly');
   });
 });

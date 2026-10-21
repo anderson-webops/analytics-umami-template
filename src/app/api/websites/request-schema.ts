@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isRecorderPermitEndpoint } from '@/lib/recorder';
 import { domainParam, pagingParams, searchParams, sortingParams } from '@/lib/schema';
 
 export const replayConfigInputSchema = z
@@ -10,6 +11,7 @@ export const replayConfigInputSchema = z
     maskLevel: z.enum(['strict', 'moderate']).optional(),
     maxDuration: z.number().int().min(60_000).max(3_600_000).optional(),
     blockSelector: z.string().max(1_000).optional(),
+    permitEndpoint: z.string().max(255).refine(isRecorderPermitEndpoint).nullable().optional(),
   })
   .strict()
   .meta({ id: 'ReplayConfigInput' });

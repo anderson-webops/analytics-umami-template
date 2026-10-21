@@ -1,3 +1,4 @@
+import clickhouse from '@/lib/clickhouse';
 import { PERMISSIONS } from '@/lib/constants';
 import { uuid } from '@/lib/crypto';
 import prisma from '@/lib/prisma';
@@ -17,6 +18,44 @@ export interface CreateReplayChunkArgs {
   eventCount: number;
   startedAt: Date;
   endedAt: Date;
+}
+
+async function getClickHouseReplayExpiry(websiteId: string, visitId: string) {
+  const rows = await clickhouse.rawQuery<
+    { chunks: number; legacyChunks: number; expiresAt: string }[]
+  >(
+    `select count() as chunks,
+      countIf(retention_policy = 0) as legacyChunks,
+      minIf(ingested_at + INTERVAL 30 DAY, retention_policy = 1) as expiresAt
+    from session_replay
+    prewhere website_id = {websiteId:UUID}
+      and visit_id = {visitId:UUID}
+      and (retention_policy = 0 or ingested_at + INTERVAL 30 DAY > now('UTC'))`,
+    { websiteId, visitId },
+    'getReplayExpiry',
+    { maxExecutionTimeSeconds: 3, maxResultRows: 1 },
+  );
+  const row = rows[0];
+
+  if (!row || !Number.isSafeInteger(Number(row.chunks)) || Number(row.chunks) < 1) {
+    return undefined;
+  }
+
+  if (!Number.isSafeInteger(Number(row.legacyChunks))) {
+    throw new Error('Invalid replay retention metadata.');
+  }
+
+  if (Number(row.legacyChunks) > 0) {
+    return null;
+  }
+
+  const expiresAt = new Date(row.expiresAt);
+
+  if (!Number.isFinite(expiresAt.getTime()) || expiresAt <= new Date()) {
+    throw new Error('Invalid replay retention metadata.');
+  }
+
+  return expiresAt;
 }
 
 export async function getReplayChunks(websiteId: string, visitId: string) {
@@ -109,20 +148,21 @@ export async function setReplaySavedByActor(
       return false;
     }
 
-    const replayExists = await transaction.sessionReplay.findFirst({
-      where: {
-        websiteId,
-        visitId,
-        OR: [{ retentionExpiresAt: null }, { retentionExpiresAt: { gt: new Date() } }],
-      },
-      select: {
-        id: true,
-        retentionExpiresAt: true,
-      },
-      orderBy: { retentionExpiresAt: { sort: 'asc', nulls: 'first' } },
-    });
+    const retentionExpiresAt = clickhouse.enabled
+      ? await getClickHouseReplayExpiry(websiteId, visitId)
+      : (
+          await transaction.sessionReplay.findFirst({
+            where: {
+              websiteId,
+              visitId,
+              OR: [{ retentionExpiresAt: null }, { retentionExpiresAt: { gt: new Date() } }],
+            },
+            select: { retentionExpiresAt: true },
+            orderBy: { retentionExpiresAt: { sort: 'asc', nulls: 'first' } },
+          })
+        )?.retentionExpiresAt;
 
-    if (!replayExists) {
+    if (retentionExpiresAt === undefined) {
       throw new Error('REPLAY_NOT_FOUND');
     }
 
@@ -138,11 +178,11 @@ export async function setReplaySavedByActor(
         websiteId,
         visitId,
         name,
-        retentionExpiresAt: replayExists.retentionExpiresAt,
+        retentionExpiresAt,
       },
       update: {
         name,
-        retentionExpiresAt: replayExists.retentionExpiresAt,
+        retentionExpiresAt,
       },
     });
 

@@ -1,4 +1,9 @@
-import { DEFAULT_PAGE_SIZE, FILTER_COLUMNS, OPERATORS } from '@/lib/constants';
+import {
+  DEFAULT_PAGE_SIZE,
+  FILTER_COLUMNS,
+  MAX_VERIFIED_IDENTITY_FILTERS,
+  OPERATORS,
+} from '@/lib/constants';
 import { hash } from '@/lib/crypto';
 import { getAllowedUnits, getMinimumUnit } from '@/lib/date';
 import { getIpAddress } from '@/lib/ip';
@@ -134,7 +139,16 @@ export function getStepFilterCount(value: unknown) {
 export function isSavedSegmentWithinQueryBudget(
   filters: Filter[],
   sessionPropertyFilters: Pick<SessionPropertyFilter, 'operator'>[] = [],
+  cohortActionType?: string,
 ) {
+  const identityFilterCount =
+    filters.filter(({ name }) => name === 'distinctId').length +
+    Number(cohortActionType === 'distinctId');
+
+  if (process.env.CLICKHOUSE_URL && identityFilterCount > MAX_VERIFIED_IDENTITY_FILTERS) {
+    return false;
+  }
+
   const values = filtersArrayToObject(filters);
   const sessionWeight = sessionPropertyFilters.reduce(
     (weight, filter) =>

@@ -1,5 +1,5 @@
 import clickhouse from '@/lib/clickhouse';
-import { EVENT_COLUMNS, EVENT_TYPE } from '@/lib/constants';
+import { COLLECTION_TRUST_TIER, EVENT_COLUMNS, EVENT_TYPE } from '@/lib/constants';
 import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
 import prisma from '@/lib/prisma';
 import type { QueryFilters } from '@/lib/types';
@@ -55,7 +55,7 @@ async function relationalQuery(
           sum(case when website_event.event_type NOT IN (2, 5) then 1 else 0 end) as "c",
           min(case when website_event.event_type NOT IN (2, 5) then website_event.created_at end) as "min_time",
           max(case when website_event.event_type NOT IN (2, 5) then website_event.created_at end) as "max_time",
-          max(case when website_event.event_type = ${EVENT_TYPE.customEvent} then 1 else 0 end) as "has_custom_event"
+          max(case when website_event.event_type = ${EVENT_TYPE.customEvent} and website_event.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized} then 1 else 0 end) as "has_custom_event"
         from website_event
         ${cohortQuery}
         ${excludeBounceQuery}
@@ -85,6 +85,7 @@ async function relationalQuery(
         where website_id = {{websiteId::uuid}}
           and created_at between {{startDate}} and {{endDate}}
           and event_type = ${EVENT_TYPE.customEvent}
+          and trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}
         group by 1, 2
       ) as e
         on e.session_id = t.session_id
@@ -172,6 +173,7 @@ async function clickhouseQuery(
       where website_id = {websiteId:UUID}
         and created_at between {startDate:DateTime64} and {endDate:DateTime64}
         and event_type = ${EVENT_TYPE.customEvent}
+        and trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}
       group by session_id, visit_id
     ) as e using (session_id, visit_id)`
     };
@@ -188,11 +190,11 @@ async function clickhouseQuery(
       select
         session_id,
         visit_id,
-        sum(views) c,
-        minIf(min_time, event_type NOT IN (2, 5)) min_time,
-        maxIf(max_time, event_type NOT IN (2, 5)) max_time,
-        max(if(event_type = ${EVENT_TYPE.customEvent} and length(event_name) > 0, 1, 0)) has_custom_event
-        from website_event_stats_hourly "website_event"
+        countIf(event_type NOT IN (2, 5)) c,
+        minIf(created_at, event_type NOT IN (2, 5)) min_time,
+        maxIf(created_at, event_type NOT IN (2, 5)) max_time,
+        max(if(event_type = ${EVENT_TYPE.customEvent} and trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized} and length(event_name) > 0, 1, 0)) has_custom_event
+        from website_event
         ${cohortQuery}
         ${excludeBounceQuery}
       where website_id = {websiteId:UUID}

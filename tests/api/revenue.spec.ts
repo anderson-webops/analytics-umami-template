@@ -2,10 +2,9 @@ import { expect, test } from './fixtures';
 import { dateRange, TIMEZONE } from './helpers/dates';
 
 /**
- * Seeded revenue on `seed.website` (see seed/dataset.ts): the 3 identified personas
- * each send a `purchase` on 3 days with revenue 49.5 / 59.5 / 69.5 in USD.
- * 9 purchases, sum 535.5, average 59.5. Nothing else in the suite ingests
- * `revenue` for this website, so these totals are asserted exactly.
+ * Historical revenue claims on `seed.website` (see seed/dataset.ts) are seeded
+ * directly in the disposable database, never submitted through collection.
+ * Nine claims across 3 synthetic sessions sum to 535.5 USD; they do not prove orders.
  */
 
 const PURCHASE_REVENUES = [49.5, 59.5, 69.5];
@@ -41,7 +40,8 @@ test.describe('Revenue', () => {
     });
 
     expect(response.status).toBe(200);
-    expect(Object.keys(response.body)).toEqual(['chart']);
+    expect(Object.keys(response.body).sort()).toEqual(['chart', 'revenueProvenance']);
+    expect(response.body.revenueProvenance).toBe('unverified_historical_event_claims');
     // Purchases land on 3 distinct days, 3 per day.
     expect(response.body.chart).toHaveLength(3);
     for (const point of response.body.chart) {
@@ -94,8 +94,11 @@ test.describe('Revenue', () => {
       for (const row of response.body) {
         // Region rows also carry the parent `country`.
         expect(Object.keys(row).sort(), type).toEqual(
-          type === 'region' ? ['country', 'name', 'value'] : ['name', 'value'],
+          type === 'region'
+            ? ['country', 'name', 'revenueProvenance', 'value']
+            : ['name', 'revenueProvenance', 'value'],
         );
+        expect(row.revenueProvenance).toBe('unverified_historical_event_claims');
       }
       // Every breakdown adds up to the full seeded revenue.
       const total = response.body.reduce((sum: number, row: any) => sum + Number(row.value), 0);
@@ -105,9 +108,20 @@ test.describe('Revenue', () => {
     // The test image has no GeoIP database, so country/region are unresolved
     // (null on Postgres, '' on ClickHouse's non-nullable String columns).
     const unresolved = seed.db === 'clickhouse' ? '' : null;
-    expect(byType.country.body).toEqual([{ name: unresolved, value: expect.anything() }]);
+    expect(byType.country.body).toEqual([
+      {
+        name: unresolved,
+        value: expect.anything(),
+        revenueProvenance: 'unverified_historical_event_claims',
+      },
+    ]);
     expect(byType.region.body).toEqual([
-      { country: unresolved, name: unresolved, value: expect.anything() },
+      {
+        country: unresolved,
+        name: unresolved,
+        value: expect.anything(),
+        revenueProvenance: 'unverified_historical_event_claims',
+      },
     ]);
 
     // alice (google.com, utm+gclid => paidAds) buys 3 x 49.5, bob (t.co => organicSocial)
@@ -211,7 +225,7 @@ test.describe('Revenue', () => {
     expect(response.body).toMatchObject({
       count: PURCHASE_COUNT,
       unique_count: 3,
-      total_sessions: expect.any(Number),
+      arpu: null,
     });
     // The comparison window precedes the seeded range and holds no revenue.
     expect(Object.keys(response.body.comparison).sort()).toEqual([
@@ -219,18 +233,14 @@ test.describe('Revenue', () => {
       'average',
       'count',
       'sum',
-      'total_sessions',
       'unique_count',
     ]);
+    expect(response.body.comparison.arpu).toBeNull();
     expect(response.body.comparison.count).toBe(0);
     expect(Number(response.body.comparison.sum ?? 0)).toBe(0);
     expect(Number(response.body.sum)).toBeCloseTo(PURCHASE_TOTAL, 5);
     expect(Number(response.body.average)).toBeCloseTo(PURCHASE_TOTAL / PURCHASE_COUNT, 5);
-    expect(response.body.total_sessions).toBeGreaterThanOrEqual(3);
-    expect(Number(response.body.arpu)).toBeCloseTo(
-      PURCHASE_TOTAL / response.body.total_sessions,
-      5,
-    );
+    expect(response.body).not.toHaveProperty('total_sessions');
 
     // Nothing was ingested in EUR.
     expect(otherCurrency.status).toBe(200);
@@ -241,5 +251,28 @@ test.describe('Revenue', () => {
     expect(denied.status).toBe(401);
     expect(missingCurrency.status).toBe(400);
     expect(missingRange.status).toBe(400);
+  });
+
+  test('GET /api/websites/{websiteId}/revenue/total labels historical claims', async ({
+    admin,
+    share,
+    viewer,
+    seed,
+  }) => {
+    const path = `${base}/revenue/total`;
+    const params = dateRange(seed, { currency: seed.data.currency });
+    const response = await admin.get(path, { params });
+    const shared = await (await share()).get(path, { params });
+    const denied = await viewer.get(path, { params });
+    const missingCurrency = await admin.get(path, { params: dateRange(seed) });
+
+    expect(response.status).toBe(200);
+    expect(Object.keys(response.body).sort()).toEqual(['revenueProvenance', 'sum']);
+    expect(response.body.revenueProvenance).toBe('unverified_historical_event_claims');
+    expect(Number(response.body.sum)).toBeCloseTo(PURCHASE_TOTAL, 5);
+    expect(shared.status).toBe(200);
+    expect(shared.body.revenueProvenance).toBe('unverified_historical_event_claims');
+    expect(denied.status).toBe(401);
+    expect(missingCurrency.status).toBe(400);
   });
 });

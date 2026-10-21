@@ -70,10 +70,10 @@ const operation1 = defineOperation({
                           const: 'user',
                         },
                         {
-                          const: 'team',
+                          const: 'global',
                         },
                         {
-                          const: 'global',
+                          const: 'team',
                         },
                       ],
                       description: 'Reason two-factor authentication is required.',

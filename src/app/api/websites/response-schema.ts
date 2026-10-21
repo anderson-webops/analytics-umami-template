@@ -12,6 +12,7 @@ export const replayConfigSchema = z
     maskLevel: z.enum(['strict', 'moderate']).optional(),
     maxDuration: z.number().int().positive().optional(),
     blockSelector: z.string().optional(),
+    permitEndpoint: z.string().optional(),
   })
   .meta({ id: 'ReplayConfig' });
 

@@ -29,6 +29,7 @@ integrationTest(
       event_name TEXT,
       created_at TIMESTAMPTZ NOT NULL,
       event_type INTEGER NOT NULL,
+      trust_tier SMALLINT NOT NULL DEFAULT 0,
       is_bot BOOLEAN NOT NULL
     )`);
 
@@ -49,15 +50,21 @@ integrationTest(
 
       for (const { eventName, createdAt, isBot } of rows) {
         await client.query(
-          'INSERT INTO website_event (website_id, session_id, event_name, created_at, event_type, is_bot) VALUES ($1, $1, $2, $3, 2, $4)',
+          'INSERT INTO website_event (website_id, session_id, event_name, created_at, event_type, is_bot, trust_tier) VALUES ($1, $1, $2, $3, 2, $4, 1)',
           [websiteId, eventName, createdAt, isBot],
         );
       }
+
+      await client.query(
+        'INSERT INTO website_event (website_id, session_id, event_name, created_at, event_type, is_bot) VALUES ($1, $1, $2, $3, 2, false)',
+        [websiteId, 'legacy-only', firstDay],
+      );
 
       const { getEventStats } = await import('./getEventStats');
       const defaultSeries = await getEventStats(websiteId, {}, filters);
       expect(new Set(defaultSeries.map(row => row.x)).size).toBe(50);
       expect(defaultSeries.filter(row => row.x === names[0])).toHaveLength(2);
+      expect(defaultSeries.some(row => row.x === 'legacy-only')).toBe(false);
 
       const rareSeries = await getEventStats(
         websiteId,

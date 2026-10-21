@@ -118,6 +118,8 @@ const fieldDescriptions: Record<string, string> = {
   propertyValues: 'Values of the custom properties.',
   dataKey: 'Name of the custom property.',
   dataType: 'Data type of the custom property.',
+  trustTier:
+    'Property provenance: 0 for unverified historical data, 1 for a website-backend-authorized submission. Authorization does not prove the reported fact.',
   stringValue: 'Custom property value stored as a string.',
   numberValue: 'Custom property value stored as a number.',
   dateValue: 'Custom property value stored as a date-time.',

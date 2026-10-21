@@ -92,11 +92,13 @@ test.describe('Users', () => {
     await admin.post(`/api/users/${userId}`, { password });
   });
 
-  test('POST /api/users/{userId} ignores role changes from non-admins', async ({ user, seed }) => {
+  test('POST /api/users/{userId} rejects role changes from non-admins', async ({ user, seed }) => {
     const response = await user.post(`/api/users/${seed.user.id}`, { role: 'admin' });
+    const current = await user.get(`/api/users/${seed.user.id}`);
 
-    expect(response.status).toBe(200);
-    expect(response.body.role).toBe('user');
+    expect(response.status).toBe(403);
+    expect(current.status).toBe(200);
+    expect(current.body.role).toBe('user');
   });
 
   test('POST /api/users/{userId} rejects unknown users and other users', async ({

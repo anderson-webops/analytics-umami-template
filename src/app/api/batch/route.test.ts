@@ -83,6 +83,120 @@ test('a valid batch charges once per child, including the outer admission', asyn
   expect(ipCounts).toEqual([3n]);
 });
 
+test('a retried backend batch derives the same distinct child request IDs', async () => {
+  vi.mocked(parseRequest).mockResolvedValue({
+    body: [{ type: 'event' }, { type: 'identify' }],
+    error: undefined,
+  } as any);
+  const received: string[] = [];
+  sendPost.mockImplementation(async request => {
+    await getCollectionIpLimit(request);
+    received.push(request.headers.get('x-umami-request-id'));
+    return Response.json({ cache: null });
+  });
+  const headers = {
+    'x-umami-request-id': '33333333-3333-4333-8333-333333333333',
+    'x-umami-request-timestamp': String(Math.floor(Date.now() / 1000)),
+  };
+  const makeRequest = () =>
+    new Request('https://analytics.example/api/batch', {
+      method: 'POST',
+      headers,
+    });
+
+  expect((await POST(makeRequest())).status).toBe(200);
+  expect((await POST(makeRequest())).status).toBe(200);
+  expect(received).toHaveLength(4);
+  expect(received[0]).not.toBe(received[1]);
+  expect(received.slice(0, 2)).toEqual(received.slice(2));
+});
+
+test('moving an accepted item cannot change its replay ID', async () => {
+  const accepted = {
+    type: 'event',
+    payload: { website: '11111111-1111-4111-8111-111111111111', name: 'signup' },
+  };
+  const other = {
+    type: 'event',
+    payload: { website: '11111111-1111-4111-8111-111111111111', name: 'purchase' },
+  };
+  vi.mocked(parseRequest)
+    .mockResolvedValueOnce({ body: [accepted], error: undefined } as any)
+    .mockResolvedValueOnce({ body: [other, accepted], error: undefined } as any);
+  const received: Array<{ name: string; requestId: string | null }> = [];
+  sendPost.mockImplementation(async request => {
+    await getCollectionIpLimit(request);
+    const body = await request.json();
+    received.push({
+      name: body.payload.name,
+      requestId: request.headers.get('x-umami-request-id'),
+    });
+    return Response.json({ cache: null });
+  });
+  const headers = { 'x-umami-request-id': '33333333-3333-4333-8333-333333333333' };
+
+  await POST(new Request('https://analytics.example/api/batch', { method: 'POST', headers }));
+  await POST(new Request('https://analytics.example/api/batch', { method: 'POST', headers }));
+
+  expect(received[0].requestId).toBe(received[2].requestId);
+  expect(received[0].requestId).not.toBe(received[1].requestId);
+});
+
+test('identical backend items receive distinct stable IDs across reordered retries', async () => {
+  const repeated = { type: 'event', payload: { website: 'site', name: 'signup' } };
+  const other = { type: 'event', payload: { website: 'site', name: 'visit' } };
+  vi.mocked(parseRequest)
+    .mockResolvedValueOnce({ body: [repeated, other, repeated], error: undefined } as any)
+    .mockResolvedValueOnce({ body: [other, repeated, repeated], error: undefined } as any);
+  const received: Array<{ name: string; requestId: string | null }> = [];
+  sendPost.mockImplementation(async request => {
+    await getCollectionIpLimit(request);
+    const body = await request.json();
+    received.push({
+      name: body.payload.name,
+      requestId: request.headers.get('x-umami-request-id'),
+    });
+    return Response.json({ cache: null });
+  });
+  const headers = { 'x-umami-request-id': '33333333-3333-4333-8333-333333333333' };
+
+  await POST(new Request('https://analytics.example/api/batch', { method: 'POST', headers }));
+  await POST(new Request('https://analytics.example/api/batch', { method: 'POST', headers }));
+
+  expect(received).toHaveLength(6);
+  expect(received[0].requestId).not.toBe(received[2].requestId);
+  expect(received[0].requestId).toBe(received[4].requestId);
+  expect(received[2].requestId).toBe(received[5].requestId);
+  expect(received[1].requestId).toBe(received[3].requestId);
+});
+
+test('an empty child response is counted as not recorded without aborting the batch', async () => {
+  vi.mocked(parseRequest).mockResolvedValue({
+    body: [{ type: 'event' }, { type: 'event' }],
+    error: undefined,
+  } as any);
+  sendPost
+    .mockImplementationOnce(async request => {
+      await getCollectionIpLimit(request);
+      return new Response(null, { status: 204 });
+    })
+    .mockImplementationOnce(async request => {
+      await getCollectionIpLimit(request);
+      return Response.json({ cache: null });
+    });
+
+  const response = await POST(batchRequest());
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({
+    size: 2,
+    processed: 1,
+    errors: 1,
+    details: [{ index: 0, response: { error: { code: 'not-recorded', status: 204 } } }],
+  });
+  expect(send.POST).toHaveBeenCalledTimes(2);
+});
+
 test('batch reuses session state only for later items from the same website', async () => {
   const firstWebsite = '11111111-1111-4111-8111-111111111111';
   const secondWebsite = '22222222-2222-4222-8222-222222222222';

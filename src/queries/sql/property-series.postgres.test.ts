@@ -46,7 +46,8 @@ integrationTest(
       created_at TIMESTAMPTZ NOT NULL,
       data_key TEXT NOT NULL,
       data_type INTEGER NOT NULL,
-      string_value VARCHAR(500)
+      string_value VARCHAR(500),
+      trust_tier SMALLINT NOT NULL DEFAULT 0
     )`);
 
       const names = Array.from(
@@ -85,7 +86,7 @@ integrationTest(
             type,
             storedValue,
           ]);
-          await client.query('INSERT INTO session_data VALUES ($1, $2, $3, $4, $5, $6)', [
+          await client.query('INSERT INTO session_data VALUES ($1, $2, $3, $4, $5, $6, 1)', [
             sessionId,
             websiteId,
             createdAt,
@@ -96,12 +97,35 @@ integrationTest(
         }
       }
 
-      await client.query('INSERT INTO session_data VALUES ($1, $2, $3, $4, 1, $5)', [
+      await client.query('INSERT INTO session_data VALUES ($1, $2, $3, $4, 1, $5, 1)', [
         firstSessionId,
         websiteId,
         new Date('2026-08-01T12:00:00Z'),
         'plan',
         'out-of-range',
+      ]);
+
+      const legacySessionId = randomUUID();
+      await client.query('INSERT INTO website_event VALUES ($1, $2, $3, $4, $5, 1)', [
+        randomUUID(),
+        websiteId,
+        legacySessionId,
+        'pageview',
+        firstDay,
+      ]);
+      await client.query('INSERT INTO session_data VALUES ($1, $2, $3, $4, 1, $5)', [
+        legacySessionId,
+        websiteId,
+        firstDay,
+        'plan',
+        'legacy-only',
+      ]);
+      await client.query('INSERT INTO session_data VALUES ($1, $2, $3, $4, 5, $5)', [
+        legacySessionId,
+        websiteId,
+        firstDay,
+        'tags',
+        '["legacy-only"]',
       ]);
 
       const { getEventDataPropertySeries } = await import('./events/getEventDataPropertySeries');
@@ -122,6 +146,7 @@ integrationTest(
         expect(series.filter(row => row.x === names[0])).toHaveLength(2);
         expect(series.some(row => row.x === names[59])).toBe(false);
         expect(series.some(row => row.x === 'out-of-range')).toBe(false);
+        expect(series.some(row => row.x === 'legacy-only')).toBe(false);
       }
       for (const series of results) {
         expect(series.filter(row => row.x === null)).toHaveLength(2);

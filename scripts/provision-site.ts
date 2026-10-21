@@ -5,6 +5,7 @@ import { PrismaClient } from '../src/generated/prisma/client.js';
 import { DOMAIN_REGEX, ROLES } from '../src/lib/constants.js';
 import { isUuid, uuid } from '../src/lib/crypto.js';
 import { checkPassword, hashPassword, isStrongPassword } from '../src/lib/password.js';
+import { getNextWebsiteCollectionGeneration } from '../src/queries/prisma/collection-generation.js';
 
 type ParsedArgs = Record<string, string | boolean>;
 
@@ -449,6 +450,7 @@ async function main() {
         }
 
         const websiteId = requestedWebsiteId || uuid();
+        await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${websiteId.toLowerCase()}))::text`;
         const [websiteConflict, linkConflict, pixelConflict, boardConflict] = await Promise.all([
           transaction.website.findUnique({ where: { id: websiteId }, select: { id: true } }),
           transaction.link.findUnique({ where: { id: websiteId }, select: { id: true } }),
@@ -467,6 +469,7 @@ async function main() {
             domain: websiteDomain,
             userId: adminUserId,
             createdBy: adminUserId,
+            collectionGeneration: await getNextWebsiteCollectionGeneration(transaction, websiteId),
           },
         });
 

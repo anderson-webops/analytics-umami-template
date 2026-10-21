@@ -21,6 +21,7 @@ async function loadSaveSessionLink(clickhouseEnabled: boolean, kafkaEnabled = fa
       findMany: vi.fn().mockResolvedValue([]),
       count: vi.fn().mockResolvedValue(0),
       create: vi.fn().mockResolvedValue(data),
+      update: vi.fn().mockResolvedValue(data),
     },
   };
   const transaction = vi.fn(async operation => operation(admission));
@@ -90,9 +91,10 @@ test.each([false, true])(
       expect(getLegacyLinkedSessionIds).not.toHaveBeenCalled();
     }
 
-    admission.sessionLink.findUnique.mockResolvedValue({ sessionId: data.sessionId });
+    admission.sessionLink.findUnique.mockResolvedValue({ sessionId: data.sessionId, trustTier: 1 });
     expect(await saveSessionLink(data)).toBe(true);
     expect(admission.sessionLink.create).toHaveBeenCalledTimes(1);
+    expect(admission.sessionLink.update).not.toHaveBeenCalled();
 
     admission.sessionLink.findUnique.mockResolvedValue(null);
     if (clickhouseEnabled) {
@@ -159,7 +161,7 @@ test('ClickHouse admission reuses the caller transaction without acquiring a sec
   expect(insert).not.toHaveBeenCalled();
 });
 
-test('ClickHouse admission accepts an existing legacy link at the cap without creating a new row', async () => {
+test('ClickHouse admission promotes an existing unverified link without increasing identity cardinality', async () => {
   const { saveSessionLink, admission, getLegacyLinkedSessionIds, insert } =
     await loadSaveSessionLink(true);
   getLegacyLinkedSessionIds.mockResolvedValue(
@@ -169,8 +171,28 @@ test('ClickHouse admission accepts an existing legacy link at the cap without cr
   );
 
   expect(await saveSessionLink(data)).toBe(true);
-  expect(admission.sessionLink.create).not.toHaveBeenCalled();
+  expect(admission.sessionLink.create).toHaveBeenCalledWith({
+    data: expect.objectContaining({ trustTier: 1 }),
+  });
   expect(insert).not.toHaveBeenCalled();
+});
+
+test('backend-authorized identify upgrades a historical PostgreSQL link', async () => {
+  const { saveSessionLink, admission } = await loadSaveSessionLink(false);
+  admission.sessionLink.findUnique.mockResolvedValue({ sessionId: data.sessionId, trustTier: 0 });
+
+  expect(await saveSessionLink(data)).toBe(true);
+  expect(admission.sessionLink.update).toHaveBeenCalledWith({
+    where: {
+      websiteId_distinctId_sessionId: {
+        websiteId: data.websiteId,
+        distinctId: data.distinctId,
+        sessionId: data.sessionId,
+      },
+    },
+    data: { trustTier: 1 },
+  });
+  expect(admission.sessionLink.create).not.toHaveBeenCalled();
 });
 
 test('ClickHouse delivery follows committed admission and is idempotent', async () => {

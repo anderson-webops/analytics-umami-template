@@ -9,7 +9,14 @@ import {
   MAX_RECORDER_NEW_VISIT_KEYS_PER_MINUTE,
   reserveRecorderVisitKeyBudget,
 } from '@/lib/recorder-budget';
-import { ReplayBudgetExceededError, reserveReplayBudget } from '@/lib/replay-budget';
+import {
+  MAX_REPLAY_BYTES,
+  markAcknowledgedReplayChunk,
+  markUnstoredReplayChunkRetryable,
+  ReplayBudgetExceededError,
+  ReplayWritePendingError,
+  reserveReplayBudget,
+} from '@/lib/replay-budget';
 
 assert.equal(process.env.ALLOW_DESTRUCTIVE_MIGRATION_TEST, '1');
 const databaseUrl = process.env.DATABASE_URL;
@@ -27,7 +34,13 @@ const heatmapVisitId = randomUUID();
 let created = false;
 let otherCreated = false;
 
-async function replay(visitId: string, chunkIndex: number, sourceId = websiteId) {
+async function replay(
+  visitId: string,
+  chunkIndex: number,
+  sourceId = websiteId,
+  bytes = 100,
+  pendingExternalWrite = false,
+) {
   return client.$transaction(transaction =>
     reserveReplayBudget(transaction, {
       websiteId: sourceId,
@@ -35,7 +48,8 @@ async function replay(visitId: string, chunkIndex: number, sourceId = websiteId)
       visitId,
       chunkIndex,
       idempotent: true,
-      bytes: 100,
+      pendingExternalWrite,
+      bytes,
       events: 1,
       structureUnits: 1,
     }),
@@ -130,17 +144,79 @@ try {
       data: { expiresAt: null },
     });
   }
-  assert.equal(await replay(replayVisitId, 2), true);
+  assert.equal(await replay(replayVisitId, 2, websiteId, 100, true), true);
   await heatmap(heatmapVisitId);
   const replayBudget = await budget(replayVisitId);
   const heatmapBudget = await budget(`heatmap:${heatmapVisitId}`);
   assertBoundedExpiry(replayBudget.expiresAt);
   assertBoundedExpiry(heatmapBudget.expiresAt);
-  assert.deepEqual(replayBudget.chunkIndices, [1, 2]);
+  assert.deepEqual(replayBudget.chunkIndices, [1, -2]);
   assert.equal(replayBudget.bytes, 200n);
   assert.equal(heatmapBudget.bytes, 200n);
-  assert.equal(await replay(replayVisitId, 2), false);
+  await assert.rejects(
+    () => replay(replayVisitId, 2),
+    error => error instanceof ReplayWritePendingError,
+  );
   assert.equal((await budget(replayVisitId)).bytes, 200n);
+  await client.$transaction(transaction =>
+    markUnstoredReplayChunkRetryable(transaction, websiteId, replayVisitId, 2, {
+      bytes: 100,
+      events: 1,
+    }),
+  );
+  assert.deepEqual((await budget(replayVisitId)).chunkIndices, [1]);
+  assert.equal((await budget(replayVisitId)).bytes, 100n);
+  assert.equal((await budget(replayVisitId)).events, 1);
+  assert.equal((await budget(replayVisitId)).chunks, 1);
+  await assert.rejects(
+    () =>
+      client.$transaction(transaction =>
+        markUnstoredReplayChunkRetryable(transaction, websiteId, replayVisitId, 2, {
+          bytes: 100,
+          events: 1,
+        }),
+      ),
+    error => error instanceof ReplayBudgetExceededError,
+  );
+  await assert.rejects(
+    () => replay(replayVisitId, 2, websiteId, MAX_REPLAY_BYTES),
+    error => error instanceof ReplayBudgetExceededError,
+  );
+  assert.deepEqual((await budget(replayVisitId)).chunkIndices, [1]);
+  assert.equal((await budget(replayVisitId)).bytes, 100n);
+  const sourceDayBytesBeforeRetry = (
+    await client.replayIngestBudget.findMany({
+      where: { websiteId, scope: 'day' },
+    })
+  ).reduce((total, row) => total + row.bytes, 0n);
+  const accountDayBytesBeforeRetry = (
+    await client.collectionIngestBudget.findMany({
+      where: { subjectType: 'user', subjectKey: account.accountId, scope: 'day' },
+    })
+  ).reduce((total, row) => total + row.bytes, 0n);
+  assert.equal(await replay(replayVisitId, 2, websiteId, 200, true), true);
+  assert.deepEqual((await budget(replayVisitId)).chunkIndices, [1, -2]);
+  assert.equal((await budget(replayVisitId)).bytes, 300n);
+  await client.$transaction(transaction =>
+    markAcknowledgedReplayChunk(transaction, websiteId, replayVisitId, 2),
+  );
+  assert.deepEqual((await budget(replayVisitId)).chunkIndices, [1, 2]);
+  assert.equal(
+    (await client.replayIngestBudget.findMany({ where: { websiteId, scope: 'day' } })).reduce(
+      (total, row) => total + row.bytes,
+      0n,
+    ),
+    sourceDayBytesBeforeRetry + 200n,
+  );
+  assert.equal(
+    (
+      await client.collectionIngestBudget.findMany({
+        where: { subjectType: 'user', subjectKey: account.accountId, scope: 'day' },
+      })
+    ).reduce((total, row) => total + row.bytes, 0n),
+    accountDayBytesBeforeRetry + 712n,
+  );
+  assert.equal(await replay(replayVisitId, 2), false);
 
   const staleReplayKey = randomUUID();
   await client.replayIngestBudget.create({
@@ -318,12 +394,28 @@ try {
     await client.replayIngestBudget.count({ where: { websiteId, scope: 'visit' } }),
     priorVisits + 1,
   );
-  assert.equal(await replay(replayVisitId, 3), true);
+  assert.equal(await replay(replayVisitId, 3, websiteId, 100, true), true);
   await heatmap(heatmapVisitId);
   assert.equal(
     await client.replayIngestBudget.count({ where: { websiteId, scope: 'visit' } }),
     priorVisits + 1,
   );
+  await client.$transaction(transaction =>
+    markUnstoredReplayChunkRetryable(transaction, websiteId, replayVisitId, 3, {
+      bytes: 100,
+      events: 1,
+    }),
+  );
+  await client.$executeRaw`
+    UPDATE replay_ingest_budget SET bytes = ${MAX_REPLAY_BYTES - 100}::bigint
+    WHERE website_id = ${websiteId}::uuid AND scope = 'visit' AND scope_key = ${replayVisitId}
+  `;
+  assert.equal(await replay(replayVisitId, 3, websiteId, 100, true), true);
+  assert.equal((await budget(replayVisitId)).bytes, BigInt(MAX_REPLAY_BYTES));
+  await client.$transaction(transaction =>
+    markAcknowledgedReplayChunk(transaction, websiteId, replayVisitId, 3),
+  );
+  assert.equal(await replay(replayVisitId, 3), false);
 
   console.log(
     'Recorder visit budgets passed PostgreSQL expiry, cleanup and atomic new-key cap checks.',

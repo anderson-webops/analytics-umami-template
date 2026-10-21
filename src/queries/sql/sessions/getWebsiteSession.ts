@@ -1,5 +1,5 @@
 import clickhouse from '@/lib/clickhouse';
-import { EVENT_TYPE } from '@/lib/constants';
+import { COLLECTION_TRUST_TIER, EVENT_TYPE } from '@/lib/constants';
 import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
 import prisma from '@/lib/prisma';
 
@@ -18,7 +18,6 @@ async function relationalQuery(websiteId: string, sessionId: string) {
   return rawQuery(
     `
     select id,
-      distinct_id as "distinctId",
       website_id as "websiteId",
       browser,
       os,
@@ -39,7 +38,6 @@ async function relationalQuery(websiteId: string, sessionId: string) {
       sum(${getTimestampDiffSQL('min_time', 'max_time')}) as "totaltime" 
     from (select
           session.session_id as id,
-          session.distinct_id,
           website_event.visit_id,
           session.website_id,
           session.browser,
@@ -62,8 +60,9 @@ async function relationalQuery(websiteId: string, sessionId: string) {
     where session.website_id = {{websiteId::uuid}}
       and session.session_id = {{sessionId::uuid}}
       and website_event.event_type != ${EVENT_TYPE.performance}
-    group by session.session_id, session.distinct_id, visit_id, session.website_id, session.browser, session.os, session.device, session.screen, session.language, session.country, session.region, session.city, session.is_bot, session.bot_name, session.bot_category) t
-    group by id, distinct_id, website_id, browser, os, device, screen, language, country, region, city, is_bot, bot_name, bot_category;
+      and (website_event.event_type != ${EVENT_TYPE.customEvent} or website_event.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})
+    group by session.session_id, visit_id, session.website_id, session.browser, session.os, session.device, session.screen, session.language, session.country, session.region, session.city, session.is_bot, session.bot_name, session.bot_category) t
+    group by id, website_id, browser, os, device, screen, language, country, region, city, is_bot, bot_name, bot_category;
     `,
     { websiteId, sessionId },
     FUNCTION_NAME,
@@ -77,7 +76,6 @@ async function clickhouseQuery(websiteId: string, sessionId: string) {
     `
     select id,
       any(websiteId) as websiteId,
-      argMax(distinctId, max_time) as distinctId,
       argMax(browser, max_time) as browser,
       argMax(os, max_time) as os,
       argMax(device, max_time) as device,
@@ -97,7 +95,6 @@ async function clickhouseQuery(websiteId: string, sessionId: string) {
       sum(max_time-min_time) as totaltime
     from (select
               session_id as id,
-              distinct_id as distinctId,
               visit_id,
               website_id as websiteId,
               browser,
@@ -111,15 +108,16 @@ async function clickhouseQuery(websiteId: string, sessionId: string) {
               is_bot as isBot,
               bot_name as botName,
               bot_category as botCategory,
-              min(min_time) as min_time,
-              max(max_time) as max_time,
-              sum(views) as views,
-              length(groupArrayArray(event_name)) as events
-        from website_event_stats_hourly
+              min(created_at) as min_time,
+              max(created_at) as max_time,
+              sumIf(1, event_type = ${EVENT_TYPE.pageView}) as views,
+              sumIf(1, event_type = ${EVENT_TYPE.customEvent}) as events
+        from website_event
         where website_id = {websiteId:UUID}
           and session_id = {sessionId:UUID}
           and event_type != ${EVENT_TYPE.performance}
-        group by session_id, distinct_id, visit_id, website_id, browser, os, device, screen, language, country, region, city, is_bot, bot_name, bot_category) t
+          and (event_type != ${EVENT_TYPE.customEvent} or trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})
+        group by session_id, visit_id, website_id, browser, os, device, screen, language, country, region, city, is_bot, bot_name, bot_category) t
     group by id;
     `,
     { websiteId, sessionId },

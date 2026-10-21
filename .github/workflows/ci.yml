@@ -180,6 +180,7 @@ jobs:
       DATABASE_URL: postgresql://umami:umami@127.0.0.1:5432/umami_event_series_test
       CLICKHOUSE_URL: http://umami:umami@127.0.0.1:8123/umami_event_series_test
       CLICKHOUSE_TEST_URL: http://umami:umami@127.0.0.1:8123/umami_event_series_test
+      CLICKHOUSE_REVENUE_TEST_URL: http://umami:umami@127.0.0.1:8123/umami_event_series_test
 
     steps:
       - name: Check out source
@@ -203,8 +204,13 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           pnpm run build:db
+          pnpm exec vitest run src/queries/sql/deleteCollectionSources.clickhouse.test.ts
           pnpm exec vitest run src/queries/sql/events/getEventStats.clickhouse.test.ts
           pnpm exec vitest run src/queries/sql/events/getEventDataDiscovery.clickhouse.test.ts
+          pnpm exec vitest run src/queries/sql/events/getEventDataPivot.clickhouse.test.ts
+          pnpm exec vitest run src/queries/sql/revenue/getRevenueSessions.clickhouse.test.ts
+          pnpm exec vitest run src/queries/sql/revenue/revenueView.clickhouse.test.ts
+          pnpm exec vitest run src/queries/sql/sessions/getWebsiteSession.clickhouse.test.ts
           pnpm exec vitest run src/queries/sql/sessions/linked-session.clickhouse.test.ts
           pnpm exec vitest run src/queries/sql/sessions/session-data.clickhouse.test.ts
           pnpm exec vitest run src/queries/sql/property-series.clickhouse.test.ts

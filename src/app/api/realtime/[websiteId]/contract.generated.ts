@@ -296,10 +296,10 @@ const operation1 = defineOperation({
                       __type: {
                         anyOf: [
                           {
-                            const: 'event',
+                            const: 'session',
                           },
                           {
-                            const: 'session',
+                            const: 'event',
                           },
                           {
                             const: 'pageview',

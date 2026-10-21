@@ -95,6 +95,16 @@ describe('getAttribution postgres branch', () => {
       (c[0] as string).includes('WITH events AS'),
     );
     expect(eventQueryCall?.[0]).toContain('website_event.event_name = {{step}}');
+    expect(
+      prismaRawQuery.mock.calls.every(c =>
+        (c[0] as string).includes('website_event.trust_tier = 1'),
+      ),
+    ).toBe(true);
+    expect(
+      prismaRawQuery.mock.calls
+        .slice(0, 7)
+        .every(c => (c[0] as string).includes('(we.event_type != 2 or we.trust_tier = 1)')),
+    ).toBe(true);
     expect(prismaParseFilters).toHaveBeenCalledWith(expect.objectContaining({ eventType: 2 }));
   });
 
@@ -168,6 +178,16 @@ describe('getAttribution clickhouse branch', () => {
       .find(q => q.includes('WITH events AS'));
     expect(eventQuery).toContain('url_path = {step:String}');
     expect(clickhouseParseFilters).toHaveBeenCalledWith(expect.objectContaining({ eventType: 1 }));
+  });
+
+  test('excludes unverified custom conversions and attribution sources', async () => {
+    await getAttribution('website-1', { ...parameters, type: 'event' }, {});
+
+    const queries = clickhouseRawQuery.mock.calls.map(call => call[0] as string);
+    expect(queries.every(query => query.includes('and trust_tier = 1'))).toBe(true);
+    expect(
+      queries.slice(0, 7).every(query => query.includes('(event_type != 2 or trust_tier = 1)')),
+    ).toBe(true);
   });
 
   test('first-click model uses min(created_at) with no upper bound', async () => {

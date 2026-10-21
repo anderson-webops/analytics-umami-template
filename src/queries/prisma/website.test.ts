@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { ENTITY_TYPE } from '@/lib/constants';
-import { deleteWebsite, resetWebsite, transferWebsiteByActor } from './website';
+import {
+  createWebsite,
+  deleteWebsite,
+  resetWebsite,
+  transferWebsiteByActor,
+  updateWebsite,
+} from './website';
 
 const actorAuth = {
   authType: 'session' as const,
@@ -32,11 +38,126 @@ vi.mock('@/lib/redis', () => ({
 vi.mock('./authorization', async importOriginal => ({
   ...(await importOriginal<typeof import('./authorization')>()),
   assertCurrentActorAuth: vi.fn(),
+  assertActorCanCreateOwnedEntity: vi.fn(),
+  assertEntityIdAvailable: vi.fn(),
 }));
+
+test.each([
+  [[], 0],
+  [[{ nextGeneration: 2 }], 2],
+])('website creation uses durable deleted-ID generation %s', async (tombstones, generation) => {
+  const create = vi.fn(async ({ data }) => data);
+  const query = vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce(tombstones);
+  transactionMock.mockImplementation(async callback =>
+    callback({ $queryRaw: query, website: { create } }),
+  );
+
+  const data = { id: '11111111-1111-4111-8111-111111111111', name: 'Synthetic', userId: 'actor-1' };
+  const result = await createWebsite(data, 'actor-1', { auth: actorAuth });
+
+  expect(result.website).toMatchObject({ ...data, collectionGeneration: generation });
+  expect(create).toHaveBeenCalledWith({
+    data: { ...data, collectionGeneration: generation },
+  });
+  expect(query).toHaveBeenCalledTimes(2);
+});
+
+test('domain changes permanently revoke the prior collection generation', async () => {
+  const storedWebsite = {
+    id: 'website-1',
+    userId: 'actor-1',
+    teamId: null,
+    domain: 'example.com',
+    collectionGeneration: 0,
+  };
+  const update = vi.fn(async ({ data }) => {
+    if (data.domain !== undefined) {
+      storedWebsite.domain = data.domain;
+    }
+    if (data.collectionGeneration) {
+      storedWebsite.collectionGeneration += data.collectionGeneration.increment;
+    }
+    return { ...storedWebsite };
+  });
+  const transaction = {
+    $queryRaw: vi.fn().mockResolvedValue([]),
+    user: { findFirst: vi.fn().mockResolvedValue({ role: 'user' }) },
+    website: {
+      findFirst: vi.fn(async () => storedWebsite),
+      findUnique: vi.fn(async () => storedWebsite),
+      update,
+    },
+    share: { findMany: vi.fn().mockResolvedValue([]) },
+  };
+  transactionMock.mockImplementation(async callback => callback(transaction));
+
+  await updateWebsite('website-1', { domain: 'other.example.com' }, 'actor-1', {
+    auth: actorAuth,
+  });
+  expect(storedWebsite.collectionGeneration).toBe(1);
+
+  await updateWebsite('website-1', { domain: 'example.com' }, 'actor-1', { auth: actorAuth });
+  expect(storedWebsite.collectionGeneration).toBe(2);
+
+  await updateWebsite('website-1', { domain: 'example.com' }, 'actor-1', { auth: actorAuth });
+  await updateWebsite('website-1', { name: 'Renamed' }, 'actor-1', { auth: actorAuth });
+  expect(storedWebsite.collectionGeneration).toBe(2);
+  expect(update.mock.calls.map(([{ data }]) => data.collectionGeneration)).toEqual([
+    { increment: 1 },
+    { increment: 1 },
+    undefined,
+    undefined,
+  ]);
+  expect(transaction.website.findUnique).toHaveBeenCalledTimes(3);
+});
+
+test('clearing a site permit endpoint removes it from merged recorder settings', async () => {
+  const storedWebsite = {
+    id: 'website-1',
+    userId: 'actor-1',
+    teamId: null,
+    domain: 'example.com',
+    replayConfig: {
+      replayEnabled: true,
+      maskLevel: 'strict',
+      permitEndpoint: '/analytics-permit',
+    },
+  };
+  const update = vi.fn(async ({ data }) => ({ ...storedWebsite, ...data }));
+  transactionMock.mockImplementation(async callback =>
+    callback({
+      $queryRaw: vi.fn().mockResolvedValue([]),
+      user: { findFirst: vi.fn().mockResolvedValue({ role: 'user' }) },
+      website: {
+        findFirst: vi.fn(async () => storedWebsite),
+        findUnique: vi.fn(async () => storedWebsite),
+        update,
+      },
+      share: { findMany: vi.fn().mockResolvedValue([]) },
+    }),
+  );
+
+  const result = await updateWebsite('website-1', {}, 'actor-1', {
+    auth: actorAuth,
+    replayConfig: { permitEndpoint: null },
+  });
+
+  expect(update).toHaveBeenCalledWith({
+    where: { id: 'website-1' },
+    data: {
+      replayConfig: { replayEnabled: true, maskLevel: 'strict' },
+      recorderEnabled: true,
+    },
+  });
+  expect(result.website.replayConfig).not.toHaveProperty('permitEndpoint');
+});
 
 function createDeleteTx(calls: string[]) {
   return {
     $queryRaw: vi.fn().mockResolvedValue([]),
+    $executeRaw: vi.fn(async () => {
+      calls.push('collectionTombstone');
+    }),
     user: {
       findFirst: vi.fn(async () => ({ role: 'admin' })),
     },
@@ -58,6 +179,11 @@ function createDeleteTx(calls: string[]) {
     revenue: {
       deleteMany: vi.fn(async () => {
         calls.push('revenue');
+      }),
+    },
+    attestedRevenueMovement: {
+      deleteMany: vi.fn(async () => {
+        calls.push('attestedRevenueMovement');
       }),
     },
     eventData: {
@@ -112,7 +238,7 @@ function createDeleteTx(calls: string[]) {
       findFirst: vi.fn(async () => ({ id: 'website-1', userId: 'actor-1', teamId: null })),
       delete: vi.fn(async () => {
         calls.push('websiteDelete');
-        return { id: 'website-1' };
+        return { id: 'website-1', collectionGeneration: 0 };
       }),
       update: vi.fn(async () => {
         calls.push('websiteUpdate');
@@ -145,6 +271,9 @@ describe('website delete dependencies', () => {
     expect(tx.heatmapEvent.deleteMany).toHaveBeenCalledWith({
       where: { websiteId: 'website-1' },
     });
+    expect(tx.attestedRevenueMovement.deleteMany).toHaveBeenCalledWith({
+      where: { websiteId: 'website-1' },
+    });
     expect(tx.$executeRawUnsafe).toHaveBeenNthCalledWith(1, 'SET search_path TO "public";');
     expect(tx.$executeRawUnsafe).toHaveBeenNthCalledWith(
       2,
@@ -161,6 +290,7 @@ describe('website delete dependencies', () => {
       'sessionReplay',
       'heatmapEvent',
       'revenue',
+      'attestedRevenueMovement',
       'eventData',
       'rawSql',
       'rawSql',
@@ -173,7 +303,9 @@ describe('website delete dependencies', () => {
       'annotation',
       'share',
       'websiteDelete',
+      'collectionTombstone',
     ]);
+    expect(tx.$executeRaw).toHaveBeenCalledOnce();
   });
 
   test('resetWebsite uses the same two-pass event-data cleanup before resetting the website', async () => {
@@ -190,17 +322,28 @@ describe('website delete dependencies', () => {
     expect(tx.heatmapEvent.deleteMany).toHaveBeenCalledWith({
       where: { websiteId: 'website-1' },
     });
+    expect(tx.attestedRevenueMovement.deleteMany).toHaveBeenCalledWith({
+      where: { websiteId: 'website-1' },
+    });
     expect(tx.$executeRawUnsafe).toHaveBeenNthCalledWith(1, 'SET search_path TO "public";');
     expect(tx.$executeRawUnsafe).toHaveBeenNthCalledWith(
       2,
       expect.stringContaining('website_event.website_id = $1'),
       'website-1',
     );
+    expect(tx.website.update).toHaveBeenCalledWith({
+      where: { id: 'website-1' },
+      data: {
+        resetAt: expect.any(Date),
+        collectionGeneration: { increment: 1 },
+      },
+    });
     expect(calls).toEqual([
       'sessionReplaySaved',
       'sessionReplay',
       'heatmapEvent',
       'revenue',
+      'attestedRevenueMovement',
       'eventData',
       'rawSql',
       'rawSql',
@@ -289,6 +432,10 @@ describe('website transfer authorization after role changes', () => {
     expect(deleteShares).toHaveBeenCalledWith({
       where: { entityId: 'website-1', shareType: ENTITY_TYPE.website },
     });
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 'website-1' },
+      data: { userId: 'actor-1', teamId: null, collectionGeneration: { increment: 1 } },
+    });
     expect(calls).toEqual(['shareDelete', 'websiteUpdate']);
   });
 
@@ -321,7 +468,7 @@ describe('website transfer authorization after role changes', () => {
     });
     expect(update).toHaveBeenCalledWith({
       where: { id: 'website-1' },
-      data: { userId: null, teamId: 'team-2' },
+      data: { userId: null, teamId: 'team-2', collectionGeneration: { increment: 1 } },
     });
   });
 
@@ -354,6 +501,10 @@ describe('website transfer authorization after role changes', () => {
     ).resolves.toMatchObject({ userId: 'actor-1' });
     expect(deleteShares).not.toHaveBeenCalled();
     expect(update).toHaveBeenCalledOnce();
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 'website-1' },
+      data: { userId: 'actor-1', teamId: null },
+    });
   });
 
   test('a failed share revocation prevents the ownership update', async () => {

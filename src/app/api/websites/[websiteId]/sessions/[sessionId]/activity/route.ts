@@ -120,11 +120,7 @@ export async function GET(
     }
     throw error;
   }
-  const distinctIds = linkedDistinctIds.length
-    ? linkedDistinctIds
-    : session.distinctId
-      ? [session.distinctId]
-      : [];
+  const distinctIds = linkedDistinctIds;
 
   if (query.distinctId && (distinctIds.length !== 1 || distinctIds[0] !== query.distinctId)) {
     return badRequest({ message: 'Distinct identifier does not match session.' });
@@ -144,18 +140,12 @@ export async function GET(
       links = await getLinkedSessionIds(websiteId, distinctIds[0], rowLimit + 1);
     } catch (error) {
       if (isClickHouseReadLimitError(error)) {
-        if (linkedDistinctIds.length) {
-          return tooLarge();
-        }
-        links = [];
-      } else {
-        throw error;
+        return tooLarge();
       }
+      throw error;
     }
 
-    if (linkedDistinctIds.length === 0 && links.length >= rowLimit) {
-      links = [];
-    } else if (links.length > rowLimit) {
+    if (links.length > rowLimit) {
       return tooLarge();
     }
 

@@ -26,8 +26,27 @@ const ipParts = randomUUID().replaceAll('-', '').slice(0, 24).match(/.{4}/g);
 assert.ok(ipParts);
 const ip = `2001:db8:${ipParts.join(':')}`;
 
+interface RateCounter {
+  subjectKey: string;
+  windowStart: Date;
+  requests: bigint;
+}
+
+const counterKey = (subjectKey: string, windowStart: Date) =>
+  `${subjectKey}:${windowStart.toISOString()}`;
+
+async function readRateCounters(): Promise<RateCounter[]> {
+  return prisma.client.$queryRaw<RateCounter[]>`
+    SELECT subject_key AS "subjectKey", window_start AS "windowStart", requests
+    FROM collection_ingest_budget
+    WHERE subject_key LIKE 'rate:%'
+  `;
+}
+
 function reserveSource(id: string) {
-  return prisma.transaction(transaction => reserveCollectionSourceLimit(transaction, id));
+  return prisma.transaction(transaction =>
+    reserveCollectionSourceLimit(transaction, id, 'backend'),
+  );
 }
 
 function runChild() {
@@ -62,12 +81,18 @@ try {
       await reserveSource(sourceId);
     }
   } else {
+    const priorCounters = new Map(
+      (await readRateCounters()).map(row => [
+        counterKey(row.subjectKey, row.windowStart),
+        row.requests,
+      ]),
+    );
     assert.equal((await getCollectionSourceStatus(sourceId)).blocked, false);
     const rolledBackSourceId = randomUUID();
     await assert.rejects(
       () =>
         prisma.transaction(async transaction => {
-          await reserveCollectionSourceLimit(transaction, rolledBackSourceId);
+          await reserveCollectionSourceLimit(transaction, rolledBackSourceId, 'backend');
           throw new Error('synthetic client budget rejection');
         }),
       /synthetic client budget rejection/,
@@ -94,7 +119,7 @@ try {
             'replay',
             { bytes: 1024, rows: 1, requests: 1 },
           );
-          await reserveCollectionSourceLimit(transaction, sourceId);
+          await reserveCollectionSourceLimit(transaction, sourceId, 'backend');
         }),
       { retryAfter: 60 },
     );
@@ -124,17 +149,88 @@ try {
     assert.equal(admissions.filter(result => !result.blocked).length, 10);
     assert.equal(admissions.filter(result => result.blocked).length, 10);
 
-    const counters = await prisma.client.$queryRaw<Array<{ subjectKey: string; requests: bigint }>>`
-      SELECT subject_key AS "subjectKey", requests
-      FROM collection_ingest_budget
-      WHERE subject_key LIKE 'rate:%'
-      ORDER BY subject_key
-    `;
-    assert.equal(counters.length, 4);
-    assert.equal(counters.find(row => row.subjectKey.startsWith('rate:source:'))?.requests, 100n);
-    assert.equal(counters.find(row => row.subjectKey.startsWith('rate:ip:'))?.requests, 10n);
-    assert.equal(counters.find(row => row.subjectKey === 'rate:pool:source')?.requests, 1n);
-    assert.equal(counters.find(row => row.subjectKey === 'rate:pool:ip')?.requests, 1n);
+    const counters = await readRateCounters();
+    const newSourceCounters = counters.filter(
+      row =>
+        row.subjectKey.startsWith('rate:source:') &&
+        !priorCounters.has(counterKey(row.subjectKey, row.windowStart)),
+    );
+    const newIpCounters = counters.filter(
+      row =>
+        row.subjectKey.startsWith('rate:ip:') &&
+        !priorCounters.has(counterKey(row.subjectKey, row.windowStart)),
+    );
+    assert.equal(newSourceCounters.length, 1);
+    assert.equal(newSourceCounters[0].requests, 100n);
+    assert.equal(newIpCounters.length, 1);
+    assert.equal(newIpCounters[0].requests, 10n);
+    const sourceWindowStart = newSourceCounters[0].windowStart;
+    const ipWindowStart = newIpCounters[0].windowStart;
+    assert.equal(
+      counters.find(
+        row =>
+          row.subjectKey === 'rate:pool:source' &&
+          row.windowStart.getTime() === sourceWindowStart.getTime(),
+      )?.requests,
+      (priorCounters.get(counterKey('rate:pool:source', sourceWindowStart)) ?? 0n) + 1n,
+    );
+    assert.equal(
+      counters.find(
+        row =>
+          row.subjectKey === 'rate:pool:ip' &&
+          row.windowStart.getTime() === ipWindowStart.getTime(),
+      )?.requests,
+      (priorCounters.get(counterKey('rate:pool:ip', ipWindowStart)) ?? 0n) + 1n,
+    );
+
+    const anonymousSourceId = randomUUID();
+    await Promise.all(
+      Array.from({ length: 25 }, () =>
+        prisma.transaction(transaction =>
+          reserveCollectionSourceLimit(transaction, anonymousSourceId, 'anonymous'),
+        ),
+      ),
+    );
+    await assert.rejects(
+      () =>
+        prisma.transaction(transaction =>
+          reserveCollectionSourceLimit(transaction, anonymousSourceId, 'anonymous'),
+        ),
+      { retryAfter: 60 },
+    );
+    assert.equal((await getCollectionSourceStatus(anonymousSourceId)).blocked, false);
+    await reserveSource(anonymousSourceId);
+    assert.equal((await getCollectionSourceStatus(anonymousSourceId)).blocked, false);
+    const laterCounters = await readRateCounters();
+    const newAnonymousSourceCounters = laterCounters.filter(
+      row =>
+        row.subjectKey.startsWith('rate:source:') &&
+        !counters.some(
+          prior =>
+            counterKey(prior.subjectKey, prior.windowStart) ===
+            counterKey(row.subjectKey, row.windowStart),
+        ),
+    );
+    assert.deepEqual(
+      newAnonymousSourceCounters
+        .map(row => row.requests)
+        .sort((left, right) => Number(left - right)),
+      [25n, 26n],
+    );
+    const anonymousWindowStart = newAnonymousSourceCounters.find(
+      row => row.requests === 26n,
+    )?.windowStart;
+    assert.ok(anonymousWindowStart);
+    const sourcePool = laterCounters.find(
+      row =>
+        row.subjectKey === 'rate:pool:source' &&
+        row.windowStart.getTime() === anonymousWindowStart.getTime(),
+    );
+    assert.equal(
+      sourcePool?.requests,
+      (priorCounters.get(counterKey('rate:pool:source', anonymousWindowStart)) ?? 0n) +
+        (anonymousWindowStart.getTime() === sourceWindowStart.getTime() ? 2n : 1n),
+    );
 
     console.log('Shared PostgreSQL collection rate-limit regression passed.');
   }

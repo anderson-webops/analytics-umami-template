@@ -361,7 +361,7 @@ export interface paths {
     put?: never;
     /**
      * Send a batch of tracking requests
-     * @description Processes up to 500 tracking payloads and returns processed and failed counts, individual error details, and a tracking cache token.
+     * @description Processes up to 20 tracking payloads. Each child request must independently satisfy the same collection authorization as /api/send. Returns processed and failed counts, individual error details, and a tracking cache token.
      */
     post: operations['batch'];
     delete?: never;
@@ -460,6 +460,26 @@ export interface paths {
      * @description Creates a named share for the specified board with optional parameters.
      */
     post: operations['createBoardShare'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/collection-permit': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Authorize consented website recording
+     * @description A website backend with recorder scope requests a short-lived permit after verifying its authenticated session and feature-specific consent. The permit is bound to the browser cache token, website, feature, and approved origin. The long-lived credential must never enter browser code.
+     */
+    post: operations['postCollectionPermit'];
     delete?: never;
     options?: never;
     head?: never;
@@ -917,9 +937,29 @@ export interface paths {
     put?: never;
     /**
      * Send session recordings or heatmap data
-     * @description Stores session replay events or heatmap clicks and scrolls for a website, using a valid tracking cache token to identify the session and visit. Replay and heatmap intake have cumulative visit and website budgets; exceeding them returns 413 or 429.
+     * @description Stores session replay events or heatmap clicks and scrolls only with a valid tracking cache token and a separate feature-, session-, visit-, and origin-bound collection permit. The website must enable the feature; replay requires strict masking. Cumulative visit and website budgets can return 413 or 429.
      */
     post: operations['record'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/revenue/movements': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Submit a website-attested financial movement
+     * @description Default-off, capture-only server-to-server intake. Refunds are unsupported pending a reviewed reference and limit contract; these records are not net revenue. A website backend must verify its order or payment before submitting. Requires a website-scoped revenue credential, a fresh request UUID and Unix timestamp in X-Umami-Request-Id and X-Umami-Request-Timestamp, and a stable sourceMovementId for durable idempotency. occurredAt accepts UTC timestamps through millisecond precision. The result is backend-attested, not independently payment-verified, and historical reports remain unverified.
+     */
+    post: operations['recordAttestedRevenueMovement'];
     delete?: never;
     options?: never;
     head?: never;
@@ -937,7 +977,7 @@ export interface paths {
     put?: never;
     /**
      * Send tracking data
-     * @description Collects a pageview, custom event, visitor identification, or performance payload and returns an opaque tracking cache token for website events when accepted.
+     * @description Collects anonymous pageviews or performance data. Identity and non-revenue custom events require an authorized website-backend credential; revenue intake is disabled. A public website ID, Origin, or browser cache token is not backend authorization. Accepted browser pageviews receive an opaque tracking cache token.
      */
     post: operations['send'];
     delete?: never;
@@ -1650,7 +1690,7 @@ export interface paths {
     };
     /**
      * Get an event's custom properties
-     * @description Returns the custom property records, data types, and values attached to a specific event.
+     * @description Returns custom property records, data types, values, and provenance tiers for the specified event. Historical unverified properties remain visible but do not enter verified custom-event summaries.
      */
     get: operations['getEventDataById'];
     put?: never;
@@ -2277,8 +2317,8 @@ export interface paths {
       cookie?: never;
     };
     /**
-     * Get website revenue over time
-     * @description Returns revenue chart data for the selected currency, date range, and website filters.
+     * Get unverified historical revenue claims over time
+     * @description Returns unverified historical event claims for the selected currency, date range, and website filters. Values do not prove completed orders or payments.
      */
     get: operations['getWebsiteRevenueChart'];
     put?: never;
@@ -2297,8 +2337,8 @@ export interface paths {
       cookie?: never;
     };
     /**
-     * Get website revenue by dimension
-     * @description Returns revenue grouped by the requested dimension, such as country or referrer, for the selected currency and date range.
+     * Get unverified historical revenue claims by dimension
+     * @description Returns unverified historical event claims grouped by the requested dimension, such as country or referrer. Values do not prove completed orders or payments.
      */
     get: operations['getWebsiteRevenueMetrics'];
     put?: never;
@@ -2317,8 +2357,8 @@ export interface paths {
       cookie?: never;
     };
     /**
-     * List sessions with revenue
-     * @description Returns a paginated list of sessions with revenue in the selected currency and date range, applying website and search filters.
+     * List sessions with unverified revenue claims
+     * @description Returns sessions with unverified historical revenue claims in the selected currency and date range. Sessions are not verified customers.
      */
     get: operations['getWebsiteRevenueSessions'];
     put?: never;
@@ -2337,8 +2377,8 @@ export interface paths {
       cookie?: never;
     };
     /**
-     * Get website revenue totals
-     * @description Returns revenue summary statistics for the selected currency and date range, including totals for the comparison period.
+     * Get unverified historical revenue claim totals
+     * @description Returns unverified historical event claims and a comparison period. Event and session counts are not verified orders or users; ARPU is unavailable.
      */
     get: operations['getWebsiteRevenueStats'];
     put?: never;
@@ -2357,8 +2397,8 @@ export interface paths {
       cookie?: never;
     };
     /**
-     * Get website revenue total
-     * @description Returns only the total revenue for the selected currency and date range.
+     * Get unverified historical revenue claim total
+     * @description Returns the unverified event-claim total for the selected currency and date range.
      */
     get: operations['getWebsiteRevenueTotal'];
     put?: never;
@@ -2674,7 +2714,7 @@ export interface paths {
     };
     /**
      * Get a session's custom properties
-     * @description Returns custom property records, data types, and values for the specified website session.
+     * @description Returns custom property records, data types, values, and provenance tiers for the specified website session. Historical unverified rows remain visible but do not enter derived session-property reports.
      */
     get: operations['getWebsiteSessionProperties'];
     put?: never;
@@ -2998,6 +3038,7 @@ export interface components {
        */
       maskLevel?: 'strict' | 'moderate';
       maxDuration?: number;
+      permitEndpoint?: string;
       /** @description Whether session replay recording is enabled. */
       replayEnabled?: boolean;
       /** @description Fraction of sessions to record for replay, from 0 to 1. */
@@ -3018,6 +3059,7 @@ export interface components {
        */
       maskLevel?: 'strict' | 'moderate';
       maxDuration?: number;
+      permitEndpoint?: string | null;
       /** @description Whether session replay recording is enabled. */
       replayEnabled?: boolean;
       /** @description Fraction of sessions to record for replay, from 0 to 1. */
@@ -3100,6 +3142,8 @@ export interface components {
        * @description ID of the visitor session.
        */
       sessionId: string;
+      /** @description Event provenance: 0 for an unverified browser claim, 1 for a website-backend-authorized submission. Authorization does not verify the reported fact. */
+      trustTier: number;
       /** @description Path portion of the page URL. */
       urlPath?: string | null;
       /** @description Bounded, allowlisted attribution query parameters from the page URL. */
@@ -3989,7 +4033,7 @@ export interface operations {
                 /** @description Whether two-factor authentication is required for this user. */
                 isRequired: boolean;
                 /** @description Reason two-factor authentication is required. */
-                requiredReason: 'user' | 'team' | 'global';
+                requiredReason: 'user' | 'global' | 'team';
               };
         };
       };
@@ -4549,6 +4593,8 @@ export interface operations {
             count: unknown;
             /** @description Data returned by the operation. */
             data: unknown;
+            /** @description Whether the results were truncated by the maximum result limit. */
+            isCapped: boolean;
             /** @description Field to sort the results by. */
             orderBy: string;
             /** @description Page number, starting at 1. */
@@ -5353,6 +5399,8 @@ export interface operations {
             count: unknown;
             /** @description Data returned by the operation. */
             data: unknown;
+            /** @description Whether the results were truncated by the maximum result limit. */
+            isCapped: boolean;
             /** @description Field to sort the results by. */
             orderBy: string;
             /** @description Page number, starting at 1. */
@@ -5504,25 +5552,39 @@ export interface operations {
                 /** @description Display name of the resource. */
                 name: string;
                 /** @description Configuration parameters for the resource. */
-                parameters:
-                  | string
-                  | number
-                  | false
-                  | true
-                  | {
-                      [key: string]:
-                        | string
-                        | number
-                        | false
-                        | true
-                        | unknown
-                        | {
-                            length: number;
-                          };
-                    }
-                  | {
-                      length: number;
-                    };
+                parameters: {
+                  /** @description ID of the tracked link. */
+                  linkId?: string;
+                  /** @description ID of the tracking pixel. */
+                  pixelId?: string;
+                  rows?: {
+                    columns: {
+                      component?: {
+                        /** @description Description of the resource. */
+                        description?: string;
+                        /** @description ID of the resource being shared. */
+                        entityId?: string;
+                        entityType?: 'link' | 'website' | 'pixel';
+                        props?: {
+                          [key: string]: unknown;
+                        };
+                        /** @description Title of the page. */
+                        title?: string;
+                        type: string;
+                        /** @description ID of the website. */
+                        websiteId?: string;
+                      };
+                      /** @description Unique identifier of the resource. */
+                      id: string;
+                      size?: number;
+                    }[];
+                    /** @description Unique identifier of the resource. */
+                    id: string;
+                    size?: number;
+                  }[];
+                  /** @description ID of the website. */
+                  websiteId?: string;
+                };
                 type: string;
                 /**
                  * Format: date-time
@@ -6020,6 +6082,8 @@ export interface operations {
                 count: unknown;
                 /** @description Data returned by the operation. */
                 data: unknown;
+                /** @description Whether the results were truncated by the maximum result limit. */
+                isCapped: boolean;
                 /** @description Field to sort the results by. */
                 orderBy: string;
                 /** @description Page number, starting at 1. */
@@ -6157,6 +6221,95 @@ export interface operations {
            *         "code": "not-found",
            *         "message": "Not found.",
            *         "status": 404
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+    };
+  };
+  postCollectionPermit: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': {
+          /** @constant */
+          consent: true;
+          /** @enum {string} */
+          feature: 'record' | 'heatmap';
+          /** Format: url */
+          origin: string;
+          /** Format: uuid */
+          website: string;
+        };
+      };
+    };
+    responses: {
+      /** @description The operation completed successfully. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            permit: unknown;
+          };
+        };
+      };
+      /** @description Bad request. */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "bad-request",
+           *         "message": "Bad request.",
+           *         "status": 400
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+      /** @description Forbidden. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "forbidden",
+           *         "message": "Forbidden.",
+           *         "status": 403
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+      /** @description Server error. */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "server-error",
+           *         "message": "Server error.",
+           *         "status": 500
            *       }
            *     }
            */
@@ -6443,6 +6596,8 @@ export interface operations {
             count: unknown;
             /** @description Data returned by the operation. */
             data: unknown;
+            /** @description Whether the results were truncated by the maximum result limit. */
+            isCapped: boolean;
             /** @description Field to sort the results by. */
             orderBy: string;
             /** @description Page number, starting at 1. */
@@ -6951,6 +7106,8 @@ export interface operations {
                 count: unknown;
                 /** @description Data returned by the operation. */
                 data: unknown;
+                /** @description Whether the results were truncated by the maximum result limit. */
+                isCapped: boolean;
                 /** @description Field to sort the results by. */
                 orderBy: string;
                 /** @description Page number, starting at 1. */
@@ -7854,6 +8011,8 @@ export interface operations {
             count: unknown;
             /** @description Data returned by the operation. */
             data: unknown;
+            /** @description Whether the results were truncated by the maximum result limit. */
+            isCapped: boolean;
             /** @description Field to sort the results by. */
             orderBy: string;
             /** @description Page number, starting at 1. */
@@ -8352,6 +8511,8 @@ export interface operations {
                 count: unknown;
                 /** @description Data returned by the operation. */
                 data: unknown;
+                /** @description Whether the results were truncated by the maximum result limit. */
+                isCapped: boolean;
                 /** @description Field to sort the results by. */
                 orderBy: string;
                 /** @description Page number, starting at 1. */
@@ -8648,7 +8809,7 @@ export interface operations {
               [key: string]: number;
             };
             events: {
-              __type: 'event' | 'session' | 'pageview';
+              __type: 'session' | 'event' | 'pageview';
               /** @description Browser used by the visitor. */
               browser: string;
               /** @description Country code of the visitor. */
@@ -8867,11 +9028,11 @@ export interface operations {
             | {
                 /** @description Whether the operation succeeded. */
                 ok: boolean;
+                reason: string;
               }
             | {
                 /** @description Whether the operation succeeded. */
                 ok: boolean;
-                reason: string;
               };
         };
       };
@@ -8958,6 +9119,160 @@ export interface operations {
       };
     };
   };
+  recordAttestedRevenueMovement: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': {
+          amount: string;
+          /** @description Currency code used for revenue values. */
+          currency: string;
+          customerId: string | null;
+          /** @constant */
+          kind: 'capture';
+          /**
+           * Format: date-time
+           * @description UTC timestamp with at most millisecond precision.
+           */
+          occurredAt: string;
+          /** Format: uuid */
+          orderId: string;
+          source: string;
+          /** Format: uuid */
+          sourceMovementId: string;
+          /** Format: uuid */
+          website: string;
+        };
+      };
+    };
+    responses: {
+      /** @description Identical movement already accepted. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            duplicate: boolean;
+            /** Format: uuid */
+            movementId: string;
+            /** @constant */
+            provenance: 'backend_attested';
+          };
+        };
+      };
+      /** @description New movement accepted. */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            duplicate: boolean;
+            /** Format: uuid */
+            movementId: string;
+            /** @constant */
+            provenance: 'backend_attested';
+          };
+        };
+      };
+      /** @description Bad request. */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "bad-request",
+           *         "message": "Bad request.",
+           *         "status": 400
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+      /** @description Forbidden. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "forbidden",
+           *         "message": "Forbidden.",
+           *         "status": 403
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+      /** @description Conflicting or replayed movement request. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+      /** @description Payload too large. */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "payload-too-large",
+           *         "message": "Payload too large.",
+           *         "status": 413
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+      /** @description Collection rate limit exceeded. */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+      /** @description Server error. */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "server-error",
+           *         "message": "Server error.",
+           *         "status": 500
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+    };
+  };
   send: {
     parameters: {
       query?: never;
@@ -8998,6 +9313,8 @@ export interface operations {
             referrer?: string;
             /** @description Screen resolution of the visitor device. */
             screen?: string;
+            /** Format: uuid */
+            sessionSeed?: string;
             /** @description Tag attached to the tracked activity. */
             tag?: unknown;
             timestamp?: number;
@@ -9054,6 +9371,24 @@ export interface operations {
           'application/json': components['schemas']['ApiError'];
         };
       };
+      /** @description Forbidden. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "forbidden",
+           *         "message": "Forbidden.",
+           *         "status": 403
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
       /** @description Server error. */
       500: {
         headers: {
@@ -9066,6 +9401,24 @@ export interface operations {
            *         "code": "server-error",
            *         "message": "Server error.",
            *         "status": 500
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+      /** @description Service unavailable. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "service-unavailable",
+           *         "message": "Service unavailable.",
+           *         "status": 503
            *       }
            *     }
            */
@@ -9906,6 +10259,8 @@ export interface operations {
             count: unknown;
             /** @description Data returned by the operation. */
             data: unknown;
+            /** @description Whether the results were truncated by the maximum result limit. */
+            isCapped: boolean;
             /** @description Field to sort the results by. */
             orderBy: string;
             /** @description Page number, starting at 1. */
@@ -9991,6 +10346,8 @@ export interface operations {
             count: unknown;
             /** @description Data returned by the operation. */
             data: unknown;
+            /** @description Whether the results were truncated by the maximum result limit. */
+            isCapped: boolean;
             /** @description Field to sort the results by. */
             orderBy: string;
             /** @description Page number, starting at 1. */
@@ -10164,6 +10521,8 @@ export interface operations {
             count: unknown;
             /** @description Data returned by the operation. */
             data: unknown;
+            /** @description Whether the results were truncated by the maximum result limit. */
+            isCapped: boolean;
             /** @description Field to sort the results by. */
             orderBy: string;
             /** @description Page number, starting at 1. */
@@ -10245,6 +10604,8 @@ export interface operations {
             count: unknown;
             /** @description Data returned by the operation. */
             data: unknown;
+            /** @description Whether the results were truncated by the maximum result limit. */
+            isCapped: boolean;
             /** @description Field to sort the results by. */
             orderBy: string;
             /** @description Page number, starting at 1. */
@@ -13477,6 +13838,8 @@ export interface operations {
             };
             /** @description Custom property value stored as a string. */
             stringValue: string;
+            /** @description Property provenance: 0 for unverified historical data, 1 for a website-backend-authorized submission. Authorization does not prove the reported fact. */
+            trustTier: number;
             /** @description ID of the website event. */
             websiteEventId: string;
             /** @description ID of the website. */
@@ -13514,6 +13877,24 @@ export interface operations {
            *         "code": "unauthorized",
            *         "message": "Unauthorized.",
            *         "status": 401
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+      /** @description Service unavailable. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "service-unavailable",
+           *         "message": "Service unavailable.",
+           *         "status": 503
            *       }
            *     }
            */
@@ -17754,8 +18135,8 @@ export interface operations {
              */
             endedAt: string;
             /** @description Number of recorded replay events. */
-            eventCount: number;
-            events: unknown[];
+            eventCount: unknown;
+            events: unknown;
             /** @description ID of the visitor session. */
             sessionId: string;
             /**
@@ -17854,6 +18235,8 @@ export interface operations {
             count: unknown;
             /** @description Data returned by the operation. */
             data: unknown;
+            /** @description Whether the results were truncated by the maximum result limit. */
+            isCapped: boolean;
             /** @description Field to sort the results by. */
             orderBy: string;
             /** @description Page number, starting at 1. */
@@ -18362,6 +18745,7 @@ export interface operations {
               x: string;
               y: number;
             }[];
+            revenueProvenance: string;
           };
         };
       };
@@ -18499,6 +18883,8 @@ export interface operations {
             | {
                 /** @description Display name of the resource. */
                 name: string;
+                /** @enum {string} */
+                revenueProvenance: 'unverified_historical_event_claims';
                 value: number;
               }[]
             | {
@@ -18506,6 +18892,8 @@ export interface operations {
                 country: string;
                 /** @description Display name of the resource. */
                 name: string;
+                /** @enum {string} */
+                revenueProvenance: 'unverified_historical_event_claims';
                 value: number;
               }[];
         };
@@ -18688,6 +19076,7 @@ export interface operations {
             page: number;
             /** @description Number of results per page. */
             pageSize: number;
+            revenueProvenance: string;
             /** @description Search text used to filter results. */
             search?: string;
             /** @description Whether to sort results in descending order. */
@@ -18736,6 +19125,8 @@ export interface operations {
   getWebsiteRevenueStats: {
     parameters: {
       query: {
+        botCategory?: string;
+        botName?: string;
         /** @description Browser used by the visitor. */
         browser?: string;
         /** @description City of the visitor. */
@@ -18790,6 +19181,7 @@ export interface operations {
         timezone?: string;
         /** @description Filter by page title. */
         title?: string;
+        trafficType?: 'human' | 'bot' | 'all';
         /** @description Time interval used to group results: minute, hour, day, month, or year. */
         unit?: string;
         /** @description UTM campaign name. */
@@ -18812,15 +19204,32 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description The operation completed successfully. */
+      /** @description Successful response. */
       200: {
         headers: {
           [name: string]: unknown;
         };
         content: {
           'application/json': {
+            arpu: null;
+            /** @description Arithmetic mean of the numeric property values. */
+            average: number;
             /** @description Analytics for the comparison period. */
-            comparison: unknown;
+            comparison: {
+              arpu: null;
+              /** @description Arithmetic mean of the numeric property values. */
+              average: number;
+              /** @description Number of matching records. */
+              count: number;
+              sum: number | string | null;
+              unique_count: number;
+            };
+            /** @description Number of matching records. */
+            count: number;
+            /** @constant */
+            revenueProvenance: 'unverified_historical_event_claims';
+            sum: number | string | null;
+            unique_count: number;
           };
         };
       };
@@ -18948,6 +19357,7 @@ export interface operations {
         };
         content: {
           'application/json': {
+            revenueProvenance: string;
             sum: unknown;
           };
         };
@@ -19018,6 +19428,8 @@ export interface operations {
             count: unknown;
             /** @description Data returned by the operation. */
             data: unknown;
+            /** @description Whether the results were truncated by the maximum result limit. */
+            isCapped: boolean;
             /** @description Field to sort the results by. */
             orderBy: string;
             /** @description Page number, starting at 1. */
@@ -20875,9 +21287,11 @@ export interface operations {
             hostname: string;
             /** @description Domain of the referring page. */
             referrerDomain: string;
+            /** @description Property provenance: 0 for unverified historical data, 1 for a website-backend-authorized submission. Authorization does not prove the reported fact. */
+            trustTier: number;
             /** @description Path portion of the page URL. */
             urlPath: string;
-            /** @description Query string portion of the page URL. */
+            /** @description Bounded, allowlisted attribution query parameters from the page URL. */
             urlQuery: string;
             /** @description ID of the visit. */
             visitId: string;
@@ -20993,6 +21407,8 @@ export interface operations {
             sessionId: string;
             /** @description Custom property value stored as a string. */
             stringValue: string;
+            /** @description Property provenance: 0 for unverified historical data, 1 for a website-backend-authorized submission. Authorization does not prove the reported fact. */
+            trustTier: number;
             /** @description ID of the website. */
             websiteId: string;
           }[];
@@ -21477,6 +21893,8 @@ export interface operations {
                 count: unknown;
                 /** @description Data returned by the operation. */
                 data: unknown;
+                /** @description Whether the results were truncated by the maximum result limit. */
+                isCapped: boolean;
                 /** @description Field to sort the results by. */
                 orderBy: string;
                 /** @description Page number, starting at 1. */
@@ -21923,6 +22341,7 @@ export interface operations {
         };
         content: {
           'application/json': {
+            collectionGeneration: number;
             /**
              * Format: date-time
              * @description Date and time the record was created.

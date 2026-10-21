@@ -3,6 +3,7 @@ import { useMessages } from '@/components/hooks';
 import type { RevenueMetricType } from '@/components/hooks/queries/useRevenueMetricsQuery';
 import { useRevenueTotalQuery } from '@/components/hooks/queries/useRevenueTotalQuery';
 import { RevenueMetricsTable } from './RevenueMetricsTable';
+import { RevenueTrustNotice } from './RevenueTrustNotice';
 import { useBoardRevenueCurrency } from './useBoardRevenueCurrency';
 
 function getRevenueTableTitle(
@@ -41,14 +42,17 @@ export function BoardRevenueMetricsTable({
   return (
     <LoadingPanel data={data} isLoading={isLoading} isFetching={isFetching} error={error}>
       {data && (
-        <RevenueMetricsTable
-          websiteId={websiteId}
-          currency={currency}
-          type={type}
-          title={getRevenueTableTitle(type, labels, t)}
-          totalRevenue={Number(data.sum) || 0}
-          enabled={true}
-        />
+        <>
+          <RevenueTrustNotice />
+          <RevenueMetricsTable
+            websiteId={websiteId}
+            currency={currency}
+            type={type}
+            title={getRevenueTableTitle(type, labels, t)}
+            totalRevenue={Number(data.sum) || 0}
+            enabled={true}
+          />
+        </>
       )}
     </LoadingPanel>
   );

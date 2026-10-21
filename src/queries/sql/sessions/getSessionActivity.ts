@@ -28,6 +28,7 @@ async function relationalQuery(websiteId: string, sessionIds: string[], filters:
       referrer_domain as "referrerDomain",
       event_id as "eventId",
       event_type as "eventType",
+      trust_tier as "trustTier",
       event_name as "eventName",
       visit_id as "visitId",
       hostname,
@@ -35,6 +36,8 @@ async function relationalQuery(websiteId: string, sessionIds: string[], filters:
               from event_data d
               where d.website_event_id = e.event_id
                 and d.website_id = {{websiteId::uuid}}
+                and d.trust_tier = 1
+                and e.trust_tier = 1
                 and d.created_at between {{startDate}} and {{endDate}}) AS "hasData"
     from website_event e
     where website_id = {{websiteId::uuid}}
@@ -62,14 +65,17 @@ async function clickhouseQuery(websiteId: string, sessionIds: string[], filters:
       referrer_domain as referrerDomain,
       event_id as eventId,
       event_type as eventType,
+      trust_tier as trustTier,
       event_name as eventName,
       visit_id as visitId,
       hostname,
-      event_id IN (select event_id
+      (tuple(event_id, session_id, event_name) IN (select event_id, session_id, event_name
                    from event_data
                    where website_id = {websiteId:UUID}
                     and session_id in {sessionIds:Array(UUID)}
-                    and created_at between {startDate:DateTime64} and {endDate:DateTime64}) AS hasData
+                    and trust_tier = 1
+                    and created_at between {startDate:DateTime64} and {endDate:DateTime64})
+        and trust_tier = 1) AS hasData
     from website_event
     where website_id = {websiteId:UUID}
       and session_id in {sessionIds:Array(UUID)}
