@@ -144,6 +144,7 @@
       "retained-artifact-rollback-v1",
       "database-aware-recovery-v1",
       "legacy-clickhouse-erasure-review-v1",
+      "retired-kafka-history-review-v1",
       "bounded-heatmap-retention-v1",
       "bounded-replay-retention-v1",
       "authenticated-advanced-collection-v1",

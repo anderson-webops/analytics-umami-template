@@ -1,5 +1,5 @@
 import { beforeEach, expect, test, vi } from 'vitest';
-import { isRelationalOnly } from '@/lib/db';
+import { isSessionDeletionAvailable } from '@/lib/db';
 import { parseRequest } from '@/lib/request';
 import { canDeleteWebsite, canViewWebsiteSection } from '@/permissions';
 import { deleteSession } from '@/queries/prisma';
@@ -7,7 +7,7 @@ import { getLinkedDistinctIds, getLinkedSessionIds, getWebsiteSession } from '@/
 import { DELETE, GET } from './route';
 
 vi.mock('@/lib/db', () => ({
-  isRelationalOnly: vi.fn(),
+  isSessionDeletionAvailable: vi.fn(),
 }));
 
 vi.mock('@/lib/request', () => ({
@@ -29,7 +29,7 @@ vi.mock('@/queries/sql', () => ({
   getWebsiteSession: vi.fn(),
 }));
 
-const isRelationalOnlyMock = vi.mocked(isRelationalOnly);
+const isSessionDeletionAvailableMock = vi.mocked(isSessionDeletionAvailable);
 const parseRequestMock = vi.mocked(parseRequest);
 const canDeleteWebsiteMock = vi.mocked(canDeleteWebsite);
 const canViewWebsiteSectionMock = vi.mocked(canViewWebsiteSection);
@@ -43,7 +43,7 @@ const MISSING_SESSION_ID = '00000000-0000-4000-8000-000000000003';
 const LINKED_SESSION_ID = '00000000-0000-4000-8000-000000000004';
 
 beforeEach(() => {
-  isRelationalOnlyMock.mockReset();
+  isSessionDeletionAvailableMock.mockReset();
   parseRequestMock.mockReset();
   canDeleteWebsiteMock.mockReset();
   canViewWebsiteSectionMock.mockReset();
@@ -56,7 +56,7 @@ beforeEach(() => {
 test('GET returns not found when the session does not exist', async () => {
   parseRequestMock.mockResolvedValue({ auth: {}, error: undefined });
   canViewWebsiteSectionMock.mockResolvedValue(true);
-  isRelationalOnlyMock.mockReturnValue(true);
+  isSessionDeletionAvailableMock.mockReturnValue(true);
   canDeleteWebsiteMock.mockResolvedValue(false);
   getWebsiteSessionMock.mockResolvedValue(undefined);
 
@@ -78,7 +78,7 @@ test('GET returns not found when the session does not exist', async () => {
 test('GET includes canDelete when relational storage and delete permission are available', async () => {
   parseRequestMock.mockResolvedValue({ auth: {}, error: undefined });
   canViewWebsiteSectionMock.mockResolvedValue(true);
-  isRelationalOnlyMock.mockReturnValue(true);
+  isSessionDeletionAvailableMock.mockReturnValue(true);
   canDeleteWebsiteMock.mockResolvedValue(true);
   getWebsiteSessionMock.mockResolvedValue({
     id: SESSION_ID,
@@ -108,7 +108,7 @@ test('GET includes canDelete when relational storage and delete permission are a
 test('GET does not stitch a session with multiple linked identities', async () => {
   parseRequestMock.mockResolvedValue({ auth: {}, error: undefined });
   canViewWebsiteSectionMock.mockResolvedValue(true);
-  isRelationalOnlyMock.mockReturnValue(true);
+  isSessionDeletionAvailableMock.mockReturnValue(true);
   canDeleteWebsiteMock.mockResolvedValue(false);
   getWebsiteSessionMock.mockResolvedValue({ id: SESSION_ID, distinctId: 'distinct-2' });
   getLinkedDistinctIdsMock.mockResolvedValue(['distinct-1', 'distinct-2']);
@@ -136,7 +136,7 @@ test('GET keeps an unverified legacy session readable without stitching its clai
     error: undefined,
   });
   canViewWebsiteSectionMock.mockResolvedValue(true);
-  isRelationalOnlyMock.mockReturnValue(false);
+  isSessionDeletionAvailableMock.mockReturnValue(false);
   getWebsiteSessionMock.mockResolvedValue({ id: SESSION_ID, distinctId: 'distinct-1' });
   getLinkedDistinctIdsMock.mockResolvedValue([]);
 
@@ -161,7 +161,7 @@ test.each(['distinct identities', 'linked sessions'])(
   async step => {
     parseRequestMock.mockResolvedValue({ auth: {}, error: undefined });
     canViewWebsiteSectionMock.mockResolvedValue(true);
-    isRelationalOnlyMock.mockReturnValue(false);
+    isSessionDeletionAvailableMock.mockReturnValue(false);
     getWebsiteSessionMock.mockResolvedValue({ id: SESSION_ID, distinctId: 'distinct-1' });
     getLinkedDistinctIdsMock.mockResolvedValue(['distinct-1']);
     getLinkedSessionIdsMock.mockResolvedValue([]);
@@ -184,9 +184,9 @@ test.each(['distinct identities', 'linked sessions'])(
   },
 );
 
-test('DELETE rejects session deletion for non-relational storage', async () => {
+test('DELETE rejects session deletion before storage history is reviewed', async () => {
   parseRequestMock.mockResolvedValue({ auth: {}, error: undefined });
-  isRelationalOnlyMock.mockReturnValue(false);
+  isSessionDeletionAvailableMock.mockReturnValue(false);
 
   const response = await DELETE(
     new Request(`http://localhost/api/websites/${WEBSITE_ID}/sessions/${SESSION_ID}`, {
@@ -199,7 +199,7 @@ test('DELETE rejects session deletion for non-relational storage', async () => {
 
   expect(response.status).toBe(400);
   await expect(response.json()).resolves.toMatchObject({
-    error: { code: 'bad-request' },
+    error: { code: 'bad-request', message: 'Session deletion requires reviewed storage history.' },
   });
   expect(canDeleteWebsiteMock).not.toHaveBeenCalled();
   expect(deleteSessionMock).not.toHaveBeenCalled();
@@ -207,7 +207,7 @@ test('DELETE rejects session deletion for non-relational storage', async () => {
 
 test('DELETE returns unauthorized when the user cannot delete the website', async () => {
   parseRequestMock.mockResolvedValue({ auth: {}, error: undefined });
-  isRelationalOnlyMock.mockReturnValue(true);
+  isSessionDeletionAvailableMock.mockReturnValue(true);
   canDeleteWebsiteMock.mockResolvedValue(false);
 
   const response = await DELETE(
@@ -225,7 +225,7 @@ test('DELETE returns unauthorized when the user cannot delete the website', asyn
 
 test('DELETE returns not found when the session does not exist', async () => {
   parseRequestMock.mockResolvedValue({ auth: { user: { id: 'user-1' } }, error: undefined });
-  isRelationalOnlyMock.mockReturnValue(true);
+  isSessionDeletionAvailableMock.mockReturnValue(true);
   canDeleteWebsiteMock.mockResolvedValue(true);
   deleteSessionMock.mockResolvedValue(null);
 
@@ -246,7 +246,7 @@ test('DELETE returns not found when the session does not exist', async () => {
 
 test('DELETE removes the session when the request is valid', async () => {
   parseRequestMock.mockResolvedValue({ auth: { user: { id: 'user-1' } }, error: undefined });
-  isRelationalOnlyMock.mockReturnValue(true);
+  isSessionDeletionAvailableMock.mockReturnValue(true);
   canDeleteWebsiteMock.mockResolvedValue(true);
   deleteSessionMock.mockResolvedValue({ id: SESSION_ID });
 
@@ -271,7 +271,7 @@ test('DELETE removes the session when the request is valid', async () => {
 
 test('DELETE rejects a permission revoked after the preliminary check', async () => {
   parseRequestMock.mockResolvedValue({ auth: { user: { id: 'user-1' } }, error: undefined });
-  isRelationalOnlyMock.mockReturnValue(true);
+  isSessionDeletionAvailableMock.mockReturnValue(true);
   canDeleteWebsiteMock.mockResolvedValue(true);
   deleteSessionMock.mockRejectedValue(new Error('ENTITY_ACTOR_NOT_AUTHORIZED'));
 
@@ -293,7 +293,7 @@ test('DELETE rejects a permission revoked after the preliminary check', async ()
 
 test('DELETE returns not found if the website disappears before the transaction', async () => {
   parseRequestMock.mockResolvedValue({ auth: { user: { id: 'user-1' } }, error: undefined });
-  isRelationalOnlyMock.mockReturnValue(true);
+  isSessionDeletionAvailableMock.mockReturnValue(true);
   canDeleteWebsiteMock.mockResolvedValue(true);
   deleteSessionMock.mockRejectedValue(new Error('ENTITY_NOT_FOUND'));
 

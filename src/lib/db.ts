@@ -23,6 +23,28 @@ export function isRelationalOnly() {
   return !process.env.CLICKHOUSE_URL && getDatabaseType() === POSTGRESQL;
 }
 
+export function isSessionDeletionAvailable() {
+  return (
+    isRelationalOnly() &&
+    process.env.CLICKHOUSE_HISTORY_ATTESTED_CLEAN === 'true' &&
+    isKafkaHistorySafeForDeletion()
+  );
+}
+
+export function isKafkaHistorySafeForDeletion() {
+  return (
+    !process.env.KAFKA_URL &&
+    !process.env.KAFKA_BROKER &&
+    process.env.KAFKA_HISTORY_ATTESTED_CLEAN === 'true'
+  );
+}
+
+export function assertKafkaHistorySafeForDeletion() {
+  if (!isKafkaHistorySafeForDeletion()) {
+    throw new Error('KAFKA_HISTORY_REVIEW_REQUIRED');
+  }
+}
+
 export async function runQuery(queries: any) {
   if (process.env.CLICKHOUSE_URL) {
     if (queries[KAFKA]) {

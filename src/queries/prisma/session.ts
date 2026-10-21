@@ -1,5 +1,6 @@
 import type { Prisma } from '@/generated/prisma/client';
 import { PERMISSIONS } from '@/lib/constants';
+import { assertKafkaHistorySafeForDeletion, isSessionDeletionAvailable } from '@/lib/db';
 import type { Auth } from '@/lib/types';
 import {
   assertActorCanMutateEntity,
@@ -33,6 +34,12 @@ export async function deleteSession(
   actorUserId: string,
   auth: Auth,
 ): Promise<{ id: string } | null> {
+  assertKafkaHistorySafeForDeletion();
+
+  if (!isSessionDeletionAvailable()) {
+    throw new Error('SESSION_STORAGE_REVIEW_REQUIRED');
+  }
+
   return runSerializable(async tx => {
     await assertCurrentActorAuth(tx, actorUserId, auth);
     await lockSessionDeleteAuthorization(tx, actorUserId, websiteId);

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 const command = vi.fn();
 const rawQuery = vi.fn();
@@ -24,7 +24,14 @@ describe('deleteClickhouseCollectionSources', () => {
       .mockResolvedValueOnce([{ name: 'umami' }])
       .mockResolvedValue([]);
     clickhouse.enabled = true;
-    delete process.env.CLICKHOUSE_HISTORY_ATTESTED_CLEAN;
+    vi.stubEnv('CLICKHOUSE_HISTORY_ATTESTED_CLEAN', '');
+    vi.stubEnv('KAFKA_HISTORY_ATTESTED_CLEAN', 'true');
+    vi.stubEnv('KAFKA_URL', '');
+    vi.stubEnv('KAFKA_BROKER', '');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   test('waits for deletion from every raw and derived collection table', async () => {
@@ -129,9 +136,30 @@ describe('deleteClickhouseCollectionSources', () => {
     expect(rawQuery).not.toHaveBeenCalled();
   });
 
+  test('requires protected Kafka history attestation before deleting any source', async () => {
+    vi.stubEnv('KAFKA_HISTORY_ATTESTED_CLEAN', '');
+
+    await expect(deleteClickhouseCollectionSources(['source-1'])).rejects.toThrow(
+      'KAFKA_HISTORY_REVIEW_REQUIRED',
+    );
+    expect(rawQuery).not.toHaveBeenCalled();
+    expect(command).not.toHaveBeenCalled();
+  });
+
+  test('rejects current Kafka configuration even with historical attestation', async () => {
+    vi.stubEnv('KAFKA_URL', 'kafkas://broker');
+    vi.stubEnv('KAFKA_BROKER', 'broker:9092');
+
+    await expect(deleteClickhouseCollectionSources(['source-1'])).rejects.toThrow(
+      'KAFKA_HISTORY_REVIEW_REQUIRED',
+    );
+    expect(rawQuery).not.toHaveBeenCalled();
+    expect(command).not.toHaveBeenCalled();
+  });
+
   test('accepts disabled ClickHouse only after protected history attestation', async () => {
     clickhouse.enabled = false;
-    process.env.CLICKHOUSE_HISTORY_ATTESTED_CLEAN = 'true';
+    vi.stubEnv('CLICKHOUSE_HISTORY_ATTESTED_CLEAN', 'true');
     await deleteClickhouseCollectionSources(['source-1']);
 
     expect(command).not.toHaveBeenCalled();

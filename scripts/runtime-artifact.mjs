@@ -217,6 +217,7 @@ function validateDeploymentContract(deployment) {
     'classroom-2fa-privacy-acceptance-v1',
     'database-aware-recovery-v1',
     'legacy-clickhouse-erasure-review-v1',
+    'retired-kafka-history-review-v1',
     'bounded-heatmap-retention-v1',
     'bounded-replay-retention-v1',
     'packaged-migration-tool-v1',

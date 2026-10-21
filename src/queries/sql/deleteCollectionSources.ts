@@ -1,4 +1,5 @@
 import clickhouse from '@/lib/clickhouse';
+import { assertKafkaHistorySafeForDeletion } from '@/lib/db';
 
 export const CLICKHOUSE_COLLECTION_TABLES = [
   'website_event_stats_hourly',
@@ -62,6 +63,8 @@ export async function deleteClickhouseCollectionSources(sourceIds: string[]) {
   if (uniqueSourceIds.length === 0) {
     return;
   }
+
+  assertKafkaHistorySafeForDeletion();
 
   if (!clickhouse.enabled) {
     if (process.env.CLICKHOUSE_HISTORY_ATTESTED_CLEAN !== 'true') {

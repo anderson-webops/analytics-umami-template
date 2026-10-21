@@ -81,12 +81,60 @@ describe('runQuery', () => {
   });
 });
 
-describe('isRelationalOnly', () => {
+describe('storage and deletion availability', () => {
   test('returns true for a postgresql database without clickhouse', () => {
     vi.stubEnv('CLICKHOUSE_URL', '');
+    vi.stubEnv('KAFKA_URL', '');
+    vi.stubEnv('KAFKA_BROKER', '');
+    vi.stubEnv('KAFKA_HISTORY_ATTESTED_CLEAN', 'true');
+    vi.stubEnv('CLICKHOUSE_HISTORY_ATTESTED_CLEAN', 'true');
     vi.stubEnv('DATABASE_URL', 'postgresql://user:pass@localhost:5432/umami');
 
     expect(db.isRelationalOnly()).toBe(true);
+    expect(db.isSessionDeletionAvailable()).toBe(true);
+  });
+
+  test('hides session deletion until historical Kafka retirement is attested', () => {
+    vi.stubEnv('CLICKHOUSE_URL', '');
+    vi.stubEnv('CLICKHOUSE_HISTORY_ATTESTED_CLEAN', 'true');
+    vi.stubEnv('KAFKA_URL', '');
+    vi.stubEnv('KAFKA_BROKER', '');
+    vi.stubEnv('KAFKA_HISTORY_ATTESTED_CLEAN', '');
+    vi.stubEnv('DATABASE_URL', 'postgresql://user:pass@localhost:5432/umami');
+
+    expect(db.isSessionDeletionAvailable()).toBe(false);
+  });
+
+  test('hides session deletion when Kafka is currently configured despite attestation', () => {
+    vi.stubEnv('CLICKHOUSE_URL', '');
+    vi.stubEnv('CLICKHOUSE_HISTORY_ATTESTED_CLEAN', 'true');
+    vi.stubEnv('KAFKA_URL', 'kafkas://broker');
+    vi.stubEnv('KAFKA_HISTORY_ATTESTED_CLEAN', 'true');
+    vi.stubEnv('DATABASE_URL', 'postgresql://user:pass@localhost:5432/umami');
+
+    expect(db.isSessionDeletionAvailable()).toBe(false);
+  });
+
+  test('hides session deletion for a partial Kafka configuration', () => {
+    vi.stubEnv('CLICKHOUSE_URL', '');
+    vi.stubEnv('CLICKHOUSE_HISTORY_ATTESTED_CLEAN', 'true');
+    vi.stubEnv('KAFKA_URL', '');
+    vi.stubEnv('KAFKA_BROKER', 'broker:9092');
+    vi.stubEnv('KAFKA_HISTORY_ATTESTED_CLEAN', 'true');
+    vi.stubEnv('DATABASE_URL', 'postgresql://user:pass@localhost:5432/umami');
+
+    expect(db.isSessionDeletionAvailable()).toBe(false);
+  });
+
+  test('hides session deletion when retired ClickHouse history is not attested', () => {
+    vi.stubEnv('CLICKHOUSE_URL', '');
+    vi.stubEnv('CLICKHOUSE_HISTORY_ATTESTED_CLEAN', '');
+    vi.stubEnv('KAFKA_URL', '');
+    vi.stubEnv('KAFKA_BROKER', '');
+    vi.stubEnv('KAFKA_HISTORY_ATTESTED_CLEAN', 'true');
+    vi.stubEnv('DATABASE_URL', 'postgresql://user:pass@localhost:5432/umami');
+
+    expect(db.isSessionDeletionAvailable()).toBe(false);
   });
 
   test('returns false when clickhouse is enabled', () => {

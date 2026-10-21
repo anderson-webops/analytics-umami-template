@@ -475,6 +475,16 @@ for (const name of booleanVariables) {
   checkBoolean(name);
 }
 
+const kafkaHistoryAttestation = process.env.KAFKA_HISTORY_ATTESTED_CLEAN;
+
+if (kafkaHistoryAttestation && !['true', 'false'].includes(kafkaHistoryAttestation)) {
+  fail('KAFKA_HISTORY_ATTESTED_CLEAN must be true or false.');
+}
+
+if (kafkaHistoryAttestation === 'true' && (process.env.KAFKA_URL || process.env.KAFKA_BROKER)) {
+  fail('KAFKA_HISTORY_ATTESTED_CLEAN cannot be enabled while Kafka is configured.');
+}
+
 // The MCP route deliberately enables only on the exact value `1`. Validate the
 // same contract here so accepted configuration and runtime behavior cannot
 // diverge.

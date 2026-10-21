@@ -251,6 +251,9 @@ function createDeleteTx(calls: string[]) {
 describe('website delete dependencies', () => {
   beforeEach(() => {
     vi.stubEnv('CLICKHOUSE_HISTORY_ATTESTED_CLEAN', 'true');
+    vi.stubEnv('KAFKA_HISTORY_ATTESTED_CLEAN', 'true');
+    vi.stubEnv('KAFKA_URL', '');
+    vi.stubEnv('KAFKA_BROKER', '');
     transactionMock.mockReset();
     redisDelMock.mockReset();
     redisSetMock.mockReset();
@@ -270,6 +273,18 @@ describe('website delete dependencies', () => {
 
     await expect(resetWebsite('website-1', 'actor-1', actorAuth)).rejects.toThrow(
       'CLICKHOUSE_HISTORY_REVIEW_REQUIRED',
+    );
+    expect(calls).toEqual([]);
+  });
+
+  test('reset refuses to remove rows without historical Kafka retirement evidence', async () => {
+    vi.stubEnv('KAFKA_HISTORY_ATTESTED_CLEAN', '');
+    const calls: string[] = [];
+    const tx = createDeleteTx(calls);
+    transactionMock.mockImplementation(async callback => callback(tx));
+
+    await expect(resetWebsite('website-1', 'actor-1', actorAuth)).rejects.toThrow(
+      'KAFKA_HISTORY_REVIEW_REQUIRED',
     );
     expect(calls).toEqual([]);
   });

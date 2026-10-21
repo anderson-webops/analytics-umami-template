@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { isClickHouseReadLimitError } from '@/lib/clickhouse';
 import { isUuid } from '@/lib/crypto';
-import { isRelationalOnly } from '@/lib/db';
+import { isSessionDeletionAvailable } from '@/lib/db';
 import { parseRequest } from '@/lib/request';
 import { badRequest, json, notFound, ok, unauthorized } from '@/lib/response';
 import { MAX_AUTH_SESSION_ROWS, MAX_SHARE_SESSION_ROWS } from '@/lib/share-query-budget';
@@ -32,7 +32,7 @@ export async function GET(
     return unauthorized();
   }
 
-  const canDelete = isRelationalOnly() && (await canDeleteWebsite(auth, websiteId));
+  const canDelete = isSessionDeletionAvailable() && (await canDeleteWebsite(auth, websiteId));
 
   const data = await getWebsiteSession(websiteId, sessionId);
 
@@ -117,8 +117,8 @@ export async function DELETE(
     return error();
   }
 
-  if (!isRelationalOnly()) {
-    return badRequest({ message: 'Session deletion is only available with relational storage.' });
+  if (!isSessionDeletionAvailable()) {
+    return badRequest({ message: 'Session deletion requires reviewed storage history.' });
   }
 
   const { websiteId, sessionId } = await params;

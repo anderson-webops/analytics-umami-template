@@ -205,6 +205,47 @@ test('development may configure valid Kafka without changing production admissio
   assert.equal(result.status, 0, result.stderr);
 });
 
+test('Kafka history attestation matches deletion behavior and rejects active producers', () => {
+  const validationScript = fileURLToPath(new URL('./check-env.js', import.meta.url));
+  const baseEnvironment = {
+    PATH: process.env.PATH || '/usr/bin:/bin',
+    DOTENV_CONFIG_PATH: '/dev/null',
+    NODE_ENV: 'development',
+    APP_SECRET: 'synthetic-app-secret-11111111111111111',
+    SKIP_DB_CHECK: '1',
+  };
+
+  for (const { settings, expectedStatus, error } of [
+    { settings: { KAFKA_HISTORY_ATTESTED_CLEAN: 'true' }, expectedStatus: 0 },
+    {
+      settings: { KAFKA_HISTORY_ATTESTED_CLEAN: '1' },
+      expectedStatus: 1,
+      error: /KAFKA_HISTORY_ATTESTED_CLEAN must be true or false/,
+    },
+    {
+      settings: { KAFKA_HISTORY_ATTESTED_CLEAN: ' true ' },
+      expectedStatus: 1,
+      error: /KAFKA_HISTORY_ATTESTED_CLEAN must be true or false/,
+    },
+    {
+      settings: { KAFKA_HISTORY_ATTESTED_CLEAN: 'true', KAFKA_BROKER: 'broker:9092' },
+      expectedStatus: 1,
+      error: /KAFKA_HISTORY_ATTESTED_CLEAN cannot be enabled while Kafka is configured/,
+    },
+  ]) {
+    const result = spawnSync(process.execPath, [validationScript], {
+      env: { ...baseEnvironment, ...settings },
+      encoding: 'utf8',
+      timeout: 10_000,
+    });
+
+    assert.equal(result.status, expectedStatus, result.stderr);
+    if (error) {
+      assert.match(result.stderr, error);
+    }
+  }
+});
+
 test('production rejects Kafka values that the runtime treats as enabled even when trimmed empty', () => {
   const validationScript = fileURLToPath(new URL('./check-env.js', import.meta.url));
   const result = spawnSync(process.execPath, [validationScript], {

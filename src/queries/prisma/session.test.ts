@@ -1,4 +1,4 @@
-import { beforeEach, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import prisma from '@/lib/prisma';
 import { deleteSession } from './session';
 
@@ -51,6 +51,52 @@ function transactionClient() {
 
 beforeEach(() => {
   transaction.mockReset();
+  vi.stubEnv('KAFKA_HISTORY_ATTESTED_CLEAN', 'true');
+  vi.stubEnv('KAFKA_URL', '');
+  vi.stubEnv('KAFKA_BROKER', '');
+  vi.stubEnv('CLICKHOUSE_URL', '');
+  vi.stubEnv('CLICKHOUSE_HISTORY_ATTESTED_CLEAN', 'true');
+  vi.stubEnv('DATABASE_URL', 'postgresql://synthetic:synthetic@localhost:5432/synthetic');
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+test('refuses a direct session deletion without protected Kafka history review', async () => {
+  vi.stubEnv('KAFKA_HISTORY_ATTESTED_CLEAN', '');
+
+  await expect(deleteSession(websiteId, sessionId, actorUserId, actorAuth)).rejects.toThrow(
+    'KAFKA_HISTORY_REVIEW_REQUIRED',
+  );
+  expect(transaction).not.toHaveBeenCalled();
+});
+
+test('refuses a direct session deletion when Kafka is configured after attestation', async () => {
+  vi.stubEnv('KAFKA_URL', 'kafkas://broker');
+
+  await expect(deleteSession(websiteId, sessionId, actorUserId, actorAuth)).rejects.toThrow(
+    'KAFKA_HISTORY_REVIEW_REQUIRED',
+  );
+  expect(transaction).not.toHaveBeenCalled();
+});
+
+test('refuses a direct session deletion against non-relational storage', async () => {
+  vi.stubEnv('CLICKHOUSE_URL', 'http://localhost:8123');
+
+  await expect(deleteSession(websiteId, sessionId, actorUserId, actorAuth)).rejects.toThrow(
+    'SESSION_STORAGE_REVIEW_REQUIRED',
+  );
+  expect(transaction).not.toHaveBeenCalled();
+});
+
+test('refuses a direct session deletion without retired ClickHouse history review', async () => {
+  vi.stubEnv('CLICKHOUSE_HISTORY_ATTESTED_CLEAN', '');
+
+  await expect(deleteSession(websiteId, sessionId, actorUserId, actorAuth)).rejects.toThrow(
+    'SESSION_STORAGE_REVIEW_REQUIRED',
+  );
+  expect(transaction).not.toHaveBeenCalled();
 });
 
 test('deletes a session only after checking the actor inside a serializable transaction', async () => {

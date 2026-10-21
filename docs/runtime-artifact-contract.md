@@ -77,6 +77,16 @@ The capability names have narrow meanings:
   `CLICKHOUSE_HISTORY_ATTESTED_CLEAN=true` environment value only after proving
   no retained ClickHouse data can survive an acknowledged deletion. An absent
   current ClickHouse URL is not evidence of a clean history.
+- `retired-kafka-history-review-v1`: before activation, determine whether the
+  site ever published collection messages to Kafka and whether any broker,
+  external consumer, sink, retained backup, or in-flight record can write old
+  data after a reset or deletion. This release rejects production Kafka
+  configuration. Source deletion and session deletion also fail closed unless
+  the protected `KAFKA_HISTORY_ATTESTED_CLEAN=true` setting records a reviewed
+  permanent retirement of the old producer/consumer path and reconciliation of
+  historical sinks. An absent current Kafka URL is not that evidence. Reactivating
+  Kafka requires a new versioned producer/consumer generation contract and
+  protected transition; do not reuse this attestation to bypass one.
 - `version-aware-readiness-v1`: apply the candidate's health and readiness rules
   to the candidate, and the retained release's own rules during recovery.
 - `coordinated-listener-transition-v1`: rehearse a changed loopback listener,

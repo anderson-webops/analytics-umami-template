@@ -421,6 +421,9 @@ test('accepts reviewed site-specific adapter gates but rejects unknown capabilit
   assert.ok(
     contract.deployment.requiredAdapterCapabilities.includes('legacy-clickhouse-erasure-review-v1'),
   );
+  assert.ok(
+    contract.deployment.requiredAdapterCapabilities.includes('retired-kafka-history-review-v1'),
+  );
   contract.deployment.requiredAdapterCapabilities.push('coordinated-listener-transition-v1');
   await fs.writeFile(contractPath, JSON.stringify(contract));
   const manifest = await createRuntimeManifest(root, { contractPath, source });
