@@ -27,6 +27,9 @@ const braces = (input, options = {}) => {
     const budget = { count: 0, bytes: 0 };
     for (const pattern of input) {
       const result = braces.create(pattern, options, options.expand === true ? budget : undefined);
+      if (options.expand !== true) {
+        reserve(budget, { count: 1, bytes: Buffer.byteLength(String(result)) });
+      }
       if (Array.isArray(result)) {
         output.push(...result);
       } else {

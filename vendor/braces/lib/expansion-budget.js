@@ -79,7 +79,7 @@ const measureStringified = (node, options, state, depth = 0) => {
 };
 
 const rangeSize = (node, options, state) => {
-  if (options.transform !== undefined || options.toRegex === true) {
+  if ((options.transform !== undefined && options.transform !== null && options.transform !== false) || options.toRegex === true) {
     throw new TypeError('range transforms and regex output are not supported in expansion mode');
   }
 
@@ -101,20 +101,21 @@ const rangeSize = (node, options, state) => {
 
   let first;
   let last;
-  let itemBytes;
+  let paddedWidth = 0;
+  let numericRange = false;
   if (numeric(start) && numeric(end)) {
+    numericRange = true;
     first = Number(start);
     last = Number(end);
     if (!Number.isSafeInteger(first) || !Number.isSafeInteger(last)) {
       throw new RangeError('expanded array length exceeds aggregate limit');
     }
-    itemBytes = Math.max(
-      String(start).length,
-      String(end).length,
-      String(requestedStep).length,
-      String(first).length,
-      String(last).length,
-    );
+    const rangeValues = [start, end, requestedStep].map(String);
+    const padded = rangeValues.some(value => {
+      const unsigned = value.startsWith('-') ? value.slice(1) : value;
+      return unsigned !== '0' && unsigned.startsWith('0');
+    });
+    if (padded) paddedWidth = Math.max(...rangeValues.map(value => value.length));
   } else {
     if ((!numeric(start) && start.length > 1) || (!numeric(end) && end.length > 1)) {
       return measureStringified(node, options, state);
@@ -124,7 +125,6 @@ const rangeSize = (node, options, state) => {
     if (!Number.isFinite(first) || !Number.isFinite(last)) {
       return measureStringified(node, options, state);
     }
-    itemBytes = 3;
   }
 
   const distance = BigInt(first) - BigInt(last);
@@ -139,7 +139,15 @@ const rangeSize = (node, options, state) => {
   if (count > BigInt(MAX_EXPANSIONS)) {
     throw new RangeError('expanded array length exceeds aggregate limit');
   }
-  const size = { count: Number(count), bytes: Number(count) * itemBytes };
+  let bytes = 0;
+  const direction = first <= last ? 1n : -1n;
+  for (let index = 0; index < Number(count); index++) {
+    const value = Number(BigInt(first) + direction * stepSize * BigInt(index));
+    bytes += numericRange
+      ? Math.max(paddedWidth, String(value).length)
+      : Buffer.byteLength(String.fromCharCode(value));
+  }
+  const size = { count: Number(count), bytes };
   assertBudget(size);
   return size;
 };
@@ -203,4 +211,4 @@ const summarize = (node, options, depth = 0, state = { visits: 0 }) => {
   return result;
 };
 
-module.exports = { assertBudget, concatenate, measureValues, reserve, summarize };
+module.exports = { assertBudget, concatenate, measureValues, rangeSize, reserve, summarize };

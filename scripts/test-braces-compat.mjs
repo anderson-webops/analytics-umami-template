@@ -29,7 +29,7 @@ test('both build-tool paths resolve the guarded local package', async () => {
   for (const plugin of ['rollup-plugin-copy', 'rollup-plugin-delete']) {
     const { packagePath } = installedBraces(plugin);
     const manifest = JSON.parse(await readFile(packagePath, 'utf8'));
-    assert.equal(manifest.version, '3.0.4-webops.2');
+    assert.equal(manifest.version, '3.0.4-webops.3');
   }
 });
 
@@ -44,6 +44,43 @@ test('ordinary patterns retain compile, expand, and stringify behavior', () => {
     assert.ok(braces.parse(`${'{'.repeat(256)}x${'}'.repeat(256)}`));
     assert.ok(braces.parse(`${'('.repeat(101)}x${')'.repeat(101)}`));
   }
+});
+
+test('compiled ranges and direct AST strings stay within an aggregate byte budget', () => {
+  const { braces } = installedBraces('rollup-plugin-copy');
+  assert.equal(braces.compile('{1..10000}').length, 29);
+  assert.ok(braces.compile('{1..1000000..-1}').length < 100);
+  assert.equal(braces.compile('{1..3}', { transform: String }), '([1-3])');
+  assert.throws(() => braces.compile('{1..999999999..2}'), /aggregate limit/);
+  assert.throws(() => braces.compile('{1..9999..2}'.repeat(400)), /byte limit/);
+  const oversizedRangeAst = {
+    type: 'root',
+    nodes: [{ type: 'brace', ranges: 1, nodes: Array(150000).fill({ type: 'text', value: '1' }) }],
+  };
+  assert.throws(() => braces.compile(oversizedRangeAst), /node budget/);
+  let transformCalls = 0;
+  assert.throws(
+    () =>
+      braces.compile('{a..z..2}', {
+        transform: () => {
+          transformCalls++;
+          return 'x'.repeat(700000);
+        },
+      }),
+    TypeError,
+  );
+  assert.equal(transformCalls, 0);
+
+  const repeatedText = { type: 'text', value: 'x'.repeat(1024) };
+  const oversizedAst = { type: 'root', nodes: Array(8193).fill(repeatedText) };
+  assert.throws(() => braces.stringify(oversizedAst), /byte limit/);
+  assert.throws(() => braces.compile(oversizedAst), /byte limit/);
+});
+
+test('compiled array patterns are bounded before aggregation', () => {
+  const { braces } = installedBraces('rollup-plugin-copy');
+  assert.deepEqual(braces(['a', 'b']), ['a', 'b']);
+  assert.throws(() => braces(Array(10001).fill('x')), /aggregate limit/);
 });
 
 test('aggregate expansion is bounded before Cartesian and array outputs are materialized', () => {
@@ -87,6 +124,15 @@ test('range limits cover explicit steps, descending sequences, and letters', () 
     message: 'expanded array length exceeds aggregate limit',
   });
   assert.throws(() => braces.expand('{9007199254740992..9007199254740993}'), RangeError);
+  assert.deepEqual(braces.expand('{1..3}', { transform: null }), ['1', '2', '3']);
+  assert.deepEqual(braces.expand('{1..3}', { transform: false }), ['1', '2', '3']);
+  assert.equal(braces.expand(`${'x'.repeat(8386)}{a..ш}`).length, 1000);
+  const boundedNumericRange = braces.expand(`${'x'.repeat(834)}{1..10000}`, { rangeLimit: false });
+  assert.equal(boundedNumericRange.length, 10000);
+  assert.ok(
+    boundedNumericRange.reduce((bytes, value) => bytes + Buffer.byteLength(value), 0) <
+      8 * 1024 * 1024,
+  );
 });
 
 test('preflight rejects oversized alternatives and output before materializing ranges', () => {
