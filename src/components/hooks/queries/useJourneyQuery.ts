@@ -3,10 +3,14 @@ import type { ReactQueryOptions } from '@/lib/types';
 import type { JourneyParameters, JourneyResult } from '@/queries/sql/journeys/getJourney';
 import { useAnalyticsQuery } from './useAnalyticsQuery';
 
+export type JourneyMetricsData = (JourneyResult & {
+  trafficProvenance: 'may_include_unverified_public_observations';
+})[];
+
 export function useJourneyQuery(
   params: AnalyticsParameters &
     Partial<Omit<JourneyParameters, 'startDate' | 'endDate'>> & { eventType?: number },
-  options?: ReactQueryOptions<JourneyResult[]>,
+  options?: ReactQueryOptions<JourneyMetricsData>,
 ) {
-  return useAnalyticsQuery<JourneyResult[]>('journeys', params, options);
+  return useAnalyticsQuery<JourneyMetricsData>('journeys', params, options);
 }

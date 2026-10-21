@@ -17,7 +17,7 @@ vi.mock('@/components/hooks', () => ({
   }),
   useMessages: () => ({
     t: (value: string) => value,
-    labels: { visitors: 'visitors', dropoff: 'dropoff', conversion: 'conversion' },
+    labels: { visits: 'visits', dropoff: 'dropoff', conversion: 'conversion' },
   }),
 }));
 
@@ -40,7 +40,7 @@ test('Journey aggregates stored prototype-shaped event names without modifying O
     expect(screen.getByText('constructor')).toBeInTheDocument();
     expect(screen.getByText('prototype')).toBeInTheDocument();
     expect(screen.getByText('5')).toBeInTheDocument();
-    expect(screen.getByText('12 visitors')).toBeInTheDocument();
+    expect(screen.getByText('12 visits')).toBeInTheDocument();
   } finally {
     if (previous) {
       Object.defineProperty(Object.prototype, 'totalCount', previous);

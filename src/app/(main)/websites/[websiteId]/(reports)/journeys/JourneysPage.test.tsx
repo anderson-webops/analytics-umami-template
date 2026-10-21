@@ -169,6 +169,9 @@ vi.mock('./Journey', () => ({
 test('keeps the selected journey params when the date range refreshes the value list', async () => {
   const { rerender, user } = render(<JourneysPage websiteId="website-1" />);
 
+  expect(screen.getByRole('note')).toHaveTextContent('may include unverified public observations');
+  expect(screen.getByRole('note')).toHaveTextContent('Visitor counts do not verify people.');
+
   await user.selectOptions(screen.getByLabelText('Steps'), '5');
   await user.selectOptions(screen.getByLabelText('Start Step'), '/signup');
   await user.selectOptions(screen.getByLabelText('End Step'), 'Purchase');

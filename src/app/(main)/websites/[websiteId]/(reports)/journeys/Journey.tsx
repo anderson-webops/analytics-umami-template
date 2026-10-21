@@ -176,7 +176,7 @@ export function Journey({ websiteId, steps, startStep, endStep, view }: JourneyP
                   <div className={styles.num}>{columnIndex + 1}</div>
                   <div className={styles.stats}>
                     <div className={styles.visitors} title={visitorCount}>
-                      {formatLongNumber(visitorCount)} {t(labels.visitors)}
+                      {formatLongNumber(visitorCount)} {t(labels.visits)}
                     </div>
                   </div>
                 </div>

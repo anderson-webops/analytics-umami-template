@@ -6,6 +6,7 @@ import { Panel } from '@/components/common/Panel';
 import { useDateRange, useMessages } from '@/components/hooks';
 import { FilterButtons } from '@/components/input/FilterButtons';
 import { WebsiteValueComboBox } from '@/components/input/WebsiteValueComboBox';
+import { TrafficProvenanceNotice } from '@/components/metrics/TrafficProvenanceNotice';
 import { Journey } from './Journey';
 
 const JOURNEY_STEPS = [2, 3, 4, 5, 6, 7];
@@ -82,6 +83,7 @@ export function JourneysPage({ websiteId }: { websiteId: string }) {
       <Row justifyContent="flex-end">
         <FilterButtons items={buttons} value={view} onChange={setView} />
       </Row>
+      <TrafficProvenanceNotice mayIncludeUnverifiedTraffic />
       <Panel height="900px" allowFullscreen>
         <Journey
           websiteId={websiteId}

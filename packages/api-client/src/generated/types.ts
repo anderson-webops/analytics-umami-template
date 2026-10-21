@@ -17017,16 +17017,18 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Analytics results. */
+      /** @description Journey paths may include unverified public pageviews alongside backend-authorized custom events. Counts represent visits, not verified people. Each row and the X-Traffic-Provenance response header declare this limitation. */
       200: {
         headers: {
           [name: string]: unknown;
         };
         content: {
           'application/json': {
-            /** @description Number of matching records. */
+            /** @description Number of visits with this journey. */
             count: number;
             items: string[];
+            /** @enum {string} */
+            trafficProvenance: 'may_include_unverified_public_observations';
           }[];
         };
       };

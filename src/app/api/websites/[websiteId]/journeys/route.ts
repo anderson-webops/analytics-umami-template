@@ -5,6 +5,8 @@ import { getJourneyShareWorkMultiplier } from '@/lib/share-query-budget';
 import { canViewWebsiteSection } from '@/permissions';
 import { getJourney, type JourneyParameters } from '@/queries/sql/journeys/getJourney';
 
+const TRAFFIC_PROVENANCE = 'may_include_unverified_public_observations';
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ websiteId: string }> },
@@ -17,5 +19,9 @@ export async function GET(
   if (!(await canViewWebsiteSection(auth, websiteId, 'journeys'))) return unauthorized();
   const filters = await getQueryFilters(query, websiteId);
   const parameters = { ...query, ...filters } as JourneyParameters;
-  return json(await getJourney(websiteId, parameters, filters));
+  const rows = await getJourney(websiteId, parameters, filters);
+  return json(
+    rows.map(row => ({ ...row, trafficProvenance: TRAFFIC_PROVENANCE })),
+    { headers: { 'X-Traffic-Provenance': TRAFFIC_PROVENANCE } },
+  );
 }
