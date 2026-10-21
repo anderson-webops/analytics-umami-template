@@ -3,6 +3,7 @@ import { useDateRange, useMessages } from '@/components/hooks';
 import { useTrafficStatsQuery } from '@/components/hooks/queries/useTrafficStatsQuery';
 import { MetricCard } from '@/components/metrics/MetricCard';
 import { MetricsBar } from '@/components/metrics/MetricsBar';
+import { TrafficProvenanceNotice } from '@/components/metrics/TrafficProvenanceNotice';
 import { formatLongNumber } from '@/lib/format';
 
 export function LinkMetricsBar({
@@ -49,6 +50,7 @@ export function LinkMetricsBar({
       error={error}
       minHeight="136px"
     >
+      {data && <TrafficProvenanceNotice unverifiedViews={data.unverifiedViews} />}
       <MetricsBar>
         {metrics?.map(({ label, value, prev, change, formatValue, reverseColors }: any) => {
           return (

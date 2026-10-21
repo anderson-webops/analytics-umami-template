@@ -3,8 +3,8 @@ import { useDateRange, useMessages } from '@/components/hooks';
 import { useWebsiteStatsQuery } from '@/components/hooks/queries/useWebsiteStatsQuery';
 import { MetricCard } from '@/components/metrics/MetricCard';
 import { MetricsBar } from '@/components/metrics/MetricsBar';
+import { TrafficProvenanceNotice } from '@/components/metrics/TrafficProvenanceNotice';
 import { formatLongNumber, formatShortTime } from '@/lib/format';
-import { TrafficProvenanceNotice } from './TrafficProvenanceNotice';
 
 export function WebsiteMetricsBar({
   websiteId,
