@@ -43,7 +43,7 @@ export const getPerformance = defineTool({
   name: 'get_performance',
   title: 'Get web vitals performance',
   description:
-    'Returns Core Web Vitals collected from real visitors over a time range: p50/p75/p95 for LCP, INP, CLS, FCP and TTFB ' +
+    'Returns unverified browser-submitted Core Web Vitals over a time range: p50/p75/p95 for LCP, INP, CLS, FCP and TTFB ' +
     'plus the number of measurements. Google treats p75 as the score to judge by (good LCP ≤ 2500ms, INP ≤ 200ms, CLS ≤ 0.1). ' +
     'Set "metric" to also get that metric as a time series, and "breakdown" to rank pages, devices or browsers by that metric ' +
     'to find what is slow. Requires a websiteId from list_websites.',
@@ -103,6 +103,7 @@ export const getPerformance = defineTool({
 
     return {
       websiteId: input.websiteId,
+      measurementProvenance: 'unverified_browser_observation',
       range: {
         startAt: new Date(range.startAt).toISOString(),
         endAt: new Date(range.endAt).toISOString(),

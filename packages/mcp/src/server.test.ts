@@ -1219,6 +1219,7 @@ describe('createUmamiMcpServer', () => {
     expect(summary.isError).toBeFalsy();
     expect(summary.structuredContent).toMatchObject({
       measurements: 500,
+      measurementProvenance: 'unverified_browser_observation',
       vitals: { lcp: { p75: 2100 }, cls: { p75: 0.05 } },
     });
     expect(summary.structuredContent).not.toHaveProperty('series');

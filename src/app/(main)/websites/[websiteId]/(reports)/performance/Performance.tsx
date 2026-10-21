@@ -33,6 +33,7 @@ import { CHART_COLORS } from '@/lib/constants';
 import { generateTimeSeries } from '@/lib/date';
 import { formatLongNumber } from '@/lib/format';
 import styles from './Performance.module.css';
+import { PerformanceProvenanceNotice } from './PerformanceProvenanceNotice';
 
 export interface PerformanceProps {
   websiteId: string;
@@ -148,6 +149,7 @@ export function Performance({ websiteId, startDate, endDate, unit }: Performance
 
   return (
     <Column gap>
+      <PerformanceProvenanceNotice />
       <Grid columns="280px" gap>
         <Select
           label="Percentile"
