@@ -96,6 +96,7 @@ describe('createUmamiMcpServer', () => {
     if (path === `/api/websites/${WEBSITE_ID}/pageviews`) {
       return {
         body: {
+          trafficProvenance: 'unverified_public_observations',
           pageviews: [{ x: '2024-01-01', y: 10 }],
           sessions: [{ x: '2024-01-01', y: 5 }],
         },
@@ -103,11 +104,31 @@ describe('createUmamiMcpServer', () => {
     }
 
     if (path === `/api/websites/${WEBSITE_ID}/metrics`) {
+      if (url.searchParams.get('type') === 'event') {
+        return {
+          body: [{ x: 'signup', y: 2, metricProvenance: 'backend_authorized_event_counts' }],
+        };
+      }
+
       return {
         body: [
-          { x: '/', y: 50 },
-          { x: '/docs', y: 20 },
+          { x: '/', y: 50, metricProvenance: 'unverified_public_observations' },
+          { x: '/docs', y: 20, metricProvenance: 'unverified_public_observations' },
         ],
+      };
+    }
+
+    if (path === `/api/websites/${WEBSITE_ID}/attribution`) {
+      return {
+        body: {
+          targetProvenance:
+            url.searchParams.get('type') === 'event'
+              ? 'backend_authorized_event'
+              : 'unverified_pageview',
+          sourceProvenance: 'caller_reported',
+          total: { pageviews: 2, visitors: 2, visits: 2 },
+          referrer: [{ name: 'example.com', value: 2 }],
+        },
       };
     }
 
@@ -581,6 +602,7 @@ describe('createUmamiMcpServer', () => {
     });
 
     expect(result.structuredContent).toMatchObject({
+      trafficProvenance: 'unverified_public_observations',
       pageviews: [{ date: '2024-01-01', value: 10 }],
       visits: [{ date: '2024-01-01', value: 5 }],
     });
@@ -595,6 +617,8 @@ describe('createUmamiMcpServer', () => {
     expect(result.structuredContent).toMatchObject({
       type: 'path',
       measure: 'views',
+      countUnit: 'recorded_sessions',
+      metricProvenance: 'unverified_public_observations',
       data: [
         { name: '/', value: 50 },
         { name: '/docs', value: 20 },
@@ -608,6 +632,160 @@ describe('createUmamiMcpServer', () => {
     });
 
     expect(tooMany.isError).toBe(true);
+  });
+
+  test('event metrics keep their backend-authorized count provenance', async () => {
+    const result = await harness.client.callTool({
+      name: 'get_website_metrics',
+      arguments: { websiteId: WEBSITE_ID, startAt: '2024-01-01', type: 'event' },
+    });
+
+    expect(result.structuredContent).toMatchObject({
+      countUnit: 'event_occurrences',
+      metricProvenance: 'backend_authorized_event_counts',
+      data: [{ name: 'signup', value: 2 }],
+    });
+  });
+
+  test.each([
+    ['path', 'unverified_pageview'],
+    ['event', 'backend_authorized_event'],
+  ] as const)(
+    'attribution exposes %s target and caller-reported source',
+    async (type, provenance) => {
+      const result = await harness.client.callTool({
+        name: 'run_attribution',
+        arguments: {
+          websiteId: WEBSITE_ID,
+          startAt: '2024-01-01',
+          conversionType: type,
+          conversion: type === 'path' ? '/signup' : 'signup',
+        },
+      });
+
+      expect(result.structuredContent).toMatchObject({
+        targetProvenance: provenance,
+        sourceProvenance: 'caller_reported',
+        referrers: [{ name: 'example.com', value: 2 }],
+      });
+    },
+  );
+
+  test('older responses never acquire inferred traffic, metric, or attribution provenance', async () => {
+    const legacyHarness = createHarness(url => {
+      if (url.pathname.endsWith('/pageviews')) {
+        return { body: { pageviews: [{ x: '2024-01-01', y: 1 }], sessions: [] } };
+      }
+      if (url.pathname.endsWith('/metrics')) {
+        return { body: [{ x: '/', y: 1 }] };
+      }
+      return { body: { total: { pageviews: 1, visitors: 1, visits: 1 }, referrer: [] } };
+    });
+    await connect(legacyHarness);
+
+    try {
+      const traffic = await legacyHarness.client.callTool({
+        name: 'get_website_traffic',
+        arguments: { websiteId: WEBSITE_ID, startAt: '2024-01-01' },
+      });
+      const metrics = await legacyHarness.client.callTool({
+        name: 'get_website_metrics',
+        arguments: { websiteId: WEBSITE_ID, startAt: '2024-01-01', type: 'path' },
+      });
+      const attribution = await legacyHarness.client.callTool({
+        name: 'run_attribution',
+        arguments: {
+          websiteId: WEBSITE_ID,
+          startAt: '2024-01-01',
+          conversionType: 'path',
+          conversion: '/signup',
+        },
+      });
+
+      expect(traffic.structuredContent).toMatchObject({ trafficProvenance: null });
+      expect(metrics.structuredContent).toMatchObject({ metricProvenance: null });
+      expect(attribution.structuredContent).toMatchObject({
+        targetProvenance: null,
+        sourceProvenance: null,
+      });
+    } finally {
+      await legacyHarness.client.close();
+      await legacyHarness.server.close();
+    }
+  });
+
+  test('contradictory or mixed API markers cannot label public traffic as authorized', async () => {
+    let metricRows: unknown = [
+      { x: '/', y: 1, metricProvenance: 'backend_authorized_event_counts' },
+    ];
+    const contradictoryHarness = createHarness(url => {
+      if (url.pathname.endsWith('/pageviews')) {
+        return { body: { trafficProvenance: 'backend_authorized_event_counts', pageviews: [] } };
+      }
+      if (url.pathname.endsWith('/metrics')) {
+        return { body: metricRows };
+      }
+      return {
+        body: {
+          targetProvenance: 'backend_authorized_event',
+          sourceProvenance: 'caller_reported',
+          total: { pageviews: 1, visitors: 1, visits: 1 },
+        },
+      };
+    });
+    await connect(contradictoryHarness);
+
+    try {
+      const traffic = await contradictoryHarness.client.callTool({
+        name: 'get_website_traffic',
+        arguments: { websiteId: WEBSITE_ID, startAt: '2024-01-01' },
+      });
+      const metricArguments = {
+        websiteId: WEBSITE_ID,
+        startAt: '2024-01-01',
+        type: 'path',
+      };
+      const metrics = await contradictoryHarness.client.callTool({
+        name: 'get_website_metrics',
+        arguments: metricArguments,
+      });
+      const attribution = await contradictoryHarness.client.callTool({
+        name: 'run_attribution',
+        arguments: {
+          websiteId: WEBSITE_ID,
+          startAt: '2024-01-01',
+          conversionType: 'path',
+          conversion: '/signup',
+        },
+      });
+
+      expect(traffic.structuredContent).toMatchObject({ trafficProvenance: null });
+      expect(metrics.structuredContent).toMatchObject({ metricProvenance: null });
+      expect(attribution.structuredContent).toMatchObject({
+        targetProvenance: null,
+        sourceProvenance: 'caller_reported',
+      });
+
+      metricRows = [
+        { x: '/', y: 1, metricProvenance: 'unverified_public_observations' },
+        { x: '/docs', y: 1, metricProvenance: 'backend_authorized_event_counts' },
+      ];
+      const mixed = await contradictoryHarness.client.callTool({
+        name: 'get_website_metrics',
+        arguments: metricArguments,
+      });
+      expect(mixed.structuredContent).toMatchObject({ metricProvenance: null });
+
+      metricRows = [];
+      const empty = await contradictoryHarness.client.callTool({
+        name: 'get_website_metrics',
+        arguments: metricArguments,
+      });
+      expect(empty.structuredContent).toMatchObject({ metricProvenance: null });
+    } finally {
+      await contradictoryHarness.client.close();
+      await contradictoryHarness.server.close();
+    }
   });
 
   test('get_realtime returns the active visitor count', async () => {

@@ -22,7 +22,8 @@ export const getWebsiteTraffic = defineTool({
   description:
     'Returns pageviews and visits (sessions) as a time series bucketed by minute, hour, day, month or year. ' +
     'Use this to chart trends, find peak days, or compare two periods. ' +
-    'Each point has an ISO date and a count. Requires a websiteId from list_websites.',
+    'Each point has an ISO date and a count. Current traffic is unverified public observations; ' +
+    'null provenance means the API did not provide that label. Requires a websiteId from list_websites.',
   inputSchema: z.object({
     websiteId: z.string().uuid().describe('Website ID from list_websites.'),
     ...dateRangeInput,
@@ -45,6 +46,7 @@ export const getWebsiteTraffic = defineTool({
       compare: input.compare,
       ...toFilterParams(input.filters),
     })) as {
+      trafficProvenance?: unknown;
       pageviews?: unknown;
       sessions?: unknown;
       compare?: { pageviews?: unknown; sessions?: unknown; startDate?: string; endDate?: string };
@@ -57,6 +59,10 @@ export const getWebsiteTraffic = defineTool({
         endAt: new Date(range.endAt).toISOString(),
       },
       unit: input.unit ?? 'auto',
+      trafficProvenance:
+        result?.trafficProvenance === 'unverified_public_observations'
+          ? result.trafficProvenance
+          : null,
       pageviews: series(result?.pageviews),
       visits: series(result?.sessions),
       ...(result?.compare

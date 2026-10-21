@@ -83,6 +83,7 @@ const VISITOR_TYPES = new Set([
 interface MetricRow {
   x: string | null;
   y: number;
+  metricProvenance?: unknown;
 }
 
 export const getWebsiteMetrics = defineTool({
@@ -91,8 +92,11 @@ export const getWebsiteMetrics = defineTool({
   description:
     'Returns a ranked breakdown of website traffic for one dimension during a time range: ' +
     'top pages, referrers, channels, countries, browsers, devices, UTM campaigns, custom events, and more. ' +
-    'The "value" for page-type dimensions (path, entry, exit, title, query, hostname, event, tag) counts pageviews/events; ' +
-    'for visitor dimensions (browser, os, device, country, referrer, channel, utm*, …) it counts unique visitors. ' +
+    'Values count distinct recorded sessions for traffic dimensions, or website-backend authorized ' +
+    'custom-event occurrences for event. The legacy measure field is only a display label; ' +
+    'countUnit gives the actual count unit. ' +
+    'Public traffic is unverified; custom event counts require website-backend authorization. ' +
+    'Null provenance means the API did not provide a consistent label. ' +
     'Available types: ' +
     METRIC_TYPES.map(type => `${type} (${METRIC_DESCRIPTIONS[type]})`).join('; ') +
     '. Requires a websiteId from list_websites.',
@@ -128,11 +132,23 @@ export const getWebsiteMetrics = defineTool({
       timezone: input.timezone,
       ...toFilterParams(input.filters),
     })) as MetricRow[];
+    const expectedProvenance =
+      input.type === 'event' ? 'backend_authorized_event_counts' : 'unverified_public_observations';
+    const firstProvenance = Array.isArray(rows) ? rows[0]?.metricProvenance : undefined;
+    const metricProvenance =
+      Array.isArray(rows) &&
+      rows.length > 0 &&
+      rows.every(row => row.metricProvenance === firstProvenance) &&
+      firstProvenance === expectedProvenance
+        ? firstProvenance
+        : null;
 
     return {
       websiteId: input.websiteId,
       type: input.type,
       measure: VISITOR_TYPES.has(input.type) ? 'visitors' : 'views',
+      countUnit: input.type === 'event' ? 'event_occurrences' : 'recorded_sessions',
+      metricProvenance,
       range: {
         startAt: new Date(range.startAt).toISOString(),
         endAt: new Date(range.endAt).toISOString(),

@@ -232,6 +232,8 @@ export const runAttribution = defineTool({
   description:
     'Attributes conversions (a target page path or custom event) to the referrers, paid ads and UTM sources, mediums, ' +
     'campaigns, content and terms that brought the converting visitors, using first-click or last-click attribution. ' +
+    'Path targets are unverified pageviews; event targets require website-backend authorization. ' +
+    'Acquisition sources are caller-reported. Null provenance means the API did not provide that label. ' +
     'Use this for "which channels drive signups?". Requires a websiteId from list_websites.',
   inputSchema: z.object({
     websiteId,
@@ -272,6 +274,12 @@ export const runAttribution = defineTool({
       range: isoRange(range),
       model: input.model ?? 'last-click',
       conversion: { type: input.conversionType, value: input.conversion },
+      targetProvenance:
+        result?.targetProvenance ===
+        (input.conversionType === 'path' ? 'unverified_pageview' : 'backend_authorized_event')
+          ? result.targetProvenance
+          : null,
+      sourceProvenance: result?.sourceProvenance === 'caller_reported' ? 'caller_reported' : null,
       total: result?.total ?? null,
       referrers: list(result?.referrer),
       paidAds: list(result?.paidAds),
