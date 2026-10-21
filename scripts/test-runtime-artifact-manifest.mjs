@@ -419,9 +419,7 @@ test('accepts reviewed site-specific adapter gates but rejects unknown capabilit
   const { root, contractPath } = await createFixture();
   const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
   assert.ok(
-    contract.deployment.requiredAdapterCapabilities.includes(
-      'legacy-clickhouse-erasure-review-v1',
-    ),
+    contract.deployment.requiredAdapterCapabilities.includes('legacy-clickhouse-erasure-review-v1'),
   );
   contract.deployment.requiredAdapterCapabilities.push('coordinated-listener-transition-v1');
   await fs.writeFile(contractPath, JSON.stringify(contract));
