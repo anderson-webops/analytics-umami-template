@@ -97,5 +97,6 @@ test.each(['prisma', 'clickhouse'] as const)(
         : 'event_type != 2 or trust_tier = 1',
     );
     expect(sql).toContain(eventFilter);
+    expect(sql).toContain('event_type != 5');
   },
 );

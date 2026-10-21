@@ -129,6 +129,7 @@ async function relationalQuery(websiteId: string, column: string, filters: Query
     from website_event
     where website_event.website_id = {{websiteId::uuid}}
       and website_event.created_at between {{startDate}} and {{endDate}}
+      and website_event.event_type != ${EVENT_TYPE.performance}
       ${sourceTrustQuery}
       ${searchQuery}
       ${trafficQuery}
@@ -167,6 +168,7 @@ async function clickhouseQuery(websiteId: string, column: string, filters: Query
          from website_event
          where website_id = {websiteId:UUID}
            and created_at between {startDate:DateTime64} and {endDate:DateTime64}
+           and event_type != ${EVENT_TYPE.performance}
            ${trafficQuery}
          group by session_id
          limit {rowLimit:UInt32}`,
@@ -236,6 +238,7 @@ async function clickhouseQuery(websiteId: string, column: string, filters: Query
     from website_event
     where website_id = {websiteId:UUID}
       and created_at between {startDate:DateTime64} and {endDate:DateTime64}
+      and event_type != ${EVENT_TYPE.performance}
       ${sourceTrustQuery}
       ${searchQuery}
       ${trafficQuery}

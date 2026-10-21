@@ -83,6 +83,7 @@ async function relationalQuery(
       ${cohortQuery}
       ${joinSessionQuery}
       where website_event.website_id = {{websiteId::uuid}}
+      and website_event.event_type != ${EVENT_TYPE.performance}
       and (website_event.event_type != ${EVENT_TYPE.customEvent} or website_event.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})
       ${dateQuery}
       ${excludeEventTypeFilterQuery}
@@ -142,6 +143,7 @@ async function clickhouseQuery(
       from website_event
       ${cohortQuery}
       where website_id = {websiteId:UUID}
+        and event_type != ${EVENT_TYPE.performance}
         and (event_type != ${EVENT_TYPE.customEvent} or trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})
         ${dateQuery}
         ${excludeEventTypeFilterQuery}

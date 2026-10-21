@@ -47,7 +47,7 @@ async function relationalQuery(
     type === 'path'
       ? ''
       : `and website_event.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}`;
-  const sourceTrustQuery = `and (we.event_type != ${EVENT_TYPE.customEvent} or we.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})`;
+  const sourceTrustQuery = `and we.event_type != ${EVENT_TYPE.performance} and (we.event_type != ${EVENT_TYPE.customEvent} or we.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})`;
   const { filterQuery, joinSessionQuery, cohortQuery, queryParams } = parseFilters({
     ...filters,
     ...parameters,
@@ -258,7 +258,7 @@ async function clickhouseQuery(
   const column = type === 'path' ? 'url_path' : 'event_name';
   const targetTrustQuery =
     type === 'path' ? '' : `and trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}`;
-  const sourceTrustQuery = `and (event_type != ${EVENT_TYPE.customEvent} or trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})`;
+  const sourceTrustQuery = `and event_type != ${EVENT_TYPE.performance} and (event_type != ${EVENT_TYPE.customEvent} or trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})`;
   const { filterQuery, cohortQuery, queryParams } = parseFilters({
     ...filters,
     ...parameters,

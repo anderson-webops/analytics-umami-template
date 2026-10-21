@@ -105,6 +105,11 @@ describe('getAttribution postgres branch', () => {
         .slice(0, 7)
         .every(c => (c[0] as string).includes('(we.event_type != 2 or we.trust_tier = 1)')),
     ).toBe(true);
+    expect(
+      prismaRawQuery.mock.calls
+        .slice(0, 7)
+        .every(c => (c[0] as string).includes('we.event_type != 5')),
+    ).toBe(true);
     expect(prismaParseFilters).toHaveBeenCalledWith(expect.objectContaining({ eventType: 2 }));
   });
 
@@ -196,6 +201,7 @@ describe('getAttribution clickhouse branch', () => {
     expect(
       queries.slice(0, 7).every(query => query.includes('(event_type != 2 or trust_tier = 1)')),
     ).toBe(true);
+    expect(queries.slice(0, 7).every(query => query.includes('event_type != 5'))).toBe(true);
     expect(await getAttribution('website-1', parameters, {})).toMatchObject({
       targetProvenance: 'unverified_pageview',
       sourceProvenance: 'caller_reported',

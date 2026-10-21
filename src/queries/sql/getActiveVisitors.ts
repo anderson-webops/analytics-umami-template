@@ -26,6 +26,7 @@ async function relationalQuery(websiteId: string) {
     from website_event
     where website_id = {{websiteId::uuid}}
     and created_at >= {{startDate}}
+    and event_type != ${EVENT_TYPE.performance}
     and (event_type != ${EVENT_TYPE.customEvent} or trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})
     and coalesce(is_bot, false) = false
     `,
@@ -47,6 +48,7 @@ async function clickhouseQuery(websiteId: string): Promise<ActiveVisitors | null
     from website_event
     where website_id = {websiteId:UUID}
       and created_at >= {startDate:DateTime64}
+      and event_type != ${EVENT_TYPE.performance}
       and (event_type != ${EVENT_TYPE.customEvent} or trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})
       and is_bot = 0
     `,

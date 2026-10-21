@@ -70,6 +70,7 @@ test.each(['prisma', 'clickhouse'] as const)(
       mode === 'prisma' ? 'website_event.trust_tier = 1' : 'trust_tier = 1',
     );
     expect(goalQuery).toContain('event_type != 2');
+    expect(goalQuery).toContain('event_type != 5');
 
     rawQuery.mockClear();
     await getGoal('website', { ...filters, type: 'path', value: '/checkout' }, filters);
@@ -89,6 +90,7 @@ test.each(['prisma', 'clickhouse'] as const)(
         ? '(website_event.event_type != 2 or website_event.trust_tier = 1)'
         : '(event_type != 2 or trust_tier = 1)',
     );
+    expect(journeyQuery).toContain('event_type != 5');
   },
 );
 
@@ -129,6 +131,7 @@ test.each(['prisma', 'clickhouse'] as const)(
         : '(event_type != 2 or trust_tier = 1)';
 
     expect(query.split(trustPredicate)).toHaveLength(mode === 'prisma' ? 3 : 2);
+    expect(query.split('event_type != 5')).toHaveLength(3);
     if (mode === 'clickhouse') {
       expect(query).toContain('(website_event.event_type != 2 or website_event.trust_tier = 1)');
     }
@@ -141,6 +144,7 @@ test.each(['prisma', 'clickhouse'] as const)(
     state.mode = mode;
     await getActiveVisitors('website');
     expect(rawQuery.mock.lastCall?.[0]).toContain('(event_type != 2 or trust_tier = 1)');
+    expect(rawQuery.mock.lastCall?.[0]).toContain('event_type != 5');
   },
 );
 
@@ -187,6 +191,7 @@ test.each(['prisma', 'clickhouse'] as const)(
         ? '(website_event.event_type != 2 or website_event.trust_tier = 1)'
         : '(event_type != 2 or trust_tier = 1)',
     );
+    expect(rawQuery.mock.lastCall?.[0]).toContain('event_type != 5');
 
     rawQuery.mockClear();
     await getValues('website', 'browser', filters);
