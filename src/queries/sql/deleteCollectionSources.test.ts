@@ -157,6 +157,23 @@ describe('deleteClickhouseCollectionSources', () => {
     expect(command).not.toHaveBeenCalled();
   });
 
+  test('does not treat removal of Kafka settings as proof that old records cannot replay', async () => {
+    vi.stubEnv('KAFKA_URL', 'kafkas://broker');
+    vi.stubEnv('KAFKA_BROKER', 'broker:9092');
+    await expect(deleteClickhouseCollectionSources(['source-1'])).rejects.toThrow(
+      'KAFKA_HISTORY_REVIEW_REQUIRED',
+    );
+
+    vi.stubEnv('KAFKA_URL', '');
+    vi.stubEnv('KAFKA_BROKER', '');
+    vi.stubEnv('KAFKA_HISTORY_ATTESTED_CLEAN', '');
+    await expect(deleteClickhouseCollectionSources(['source-1'])).rejects.toThrow(
+      'KAFKA_HISTORY_REVIEW_REQUIRED',
+    );
+    expect(rawQuery).not.toHaveBeenCalled();
+    expect(command).not.toHaveBeenCalled();
+  });
+
   test('accepts disabled ClickHouse only after protected history attestation', async () => {
     clickhouse.enabled = false;
     vi.stubEnv('CLICKHOUSE_HISTORY_ATTESTED_CLEAN', 'true');
