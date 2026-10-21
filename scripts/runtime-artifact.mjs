@@ -216,6 +216,7 @@ function validateDeploymentContract(deployment) {
     'coordinated-listener-transition-v1',
     'classroom-2fa-privacy-acceptance-v1',
     'database-aware-recovery-v1',
+    'legacy-clickhouse-erasure-review-v1',
     'bounded-heatmap-retention-v1',
     'bounded-replay-retention-v1',
     'packaged-migration-tool-v1',

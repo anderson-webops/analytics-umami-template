@@ -64,6 +64,15 @@ The capability names have narrow meanings:
   the candidate's migrated database, require a protected, independently verified
   pre-migration backup and a rehearsed database restore before restoring the
   retained artifact. This is a host capability, not an application backup.
+- `legacy-clickhouse-erasure-review-v1`: before activation, inventory every
+  previously configured ClickHouse database and retained historical table.
+  Review and rehearse protected cleanup or retirement of old and interrupted
+  migration objects, including the unscoped join table and dependent views.
+  Verify source reset/deletion behavior and exact retained-runtime recovery.
+  If ClickHouse is now disabled, set the protected
+  `CLICKHOUSE_HISTORY_ATTESTED_CLEAN=true` environment value only after proving
+  no retained ClickHouse data can survive an acknowledged deletion. An absent
+  current ClickHouse URL is not evidence of a clean history.
 - `version-aware-readiness-v1`: apply the candidate's health and readiness rules
   to the candidate, and the retained release's own rules during recovery.
 - `coordinated-listener-transition-v1`: rehearse a changed loopback listener,
