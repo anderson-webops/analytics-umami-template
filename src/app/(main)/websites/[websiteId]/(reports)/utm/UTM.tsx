@@ -5,6 +5,7 @@ import { Panel } from '@/components/common/Panel';
 import { useMessages, useUTMMetricsQuery } from '@/components/hooks';
 import { ListTable } from '@/components/metrics/ListTable';
 import { CHART_COLORS, UTM_PARAMS } from '@/lib/constants';
+import { UTMProvenanceNotice } from './UTMProvenanceNotice';
 
 export interface UTMProps {
   websiteId: string;
@@ -15,6 +16,7 @@ export interface UTMProps {
 export function UTM(props: UTMProps) {
   return (
     <Column gap>
+      <UTMProvenanceNotice />
       {UTM_PARAMS.map(param => (
         <UTMDimension key={param} {...props} param={param} />
       ))}

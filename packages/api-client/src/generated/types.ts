@@ -22615,13 +22615,15 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Analytics results. */
+      /** @description Caller-reported UTM values and unverified public view counts. Each row and the X-Metric-Provenance response header declare the counted-value provenance. */
       200: {
         headers: {
           [name: string]: unknown;
         };
         content: {
           'application/json': {
+            /** @enum {string} */
+            metricProvenance: 'unverified_public_observations';
             utm: string;
             /** @description Pageview counts for the selected period. */
             views: number;

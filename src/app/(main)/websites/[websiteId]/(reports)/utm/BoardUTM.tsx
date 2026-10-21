@@ -5,6 +5,7 @@ import { LoadingPanel } from '@/components/common/LoadingPanel';
 import { useDateRange, useMessages, useUTMMetricsQuery } from '@/components/hooks';
 import { ListTable } from '@/components/metrics/ListTable';
 import { CHART_COLORS } from '@/lib/constants';
+import { UTMProvenanceNotice } from './UTMProvenanceNotice';
 
 const STACKED_LAYOUT_WIDTH = 900;
 
@@ -77,6 +78,7 @@ export function BoardUTM({
   return (
     <LoadingPanel data={items} isLoading={isLoading} error={error} minHeight="300px">
       <div ref={wrapperRef}>
+        {items.length > 0 && <UTMProvenanceNotice />}
         <div
           style={{
             display: 'grid',

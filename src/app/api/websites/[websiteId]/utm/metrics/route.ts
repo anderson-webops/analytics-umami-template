@@ -1,6 +1,7 @@
 import { utmMetricsQuerySchema } from '@/lib/analytics-schema';
+import { metricResponse } from '@/lib/metric-provenance';
 import { getQueryFilters, parseRequest } from '@/lib/request';
-import { json, unauthorized } from '@/lib/response';
+import { unauthorized } from '@/lib/response';
 import { canViewWebsiteSection } from '@/permissions';
 import { getUTM } from '@/queries/sql/utm/getUTM';
 
@@ -18,5 +19,5 @@ export async function GET(
     { startDate: filters.startDate, endDate: filters.endDate, column: query.type },
     filters,
   );
-  return json(query.limit ? data.slice(0, query.limit) : data);
+  return metricResponse(query.limit ? data.slice(0, query.limit) : data, 'utm');
 }

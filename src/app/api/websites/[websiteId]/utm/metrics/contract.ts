@@ -16,7 +16,8 @@ export const operations = [
       requestParams: { path: z.object({ websiteId: z.uuid() }), query: utmMetricsQuerySchema },
       responses: {
         '200': {
-          description: 'Analytics results.',
+          description:
+            'Caller-reported UTM values and unverified public view counts. Each row and the X-Metric-Provenance response header declare the counted-value provenance.',
           content: {
             'application/json': {
               schema: {
@@ -30,8 +31,12 @@ export const operations = [
                     views: {
                       type: 'number',
                     },
+                    metricProvenance: {
+                      type: 'string',
+                      enum: ['unverified_public_observations'],
+                    },
                   },
-                  required: ['utm', 'views'],
+                  required: ['utm', 'views', 'metricProvenance'],
                 },
               },
             },
