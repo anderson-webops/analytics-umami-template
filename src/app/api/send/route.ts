@@ -293,6 +293,10 @@ export async function POST(request: Request) {
       requiredScopes.push('event');
     }
 
+    if (timestamp !== undefined && requiredScopes.length === 0) {
+      requiredScopes.push('event');
+    }
+
     if (data && hasRevenueField(data, isFinancialEventName(name))) {
       requiredScopes.push('revenue');
     }
@@ -582,9 +586,10 @@ export async function POST(request: Request) {
             sessionId,
             visitId,
             eventType,
-            trustTier: backendKeyDigest
-              ? COLLECTION_TRUST_TIER.backendAuthorized
-              : COLLECTION_TRUST_TIER.unverified,
+            trustTier:
+              eventType === EVENT_TYPE.customEvent && backendKeyDigest
+                ? COLLECTION_TRUST_TIER.backendAuthorized
+                : COLLECTION_TRUST_TIER.unverified,
             createdAt,
 
             // Page

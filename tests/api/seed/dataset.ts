@@ -1,3 +1,4 @@
+import { v5 as uuidv5 } from 'uuid';
 import { SEED_IDS, SEED_WEBSITES } from './ids';
 
 /**
@@ -203,6 +204,7 @@ export function buildDataset(now = Date.now()): Dataset {
       const start = dayAnchor(day) - (index + 1) * HOUR;
       const pageCount = 2 + ((day + index) % 3);
       const pages = PAGES.slice(0, pageCount);
+      const sessionSeed = uuidv5(`${SEED_IDS.website}:${persona.id}:${start}`, uuidv5.DNS);
 
       visits.push({
         events: pages.map((page, step) =>
@@ -211,6 +213,7 @@ export function buildDataset(now = Date.now()): Dataset {
             referrer: step === 0 && persona.referrer ? persona.referrer : undefined,
             tag: persona.tag,
             timestamp: start + step * 60,
+            sessionSeed,
           }),
         ),
       });
@@ -316,6 +319,7 @@ export function buildDataset(now = Date.now()): Dataset {
           pageview(SEED_IDS.website2, persona, PAGES[day % PAGES.length], {
             hostname: SEED_WEBSITES.secondary.domain,
             timestamp,
+            sessionSeed: uuidv5(`${SEED_IDS.website2}:${persona.id}:${timestamp}`, uuidv5.DNS),
           }),
         ],
       });
@@ -347,16 +351,14 @@ export function buildDataset(now = Date.now()): Dataset {
   );
 
   // Link clicks and pixel hits (sessions are keyed by the link/pixel id).
-  PERSONAS.slice(0, 5).forEach((persona, index) => {
-    const timestamp = dayAnchor(index + 1) - 30 * 60;
-
+  PERSONAS.slice(0, 5).forEach(persona => {
     batch.push({
       type: 'event',
-      payload: { link: SEED_IDS.link, ...client(persona), url: '/', timestamp },
+      payload: { link: SEED_IDS.link, ...client(persona), url: '/' },
     });
     batch.push({
       type: 'event',
-      payload: { pixel: SEED_IDS.pixel, ...client(persona), url: '/', timestamp: timestamp + 60 },
+      payload: { pixel: SEED_IDS.pixel, ...client(persona), url: '/' },
     });
   });
 

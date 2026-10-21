@@ -17,9 +17,12 @@ function chunk<T>(items: T[], size: number) {
 
 async function send(api: ApiClient, event: SendPayload, cache?: string) {
   const userAgent = event.payload.userAgent;
+  const websiteId = event.payload.website;
+  const authenticated = event.payload.timestamp !== undefined && typeof websiteId === 'string';
   const response = await api.post('/api/send', event, {
     headers: {
       ...(cache ? { [CACHE_HEADER]: cache } : {}),
+      ...(authenticated ? getTestBackendCollectionHeaders(websiteId) : {}),
       ...(typeof userAgent === 'string' ? { 'user-agent': userAgent } : {}),
     },
   });
@@ -32,6 +35,14 @@ async function send(api: ApiClient, event: SendPayload, cache?: string) {
     throw new Error(
       'POST /api/send classified the request as a bot. Start the server with DISABLE_BOT_CHECK=1.',
     );
+  }
+
+  if (authenticated) {
+    if (response.body?.cache !== null) {
+      throw new Error('POST /api/send returned a public cache token for a backend import.');
+    }
+
+    return { cache: undefined };
   }
 
   if (!response.body?.cache) {
@@ -93,6 +104,7 @@ export async function ingestDataset(api: ApiClient, dataset: Dataset): Promise<v
     const websiteId = event.payload.website;
     const needsBackend =
       event.type === 'identify' ||
+      (event.payload.timestamp !== undefined && typeof websiteId === 'string') ||
       (event.type === 'event' &&
         (event.payload.name !== undefined || event.payload.id !== undefined));
 
@@ -142,7 +154,7 @@ export async function ingestDataset(api: ApiClient, dataset: Dataset): Promise<v
   const live = await send(api, dataset.replay.pageview);
   const hostname = dataset.replay.pageview.payload.hostname;
 
-  if (typeof hostname !== 'string') {
+  if (typeof hostname !== 'string' || !live.cache) {
     throw new Error('Recorded fixture has no approved hostname.');
   }
 

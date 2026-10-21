@@ -136,6 +136,31 @@ test.each([false, true])('preserves property-free custom events with Kafka %s', 
 });
 
 describe('provenance guard', () => {
+  test('stores a backend-timestamped pageview as an unverified observation', async () => {
+    const createEvent = vi.fn();
+    const timestamp = new Date('2026-10-20T12:00:00.000Z');
+
+    await saveEvent(
+      {
+        ...customEvent,
+        eventType: EVENT_TYPE.pageView,
+        eventName: undefined,
+        eventData: undefined,
+        trustTier: COLLECTION_TRUST_TIER.unverified,
+        createdAt: timestamp,
+      },
+      { websiteEvent: { create: createEvent } } as never,
+    );
+
+    expect(createEvent).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        eventType: EVENT_TYPE.pageView,
+        trustTier: COLLECTION_TRUST_TIER.unverified,
+        createdAt: timestamp,
+      }),
+    });
+  });
+
   test('rejects a custom event without backend provenance before writing', async () => {
     await expect(saveEvent({ ...customEvent, trustTier: 0 })).rejects.toThrow(
       'Event collection provenance is invalid.',

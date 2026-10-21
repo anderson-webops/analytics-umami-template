@@ -1070,13 +1070,10 @@ describe('cache token handling', () => {
   );
 
   test('a valid cache token revalidates the website without recreating the matching session', async () => {
-    const timestamp = 1704067200;
-    const token = makeCacheToken({
-      sessionSalt: getSalt(process.env.SALT_ROTATION || 'month', new Date(timestamp * 1000)),
-    });
+    const token = makeCacheToken();
 
     const response = await callPOST(
-      { type: 'event', payload: { website: WEBSITE_ID, url: '/', timestamp } },
+      { type: 'event', payload: { website: WEBSITE_ID, url: '/' } },
       { headers: { 'x-umami-cache': token } },
     );
 
@@ -1462,6 +1459,85 @@ describe('anonymous authoritative collection boundary', () => {
     expect(await response.json()).toMatchObject({ size: 1, processed: 1, errors: 0 });
     expect(saveEventMock).toHaveBeenCalledOnce();
     expect(saveEventMock.mock.calls[0][0].distinctId).toBeUndefined();
+    expect(saveEventMock.mock.calls[0][0].trustTier).toBe(COLLECTION_TRUST_TIER.unverified);
+  });
+
+  test.each([
+    ['pageview', { type: 'event', payload: { website: WEBSITE_ID, url: '/' } }],
+    ['performance', { type: 'performance', payload: { website: WEBSITE_ID, url: '/' } }],
+    ['link', { type: 'event', payload: { link: LINK_ID, url: '/' } }],
+    ['pixel', { type: 'event', payload: { pixel: PIXEL_ID, url: '/' } }],
+  ])('rejects anonymous backdating of %s observations', async (_name, event) => {
+    const response = await callPOST({
+      ...event,
+      payload: { ...event.payload, timestamp: Math.floor(Date.now() / 1000) - 3600 },
+    });
+
+    expect(response.status).toBe(403);
+    expect(reserveActiveCollectionBudgetMock).not.toHaveBeenCalled();
+    expect(saveEventMock).not.toHaveBeenCalled();
+  });
+
+  test('backend event proof permits a historical website pageview without issuing a public cache', async () => {
+    const timestamp = Math.floor(Date.now() / 1000) - 3600;
+    const response = await callPOST(
+      { type: 'event', payload: { website: WEBSITE_ID, url: '/', timestamp } },
+      { headers: { authorization: `Bearer ${BACKEND_CREDENTIAL}` } },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ cache: null });
+    expect(saveEventMock.mock.calls[0][0].createdAt).toEqual(new Date(timestamp * 1000));
+    expect(saveEventMock.mock.calls[0][0].trustTier).toBe(COLLECTION_TRUST_TIER.unverified);
+  });
+
+  test('historical identify keeps its existing identity-only credential scope', async () => {
+    vi.stubEnv(
+      'COLLECTION_SERVER_KEYS_JSON',
+      JSON.stringify({
+        [WEBSITE_ID]: [
+          {
+            sha256: createHash('sha256').update(BACKEND_CREDENTIAL).digest('hex'),
+            scopes: ['identity'],
+            ownerType: 'user',
+            ownerId: '44444444-4444-4444-8444-444444444444',
+            generation: 0,
+          },
+        ],
+      }),
+    );
+
+    const response = await callPOST({
+      type: 'identify',
+      payload: {
+        website: WEBSITE_ID,
+        id: 'verified-user',
+        timestamp: Math.floor(Date.now() / 1000) - 3600,
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ cache: null });
+    expect(saveSessionLinkMock).toHaveBeenCalledOnce();
+  });
+
+  test('batch rejects backdating while keeping an ordinary public pageview', async () => {
+    const response = await callBatch([
+      {
+        type: 'event',
+        payload: {
+          website: WEBSITE_ID,
+          hostname: 'example.com',
+          url: '/',
+          timestamp: Math.floor(Date.now() / 1000) - 3600,
+        },
+      },
+      { type: 'event', payload: { website: WEBSITE_ID, hostname: 'example.com', url: '/' } },
+    ]);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ size: 2, processed: 1, errors: 1 });
+    expect(saveEventMock).toHaveBeenCalledOnce();
     expect(saveEventMock.mock.calls[0][0].trustTier).toBe(COLLECTION_TRUST_TIER.unverified);
   });
 
@@ -1895,26 +1971,19 @@ describe('30-minute visit expiry', () => {
     expect((await readCache(response)).visitId).toBe('cached-visit');
   });
 
-  test('does not expire the visit when an explicit timestamp is supplied', async () => {
-    const timestamp = 1000000000;
-    const oldIat = Math.floor(Date.now() / 1000) - 5000;
-    const token = makeCacheToken(
-      {
-        iat: oldIat,
-        sessionSalt: getSalt(process.env.SALT_ROTATION || 'month', new Date(timestamp * 1000)),
-      },
-      7200,
-    );
+  test('a public cache token does not authorize a historical event timestamp', async () => {
+    const token = makeCacheToken();
 
     const response = await callPOST(
       {
         type: 'event',
-        payload: { website: WEBSITE_ID, url: '/', timestamp },
+        payload: { website: WEBSITE_ID, url: '/', timestamp: Math.floor(Date.now() / 1000) - 3600 },
       },
       { headers: { 'x-umami-cache': token } },
     );
 
-    expect((await readCache(response)).visitId).toBe('cached-visit');
+    expect(response.status).toBe(403);
+    expect(saveEventMock).not.toHaveBeenCalled();
   });
 });
 

@@ -86,19 +86,25 @@ describe('collector seed identity', () => {
   });
 
   test('batches advanced fixtures by website and never sends historical revenue', async () => {
-    const post = vi.fn(async (path: string) => {
-      if (path === '/api/send') {
-        return { status: 200, body: { cache: 'c1.synthetic-token' }, text: '' };
-      }
+    const post = vi.fn(
+      async (path: string, _body: unknown, options?: { headers?: Record<string, string> }) => {
+        if (path === '/api/send') {
+          return {
+            status: 200,
+            body: { cache: options?.headers?.authorization ? null : 'c1.synthetic-token' },
+            text: '',
+          };
+        }
 
-      if (path === '/api/collection-permit') {
-        return { status: 200, body: { permit: 'synthetic-permit' }, text: '' };
-      }
+        if (path === '/api/collection-permit') {
+          return { status: 200, body: { permit: 'synthetic-permit' }, text: '' };
+        }
 
-      return path === '/api/batch'
-        ? { status: 200, body: { errors: 0 }, text: '' }
-        : { status: 200, body: { ok: true }, text: '' };
-    });
+        return path === '/api/batch'
+          ? { status: 200, body: { errors: 0 }, text: '' }
+          : { status: 200, body: { ok: true }, text: '' };
+      },
+    );
     const dataset = buildDataset();
     dataset.batch.push({
       type: 'event',
@@ -118,11 +124,27 @@ describe('collector seed identity', () => {
 
     await ingestDataset({ post } as unknown as ApiClient, { ...dataset, legacyRevenue: [] });
 
+    const sends = post.mock.calls.filter(call => call[0] === '/api/send');
+    const historicalPageviews = dataset.visits.flatMap(visit => visit.events);
+    expect(sends.filter(call => call[2]?.headers?.authorization)).toHaveLength(
+      historicalPageviews.length,
+    );
+    expect(
+      sends
+        .filter(call => call[2]?.headers?.authorization)
+        .every(call => call[1].payload.timestamp !== undefined && call[1].payload.sessionSeed),
+    ).toBe(true);
+    expect(
+      dataset.visits.every(
+        visit => new Set(visit.events.map(event => event.payload.sessionSeed)).size === 1,
+      ),
+    ).toBe(true);
+
     const batches = post.mock.calls.filter(call => call[0] === '/api/batch');
     const authorized = batches.filter(call => call[2]?.headers?.authorization);
     const publicBatches = batches.filter(call => !call[2]?.headers?.authorization);
 
-    expect(authorized).toHaveLength(3);
+    expect(authorized).toHaveLength(4);
     expect(new Set(authorized.map(call => call[2]?.headers?.['x-umami-request-id'])).size).toBe(
       authorized.length,
     );
@@ -135,7 +157,7 @@ describe('collector seed identity', () => {
           call[2]?.headers?.authorization ===
           `Bearer ${getTestCollectionCredential(SEED_IDS.website)}`,
       ),
-    ).toHaveLength(2);
+    ).toHaveLength(3);
     expect(
       authorized.filter(
         call =>
