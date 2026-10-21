@@ -8,6 +8,7 @@ import { Lightning } from '@/components/svg';
 import { formatLongNumber } from '@/lib/format';
 import type { FunnelResult } from '@/queries/sql/funnels/getFunnel';
 import { FunnelEditForm } from './FunnelEditForm';
+import { FunnelProvenanceNotice } from './FunnelProvenanceNotice';
 
 interface FunnelProps {
   id: string;
@@ -57,6 +58,7 @@ export function Funnel({ id, name, type, parameters, websiteId, allowEdit = true
         )}
       </Grid>
       <LoadingPanel data={data} isLoading={isLoading} error={error}>
+        <FunnelProvenanceNotice steps={data ?? []} />
         {data?.map(
           (
             { type, value, filters, visitors, previous, dropped, dropoff, remaining }: FunnelResult,
@@ -122,7 +124,7 @@ export function Funnel({ id, name, type, parameters, websiteId, allowEdit = true
                         <User />
                       </Icon>
                       <Text title={visitors.toString()} transform="lowercase">
-                        {`${formatLongNumber(visitors)} ${t(labels.visitors)}`}
+                        {`${formatLongNumber(visitors)} ${t(labels.sessions)}`}
                       </Text>
                     </Row>
                   </Row>

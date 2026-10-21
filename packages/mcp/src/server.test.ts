@@ -322,6 +322,9 @@ describe('createUmamiMcpServer', () => {
             dropped: 0,
             dropoff: 0,
             remaining: 1,
+            countUnit: 'sessions',
+            stepProvenance: 'unverified_pageview',
+            stepSequenceProvenance: 'includes_unverified_pageview_steps',
           },
           {
             type: 'event',
@@ -331,6 +334,9 @@ describe('createUmamiMcpServer', () => {
             dropped: 45,
             dropoff: 0.9,
             remaining: 0.1,
+            countUnit: 'sessions',
+            stepProvenance: 'backend_authorized_event',
+            stepSequenceProvenance: 'includes_unverified_pageview_steps',
           },
         ],
       };
@@ -898,8 +904,28 @@ describe('createUmamiMcpServer', () => {
     expect(ran.structuredContent).toMatchObject({
       funnelId: FUNNEL_ID,
       steps: [
-        { step: 1, value: '/cart', visitors: 50 },
-        { step: 2, value: 'purchase', visitors: 5, dropoffRate: 0.9 },
+        {
+          step: 1,
+          value: '/cart',
+          sessions: 50,
+          visitors: 50,
+          previous: 0,
+          countUnit: 'sessions',
+          stepProvenance: 'unverified_pageview',
+          stepSequenceProvenance: 'includes_unverified_pageview_steps',
+        },
+        {
+          step: 2,
+          value: 'purchase',
+          sessions: 5,
+          visitors: 5,
+          previous: 50,
+          dropped: 45,
+          dropoffRate: 0.9,
+          countUnit: 'sessions',
+          stepProvenance: 'backend_authorized_event',
+          stepSequenceProvenance: 'includes_unverified_pageview_steps',
+        },
       ],
     });
     expect(harness.calls[0].url.pathname).toBe(
@@ -1060,8 +1086,15 @@ describe('createUmamiMcpServer', () => {
     expect(result.isError).toBeFalsy();
     expect(result.structuredContent).toMatchObject({
       steps: [
-        { step: 1, visitors: 10 },
-        { step: 2, visitors: 2, dropped: 8 },
+        { step: 1, sessions: 10, visitors: 10, countUnit: null, stepProvenance: null },
+        {
+          step: 2,
+          sessions: 2,
+          visitors: 2,
+          dropped: 8,
+          droppedSessions: 8,
+          stepSequenceProvenance: null,
+        },
       ],
     });
 

@@ -38,9 +38,12 @@ export const runFunnel = defineTool({
   name: 'run_funnel',
   title: 'Run a funnel report',
   description:
-    'Calculates how many visitors progressed through an ordered sequence of 2–8 steps (page paths or custom events) ' +
+    'Calculates how many sessions progressed through an ordered sequence of 2–8 steps (page paths or custom events) ' +
     'within a time window, and where they dropped off. Use this for conversion questions such as ' +
-    '"how many visitors who viewed /pricing went on to sign up?". Either pass "funnelId" for a funnel saved in Umami ' +
+    '"how many sessions with a /pricing pageview went on to sign up?". Current APIs label unverified ' +
+    'pageview steps and backend-authorized event steps; cohorts and other filters can still include unverified traffic. ' +
+    'The legacy visitors, previous, and dropped fields also count recorded sessions. ' +
+    'Null provenance means the API did not provide that label. Either pass "funnelId" for a funnel saved in Umami ' +
     '(find it with list_funnels) or define ad-hoc "steps". Requires a websiteId from list_websites.',
   inputSchema: z
     .object({
@@ -112,11 +115,17 @@ export const runFunnel = defineTool({
         step: index + 1,
         type: step.type,
         value: step.value,
+        sessions: Number(step.visitors ?? 0),
+        previousSessions: Number(step.previous ?? 0),
+        droppedSessions: Number(step.dropped ?? 0),
         visitors: Number(step.visitors ?? 0),
         previous: Number(step.previous ?? 0),
         dropped: Number(step.dropped ?? 0),
         dropoffRate: Number(step.dropoff ?? 0),
         remainingRate: Number(step.remaining ?? 0),
+        countUnit: step.countUnit ?? null,
+        stepProvenance: step.stepProvenance ?? null,
+        stepSequenceProvenance: step.stepSequenceProvenance ?? null,
       })),
     };
   },

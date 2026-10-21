@@ -85,6 +85,20 @@ test('rejects a share-accessible saved funnel with excessive stored property fil
 
 test('preserves ordinary saved funnel analytics for a public share', async () => {
   vi.mocked(getReport).mockResolvedValue(report(2) as any);
+  vi.mocked(getFunnel).mockResolvedValue([
+    {
+      type: 'path',
+      value: '/checkout',
+      visitors: 2,
+      previous: 0,
+      dropped: 0,
+      dropoff: 0,
+      remaining: 1,
+      countUnit: 'sessions',
+      stepProvenance: 'unverified_pageview',
+      stepSequenceProvenance: 'includes_unverified_pageview_steps',
+    },
+  ]);
 
   const response = await GET(
     new Request('https://analytics.example/api/websites/site/funnels/report/stats'),
@@ -93,6 +107,13 @@ test('preserves ordinary saved funnel analytics for a public share', async () =>
 
   expect(response.status).toBe(200);
   expect(getFunnel).toHaveBeenCalledTimes(1);
+  expect(await response.json()).toMatchObject([
+    {
+      countUnit: 'sessions',
+      stepProvenance: 'unverified_pageview',
+      stepSequenceProvenance: 'includes_unverified_pageview_steps',
+    },
+  ]);
 });
 
 test('reserves saved funnel join work before executing analytics', async () => {

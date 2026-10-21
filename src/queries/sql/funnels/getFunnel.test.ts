@@ -146,13 +146,35 @@ describe('getFunnel postgres branch', () => {
     const [query, params] = prismaRawQuery.mock.calls[0];
     expect(query).toContain('and event_name = {{0}}');
     expect(query).toContain('and exists (');
-    expect(query).toContain('(website_event.event_type != 2 or website_event.trust_tier = 1)');
-    expect(query).toContain('(we.event_type != 2 or we.trust_tier = 1)');
+    expect(query).toContain('website_event.event_type = 2');
+    expect(query).toContain('website_event.trust_tier = 1');
+    expect(query).toContain('we.event_type = 2');
+    expect(query).toContain('we.trust_tier = 1');
     expect(query).toContain('_ed0_0.trust_tier = 1');
     expect(query).toContain('_ed0_0.data_key = {{f_0_0_k}}');
     expect(query).toContain('ilike {{f_0_0_v}}');
     // contains -> ilike operator, value wrapped in % ... %
     expect(params).toMatchObject({ f_0_0_k: 'plan', f_0_0_v: '%pro%' });
+  });
+
+  test('path steps accept pageviews only and event steps require authorized custom events', async () => {
+    await getFunnel(
+      'website-1',
+      {
+        ...baseParameters,
+        steps: [
+          { type: 'path', value: '/home' },
+          { type: 'event', value: 'purchase' },
+        ],
+      },
+      {},
+    );
+
+    const query = prismaRawQuery.mock.calls[0][0] as string;
+    expect(query).toContain('website_event.event_type = 1');
+    expect(query).toContain('we.event_type = 2');
+    expect(query).toContain('we.trust_tier = 1');
+    expect(query).not.toContain('website_event.event_type != 2');
   });
 
   test('filter operators map to the expected SQL operators', async () => {
@@ -201,6 +223,16 @@ describe('getFunnel postgres branch', () => {
       remaining: 0.4,
     });
     expect(result[1].dropoff).toBeCloseTo(0.6);
+    expect(result[0]).toMatchObject({
+      countUnit: 'sessions',
+      stepProvenance: 'unverified_pageview',
+      stepSequenceProvenance: 'includes_unverified_pageview_steps',
+    });
+    expect(result[1]).toMatchObject({
+      countUnit: 'sessions',
+      stepProvenance: 'unverified_pageview',
+      stepSequenceProvenance: 'includes_unverified_pageview_steps',
+    });
   });
 });
 
@@ -273,5 +305,25 @@ describe('getFunnel clickhouse branch', () => {
     expect(query).toContain('data_key = {f_0_0_k:String}');
     expect(query).toContain('like {f_0_0_v:String}');
     expect(params).toMatchObject({ f_0_0_k: 'plan', f_0_0_v: '%pro%' });
+  });
+
+  test('step candidates cannot use performance reports or unverified custom events', async () => {
+    await getFunnel(
+      'website-1',
+      {
+        ...baseParameters,
+        steps: [
+          { type: 'path', value: '/home' },
+          { type: 'event', value: 'purchase' },
+        ],
+      },
+      {},
+    );
+
+    const query = clickhouseRawQuery.mock.calls[0][0] as string;
+    expect(query).toContain('event_type = 1 and url_path = {param0:String}');
+    expect(query).toContain('event_type = 2 and trust_tier = 1 and event_name = {param1:String}');
+    expect(query).toContain('where event_type = 1');
+    expect(query).toContain('y.event_type = 2');
   });
 });

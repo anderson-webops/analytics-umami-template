@@ -26,6 +26,12 @@ run_collector_values() {
   POSTGRES_EVENT_SERIES_TEST_URL="$DATABASE_URL" pnpm exec vitest run \
     src/queries/sql/getValues.postgres.test.ts --maxWorkers=1
 }
+run_funnel_event_types() {
+  "$pg_bin/createdb" -h 127.0.0.1 -p "$port" -U restore_test umami_funnel_test
+  local funnel_url="postgresql://restore_test:synthetic-restore-password-000000@127.0.0.1:$port/umami_funnel_test"
+  DATABASE_URL="$funnel_url" POSTGRES_FUNNEL_TEST_URL="$funnel_url" DOTENV_CONFIG_PATH=/dev/null \
+    pnpm exec vitest run src/queries/sql/funnels/getFunnel.postgres.test.ts --maxWorkers=1
+}
 run_two_factor_state_races() {
   ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 \
     APP_SECRET=synthetic-factor-race-secret-000000000000000000 \
@@ -119,6 +125,10 @@ if [[ "${1:-}" == --revenue-sessions ]]; then
     pnpm exec vitest run src/queries/sql/revenue/getRevenueSessions.postgres.test.ts --maxWorkers=1
   exit 0
 fi
+if [[ "${1:-}" == --funnel-event-types ]]; then
+  run_funnel_event_types
+  exit 0
+fi
 if [[ "${1:-}" == --attested-revenue-ledger ]]; then
   DOTENV_CONFIG_PATH=/dev/null pnpm run db:migrate
   "$pg_bin/psql" "$DATABASE_URL" -v ON_ERROR_STOP=1 \
@@ -158,6 +168,7 @@ if [[ "${1:-}" == --session-link-cross-store ]]; then
   exit 0
 fi
 run_collector_values
+run_funnel_event_types
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node scripts/test-postgres-restore.mjs "$@"
 pnpm run db:migrate
 "$pg_bin/psql" "$DATABASE_URL" -v ON_ERROR_STOP=1 \

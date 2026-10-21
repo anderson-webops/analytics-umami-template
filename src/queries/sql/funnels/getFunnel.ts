@@ -29,6 +29,11 @@ export interface FunnelResult extends FunnelStep {
   dropped: number;
   dropoff: number;
   remaining: number;
+  countUnit: 'sessions';
+  stepProvenance: 'unverified_pageview' | 'backend_authorized_event';
+  stepSequenceProvenance:
+    | 'includes_unverified_pageview_steps'
+    | 'backend_authorized_event_steps_only';
 }
 
 export async function getFunnel(
@@ -117,6 +122,7 @@ async function relationalQuery(
         const startSum = i > 0 ? 'union ' : '';
         const isURL = cv.type === 'path';
         const column = isURL ? 'url_path' : 'event_name';
+        const eventType = isURL ? EVENT_TYPE.pageView : EVENT_TYPE.customEvent;
 
         let operator = '=';
         let paramValue = cv.value;
@@ -145,7 +151,8 @@ async function relationalQuery(
             ${joinSessionQuery}
             where website_event.website_id = {{websiteId::uuid}}
               and website_event.created_at between {{startDate}} and {{endDate}}
-              and (website_event.event_type != ${EVENT_TYPE.customEvent} or website_event.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})
+              and website_event.event_type = ${eventType}
+              ${isURL ? '' : `and website_event.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}`}
               and ${column} ${operator} {{${i}}}
               ${filterQuery}
               ${existsClause}
@@ -162,7 +169,8 @@ async function relationalQuery(
                   `l.created_at `,
                   `${window} minute`,
                 )}
-                and (we.event_type != ${EVENT_TYPE.customEvent} or we.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized})
+                and we.event_type = ${eventType}
+                ${isURL ? '' : `and we.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}`}
                 and we.${column} ${operator} {{${i}}}
                 and we.created_at <= {{endDate}}
                 ${existsClause}
@@ -274,6 +282,10 @@ async function clickhouseQuery(
         const startFilter = i > 0 ? 'or' : '';
         const isURL = cv.type === 'path';
         const column = isURL ? 'url_path' : 'event_name';
+        const eventType = isURL ? EVENT_TYPE.pageView : EVENT_TYPE.customEvent;
+        const stepTrustQuery = isURL
+          ? ''
+          : ` and trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}`;
 
         let operator = '=';
         let paramValue = cv.value;
@@ -294,7 +306,8 @@ async function clickhouseQuery(
           level1 AS (
             select *
             from level0
-            where ${column} ${operator} {param${i}:String}
+            where event_type = ${eventType}${stepTrustQuery}
+              and ${column} ${operator} {param${i}:String}
             ${eventDataClause}
           )`;
         } else {
@@ -310,13 +323,15 @@ async function clickhouseQuery(
             join level0 y
             on x.session_id = y.session_id
             where y.created_at between x.created_at and x.created_at + interval ${window} minute
+                and y.event_type = ${eventType}
+                ${isURL ? '' : `and y.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}`}
                 and y.${column} ${operator} {param${i}:String}
                 ${eventDataClause}
           )`;
         }
 
         pv.sumQuery += `\n${startSum}select ${levelNumber} as level, count(distinct(session_id)) as count from level${levelNumber}`;
-        pv.stepFilterQuery += `${startFilter} ${column} ${operator} {param${i}:String} `;
+        pv.stepFilterQuery += `${startFilter} (event_type = ${eventType}${stepTrustQuery} and ${column} ${operator} {param${i}:String}) `;
         pv.params[`param${i}`] = paramValue;
 
         return pv;
@@ -336,7 +351,7 @@ async function clickhouseQuery(
   return rawQuery(
     `
     WITH level0 AS (
-      select distinct event_id, session_id, url_path, referrer_path, event_name, created_at
+      select distinct event_id, session_id, url_path, referrer_path, event_name, event_type, trust_tier, created_at
       from website_event
       ${cohortQuery}
       where (${stepFilterQuery})
@@ -374,6 +389,11 @@ const formatResults = (steps: Array<FunnelStep>) => (results: unknown) => {
       dropped,
       dropoff,
       remaining,
-    };
+      countUnit: 'sessions',
+      stepProvenance: step.type === 'path' ? 'unverified_pageview' : 'backend_authorized_event',
+      stepSequenceProvenance: steps.slice(0, i + 1).some(candidate => candidate.type === 'path')
+        ? 'includes_unverified_pageview_steps'
+        : 'backend_authorized_event_steps_only',
+    } satisfies FunnelResult;
   });
 };

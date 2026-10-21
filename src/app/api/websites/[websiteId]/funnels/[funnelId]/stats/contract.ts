@@ -29,6 +29,8 @@ export const operations = [
                   properties: {
                     visitors: {
                       type: 'number',
+                      description:
+                        'Distinct recorded session IDs at this step, not verified people.',
                     },
                     previous: {
                       type: 'number',
@@ -41,6 +43,23 @@ export const operations = [
                     },
                     remaining: {
                       type: 'number',
+                    },
+                    countUnit: {
+                      type: 'string',
+                      enum: ['sessions'],
+                    },
+                    stepProvenance: {
+                      type: 'string',
+                      enum: ['unverified_pageview', 'backend_authorized_event'],
+                    },
+                    stepSequenceProvenance: {
+                      type: 'string',
+                      enum: [
+                        'includes_unverified_pageview_steps',
+                        'backend_authorized_event_steps_only',
+                      ],
+                      description:
+                        'Provenance of funnel steps through this step; cohort and other filters may still include unverified traffic.',
                     },
                     type: {
                       type: 'string',
@@ -73,6 +92,9 @@ export const operations = [
                     'dropped',
                     'dropoff',
                     'remaining',
+                    'countUnit',
+                    'stepProvenance',
+                    'stepSequenceProvenance',
                     'type',
                     'value',
                   ],

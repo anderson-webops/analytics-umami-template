@@ -15620,6 +15620,8 @@ export interface operations {
         };
         content: {
           'application/json': {
+            /** @enum {string} */
+            countUnit: 'sessions';
             dropoff: number;
             dropped: number;
             /** @description Filters applied to the analytics data. */
@@ -15630,9 +15632,18 @@ export interface operations {
             }[];
             previous: number;
             remaining: number;
+            /** @enum {string} */
+            stepProvenance: 'unverified_pageview' | 'backend_authorized_event';
+            /**
+             * @description Provenance of funnel steps through this step; cohort and other filters may still include unverified traffic.
+             * @enum {string}
+             */
+            stepSequenceProvenance:
+              | 'includes_unverified_pageview_steps'
+              | 'backend_authorized_event_steps_only';
             type: string;
             value: string;
-            /** @description Unique visitor counts for the selected period. */
+            /** @description Distinct recorded session IDs at this step, not verified people. */
             visitors: number;
           }[];
         };
@@ -15776,6 +15787,8 @@ export interface operations {
         };
         content: {
           'application/json': {
+            /** @enum {string} */
+            countUnit: 'sessions';
             dropoff: number;
             dropped: number;
             /** @description Filters applied to the analytics data. */
@@ -15786,9 +15799,18 @@ export interface operations {
             }[];
             previous: number;
             remaining: number;
+            /** @enum {string} */
+            stepProvenance: 'unverified_pageview' | 'backend_authorized_event';
+            /**
+             * @description Provenance of funnel steps through this step; cohort and other filters may still include unverified traffic.
+             * @enum {string}
+             */
+            stepSequenceProvenance:
+              | 'includes_unverified_pageview_steps'
+              | 'backend_authorized_event_steps_only';
             type: string;
             value: string;
-            /** @description Unique visitor counts for the selected period. */
+            /** @description Distinct recorded session IDs at this step, not verified people. */
             visitors: number;
           }[];
         };
