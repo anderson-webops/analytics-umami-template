@@ -37,6 +37,7 @@ integrationTest(
         session_id UUID NOT NULL,
         event_name TEXT NOT NULL,
         event_type INTEGER NOT NULL,
+        url_path TEXT NOT NULL DEFAULT '/',
         is_bot BOOLEAN NOT NULL DEFAULT false,
         created_at TIMESTAMPTZ NOT NULL,
         trust_tier SMALLINT NOT NULL DEFAULT 0

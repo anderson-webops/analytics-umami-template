@@ -10,11 +10,12 @@ integrationTest('ClickHouse collection deletion preserves other sites', async ()
   expect(baseUrl.hostname).toBe('127.0.0.1');
   expect(baseUrl.pathname).toBe('/umami_event_series_test');
 
-  const databaseName = `collection_delete_${randomUUID().replaceAll('-', '')}`;
+  const databaseName = 'umami';
   const databaseUrl = new URL(baseUrl);
   databaseUrl.pathname = `/${databaseName}`;
   const originalClickhouseUrl = process.env.CLICKHOUSE_URL;
   const originalDatabaseUrl = process.env.DATABASE_URL;
+  const originalKafkaHistoryAttestedClean = process.env.KAFKA_HISTORY_ATTESTED_CLEAN;
   const admin = createClient({ url: baseUrl.toString() });
   const websiteId = randomUUID();
   const otherWebsiteId = randomUUID();
@@ -24,11 +25,14 @@ integrationTest('ClickHouse collection deletion preserves other sites', async ()
   let applicationClient: ReturnType<typeof createClient> | undefined;
 
   try {
+    expect(process.env.KAFKA_URL).toBeFalsy();
+    expect(process.env.KAFKA_BROKER).toBeFalsy();
     await admin.command({ query: `CREATE DATABASE ${databaseName}` });
     databaseCreated = true;
     fixture = createClient({ url: databaseUrl.toString() });
     process.env.CLICKHOUSE_URL = databaseUrl.toString();
     process.env.DATABASE_URL = 'postgresql://synthetic:synthetic@127.0.0.1:1/synthetic';
+    process.env.KAFKA_HISTORY_ATTESTED_CLEAN = 'true';
     vi.resetModules();
     const { CLICKHOUSE_COLLECTION_TABLES, deleteClickhouseCollectionSources } = await import(
       './deleteCollectionSources'
@@ -127,6 +131,11 @@ integrationTest('ClickHouse collection deletion preserves other sites', async ()
       delete process.env.DATABASE_URL;
     } else {
       process.env.DATABASE_URL = originalDatabaseUrl;
+    }
+    if (originalKafkaHistoryAttestedClean === undefined) {
+      delete process.env.KAFKA_HISTORY_ATTESTED_CLEAN;
+    } else {
+      process.env.KAFKA_HISTORY_ATTESTED_CLEAN = originalKafkaHistoryAttestedClean;
     }
     vi.resetModules();
   }
