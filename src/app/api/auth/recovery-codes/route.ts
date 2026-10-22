@@ -1,7 +1,11 @@
 import { ROLES } from '@/lib/constants';
-import { hash } from '@/lib/crypto';
 import { isEnvEnabled } from '@/lib/env';
-import { generateLoginRecoveryCodes, getLoginRecoveryKeyFingerprint } from '@/lib/login-recovery';
+import {
+  generateLoginRecoveryCodes,
+  getLoginRecoveryKeyFingerprint,
+  persistLoginRecoveryCodes,
+  RecoveryTargetNotFoundError,
+} from '@/lib/login-recovery';
 import { checkPassword } from '@/lib/password';
 import { reservePasswordVerificationAttempt } from '@/lib/password-verification-rate-limit';
 import prisma from '@/lib/prisma';
@@ -23,8 +27,6 @@ import {
 } from '@/queries/prisma/authorization';
 import { getUser } from '@/queries/prisma/user';
 import { rotateLoginRecoveryCodesSchema } from './schema';
-
-class RecoveryTargetNotFoundError extends Error {}
 
 export async function GET(request: Request) {
   if (isEnvEnabled('CLOUD_MODE')) {
@@ -120,23 +122,7 @@ export async function POST(request: Request) {
         await assertActorIsAdministrator(transaction, userId);
       }
 
-      const target = await transaction.user.findUnique({
-        where: { id: targetUserId, deletedAt: null },
-        select: { password: true },
-      });
-      if (!target) {
-        throw new RecoveryTargetNotFoundError();
-      }
-
-      await transaction.loginRecoveryCredential.deleteMany({ where: { userId: targetUserId } });
-      await transaction.loginRecoveryCredential.createMany({
-        data: credentials.map(({ digest }) => ({
-          userId: targetUserId,
-          codeDigest: digest,
-          passwordFingerprint: hash(target.password),
-          keyFingerprint: getLoginRecoveryKeyFingerprint(),
-        })),
-      });
+      await persistLoginRecoveryCodes(transaction, targetUserId, credentials);
     });
   } catch (error) {
     if (error instanceof RecoveryTargetNotFoundError) {

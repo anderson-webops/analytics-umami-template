@@ -16,9 +16,11 @@ import {
   generateLoginRecoveryCodes,
   getLoginRecoveryKeyFingerprint,
   lookupLoginRecoveryCode,
+  persistLoginRecoveryCodes,
 } from '@/lib/login-recovery';
 import { hashPassword } from '@/lib/password';
 import prisma from '@/lib/prisma';
+import { runCredentialRevocationMutation } from '@/queries/prisma/authorization';
 import { rehashPasswordIfCurrent } from '@/queries/prisma/user';
 
 assert.equal(process.env.ALLOW_DESTRUCTIVE_MIGRATION_TEST, '1');
@@ -45,7 +47,12 @@ async function recoveryRequest(token: string, password: string, userId: string) 
   );
 }
 
-async function loginRequest(password: string, recoveryCode?: string, captchaToken?: string) {
+async function loginRequest(
+  username: string,
+  password: string,
+  recoveryCode?: string,
+  captchaToken?: string,
+) {
   return login(
     new Request('https://analytics.example.com/api/auth/login', {
       method: 'POST',
@@ -53,7 +60,7 @@ async function loginRequest(password: string, recoveryCode?: string, captchaToke
         'content-type': 'application/json',
         origin: 'https://analytics.example.com',
       },
-      body: JSON.stringify({ username: 'bob', password, recoveryCode, captchaToken }),
+      body: JSON.stringify({ username, password, recoveryCode, captchaToken }),
     }),
   );
 }
@@ -194,18 +201,18 @@ try {
     assert.equal((await reserveLoginAccountAttempt('bob')).blocked, false);
   }
   assert.equal((await reserveLoginAccountAttempt('bob')).blocked, true);
-  assert.equal((await loginRequest(targetPassword)).status, 401);
+  assert.equal((await loginRequest('bob', targetPassword)).status, 401);
   const sourceRequest = new Request('https://analytics.example.com/api/auth/login');
   for (let attempt = 0; attempt < 11; attempt += 1) {
     await getLoginLimit(sourceRequest, 'bob');
   }
-  assert.equal((await loginRequest(targetPassword)).status, 429);
-  const ownerRecoveryResponse = await loginRequest(targetPassword, recoveryCodes[0]);
+  assert.equal((await loginRequest('bob', targetPassword)).status, 429);
+  const ownerRecoveryResponse = await loginRequest('bob', targetPassword, recoveryCodes[0]);
   assert.equal(ownerRecoveryResponse.status, 200);
   assert.ok(ownerRecoveryResponse.headers.get('Set-Cookie')?.includes('analytics-session='));
   assert.equal(await lookupLoginRecoveryCode('bob', recoveryCodes[0]), null);
-  assert.equal((await loginRequest(targetPassword, recoveryCodes[0])).status, 401);
-  assert.equal((await loginRequest('wrong-password', recoveryCodes[1])).status, 401);
+  assert.equal((await loginRequest('bob', targetPassword, recoveryCodes[0])).status, 401);
+  assert.equal((await loginRequest('bob', 'wrong-password', recoveryCodes[1])).status, 401);
   assert.equal(await lookupLoginRecoveryCode('bob', recoveryCodes[1]), null);
 
   const overflow = await reserveLoginOverflowAttempt('bob');
@@ -228,9 +235,14 @@ try {
     return Response.json({ success: true, action: 'login', hostname: 'analytics.example.com' });
   };
   try {
-    assert.equal((await loginRequest(targetPassword, undefined, 'challenge-1')).status, 401);
-    assert.equal((await loginRequest(targetPassword, recoveryCodes[2])).status, 401);
-    const challengedRecovery = await loginRequest(targetPassword, recoveryCodes[2], 'challenge-2');
+    assert.equal((await loginRequest('bob', targetPassword, undefined, 'challenge-1')).status, 401);
+    assert.equal((await loginRequest('bob', targetPassword, recoveryCodes[2])).status, 401);
+    const challengedRecovery = await loginRequest(
+      'bob',
+      targetPassword,
+      recoveryCodes[2],
+      'challenge-2',
+    );
     assert.equal(challengedRecovery.status, 200);
     assert.equal(await lookupLoginRecoveryCode('bob', recoveryCodes[2]), null);
   } finally {
@@ -256,6 +268,29 @@ try {
     [otherId],
   );
   assert.deepEqual(retainedCodes.rows, storedTargetCodes.rows);
+
+  await client.query('UPDATE "user" SET role = $2 WHERE user_id = $1', [administratorId, 'admin']);
+  const bootstrapCodes = generateLoginRecoveryCodes();
+  await runCredentialRevocationMutation(transaction =>
+    persistLoginRecoveryCodes(transaction, administratorId, bootstrapCodes),
+  );
+  assert.deepEqual(
+    await lookupLoginRecoveryCode('recovery-administrator', bootstrapCodes[0].code),
+    { userId: administratorId, passwordHash: administratorHash },
+  );
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    assert.equal((await reserveLoginAccountAttempt('recovery-administrator')).blocked, false);
+  }
+  const bootstrapResponse = await loginRequest(
+    'recovery-administrator',
+    administratorPassword,
+    bootstrapCodes[0].code,
+  );
+  assert.equal(bootstrapResponse.status, 200);
+  assert.equal(
+    await lookupLoginRecoveryCode('recovery-administrator', bootstrapCodes[0].code),
+    null,
+  );
 
   console.log(
     'Disposable PostgreSQL login recovery, targeted lockout, and administrator route passed.',

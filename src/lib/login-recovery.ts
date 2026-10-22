@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import type { Prisma } from '@/generated/prisma/client';
 import { hash, secret } from '@/lib/crypto';
 import prisma from '@/lib/prisma';
 
@@ -47,6 +48,32 @@ export function generateLoginRecoveryCodes() {
     }
 
     return { code, digest };
+  });
+}
+
+export class RecoveryTargetNotFoundError extends Error {}
+
+export async function persistLoginRecoveryCodes(
+  transaction: Prisma.TransactionClient,
+  userId: string,
+  credentials: ReturnType<typeof generateLoginRecoveryCodes>,
+) {
+  const target = await transaction.user.findUnique({
+    where: { id: userId, deletedAt: null },
+    select: { password: true },
+  });
+  if (!target) {
+    throw new RecoveryTargetNotFoundError();
+  }
+
+  await transaction.loginRecoveryCredential.deleteMany({ where: { userId } });
+  await transaction.loginRecoveryCredential.createMany({
+    data: credentials.map(({ digest }) => ({
+      userId,
+      codeDigest: digest,
+      passwordFingerprint: hash(target.password),
+      keyFingerprint: getLoginRecoveryKeyFingerprint(),
+    })),
   });
 }
 

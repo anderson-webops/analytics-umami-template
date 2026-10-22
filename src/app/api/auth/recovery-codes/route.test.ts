@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { hash } from '@/lib/crypto';
+import { RecoveryTargetNotFoundError } from '@/lib/login-recovery';
 import { SessionRevokedError } from '@/queries/prisma/authorization';
 
 const mocks = vi.hoisted(() => {
@@ -20,6 +21,7 @@ const mocks = vi.hoisted(() => {
     checkPassword: vi.fn(),
     generateLoginRecoveryCodes: vi.fn(),
     getLoginRecoveryKeyFingerprint: vi.fn(),
+    persistLoginRecoveryCodes: vi.fn(),
     runActiveSessionMutation: vi.fn(),
     assertCurrentActorAuth: vi.fn(),
     assertActorIsAdministrator: vi.fn(),
@@ -40,8 +42,10 @@ vi.mock('@/lib/password-verification-rate-limit', () => ({
   reservePasswordVerificationAttempt: mocks.reservePasswordVerificationAttempt,
 }));
 vi.mock('@/lib/login-recovery', () => ({
+  RecoveryTargetNotFoundError: class RecoveryTargetNotFoundError extends Error {},
   generateLoginRecoveryCodes: mocks.generateLoginRecoveryCodes,
   getLoginRecoveryKeyFingerprint: mocks.getLoginRecoveryKeyFingerprint,
+  persistLoginRecoveryCodes: mocks.persistLoginRecoveryCodes,
 }));
 vi.mock('@/queries/prisma/authorization', () => ({
   SessionRevokedError: class SessionRevokedError extends Error {},
@@ -72,6 +76,7 @@ beforeEach(() => {
     mocks.checkPassword,
     mocks.generateLoginRecoveryCodes,
     mocks.getLoginRecoveryKeyFingerprint,
+    mocks.persistLoginRecoveryCodes,
     mocks.runActiveSessionMutation,
     mocks.assertCurrentActorAuth,
     mocks.assertActorIsAdministrator,
@@ -96,6 +101,24 @@ beforeEach(() => {
   mocks.runActiveSessionMutation.mockImplementation(async (_auth, operation) =>
     operation(mocks.transaction),
   );
+  mocks.persistLoginRecoveryCodes.mockImplementation(async (transaction, userId, credentials) => {
+    const target = await transaction.user.findUnique({
+      where: { id: userId, deletedAt: null },
+      select: { password: true },
+    });
+    if (!target) {
+      throw new RecoveryTargetNotFoundError();
+    }
+    await transaction.loginRecoveryCredential.deleteMany({ where: { userId } });
+    await transaction.loginRecoveryCredential.createMany({
+      data: credentials.map(({ digest }) => ({
+        userId,
+        codeDigest: digest,
+        passwordFingerprint: hash(target.password),
+        keyFingerprint: 'key-fingerprint',
+      })),
+    });
+  });
 });
 
 afterEach(() => {

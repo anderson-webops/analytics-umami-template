@@ -68,6 +68,10 @@ The capability names have narrow meanings:
   the candidate's migrated database, require a protected, independently verified
   pre-migration backup and a rehearsed database restore before restoring the
   retained artifact. This is a host capability, not an application backup.
+- `protected-login-recovery-issuance-v1`: verify the forward-only recovery-code
+  migration and packaged operator tool. Review protected first-administrator and
+  lost-code issuance under the service identity, with private owner delivery and
+  no root execution of a mutable checkout. See `docs/login-account-recovery.md`.
 - `legacy-clickhouse-erasure-review-v1`: before activation, inventory every
   previously configured ClickHouse database and retained historical table.
   Review and rehearse protected cleanup or retirement of old and interrupted

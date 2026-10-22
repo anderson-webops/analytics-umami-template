@@ -225,6 +225,10 @@ async function run() {
     path.resolve('scripts/artifact-smoke.mjs'),
     path.join(runtimeScriptsDirectory, 'artifact-smoke.mjs'),
   );
+  await bundleRuntimeScript(
+    path.resolve('scripts/issue-login-recovery.ts'),
+    path.join(runtimeScriptsDirectory, 'issue-login-recovery.mjs'),
+  );
   await copyRuntimePath(
     path.resolve('scripts/start-runtime.mjs'),
     path.join(runtimeScriptsDirectory, 'start-production.mjs'),

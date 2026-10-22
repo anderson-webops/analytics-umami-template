@@ -45,6 +45,7 @@
     "prisma/migrations/38_add_session_link_trust_tier/migration.sql",
     "prisma/migrations/39_bind_collection_keys_to_website_owner/migration.sql",
     "prisma/migrations/40_add_attested_revenue_movement/migration.sql",
+    "prisma/migrations/41_add_login_recovery_credentials/migration.sql",
     "prisma/migrations/migration_lock.toml",
     "prisma/schema.prisma",
     "public/openapi.json",
@@ -53,6 +54,7 @@
     "runtime-scripts/artifact-smoke.mjs",
     "runtime-scripts/check-db.mjs",
     "runtime-scripts/check-env.mjs",
+    "runtime-scripts/issue-login-recovery.mjs",
     "runtime-scripts/prune-expired-heatmap-events.mjs",
     "runtime-scripts/prune-expired-session-replays.mjs",
     "runtime-scripts/start-production.mjs",
@@ -154,6 +156,7 @@
       "event-claim-trust-tier-v1",
       "unverified-revenue-materialization-disabled-v1",
       "attested-revenue-ledger-v1",
+      "protected-login-recovery-issuance-v1",
       "version-aware-readiness-v1"
     ],
     "probes": {

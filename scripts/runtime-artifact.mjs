@@ -228,6 +228,7 @@ function validateDeploymentContract(deployment) {
     'event-claim-trust-tier-v1',
     'unverified-revenue-materialization-disabled-v1',
     'attested-revenue-ledger-v1',
+    'protected-login-recovery-issuance-v1',
   ]);
   const knownHostControls = new Set([
     'service-user',
@@ -411,6 +412,25 @@ async function readContract(contractPath = defaultContractPath) {
     contract.requiredFiles.includes(attestedRevenueFile) !==
     (contract.deployment?.requiredAdapterCapabilities.includes('attested-revenue-ledger-v1') ??
       false)
+  ) {
+    throw new Error('Unsupported or incomplete deployment compatibility contract.');
+  }
+
+  const loginRecoveryFiles = [
+    'prisma/migrations/41_add_login_recovery_credentials/migration.sql',
+    'runtime-scripts/issue-login-recovery.mjs',
+  ];
+  const loginRecoveryDeclared = loginRecoveryFiles.some(file =>
+    contract.requiredFiles.includes(file),
+  );
+  const loginRecoveryCapability =
+    contract.deployment?.requiredAdapterCapabilities.includes(
+      'protected-login-recovery-issuance-v1',
+    ) ?? false;
+  if (
+    loginRecoveryDeclared !== loginRecoveryCapability ||
+    (loginRecoveryCapability &&
+      !loginRecoveryFiles.every(file => contract.requiredFiles.includes(file)))
   ) {
     throw new Error('Unsupported or incomplete deployment compatibility contract.');
   }

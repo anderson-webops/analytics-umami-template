@@ -42,6 +42,10 @@ const eventTrustPaths = [
 const revenueDisablePath =
   'db/clickhouse/migrations/18_disable_unverified_revenue_materialization.sql';
 const attestedRevenuePath = 'prisma/migrations/40_add_attested_revenue_movement/migration.sql';
+const loginRecoveryPaths = [
+  'prisma/migrations/41_add_login_recovery_credentials/migration.sql',
+  'runtime-scripts/issue-login-recovery.mjs',
+];
 
 test('generated API client version matches the application release', async () => {
   const packageJson = JSON.parse(
@@ -107,7 +111,8 @@ async function createFixture() {
           capability !== 'identity-link-trust-tier-v1' &&
           capability !== 'event-claim-trust-tier-v1' &&
           capability !== 'unverified-revenue-materialization-disabled-v1' &&
-          capability !== 'attested-revenue-ledger-v1',
+          capability !== 'attested-revenue-ledger-v1' &&
+          capability !== 'protected-login-recovery-issuance-v1',
       ),
     },
   };
@@ -234,6 +239,22 @@ async function addAttestedRevenueFixture(root, contractPath) {
   const fullPath = path.join(root, attestedRevenuePath);
   await fs.mkdir(path.dirname(fullPath), { recursive: true });
   await fs.writeFile(fullPath, 'synthetic attested revenue migration\n');
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+}
+
+async function addLoginRecoveryFixture(root, contractPath) {
+  const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
+  contract.deployment.requiredAdapterCapabilities.push('protected-login-recovery-issuance-v1');
+  for (const file of loginRecoveryPaths) {
+    const allowedRoot = file.split('/')[0];
+    if (!contract.allowedRoots.includes(allowedRoot)) {
+      contract.allowedRoots.push(allowedRoot);
+    }
+    contract.requiredFiles.push(file);
+    const fullPath = path.join(root, file);
+    await fs.mkdir(path.dirname(fullPath), { recursive: true });
+    await fs.writeFile(fullPath, 'synthetic login recovery file\n');
+  }
   await fs.writeFile(contractPath, JSON.stringify(contract));
 }
 
@@ -776,6 +797,56 @@ test('attested revenue ledger requires packaging and host capability', async () 
   await fs.writeFile(contractPath, JSON.stringify(contract));
   await createRuntimeManifest(root, { contractPath, source });
   await verifyRuntimeArtifact(root, { contractPath });
+});
+
+test('protected login recovery requires its migration, tool, and host capability', async () => {
+  const trustedContract = JSON.parse(
+    await fs.readFile(new URL('../deploy/runtime-artifact.json', import.meta.url), 'utf8'),
+  );
+  assert.ok(loginRecoveryPaths.every(file => trustedContract.requiredFiles.includes(file)));
+  assert.ok(
+    trustedContract.deployment.requiredAdapterCapabilities.includes(
+      'protected-login-recovery-issuance-v1',
+    ),
+  );
+
+  const { root, contractPath } = await createFixture();
+  await addLoginRecoveryFixture(root, contractPath);
+  const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
+  contract.deployment.requiredAdapterCapabilities =
+    contract.deployment.requiredAdapterCapabilities.filter(
+      capability => capability !== 'protected-login-recovery-issuance-v1',
+    );
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await assert.rejects(
+    createRuntimeManifest(root, { contractPath, source }),
+    /deployment compatibility contract/,
+  );
+
+  contract.deployment.requiredAdapterCapabilities.push('protected-login-recovery-issuance-v1');
+  const requiredFiles = contract.requiredFiles;
+  for (const missingFile of loginRecoveryPaths) {
+    contract.requiredFiles = requiredFiles.filter(file => file !== missingFile);
+    await fs.writeFile(contractPath, JSON.stringify(contract));
+    await assert.rejects(
+      createRuntimeManifest(root, { contractPath, source }),
+      /deployment compatibility contract/,
+    );
+  }
+
+  contract.requiredFiles = requiredFiles;
+  await fs.writeFile(contractPath, JSON.stringify(contract));
+  await createRuntimeManifest(root, { contractPath, source });
+  await verifyRuntimeArtifact(root, { contractPath });
+
+  for (const missingFile of loginRecoveryPaths) {
+    const fullPath = path.join(root, missingFile);
+    await fs.rm(fullPath);
+    const missingRequiredFile = error =>
+      error instanceof Error && error.message.includes(`missing required file: ${missingFile}`);
+    await assert.rejects(verifyRuntimeArtifact(root, { contractPath }), missingRequiredFile);
+    await fs.writeFile(fullPath, 'synthetic login recovery file\n');
+  }
 });
 
 test('database-aware recovery requires its exact host capability and policy', async () => {
