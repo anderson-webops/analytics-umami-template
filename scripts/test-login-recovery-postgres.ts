@@ -27,6 +27,8 @@ assert.equal(process.env.ALLOW_DESTRUCTIVE_MIGRATION_TEST, '1');
 const databaseUrl = new URL(process.env.DATABASE_URL ?? '');
 assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(databaseUrl.hostname));
 assert.ok(['/postgres', '/umami_login_recovery_test'].includes(databaseUrl.pathname));
+const siteUrl = new URL(process.env.PUBLIC_URL || 'https://analytics.example.com');
+const siteOrigin = siteUrl.origin;
 
 const client = new Client({ connectionString: databaseUrl.toString() });
 const ownerId = randomUUID();
@@ -35,12 +37,12 @@ const administratorId = randomUUID();
 
 async function recoveryRequest(token: string, password: string, userId: string) {
   return issueRecoveryCodes(
-    new Request('https://analytics.example.com/api/auth/recovery-codes', {
+    new Request(`${siteOrigin}/api/auth/recovery-codes`, {
       method: 'POST',
       headers: {
         authorization: `Bearer ${token}`,
         'content-type': 'application/json',
-        origin: 'https://analytics.example.com',
+        origin: siteOrigin,
       },
       body: JSON.stringify({ password, userId }),
     }),
@@ -54,11 +56,11 @@ async function loginRequest(
   captchaToken?: string,
 ) {
   return login(
-    new Request('https://analytics.example.com/api/auth/login', {
+    new Request(`${siteOrigin}/api/auth/login`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        origin: 'https://analytics.example.com',
+        origin: siteOrigin,
       },
       body: JSON.stringify({ username, password, recoveryCode, captchaToken }),
     }),
@@ -202,7 +204,7 @@ try {
   }
   assert.equal((await reserveLoginAccountAttempt('bob')).blocked, true);
   assert.equal((await loginRequest('bob', targetPassword)).status, 401);
-  const sourceRequest = new Request('https://analytics.example.com/api/auth/login');
+  const sourceRequest = new Request(`${siteOrigin}/api/auth/login`);
   for (let attempt = 0; attempt < 11; attempt += 1) {
     await getLoginLimit(sourceRequest, 'bob');
   }
@@ -225,14 +227,14 @@ try {
   const originalPublicUrl = process.env.PUBLIC_URL;
   process.env.TURNSTILE_SITE_KEY = 'synthetic-local-site-key';
   process.env.TURNSTILE_SECRET_KEY = 'synthetic-local-secret-key';
-  process.env.PUBLIC_URL = 'https://analytics.example.com';
+  process.env.PUBLIC_URL = siteOrigin;
   globalThis.fetch = async (input, init) => {
     assert.equal(String(input), 'https://challenges.cloudflare.com/turnstile/v0/siteverify');
     assert.equal(init?.method, 'POST');
     assert.ok(init?.body instanceof URLSearchParams);
     assert.equal(init.body.get('secret'), 'synthetic-local-secret-key');
     assert.ok(['challenge-1', 'challenge-2'].includes(init.body.get('response') ?? ''));
-    return Response.json({ success: true, action: 'login', hostname: 'analytics.example.com' });
+    return Response.json({ success: true, action: 'login', hostname: siteUrl.hostname });
   };
   try {
     assert.equal((await loginRequest('bob', targetPassword, undefined, 'challenge-1')).status, 401);
