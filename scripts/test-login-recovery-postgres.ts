@@ -1,9 +1,16 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { Client } from 'pg';
+import { POST as login } from '@/app/api/auth/login/route';
 import { POST as issueRecoveryCodes } from '@/app/api/auth/recovery-codes/route';
 import { hash, secret } from '@/lib/crypto';
 import { createSecureToken } from '@/lib/jwt';
+import {
+  getLoginLimit,
+  releaseLoginOverflowAttempt,
+  reserveLoginAccountAttempt,
+  reserveLoginOverflowAttempt,
+} from '@/lib/login-rate-limit';
 import {
   consumeLoginRecoveryCode,
   generateLoginRecoveryCodes,
@@ -34,6 +41,19 @@ async function recoveryRequest(token: string, password: string, userId: string) 
         origin: 'https://analytics.example.com',
       },
       body: JSON.stringify({ password, userId }),
+    }),
+  );
+}
+
+async function loginRequest(password: string, recoveryCode?: string, captchaToken?: string) {
+  return login(
+    new Request('https://analytics.example.com/api/auth/login', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        origin: 'https://analytics.example.com',
+      },
+      body: JSON.stringify({ username: 'bob', password, recoveryCode, captchaToken }),
     }),
   );
 }
@@ -170,6 +190,60 @@ try {
   });
   assert.equal(await lookupLoginRecoveryCode('recovery-administrator', recoveryCodes[0]), null);
 
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    assert.equal((await reserveLoginAccountAttempt('bob')).blocked, false);
+  }
+  assert.equal((await reserveLoginAccountAttempt('bob')).blocked, true);
+  assert.equal((await loginRequest(targetPassword)).status, 401);
+  const sourceRequest = new Request('https://analytics.example.com/api/auth/login');
+  for (let attempt = 0; attempt < 11; attempt += 1) {
+    await getLoginLimit(sourceRequest, 'bob');
+  }
+  assert.equal((await loginRequest(targetPassword)).status, 429);
+  const ownerRecoveryResponse = await loginRequest(targetPassword, recoveryCodes[0]);
+  assert.equal(ownerRecoveryResponse.status, 200);
+  assert.ok(ownerRecoveryResponse.headers.get('Set-Cookie')?.includes('analytics-session='));
+  assert.equal(await lookupLoginRecoveryCode('bob', recoveryCodes[0]), null);
+  assert.equal((await loginRequest(targetPassword, recoveryCodes[0])).status, 401);
+  assert.equal((await loginRequest('wrong-password', recoveryCodes[1])).status, 401);
+  assert.equal(await lookupLoginRecoveryCode('bob', recoveryCodes[1]), null);
+
+  const overflow = await reserveLoginOverflowAttempt('bob');
+  assert.equal(overflow.blocked, false);
+  if (!overflow.blocked) {
+    await releaseLoginOverflowAttempt('bob', overflow.windowExpiresAt, overflow.leaseId);
+  }
+
+  const originalFetch = globalThis.fetch;
+  const originalPublicUrl = process.env.PUBLIC_URL;
+  process.env.TURNSTILE_SITE_KEY = 'synthetic-local-site-key';
+  process.env.TURNSTILE_SECRET_KEY = 'synthetic-local-secret-key';
+  process.env.PUBLIC_URL = 'https://analytics.example.com';
+  globalThis.fetch = async (input, init) => {
+    assert.equal(String(input), 'https://challenges.cloudflare.com/turnstile/v0/siteverify');
+    assert.equal(init?.method, 'POST');
+    assert.ok(init?.body instanceof URLSearchParams);
+    assert.equal(init.body.get('secret'), 'synthetic-local-secret-key');
+    assert.ok(['challenge-1', 'challenge-2'].includes(init.body.get('response') ?? ''));
+    return Response.json({ success: true, action: 'login', hostname: 'analytics.example.com' });
+  };
+  try {
+    assert.equal((await loginRequest(targetPassword, undefined, 'challenge-1')).status, 401);
+    assert.equal((await loginRequest(targetPassword, recoveryCodes[2])).status, 401);
+    const challengedRecovery = await loginRequest(targetPassword, recoveryCodes[2], 'challenge-2');
+    assert.equal(challengedRecovery.status, 200);
+    assert.equal(await lookupLoginRecoveryCode('bob', recoveryCodes[2]), null);
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env.TURNSTILE_SITE_KEY;
+    delete process.env.TURNSTILE_SECRET_KEY;
+    if (originalPublicUrl === undefined) {
+      delete process.env.PUBLIC_URL;
+    } else {
+      process.env.PUBLIC_URL = originalPublicUrl;
+    }
+  }
+
   await client.query('UPDATE "user" SET role = $2 WHERE user_id = $1', [administratorId, 'user']);
   const downgradedResponse = await recoveryRequest(
     administratorToken,
@@ -183,7 +257,9 @@ try {
   );
   assert.deepEqual(retainedCodes.rows, storedTargetCodes.rows);
 
-  console.log('Disposable PostgreSQL login recovery, administrator route, and revocation passed.');
+  console.log(
+    'Disposable PostgreSQL login recovery, targeted lockout, and administrator route passed.',
+  );
 } finally {
   await prisma.client.$disconnect();
   await client.end();
