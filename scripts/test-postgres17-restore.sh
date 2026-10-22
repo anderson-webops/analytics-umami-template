@@ -48,7 +48,7 @@ run_login_recovery() {
     node scripts/check-db.js --migrate-only
   DATABASE_URL="$recovery_url" APP_SECRET=synthetic-login-recovery-secret-0000000000000000 \
     ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null REDIS_URL='' CLOUD_MODE='' \
-    node --import tsx scripts/test-login-recovery-postgres.ts
+    node --conditions=react-server --import tsx scripts/test-login-recovery-postgres.ts
 }
 if [[ "${1:-}" == --two-factor-state-races ]]; then
   DOTENV_CONFIG_PATH=/dev/null pnpm run db:migrate
@@ -116,7 +116,7 @@ if [[ "${1:-}" == --login-recovery ]]; then
   DOTENV_CONFIG_PATH=/dev/null REDIS_URL='' CLOUD_MODE='' node scripts/check-db.js --migrate-only
   APP_SECRET=synthetic-login-recovery-secret-0000000000000000 \
     ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null REDIS_URL='' CLOUD_MODE='' \
-    node --import tsx scripts/test-login-recovery-postgres.ts
+    node --conditions=react-server --import tsx scripts/test-login-recovery-postgres.ts
   exit 0
 fi
 if [[ "${1:-}" == --session-data-bulk ]]; then

@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { Client } from 'pg';
-import { hash } from '@/lib/crypto';
+import { POST as issueRecoveryCodes } from '@/app/api/auth/recovery-codes/route';
+import { hash, secret } from '@/lib/crypto';
+import { createSecureToken } from '@/lib/jwt';
 import {
   consumeLoginRecoveryCode,
   generateLoginRecoveryCodes,
   getLoginRecoveryKeyFingerprint,
   lookupLoginRecoveryCode,
 } from '@/lib/login-recovery';
+import { hashPassword } from '@/lib/password';
 import prisma from '@/lib/prisma';
 import { rehashPasswordIfCurrent } from '@/queries/prisma/user';
 
@@ -19,6 +22,21 @@ assert.ok(['/postgres', '/umami_login_recovery_test'].includes(databaseUrl.pathn
 const client = new Client({ connectionString: databaseUrl.toString() });
 const ownerId = randomUUID();
 const otherId = randomUUID();
+const administratorId = randomUUID();
+
+async function recoveryRequest(token: string, password: string, userId: string) {
+  return issueRecoveryCodes(
+    new Request('https://analytics.example.com/api/auth/recovery-codes', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+        origin: 'https://analytics.example.com',
+      },
+      body: JSON.stringify({ password, userId }),
+    }),
+  );
+}
 
 try {
   await client.connect();
@@ -100,7 +118,72 @@ try {
   );
   assert.equal(afterDelete.rows[0].count, '0');
 
-  console.log('Disposable PostgreSQL login recovery issuance, race and revocation passed.');
+  const administratorPassword = 'synthetic-admin-password-000000000000';
+  const administratorHash = await hashPassword(administratorPassword);
+  const targetPassword = 'synthetic-target-password-000000000000';
+  const targetHash = await hashPassword(targetPassword);
+  await prisma.client.user.create({
+    data: {
+      id: administratorId,
+      username: 'recovery-administrator',
+      password: administratorHash,
+      role: 'admin',
+    },
+  });
+  await client.query('UPDATE "user" SET password = $2 WHERE user_id = $1', [otherId, targetHash]);
+  const administratorToken = await createSecureToken(
+    {
+      userId: administratorId,
+      role: 'admin',
+      pwd: hash(administratorHash),
+      sessionGeneration: 0,
+    },
+    secret(),
+    { expiresIn: '5m' },
+  );
+  const targetToken = await createSecureToken(
+    { userId: otherId, role: 'user', pwd: hash(targetHash), sessionGeneration: 0 },
+    secret(),
+    { expiresIn: '5m' },
+  );
+
+  const forbiddenResponse = await recoveryRequest(targetToken, targetPassword, administratorId);
+  assert.equal(forbiddenResponse.status, 403);
+  const badPasswordResponse = await recoveryRequest(administratorToken, 'wrong-password', otherId);
+  assert.equal(badPasswordResponse.status, 400);
+
+  const issuedResponse = await recoveryRequest(administratorToken, administratorPassword, otherId);
+  assert.equal(issuedResponse.status, 200);
+  assert.equal(issuedResponse.headers.get('Cache-Control'), 'no-store');
+  const { recoveryCodes } = (await issuedResponse.json()) as { recoveryCodes: string[] };
+  assert.equal(recoveryCodes.length, 8);
+  assert.equal(new Set(recoveryCodes).size, recoveryCodes.length);
+  const storedTargetCodes = await client.query<{ code_digest: string }>(
+    'SELECT code_digest FROM login_recovery_credential WHERE user_id = $1',
+    [otherId],
+  );
+  assert.equal(storedTargetCodes.rows.length, recoveryCodes.length);
+  assert.ok(storedTargetCodes.rows.every(row => !recoveryCodes.includes(row.code_digest)));
+  assert.deepEqual(await lookupLoginRecoveryCode('bob', recoveryCodes[0]), {
+    userId: otherId,
+    passwordHash: targetHash,
+  });
+  assert.equal(await lookupLoginRecoveryCode('recovery-administrator', recoveryCodes[0]), null);
+
+  await client.query('UPDATE "user" SET role = $2 WHERE user_id = $1', [administratorId, 'user']);
+  const downgradedResponse = await recoveryRequest(
+    administratorToken,
+    administratorPassword,
+    otherId,
+  );
+  assert.equal(downgradedResponse.status, 401);
+  const retainedCodes = await client.query<{ code_digest: string }>(
+    'SELECT code_digest FROM login_recovery_credential WHERE user_id = $1',
+    [otherId],
+  );
+  assert.deepEqual(retainedCodes.rows, storedTargetCodes.rows);
+
+  console.log('Disposable PostgreSQL login recovery, administrator route, and revocation passed.');
 } finally {
   await prisma.client.$disconnect();
   await client.end();
