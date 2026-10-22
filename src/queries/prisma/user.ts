@@ -306,6 +306,11 @@ async function writePasswordIfCurrent(
 
     if (rotateCredentials) {
       await transaction.apiKey.deleteMany({ where: { userId } });
+    } else {
+      await transaction.loginRecoveryCredential.updateMany({
+        where: { userId, passwordFingerprint: hash(expectedPassword), consumedAt: null },
+        data: { passwordFingerprint: hash(nextPassword) },
+      });
     }
 
     return transaction.user.findUnique({

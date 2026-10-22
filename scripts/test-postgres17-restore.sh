@@ -41,6 +41,15 @@ run_two_factor_state_races() {
     DOTENV_CONFIG_PATH=/dev/null REDIS_URL='' CLOUD_MODE='' \
     node --conditions=react-server --import tsx scripts/test-two-factor-state-races.ts
 }
+run_login_recovery() {
+  "$pg_bin/createdb" -h 127.0.0.1 -p "$port" -U restore_test umami_login_recovery_test
+  local recovery_url="postgresql://restore_test:synthetic-restore-password-000000@127.0.0.1:$port/umami_login_recovery_test"
+  DATABASE_URL="$recovery_url" DOTENV_CONFIG_PATH=/dev/null REDIS_URL='' CLOUD_MODE='' \
+    node scripts/check-db.js --migrate-only
+  DATABASE_URL="$recovery_url" APP_SECRET=synthetic-login-recovery-secret-0000000000000000 \
+    ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null REDIS_URL='' CLOUD_MODE='' \
+    node --import tsx scripts/test-login-recovery-postgres.ts
+}
 if [[ "${1:-}" == --two-factor-state-races ]]; then
   DOTENV_CONFIG_PATH=/dev/null pnpm run db:migrate
   run_two_factor_state_races
@@ -101,6 +110,13 @@ if [[ "${1:-}" == --login-admission ]]; then
     >/dev/null
   APP_SECRET=synthetic-login-admission-secret-0000000000000000 \
     ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-login-account-admission.ts
+  exit 0
+fi
+if [[ "${1:-}" == --login-recovery ]]; then
+  DOTENV_CONFIG_PATH=/dev/null REDIS_URL='' CLOUD_MODE='' node scripts/check-db.js --migrate-only
+  APP_SECRET=synthetic-login-recovery-secret-0000000000000000 \
+    ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null REDIS_URL='' CLOUD_MODE='' \
+    node --import tsx scripts/test-login-recovery-postgres.ts
   exit 0
 fi
 if [[ "${1:-}" == --session-data-bulk ]]; then
@@ -172,6 +188,7 @@ if [[ "${1:-}" == --session-link-cross-store ]]; then
 fi
 run_collector_values
 run_funnel_event_types
+run_login_recovery
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node scripts/test-postgres-restore.mjs "$@"
 pnpm run db:migrate
 "$pg_bin/psql" "$DATABASE_URL" -v ON_ERROR_STOP=1 \

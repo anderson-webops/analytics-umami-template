@@ -1,0 +1,15 @@
+# Account-owned login recovery
+
+This source candidate adds optional one-use codes for local analytics accounts. A saved code permits its owner to attempt login while the shared username or source budget is exhausted. It does not replace the password, configured CAPTCHA, required two-factor verification, or the shared password-work limit. A wrong password spends the code, so it is an attempt credential rather than a reusable bypass. Only a current full session with the current password can replace codes. The response shows plaintext once; the database stores digests only.
+
+The codes are bound to the account, its current password credential, and the signing-key fingerprint. Ordinary logout does not revoke them. A password change, account deletion, or rotation of the application's `APP_SECRET` makes existing codes unusable. The status endpoint excludes codes from an old key. Automatic password-hash upgrades rebind unused codes in the same transaction; plan secret rotation and code reissuance together. Do not log or export plaintext codes.
+
+## Rollout and remaining risk
+
+The migration creates an empty credential table. It cannot securely issue codes to existing owners without a verified session or a separately reviewed protected operator process. **An owner who has not saved codes can still be locked out by distributed failed login attempts for the configured window.** The source-level targeted-lockout finding is not resolved for that owner. Do not count rollout complete until every applicable active owner has a verified recovery path, including the initial administrator, and a protected recovery procedure exists for owners who lose all codes. CAPTCHA alone is not account ownership proof.
+
+Migration `41_add_login_recovery_credentials` is forward-only in the release ledger. The retained pre-migration runtime may reject a database containing its new ledger entry. A pointer-only application rollback is therefore not a recovery plan. Before production migration, the server operator must rehearse upgrade and failed-activation recovery on a protected copy, retain a quiesced pre-migration database backup and the exact prior runtime/policy, and approve a database-aware restore procedure. Source publication is not production activation.
+
+## Source verification
+
+The focused tests cover owner-only issuance, current-password and session checks, denied-code admission, single-use concurrency, password-hash upgrade, password change, logout, deletion, and no-store responses. The disposable PostgreSQL 17 fixture applies the exact new migration SQL and checks real concurrent consumption and cascade deletion. The default PostgreSQL restore runner includes that fixture. Exact clean Linux ARM64 packaging, retained-runtime recovery, downstream site adoption, and protected production acceptance remain separate release gates.

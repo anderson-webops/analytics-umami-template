@@ -28,6 +28,8 @@ const mocks = vi.hoisted(() => ({
   getTwoFactorRequirement: vi.fn(),
   isLoginCaptchaEnabled: vi.fn(),
   verifyLoginCaptcha: vi.fn(),
+  lookupLoginRecoveryCode: vi.fn(),
+  consumeLoginRecoveryCode: vi.fn(),
 }));
 
 vi.mock('@/lib/request', () => ({
@@ -62,6 +64,11 @@ vi.mock('@/lib/login-rate-limit', () => ({
 vi.mock('@/lib/login-captcha', () => ({
   isLoginCaptchaEnabled: mocks.isLoginCaptchaEnabled,
   verifyLoginCaptcha: mocks.verifyLoginCaptcha,
+}));
+
+vi.mock('@/lib/login-recovery', () => ({
+  lookupLoginRecoveryCode: mocks.lookupLoginRecoveryCode,
+  consumeLoginRecoveryCode: mocks.consumeLoginRecoveryCode,
 }));
 
 vi.mock('@/queries/prisma/user', () => ({
@@ -141,6 +148,8 @@ beforeEach(() => {
   mocks.getTwoFactorRequirement.mockReset();
   mocks.isLoginCaptchaEnabled.mockReset().mockReturnValue(false);
   mocks.verifyLoginCaptcha.mockReset().mockResolvedValue('valid');
+  mocks.lookupLoginRecoveryCode.mockReset().mockResolvedValue(null);
+  mocks.consumeLoginRecoveryCode.mockReset().mockResolvedValue(null);
 
   mocks.parseRequest.mockResolvedValue({
     body: { username: 'alice', password: 'secret' },
@@ -541,6 +550,144 @@ test('without CAPTCHA, an exhausted account budget denies a correct password bef
   expect(mocks.reserveLoginAccountAttempt).toHaveBeenCalledWith('alice');
   expect(mocks.checkPassword).not.toHaveBeenCalled();
   expect(mocks.releaseLoginAccountAttempt).not.toHaveBeenCalled();
+  expect(mocks.createSecureToken).not.toHaveBeenCalled();
+});
+
+test.each([false, true])(
+  'an account-owned code reaches password verification despite an exhausted source limit (CAPTCHA %s)',
+  async captchaEnabled => {
+    mocks.isLoginCaptchaEnabled.mockReturnValue(captchaEnabled);
+    mocks.parseRequest.mockResolvedValue({
+      body: {
+        username: 'alice',
+        password: 'secret',
+        recoveryCode: 'UR-RECOVERY-FIXTURE',
+        captchaToken: 'single-use-captcha',
+      },
+      error: undefined,
+    });
+    mocks.getLoginLimit.mockResolvedValue({ blocked: true, retryAfter: 900 });
+    mocks.reserveLoginAccountAttempt.mockResolvedValue({ blocked: true, retryAfter: 900 });
+    mocks.lookupLoginRecoveryCode.mockResolvedValue({
+      userId: 'user-1',
+      passwordHash: 'hashed-password',
+    });
+    mocks.consumeLoginRecoveryCode.mockResolvedValue('user-1');
+    mocks.createSecureToken.mockReturnValue('partial-fixture');
+
+    const response = await POST(loginRequest());
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ requiresTwoFactor: true });
+    expect(mocks.lookupLoginRecoveryCode).toHaveBeenCalledWith('alice', 'UR-RECOVERY-FIXTURE');
+    expect(mocks.consumeLoginRecoveryCode).toHaveBeenCalledWith('alice', 'UR-RECOVERY-FIXTURE', {
+      userId: 'user-1',
+      passwordHash: 'hashed-password',
+    });
+    expect(mocks.reserveLoginAccountAttempt).not.toHaveBeenCalled();
+    expect(mocks.reserveLoginOverflowAttempt).not.toHaveBeenCalled();
+    expect(mocks.checkPassword).toHaveBeenCalledTimes(1);
+    expect(mocks.releaseLoginPasswordWork).toHaveBeenCalledTimes(1);
+    expect(mocks.verifyLoginCaptcha).toHaveBeenCalledTimes(captchaEnabled ? 1 : 0);
+  },
+);
+
+test('an invalid account-owned code never spends password work or reveals the user', async () => {
+  mocks.parseRequest.mockResolvedValue({
+    body: { username: 'alice', password: 'secret', recoveryCode: 'UR-INVALID' },
+    error: undefined,
+  });
+  mocks.getLoginLimit.mockResolvedValue({ blocked: true, retryAfter: 900 });
+
+  const response = await POST(loginRequest());
+
+  expect(response.status).toBe(401);
+  expect(mocks.lookupLoginRecoveryCode).toHaveBeenCalledTimes(1);
+  expect(mocks.consumeLoginRecoveryCode).not.toHaveBeenCalled();
+  expect(mocks.reserveLoginPasswordWork).not.toHaveBeenCalled();
+  expect(mocks.getUserByUsername).not.toHaveBeenCalled();
+});
+
+test('a raced or already-used recovery code does not check the password', async () => {
+  mocks.parseRequest.mockResolvedValue({
+    body: { username: 'alice', password: 'secret', recoveryCode: 'UR-RECOVERY-FIXTURE' },
+    error: undefined,
+  });
+  mocks.lookupLoginRecoveryCode.mockResolvedValue({
+    userId: 'user-1',
+    passwordHash: 'hashed-password',
+  });
+  mocks.consumeLoginRecoveryCode.mockResolvedValue(null);
+
+  const response = await POST(loginRequest());
+
+  expect(response.status).toBe(401);
+  expect(mocks.checkPassword).not.toHaveBeenCalled();
+  expect(mocks.releaseLoginPasswordWork).toHaveBeenCalledTimes(1);
+});
+
+test('a failed account lookup does not consume an account-owned code', async () => {
+  mocks.parseRequest.mockResolvedValue({
+    body: { username: 'alice', password: 'secret', recoveryCode: 'UR-RECOVERY-FIXTURE' },
+    error: undefined,
+  });
+  mocks.lookupLoginRecoveryCode.mockResolvedValue({
+    userId: 'user-1',
+    passwordHash: 'hashed-password',
+  });
+  mocks.getUserByUsername.mockRejectedValue(new Error('temporary database failure'));
+
+  await expect(POST(loginRequest())).rejects.toThrow('temporary database failure');
+
+  expect(mocks.consumeLoginRecoveryCode).not.toHaveBeenCalled();
+  expect(mocks.releaseLoginPasswordWork).toHaveBeenCalledTimes(1);
+});
+
+test('an incorrect password consumes only one recovery code and issues no session', async () => {
+  mocks.parseRequest.mockResolvedValue({
+    body: { username: 'alice', password: 'wrong', recoveryCode: 'UR-RECOVERY-FIXTURE' },
+    error: undefined,
+  });
+  mocks.lookupLoginRecoveryCode.mockResolvedValue({
+    userId: 'user-1',
+    passwordHash: 'hashed-password',
+  });
+  mocks.consumeLoginRecoveryCode.mockResolvedValue('user-1');
+  mocks.checkPassword.mockResolvedValue(false);
+
+  const response = await POST(loginRequest());
+
+  expect(response.status).toBe(401);
+  expect(mocks.consumeLoginRecoveryCode).toHaveBeenCalledTimes(1);
+  expect(mocks.checkPassword).toHaveBeenCalledTimes(1);
+  expect(mocks.reserveLoginAccountAttempt).not.toHaveBeenCalled();
+  expect(mocks.createSecureToken).not.toHaveBeenCalled();
+  expect(mocks.recordFailedLogin).not.toHaveBeenCalled();
+});
+
+test('password rotation between code lookup and account lookup cannot issue a session', async () => {
+  mocks.parseRequest.mockResolvedValue({
+    body: { username: 'alice', password: 'new-password', recoveryCode: 'UR-RECOVERY-FIXTURE' },
+    error: undefined,
+  });
+  mocks.lookupLoginRecoveryCode.mockResolvedValue({
+    userId: 'user-1',
+    passwordHash: 'old-hash',
+  });
+  mocks.consumeLoginRecoveryCode.mockResolvedValue('user-1');
+  mocks.getUserByUsername.mockResolvedValue({
+    id: 'user-1',
+    username: 'alice',
+    password: 'new-hash',
+    sessionGeneration: 1,
+    role: 'admin',
+    createdAt: new Date('2026-08-01T00:00:00.000Z'),
+  });
+
+  const response = await POST(loginRequest());
+
+  expect(response.status).toBe(401);
+  expect(mocks.checkPassword).not.toHaveBeenCalled();
   expect(mocks.createSecureToken).not.toHaveBeenCalled();
 });
 

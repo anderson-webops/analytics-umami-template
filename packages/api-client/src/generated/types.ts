@@ -290,6 +290,27 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/auth/recovery-codes': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get login recovery code status */
+    get: operations['getLoginRecoveryCodeStatus'];
+    put?: never;
+    /**
+     * Rotate login recovery codes
+     * @description Requires a current session and password. Replaces previous codes and returns each new one-use code once.
+     */
+    post: operations['rotateLoginRecoveryCodes'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/auth/sso': {
     parameters: {
       query?: never;
@@ -2989,6 +3010,8 @@ export interface components {
       captchaToken?: string;
       /** @description Umami password. */
       password: string;
+      /** @description Single-use account-owned code for login during a password lockout. */
+      recoveryCode?: string;
       /** @description Umami username. */
       username: string;
     };
@@ -5136,6 +5159,192 @@ export interface operations {
            *         "code": "unauthorized",
            *         "message": "Unauthorized.",
            *         "status": 401
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+    };
+  };
+  getLoginRecoveryCodeStatus: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Available codes. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            remaining: number;
+          };
+        };
+      };
+      /** @description Unauthorized. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "unauthorized",
+           *         "message": "Unauthorized.",
+           *         "status": 401
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+      /** @description Not found. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "not-found",
+           *         "message": "Not found.",
+           *         "status": 404
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+    };
+  };
+  rotateLoginRecoveryCodes: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': {
+          /** @description Current account password. */
+          password: string;
+        };
+      };
+    };
+    responses: {
+      /** @description New codes. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            recoveryCodes: string[];
+          };
+        };
+      };
+      /** @description Bad request. */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "bad-request",
+           *         "message": "Bad request.",
+           *         "status": 400
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+      /** @description Unauthorized. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "unauthorized",
+           *         "message": "Unauthorized.",
+           *         "status": 401
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+      /** @description Forbidden. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "forbidden",
+           *         "message": "Forbidden.",
+           *         "status": 403
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+      /** @description Not found. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "not-found",
+           *         "message": "Not found.",
+           *         "status": 404
+           *       }
+           *     }
+           */
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+      /** @description Too many password attempts. */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ApiError'];
+        };
+      };
+      /** @description Service unavailable. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          /**
+           * @example {
+           *       "error": {
+           *         "code": "service-unavailable",
+           *         "message": "Service unavailable.",
+           *         "status": 503
            *       }
            *     }
            */

@@ -817,6 +817,54 @@ async function checkSchemaCompatibility() {
           AND pg_get_constraintdef(constraint_definition.oid, true) = ANY(required.definitions)
         WHERE constraint_definition.oid IS NULL
       ) AS authorization_check_constraints,
+      (
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = current_schema()
+            AND table_name = 'login_recovery_credential'
+            AND column_name = 'password_fingerprint'
+            AND character_maximum_length = 128
+            AND is_nullable = 'NO'
+        )
+        AND EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = current_schema()
+            AND table_name = 'login_recovery_credential'
+            AND column_name = 'key_fingerprint'
+            AND character_maximum_length = 64
+            AND is_nullable = 'NO'
+        )
+        AND EXISTS (
+          SELECT 1
+          FROM pg_index index_definition
+          WHERE index_definition.indexrelid = to_regclass(
+              format('%I.%I', current_schema(), 'login_recovery_credential_code_digest_key')
+            )
+            AND index_definition.indrelid = to_regclass(
+              format('%I.%I', current_schema(), 'login_recovery_credential')
+            )
+            AND index_definition.indisunique
+            AND index_definition.indisvalid
+            AND index_definition.indisready
+            AND pg_get_indexdef(index_definition.indexrelid, 1, true) = 'code_digest'
+        )
+        AND EXISTS (
+          SELECT 1
+          FROM pg_constraint constraint_definition
+          WHERE constraint_definition.conrelid = to_regclass(
+              format('%I.%I', current_schema(), 'login_recovery_credential')
+            )
+            AND constraint_definition.confrelid = to_regclass(
+              format('%I.%I', current_schema(), 'user')
+            )
+            AND constraint_definition.conname = 'login_recovery_credential_user_id_fkey'
+            AND constraint_definition.contype = 'f'
+            AND constraint_definition.confdeltype = 'c'
+            AND constraint_definition.convalidated
+        )
+      ) AS login_recovery_credential,
       NOT EXISTS (
         SELECT 1
         FROM pg_indexes
@@ -852,6 +900,7 @@ async function checkSchemaCompatibility() {
     !schema?.authorization_owner_unique_index ||
     !schema?.authorization_username_unique_index ||
     !schema?.authorization_check_constraints ||
+    !schema?.login_recovery_credential ||
     !schema?.redundant_board_index_removed
   ) {
     throw new Error(

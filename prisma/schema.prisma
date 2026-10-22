@@ -33,6 +33,7 @@ model User {
   twoFactorBackupCodes TwoFactorBackupCode[]
   twoFactorOtpUseds    TwoFactorOtpUsed[]
   twoFactorRateLimit   TwoFactorRateLimit?
+  loginRecoveryCredentials LoginRecoveryCredential[]
   apiKeys              ApiKey[]
 
   @@map("user")
@@ -605,6 +606,20 @@ model TwoFactorRateLimit {
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("two_factor_rate_limit")
+}
+
+model LoginRecoveryCredential {
+  id         String    @id @default(cuid())
+  userId     String    @map("user_id") @db.Uuid
+  codeDigest String    @unique @map("code_digest") @db.Char(64)
+  passwordFingerprint String @map("password_fingerprint") @db.Char(128)
+  keyFingerprint String @map("key_fingerprint") @db.Char(64)
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, passwordFingerprint, keyFingerprint, consumedAt])
+  @@map("login_recovery_credential")
 }
 
 model AppSetting {

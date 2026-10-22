@@ -1,21 +1,29 @@
 'use client';
 import { useQueryClient } from '@tanstack/react-query';
-import { Column, Row, Switch, Text, Tooltip, TooltipTrigger } from '@umami/react-zen';
+import { Button, Column, Row, Switch, Text, Tooltip, TooltipTrigger } from '@umami/react-zen';
 import { useState } from 'react';
 import { Badge } from '@/components/common/Badge';
 import { PageBody } from '@/components/common/PageBody';
 import { PageHeader } from '@/components/common/PageHeader';
 import { Panel } from '@/components/common/Panel';
-import { useMessages, useTwoFactorStatusQuery } from '@/components/hooks';
+import { useApi, useMessages, useTwoFactorStatusQuery } from '@/components/hooks';
+import { LoginRecoveryCodesModal } from '@/components/modals/LoginRecoveryCodesModal';
 import { TwoFactorDisableModal } from '@/components/modals/TwoFactorDisableModal';
 import { TwoFactorSetupModal } from '@/components/modals/TwoFactorSetupModal';
 
 export function UserSecurityPage() {
   const { t, labels, messages } = useMessages();
   const { data: status, isLoading } = useTwoFactorStatusQuery(true);
+  const { get, useQuery } = useApi();
+  const { data: recoveryStatus } = useQuery<{ remaining: number }>({
+    queryKey: ['login-recovery-codes'],
+    queryFn: () => get('/auth/recovery-codes'),
+    retry: false,
+  });
   const queryClient = useQueryClient();
   const [showSetup, setShowSetup] = useState(false);
   const [showDisable, setShowDisable] = useState(false);
+  const [showRecoveryCodes, setShowRecoveryCodes] = useState(false);
 
   const isEnabled = status?.isEnabled ?? false;
   const isRequired = status?.isRequired ?? false;
@@ -108,9 +116,26 @@ export function UserSecurityPage() {
             )}
           </Column>
         </Panel>
+        {recoveryStatus && (
+          <Panel>
+            <Column gap="4">
+              <Text weight="bold">Login recovery codes</Text>
+              <Text>{recoveryStatus.remaining} unused codes</Text>
+              <Button variant="outline" onPress={() => setShowRecoveryCodes(true)}>
+                {recoveryStatus.remaining ? 'Replace codes' : 'Generate codes'}
+              </Button>
+            </Column>
+          </Panel>
+        )}
       </Column>
 
       {showSetup && <TwoFactorSetupModal required={false} onClose={handleSetupClose} />}
+      {showRecoveryCodes && (
+        <LoginRecoveryCodesModal
+          onClose={() => setShowRecoveryCodes(false)}
+          onRotated={() => queryClient.invalidateQueries({ queryKey: ['login-recovery-codes'] })}
+        />
+      )}
       {showDisable && (
         <TwoFactorDisableModal
           onClose={() => setShowDisable(false)}

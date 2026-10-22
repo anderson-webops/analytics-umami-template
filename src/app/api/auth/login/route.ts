@@ -16,6 +16,7 @@ import {
   reserveLoginOverflowAttempt,
   reserveLoginPasswordWork,
 } from '@/lib/login-rate-limit';
+import { consumeLoginRecoveryCode, lookupLoginRecoveryCode } from '@/lib/login-recovery';
 import { checkPassword, hashPassword, passwordNeedsRehash } from '@/lib/password';
 import prisma from '@/lib/prisma';
 import redis from '@/lib/redis';
@@ -82,10 +83,10 @@ export async function POST(request: Request) {
     return error();
   }
 
-  const { username, password, captchaToken } = body;
+  const { username, password, captchaToken, recoveryCode } = body;
   const loginLimit = await getLoginLimit(request, username);
 
-  if (loginLimit.blocked) {
+  if (loginLimit.blocked && !recoveryCode) {
     return tooManyRequests(loginLimit.retryAfter, {
       message: 'Too many login attempts. Please try again later.',
     });
@@ -109,6 +110,19 @@ export async function POST(request: Request) {
     return rejectInvalidCredentials(username, captchaEnabled);
   }
 
+  let recoveryMatch: Awaited<ReturnType<typeof lookupLoginRecoveryCode>> = null;
+  if (recoveryCode) {
+    try {
+      recoveryMatch = await lookupLoginRecoveryCode(username, recoveryCode);
+    } catch {
+      return serviceUnavailable({ message: 'Login verification is temporarily unavailable' });
+    }
+
+    if (!recoveryMatch) {
+      return unauthorized({ code: 'incorrect-username-password' });
+    }
+  }
+
   let workLease;
   try {
     workLease = await reserveLoginPasswordWork();
@@ -120,29 +134,54 @@ export async function POST(request: Request) {
     return serviceUnavailable({ message: 'Login verification is temporarily unavailable' });
   }
 
-  let accountLimit: Awaited<ReturnType<typeof reserveLoginAccountAttempt>>;
+  let accountLimit: Awaited<ReturnType<typeof reserveLoginAccountAttempt>> | null = null;
   let user: Awaited<ReturnType<typeof getUserByUsername>>;
   let passwordMatches: boolean;
   let overflow: Awaited<ReturnType<typeof reserveLoginOverflowAttempt>> | null = null;
 
   try {
-    try {
-      accountLimit = await reserveLoginAccountAttempt(username);
-      if (accountLimit.blocked && captchaEnabled) {
-        overflow = await reserveLoginOverflowAttempt(username);
+    if (recoveryMatch) {
+      user = await getUserByUsername(username, {
+        includePassword: true,
+        includeSessionGeneration: true,
+      });
+      if (user?.id !== recoveryMatch.userId || user.password !== recoveryMatch.passwordHash) {
+        return unauthorized({ code: 'incorrect-username-password' });
       }
-    } catch {
-      return serviceUnavailable({ message: 'Login verification is temporarily unavailable' });
     }
 
-    if (accountLimit.blocked && (!overflow || overflow.blocked)) {
-      return unauthorized({ code: 'incorrect-username-password' });
+    if (recoveryMatch && recoveryCode) {
+      let consumedUserId;
+      try {
+        consumedUserId = await consumeLoginRecoveryCode(username, recoveryCode, recoveryMatch);
+      } catch {
+        return serviceUnavailable({ message: 'Login verification is temporarily unavailable' });
+      }
+
+      if (consumedUserId !== recoveryMatch.userId) {
+        return unauthorized({ code: 'incorrect-username-password' });
+      }
+    } else {
+      try {
+        accountLimit = await reserveLoginAccountAttempt(username);
+        if (accountLimit.blocked && captchaEnabled) {
+          overflow = await reserveLoginOverflowAttempt(username);
+        }
+      } catch {
+        return serviceUnavailable({ message: 'Login verification is temporarily unavailable' });
+      }
+
+      if (accountLimit.blocked && (!overflow || overflow.blocked)) {
+        return unauthorized({ code: 'incorrect-username-password' });
+      }
     }
 
-    user = await getUserByUsername(username, {
-      includePassword: true,
-      includeSessionGeneration: true,
-    });
+    if (!recoveryMatch) {
+      user = await getUserByUsername(username, {
+        includePassword: true,
+        includeSessionGeneration: true,
+      });
+    }
     passwordMatches = await checkPassword(password, user?.password || DUMMY_PASSWORD_HASH);
   } finally {
     if (overflow && 'windowExpiresAt' in overflow) {
@@ -154,7 +193,9 @@ export async function POST(request: Request) {
   }
 
   if (!user || !passwordMatches) {
-    return rejectInvalidCredentials(username, captchaEnabled);
+    return recoveryCode
+      ? unauthorized({ code: 'incorrect-username-password' })
+      : rejectInvalidCredentials(username, captchaEnabled);
   }
 
   const { id, role, createdAt, sessionGeneration } = user;
@@ -181,7 +222,7 @@ export async function POST(request: Request) {
 
   const passwordFingerprint = hash(passwordHash);
   const accountAttempt =
-    'windowExpiresAt' in accountLimit
+    accountLimit && 'windowExpiresAt' in accountLimit
       ? {
           accountAttemptId: randomUUID(),
           accountAttemptExpiresAt: accountLimit.windowExpiresAt,
@@ -214,7 +255,7 @@ export async function POST(request: Request) {
     return serviceUnavailable(getTwoFactorConfigurationError());
   }
 
-  if (!enrollmentRequired && 'windowExpiresAt' in accountLimit) {
+  if (!enrollmentRequired && accountLimit && 'windowExpiresAt' in accountLimit) {
     try {
       await releaseLoginAccountAttempt(username, accountLimit.windowExpiresAt);
     } catch {

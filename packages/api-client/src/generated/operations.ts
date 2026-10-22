@@ -910,6 +910,14 @@ export const operations = {
     ],
     hasBody: false,
   },
+  getLoginRecoveryCodeStatus: {
+    operationId: 'getLoginRecoveryCodeStatus',
+    method: 'get',
+    path: '/api/auth/recovery-codes',
+    pathParams: [],
+    queryParams: [],
+    hasBody: false,
+  },
   getMe: {
     operationId: 'getMe',
     method: 'get',
@@ -3143,6 +3151,14 @@ export const operations = {
     queryParams: [],
     hasBody: false,
   },
+  rotateLoginRecoveryCodes: {
+    operationId: 'rotateLoginRecoveryCodes',
+    method: 'post',
+    path: '/api/auth/recovery-codes',
+    pathParams: [],
+    queryParams: [],
+    hasBody: true,
+  },
   saveWebsiteReplay: {
     operationId: 'saveWebsiteReplay',
     method: 'post',
@@ -4015,6 +4031,17 @@ export abstract class GeneratedUmamiClient {
     options?: RequestOptions,
   ): Promise<OperationOutput<'getLinkShares'>> {
     return this.execute('getLinkShares', input, options);
+  }
+
+  /**
+   * Get login recovery code status
+   * `GET /api/auth/recovery-codes`
+   */
+  getLoginRecoveryCodeStatus(
+    input?: OperationInput<'getLoginRecoveryCodeStatus'>,
+    options?: RequestOptions,
+  ): Promise<OperationOutput<'getLoginRecoveryCodeStatus'>> {
+    return this.execute('getLoginRecoveryCodeStatus', input, options);
   }
 
   /**
@@ -5161,6 +5188,18 @@ export abstract class GeneratedUmamiClient {
     options?: RequestOptions,
   ): Promise<OperationOutput<'resetWebsite'>> {
     return this.execute('resetWebsite', input, options);
+  }
+
+  /**
+   * Rotate login recovery codes
+   * Requires a current session and password. Replaces previous codes and returns each new one-use code once.
+   * `POST /api/auth/recovery-codes`
+   */
+  rotateLoginRecoveryCodes(
+    input: OperationInput<'rotateLoginRecoveryCodes'>,
+    options?: RequestOptions,
+  ): Promise<OperationOutput<'rotateLoginRecoveryCodes'>> {
+    return this.execute('rotateLoginRecoveryCodes', input, options);
   }
 
   /**

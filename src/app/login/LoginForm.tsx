@@ -1,4 +1,5 @@
 import {
+  Button,
   Column,
   Form,
   FormButtons,
@@ -47,6 +48,7 @@ export function LoginForm({ captchaSiteKey }: { captchaSiteKey?: string }) {
       : getErrorMessage(error);
   const [captchaToken, setCaptchaToken] = useState('');
   const [captchaError, setCaptchaError] = useState(false);
+  const [showRecoveryCode, setShowRecoveryCode] = useState(false);
   const captchaContainer = useRef<HTMLDivElement>(null);
   const captchaWidgetId = useRef<string | null>(null);
 
@@ -85,10 +87,15 @@ export function LoginForm({ captchaSiteKey }: { captchaSiteKey?: string }) {
 
   const handleSubmit = async (data: any) => {
     if (captchaSiteKey && !captchaToken) return;
+    const { recoveryCode, ...credentials } = data;
 
     try {
       await mutateAsync(
-        { ...data, ...(captchaSiteKey ? { captchaToken } : {}) },
+        {
+          ...credentials,
+          ...(showRecoveryCode && recoveryCode ? { recoveryCode: recoveryCode.trim() } : {}),
+          ...(captchaSiteKey ? { captchaToken } : {}),
+        },
         {
           onSuccess: async (response: any) => {
             if (response.requiresTwoFactor) {
@@ -120,7 +127,7 @@ export function LoginForm({ captchaSiteKey }: { captchaSiteKey?: string }) {
       <Form
         onSubmit={handleSubmit}
         error={loginError}
-        defaultValues={{ username: '', password: '' }}
+        defaultValues={{ username: '', password: '', recoveryCode: '' }}
         style={{ minWidth: 300 }}
       >
         <FormField
@@ -140,6 +147,18 @@ export function LoginForm({ captchaSiteKey }: { captchaSiteKey?: string }) {
         >
           <PasswordField autoComplete="current-password" />
         </FormField>
+        <Button variant="quiet" onPress={() => setShowRecoveryCode(value => !value)}>
+          {showRecoveryCode ? 'Use password only' : 'Use a login recovery code'}
+        </Button>
+        {showRecoveryCode && (
+          <FormField
+            label="Login recovery code"
+            name="recoveryCode"
+            rules={{ required: t(labels.required) }}
+          >
+            <TextField autoComplete="off" spellCheck={false} />
+          </FormField>
+        )}
         {captchaSiteKey && (
           <>
             <Script

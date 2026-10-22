@@ -100,6 +100,28 @@ test('unconfigured login retains the existing password-only form', async () => {
   );
 });
 
+test('an account owner can submit a saved recovery code without changing ordinary login', async () => {
+  mocks.mutateAsync.mockReset().mockResolvedValue({});
+  mocks.getError.mockReset().mockReturnValue(null);
+  const { user } = render(<LoginForm />, { route: '/login' });
+
+  await enterCredentials(user);
+  await user.click(screen.getByRole('button', { name: 'Use a login recovery code' }));
+  await user.type(screen.getByLabelText('Login recovery code'), `UR-${'A'.repeat(64)}`);
+  await user.click(screen.getByRole('button', { name: 'Log in' }));
+
+  await waitFor(() =>
+    expect(mocks.mutateAsync).toHaveBeenCalledWith(
+      {
+        username: 'alice',
+        password: 'correct-password',
+        recoveryCode: `UR-${'A'.repeat(64)}`,
+      },
+      expect.any(Object),
+    ),
+  );
+});
+
 test('a failed verification script keeps login disabled and explains the failure', async () => {
   mocks.mutateAsync.mockReset();
   mocks.getError.mockReset().mockReturnValue(null);
