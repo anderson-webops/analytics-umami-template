@@ -133,7 +133,14 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Exercise authentication and role workflows
-        run: pnpm run test:e2e
+        env:
+          CLICKHOUSE_HISTORY_ATTESTED_CLEAN: 'true'
+          KAFKA_HISTORY_ATTESTED_CLEAN: 'true'
+        run: |
+          test -z "${CLICKHOUSE_URL:-}"
+          test -z "${KAFKA_URL:-}"
+          test -z "${KAFKA_BROKER:-}"
+          pnpm run test:e2e
 
       - name: Upload Playwright diagnostics
         if: failure()
