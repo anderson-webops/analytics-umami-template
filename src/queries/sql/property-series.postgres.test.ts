@@ -30,7 +30,8 @@ integrationTest(
       session_id UUID NOT NULL,
       event_name TEXT NOT NULL,
       created_at TIMESTAMPTZ NOT NULL,
-      event_type INTEGER NOT NULL
+      event_type INTEGER NOT NULL,
+      trust_tier SMALLINT NOT NULL DEFAULT 0
     )`);
       await client.query(`CREATE TABLE event_data (
       website_event_id UUID NOT NULL,
@@ -38,7 +39,8 @@ integrationTest(
       created_at TIMESTAMPTZ NOT NULL,
       data_key TEXT NOT NULL,
       data_type INTEGER NOT NULL,
-      string_value VARCHAR(500)
+      string_value VARCHAR(500),
+      trust_tier SMALLINT NOT NULL DEFAULT 0
     )`);
       await client.query(`CREATE TABLE session_data (
       session_id UUID NOT NULL,
@@ -67,25 +69,22 @@ integrationTest(
         const sessionId = randomUUID();
         firstSessionId ||= sessionId;
 
-        await client.query('INSERT INTO website_event VALUES ($1, $2, $3, $4, $5, 2)', [
-          eventId,
-          websiteId,
-          sessionId,
-          'signup',
-          createdAt,
-        ]);
+        await client.query(
+          `INSERT INTO website_event
+            (event_id, website_id, session_id, event_name, created_at, event_type, trust_tier)
+           VALUES ($1, $2, $3, $4, $5, 2, 1)`,
+          [eventId, websiteId, sessionId, 'signup', createdAt],
+        );
         for (const [key, type, storedValue] of [
           ['plan', 1, value],
           ['tags', 5, JSON.stringify([value])],
         ] as const) {
-          await client.query('INSERT INTO event_data VALUES ($1, $2, $3, $4, $5, $6)', [
-            eventId,
-            websiteId,
-            createdAt,
-            key,
-            type,
-            storedValue,
-          ]);
+          await client.query(
+            `INSERT INTO event_data
+              (website_event_id, website_id, created_at, data_key, data_type, string_value, trust_tier)
+             VALUES ($1, $2, $3, $4, $5, $6, 1)`,
+            [eventId, websiteId, createdAt, key, type, storedValue],
+          );
           await client.query('INSERT INTO session_data VALUES ($1, $2, $3, $4, $5, $6, 1)', [
             sessionId,
             websiteId,
@@ -106,13 +105,12 @@ integrationTest(
       ]);
 
       const legacySessionId = randomUUID();
-      await client.query('INSERT INTO website_event VALUES ($1, $2, $3, $4, $5, 1)', [
-        randomUUID(),
-        websiteId,
-        legacySessionId,
-        'pageview',
-        firstDay,
-      ]);
+      await client.query(
+        `INSERT INTO website_event
+          (event_id, website_id, session_id, event_name, created_at, event_type)
+         VALUES ($1, $2, $3, $4, $5, 1)`,
+        [randomUUID(), websiteId, legacySessionId, 'pageview', firstDay],
+      );
       await client.query('INSERT INTO session_data VALUES ($1, $2, $3, $4, 1, $5)', [
         legacySessionId,
         websiteId,
