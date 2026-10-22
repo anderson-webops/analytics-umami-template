@@ -1,3 +1,5 @@
+import { ROLES } from '@/lib/constants';
+import { hash } from '@/lib/crypto';
 import { isEnvEnabled } from '@/lib/env';
 import { generateLoginRecoveryCodes, getLoginRecoveryKeyFingerprint } from '@/lib/login-recovery';
 import { checkPassword } from '@/lib/password';
@@ -14,12 +16,15 @@ import {
   unauthorized,
 } from '@/lib/response';
 import {
+  assertActorIsAdministrator,
   assertCurrentActorAuth,
   runActiveSessionMutation,
   SessionRevokedError,
 } from '@/queries/prisma/authorization';
 import { getUser } from '@/queries/prisma/user';
 import { rotateLoginRecoveryCodesSchema } from './schema';
+
+class RecoveryTargetNotFoundError extends Error {}
 
 export async function GET(request: Request) {
   if (isEnvEnabled('CLOUD_MODE')) {
@@ -80,6 +85,11 @@ export async function POST(request: Request) {
   }
 
   const userId = auth.user.id;
+  const targetUserId = body.userId ?? userId;
+  if (targetUserId !== userId && auth.user.role !== ROLES.admin) {
+    return forbidden();
+  }
+
   const user = await getUser(userId, { includePassword: true });
 
   if (!user) {
@@ -106,20 +116,37 @@ export async function POST(request: Request) {
   try {
     await runActiveSessionMutation(auth, async transaction => {
       await assertCurrentActorAuth(transaction, userId, auth);
-      await transaction.loginRecoveryCredential.deleteMany({ where: { userId } });
+      if (targetUserId !== userId) {
+        await assertActorIsAdministrator(transaction, userId);
+      }
+
+      const target = await transaction.user.findUnique({
+        where: { id: targetUserId, deletedAt: null },
+        select: { password: true },
+      });
+      if (!target) {
+        throw new RecoveryTargetNotFoundError();
+      }
+
+      await transaction.loginRecoveryCredential.deleteMany({ where: { userId: targetUserId } });
       await transaction.loginRecoveryCredential.createMany({
         data: credentials.map(({ digest }) => ({
-          userId,
+          userId: targetUserId,
           codeDigest: digest,
-          passwordFingerprint: auth.passwordFingerprint,
+          passwordFingerprint: hash(target.password),
           keyFingerprint: getLoginRecoveryKeyFingerprint(),
         })),
       });
     });
   } catch (error) {
+    if (error instanceof RecoveryTargetNotFoundError) {
+      return notFound();
+    }
+
     if (
       error instanceof SessionRevokedError ||
-      (error instanceof Error && error.message === 'ENTITY_ACTOR_NOT_AUTHORIZED')
+      (error instanceof Error &&
+        ['ENTITY_ACTOR_NOT_AUTHORIZED', 'ENTITY_ADMIN_REQUIRED'].includes(error.message))
     ) {
       return unauthorized();
     }

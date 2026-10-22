@@ -43,3 +43,30 @@ test('requires the current password and acknowledgement before hiding one-time c
   await user.click(screen.getByRole('button', { name: 'Close' }));
   expect(onClose).toHaveBeenCalledOnce();
 });
+
+test('administrator issuance identifies the target and requires delivery acknowledgement', async () => {
+  const recoveryCode = `UR-${'B'.repeat(64)}`;
+  const onClose = vi.fn();
+  mocks.mutateAsync.mockReset().mockResolvedValue({ recoveryCodes: [recoveryCode] });
+  const { user } = render(
+    <LoginRecoveryCodesModal
+      target={{ id: '00000000-0000-4000-8000-000000000002', username: 'alice' }}
+      onClose={onClose}
+    />,
+  );
+
+  await user.type(screen.getByLabelText('Current password'), 'synthetic-admin-password');
+  await user.click(screen.getByRole('button', { name: 'Generate codes' }));
+
+  await waitFor(() =>
+    expect(mocks.mutateAsync).toHaveBeenCalledWith({
+      password: 'synthetic-admin-password',
+      userId: '00000000-0000-4000-8000-000000000002',
+    }),
+  );
+  expect(screen.getByText(/Give these to alice through a verified private channel/)).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Close' })).toBeDisabled();
+  await user.click(screen.getByRole('checkbox', { name: 'I delivered these codes' }));
+  await user.click(screen.getByRole('button', { name: 'Close' }));
+  expect(onClose).toHaveBeenCalledOnce();
+});

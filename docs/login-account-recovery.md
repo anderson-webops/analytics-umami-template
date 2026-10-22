@@ -4,6 +4,8 @@ This source candidate adds optional one-use codes for local analytics accounts. 
 
 The codes are bound to the account, its current password credential, and the signing-key fingerprint. Ordinary logout does not revoke them. A password change, account deletion, or rotation of the application's `APP_SECRET` makes existing codes unusable. The status endpoint excludes codes from an old key. Automatic password-hash upgrades rebind unused codes in the same transaction; plan secret rotation and code reissuance together. Do not log or export plaintext codes.
 
+A fully authenticated administrator who confirms their own current password can issue replacement codes to a different active account. The target's password and two-factor requirement remain unchanged. The administrator must verify the owner's identity and hand the codes to that owner through a protected channel; issuing codes is not proof of delivery or possession. A stale administrator session, revoked factor, deleted target, or changed target password cannot authorize or preserve those codes.
+
 ## Rollout and remaining risk
 
 The migration creates an empty credential table. It cannot securely issue codes to existing owners without a verified session or a separately reviewed protected operator process. **An owner who has not saved codes can still be locked out by distributed failed login attempts for the configured window.** The source-level targeted-lockout finding is not resolved for that owner. Do not count rollout complete until every applicable active owner has a verified recovery path, including the initial administrator, and a protected recovery procedure exists for owners who lose all codes. CAPTCHA alone is not account ownership proof.

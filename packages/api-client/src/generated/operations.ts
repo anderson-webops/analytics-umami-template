@@ -5192,7 +5192,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Rotate login recovery codes
-   * Requires a current session and password. Replaces previous codes and returns each new one-use code once.
+   * Requires a current session and password. An administrator may specify another user. Replaces previous codes and returns each new one-use code once.
    * `POST /api/auth/recovery-codes`
    */
   rotateLoginRecoveryCodes(

@@ -1,6 +1,7 @@
 import { Column, Tab, TabList, TabPanel, Tabs } from '@umami/react-zen';
 import { useMessages } from '@/components/hooks';
 import { UserEditForm } from './UserEditForm';
+import { UserRecoverySettings } from './UserRecoverySettings';
 import { UserTwoFactorSettings } from './UserTwoFactorSettings';
 import { UserWebsites } from './UserWebsites';
 
@@ -23,6 +24,7 @@ export function UserSettings({ userId }: { userId: string }) {
         </TabPanel>
         <TabPanel id="security" style={{ width: 500 }}>
           <UserTwoFactorSettings userId={userId} />
+          <UserRecoverySettings userId={userId} />
         </TabPanel>
       </Tabs>
     </Column>

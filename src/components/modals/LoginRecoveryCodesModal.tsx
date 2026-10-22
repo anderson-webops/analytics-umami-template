@@ -18,9 +18,11 @@ import { useMessages, useUpdateQuery } from '@/components/hooks';
 export function LoginRecoveryCodesModal({
   onClose,
   onRotated,
+  target,
 }: {
   onClose: () => void;
-  onRotated: () => void;
+  onRotated?: () => void;
+  target?: { id: string; username: string };
 }) {
   const { t, labels, getErrorMessage } = useMessages();
   const { mutateAsync, error, isPending } = useUpdateQuery('/auth/recovery-codes');
@@ -28,20 +30,29 @@ export function LoginRecoveryCodesModal({
   const [saved, setSaved] = useState(false);
 
   const handleSubmit = async ({ password }: { password: string }) => {
-    const response = await mutateAsync({ password }).catch(() => null);
+    const response = await mutateAsync({
+      password,
+      ...(target ? { userId: target.id } : {}),
+    }).catch(() => null);
     if (!response) return;
     setCodes(response.recoveryCodes);
-    onRotated();
+    onRotated?.();
   };
 
   return (
     <ControlledDialog>
       <Modal isOpen={true} onOpenChange={codes ? () => {} : onClose}>
-        <Dialog title="Login recovery codes" className="rr-block" style={{ maxWidth: '95vw' }}>
+        <Dialog
+          title={target ? 'Issue login recovery codes' : 'Login recovery codes'}
+          className="rr-block"
+          style={{ maxWidth: '95vw' }}
+        >
           {codes ? (
             <Column gap="4">
               <Text>
-                Save these now. Each login attempt spends one code; they will not be shown again.
+                {target
+                  ? `Give these to ${target.username} through a verified private channel. They will not be shown again.`
+                  : 'Save these now. Each login attempt spends one code; they will not be shown again.'}
               </Text>
               <Column gap="2">
                 {codes.map(code => (
@@ -56,7 +67,7 @@ export function LoginRecoveryCodesModal({
                   checked={saved}
                   onChange={event => setSaved(event.target.checked)}
                 />{' '}
-                I saved these codes
+                {target ? 'I delivered these codes' : 'I saved these codes'}
               </label>
               <FormButtons>
                 <Button variant="primary" onPress={onClose} isDisabled={!saved}>

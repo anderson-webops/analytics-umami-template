@@ -40,7 +40,7 @@ const rotate = defineOperation({
     operationId: 'rotateLoginRecoveryCodes',
     summary: 'Rotate login recovery codes',
     description:
-      'Requires a current session and password. Replaces previous codes and returns each new one-use code once.',
+      'Requires a current session and password. An administrator may specify another user. Replaces previous codes and returns each new one-use code once.',
     tags: ['Authentication'],
     requestBody: {
       required: true,

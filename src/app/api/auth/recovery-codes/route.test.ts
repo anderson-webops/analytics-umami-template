@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { hash } from '@/lib/crypto';
 import { SessionRevokedError } from '@/queries/prisma/authorization';
 
 const mocks = vi.hoisted(() => {
@@ -7,6 +8,7 @@ const mocks = vi.hoisted(() => {
       deleteMany: vi.fn(),
       createMany: vi.fn(),
     },
+    user: { findUnique: vi.fn() },
   };
 
   return {
@@ -20,6 +22,7 @@ const mocks = vi.hoisted(() => {
     getLoginRecoveryKeyFingerprint: vi.fn(),
     runActiveSessionMutation: vi.fn(),
     assertCurrentActorAuth: vi.fn(),
+    assertActorIsAdministrator: vi.fn(),
   };
 });
 
@@ -44,6 +47,7 @@ vi.mock('@/queries/prisma/authorization', () => ({
   SessionRevokedError: class SessionRevokedError extends Error {},
   runActiveSessionMutation: mocks.runActiveSessionMutation,
   assertCurrentActorAuth: mocks.assertCurrentActorAuth,
+  assertActorIsAdministrator: mocks.assertActorIsAdministrator,
 }));
 
 import { GET, POST } from './route';
@@ -52,7 +56,7 @@ const auth = {
   authType: 'session',
   user: { id: 'user-1', role: 'admin' },
   sessionGeneration: 1,
-  passwordFingerprint: 'password-fingerprint',
+  passwordFingerprint: hash('stored-hash'),
   mfaVerified: true,
   mfaId: 'factor-1',
 };
@@ -70,6 +74,8 @@ beforeEach(() => {
     mocks.getLoginRecoveryKeyFingerprint,
     mocks.runActiveSessionMutation,
     mocks.assertCurrentActorAuth,
+    mocks.assertActorIsAdministrator,
+    mocks.transaction.user.findUnique,
     mocks.transaction.loginRecoveryCredential.deleteMany,
     mocks.transaction.loginRecoveryCredential.createMany,
   ]) {
@@ -79,6 +85,7 @@ beforeEach(() => {
   mocks.parseRequest.mockResolvedValue({ auth, body: { password: 'current-password' } });
   mocks.count.mockResolvedValue(4);
   mocks.getUser.mockResolvedValue({ id: 'user-1', password: 'stored-hash' });
+  mocks.transaction.user.findUnique.mockResolvedValue({ password: 'stored-hash' });
   mocks.reservePasswordVerificationAttempt.mockResolvedValue({ allowed: true, retryAfter: 0 });
   mocks.checkPassword.mockResolvedValue(true);
   mocks.generateLoginRecoveryCodes.mockReturnValue([
@@ -111,7 +118,7 @@ test('reports only the current session owner’s remaining code count', async ()
   expect(mocks.count).toHaveBeenCalledWith({
     where: {
       userId: 'user-1',
-      passwordFingerprint: 'password-fingerprint',
+      passwordFingerprint: hash('stored-hash'),
       keyFingerprint: 'key-fingerprint',
       consumedAt: null,
     },
@@ -145,17 +152,99 @@ test('a current session and password rotate codes in one authorized transaction'
       {
         userId: 'user-1',
         codeDigest: 'digest-one',
-        passwordFingerprint: 'password-fingerprint',
+        passwordFingerprint: hash('stored-hash'),
         keyFingerprint: 'key-fingerprint',
       },
       {
         userId: 'user-1',
         codeDigest: 'digest-two',
-        passwordFingerprint: 'password-fingerprint',
+        passwordFingerprint: hash('stored-hash'),
         keyFingerprint: 'key-fingerprint',
       },
     ],
   });
+});
+
+test('a non-administrator cannot issue codes for another account', async () => {
+  mocks.parseRequest.mockResolvedValue({
+    auth: { ...auth, user: { id: 'user-1', role: 'user' } },
+    body: { password: 'current-password', userId: '00000000-0000-4000-8000-000000000002' },
+  });
+
+  const response = await POST(request('POST'));
+
+  expect(response.status).toBe(403);
+  expect(mocks.checkPassword).not.toHaveBeenCalled();
+  expect(mocks.runActiveSessionMutation).not.toHaveBeenCalled();
+});
+
+test('a current administrator can issue one-time codes for another active owner', async () => {
+  const targetUserId = '00000000-0000-4000-8000-000000000002';
+  mocks.parseRequest.mockResolvedValue({
+    auth,
+    body: { password: 'current-password', userId: targetUserId },
+  });
+  mocks.transaction.user.findUnique.mockResolvedValue({ password: 'target-hash' });
+
+  const response = await POST(request('POST'));
+
+  expect(response.status).toBe(200);
+  expect(response.headers.get('Cache-Control')).toBe('no-store');
+  expect(mocks.checkPassword).toHaveBeenCalledWith('current-password', 'stored-hash');
+  expect(mocks.assertCurrentActorAuth).toHaveBeenCalledWith(mocks.transaction, 'user-1', auth);
+  expect(mocks.assertActorIsAdministrator).toHaveBeenCalledWith(mocks.transaction, 'user-1');
+  expect(mocks.transaction.user.findUnique).toHaveBeenCalledWith({
+    where: { id: targetUserId, deletedAt: null },
+    select: { password: true },
+  });
+  expect(mocks.transaction.loginRecoveryCredential.deleteMany).toHaveBeenCalledWith({
+    where: { userId: targetUserId },
+  });
+  expect(mocks.transaction.loginRecoveryCredential.createMany).toHaveBeenCalledWith({
+    data: [
+      {
+        userId: targetUserId,
+        codeDigest: 'digest-one',
+        passwordFingerprint: hash('target-hash'),
+        keyFingerprint: 'key-fingerprint',
+      },
+      {
+        userId: targetUserId,
+        codeDigest: 'digest-two',
+        passwordFingerprint: hash('target-hash'),
+        keyFingerprint: 'key-fingerprint',
+      },
+    ],
+  });
+  await expect(response.json()).resolves.toEqual({ recoveryCodes: ['UR-ONE', 'UR-TWO'] });
+});
+
+test('a deleted or missing target receives no codes', async () => {
+  mocks.parseRequest.mockResolvedValue({
+    auth,
+    body: { password: 'current-password', userId: '00000000-0000-4000-8000-000000000002' },
+  });
+  mocks.transaction.user.findUnique.mockResolvedValue(null);
+
+  const response = await POST(request('POST'));
+
+  expect(response.status).toBe(404);
+  expect(mocks.transaction.loginRecoveryCredential.deleteMany).not.toHaveBeenCalled();
+  expect(mocks.transaction.loginRecoveryCredential.createMany).not.toHaveBeenCalled();
+});
+
+test('a downgraded administrator cannot issue codes for another account', async () => {
+  mocks.parseRequest.mockResolvedValue({
+    auth,
+    body: { password: 'current-password', userId: '00000000-0000-4000-8000-000000000002' },
+  });
+  mocks.assertActorIsAdministrator.mockRejectedValue(new Error('ENTITY_ADMIN_REQUIRED'));
+
+  const response = await POST(request('POST'));
+
+  expect(response.status).toBe(401);
+  expect(mocks.transaction.loginRecoveryCredential.deleteMany).not.toHaveBeenCalled();
+  expect(mocks.transaction.loginRecoveryCredential.createMany).not.toHaveBeenCalled();
 });
 
 test('a wrong password cannot rotate or reveal recovery codes', async () => {

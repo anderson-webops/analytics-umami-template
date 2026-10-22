@@ -302,7 +302,7 @@ export interface paths {
     put?: never;
     /**
      * Rotate login recovery codes
-     * @description Requires a current session and password. Replaces previous codes and returns each new one-use code once.
+     * @description Requires a current session and password. An administrator may specify another user. Replaces previous codes and returns each new one-use code once.
      */
     post: operations['rotateLoginRecoveryCodes'];
     delete?: never;
@@ -5237,6 +5237,11 @@ export interface operations {
         'application/json': {
           /** @description Current account password. */
           password: string;
+          /**
+           * Format: uuid
+           * @description Target account for administrator-assisted recovery.
+           */
+          userId?: string;
         };
       };
     };
