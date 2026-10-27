@@ -1,7 +1,8 @@
 import { z } from 'zod';
+import { DateSeriesLimitError } from '@/lib/date-series-budget';
 import { parseEventPropertyFilters } from '@/lib/params';
 import { getQueryFilters, parseRequest } from '@/lib/request';
-import { json, unauthorized } from '@/lib/response';
+import { badRequest, json, unauthorized } from '@/lib/response';
 import { filterParams, timezoneParam } from '@/lib/schema';
 import { canViewWebsiteSection } from '@/permissions';
 import { getEventDataDateSeries } from '@/queries/sql/events/getEventDataDateSeries';
@@ -34,13 +35,15 @@ export async function GET(
   const { eventName, propertyName, ...rest } = query;
   const filters = await getQueryFilters(rest, websiteId);
   const eventFilters = parseEventPropertyFilters(query);
-  const data = await getEventDataDateSeries(
-    websiteId,
-    eventName,
-    propertyName,
-    filters,
-    eventFilters,
-  );
+  try {
+    return json(
+      await getEventDataDateSeries(websiteId, eventName, propertyName, filters, eventFilters),
+    );
+  } catch (error) {
+    if (error instanceof DateSeriesLimitError) {
+      return badRequest({ message: error.message });
+    }
 
-  return json(data);
+    throw error;
+  }
 }

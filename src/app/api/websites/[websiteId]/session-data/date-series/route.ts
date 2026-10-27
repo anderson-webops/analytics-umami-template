@@ -1,7 +1,8 @@
 import { z } from 'zod';
+import { DateSeriesLimitError } from '@/lib/date-series-budget';
 import { parsePropertyFilters } from '@/lib/params';
 import { getQueryFilters, parseRequest } from '@/lib/request';
-import { json, unauthorized } from '@/lib/response';
+import { badRequest, json, unauthorized } from '@/lib/response';
 import { filterParams, timezoneParam } from '@/lib/schema';
 import { canViewWebsiteSection } from '@/permissions';
 import { getSessionDataDateSeries } from '@/queries/sql';
@@ -33,7 +34,13 @@ export async function GET(
   const { propertyName, ...rest } = query;
   const filters = await getQueryFilters(rest, websiteId);
   const propertyFilters = parsePropertyFilters(query);
-  const data = await getSessionDataDateSeries(websiteId, propertyName, filters, propertyFilters);
+  try {
+    return json(await getSessionDataDateSeries(websiteId, propertyName, filters, propertyFilters));
+  } catch (error) {
+    if (error instanceof DateSeriesLimitError) {
+      return badRequest({ message: error.message });
+    }
 
-  return json(data);
+    throw error;
+  }
 }

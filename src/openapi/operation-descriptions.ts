@@ -491,7 +491,7 @@ export const operationDescriptions: Record<string, OperationDescription> = {
   'GET /api/websites/{websiteId}/event-data-pivot/date-series': {
     summary: 'Get the distribution of event date values',
     description:
-      "Counts occurrences of dates stored in the specified event property, grouping by the property's date value within the selected event date range.",
+      'Counts occurrences of dates stored in the specified event property, grouping by calendar day within the selected event date range.',
   },
   'GET /api/websites/{websiteId}/event-data-pivot/numeric-series': {
     summary: 'Get numeric event properties over time',
@@ -666,7 +666,7 @@ export const operationDescriptions: Record<string, OperationDescription> = {
   'GET /api/websites/{websiteId}/session-data/date-series': {
     summary: 'Get the distribution of session date values',
     description:
-      'Counts distinct sessions by dates stored in the specified custom property, using the selected date range and filters.',
+      'Counts distinct sessions by calendar day of the specified custom date property, using the selected date range and filters.',
   },
   'GET /api/websites/{websiteId}/session-data/numeric-series': {
     summary: 'Get numeric session properties over time',

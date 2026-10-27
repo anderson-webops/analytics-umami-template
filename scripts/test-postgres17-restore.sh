@@ -27,6 +27,12 @@ run_collector_values() {
   POSTGRES_EVENT_SERIES_TEST_URL="$DATABASE_URL" pnpm exec vitest run \
     src/queries/sql/getValues.postgres.test.ts --maxWorkers=1
 }
+run_date_series() {
+  "$pg_bin/createdb" -h 127.0.0.1 -p "$port" -U restore_test umami_date_series_test
+  local date_series_url="postgresql://restore_test:synthetic-restore-password-000000@127.0.0.1:$port/umami_date_series_test"
+  DATABASE_URL="$date_series_url" POSTGRES_DATE_SERIES_TEST_URL="$date_series_url" DOTENV_CONFIG_PATH=/dev/null \
+    pnpm exec vitest run src/queries/sql/date-series-budget.postgres.test.ts --maxWorkers=1
+}
 run_funnel_event_types() {
   "$pg_bin/createdb" -h 127.0.0.1 -p "$port" -U restore_test umami_funnel_test
   local funnel_url="postgresql://restore_test:synthetic-restore-password-000000@127.0.0.1:$port/umami_funnel_test"
@@ -160,6 +166,10 @@ if [[ "${1:-}" == --collector-values ]]; then
   run_collector_values
   exit 0
 fi
+if [[ "${1:-}" == --date-series ]]; then
+  run_date_series
+  exit 0
+fi
 if [[ "${1:-}" == --collection-rate-limit ]]; then
   DOTENV_CONFIG_PATH=/dev/null pnpm run db:migrate
   ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null \
@@ -187,6 +197,7 @@ if [[ "${1:-}" == --session-link-cross-store ]]; then
   exit 0
 fi
 run_collector_values
+run_date_series
 run_funnel_event_types
 run_login_recovery
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node scripts/test-postgres-restore.mjs "$@"

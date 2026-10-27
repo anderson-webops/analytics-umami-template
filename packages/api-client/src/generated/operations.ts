@@ -4,7 +4,7 @@
 import type { RequestOptions } from '../types';
 import type { components, operations as OperationTypes } from './types';
 
-export const API_VERSION = '4.2.187';
+export const API_VERSION = '4.2.188';
 
 export type HttpMethod = 'get' | 'post' | 'put' | 'patch' | 'delete';
 
@@ -3867,7 +3867,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Get the distribution of event date values
-   * Counts occurrences of dates stored in the specified event property, grouping by the property's date value within the selected event date range.
+   * Counts occurrences of dates stored in the specified event property, grouping by calendar day within the selected event date range.
    * `GET /api/websites/{websiteId}/event-data-pivot/date-series`
    */
   getEventDataDateSeries(
@@ -4190,7 +4190,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Get the distribution of session date values
-   * Counts distinct sessions by dates stored in the specified custom property, using the selected date range and filters.
+   * Counts distinct sessions by calendar day of the specified custom date property, using the selected date range and filters.
    * `GET /api/websites/{websiteId}/session-data/date-series`
    */
   getSessionDataDateSeries(

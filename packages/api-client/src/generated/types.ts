@@ -1631,7 +1631,7 @@ export interface paths {
     };
     /**
      * Get the distribution of event date values
-     * @description Counts occurrences of dates stored in the specified event property, grouping by the property's date value within the selected event date range.
+     * @description Counts occurrences of dates stored in the specified event property, grouping by calendar day within the selected event date range.
      */
     get: operations['getEventDataDateSeries'];
     put?: never;
@@ -2531,7 +2531,7 @@ export interface paths {
     };
     /**
      * Get the distribution of session date values
-     * @description Counts distinct sessions by dates stored in the specified custom property, using the selected date range and filters.
+     * @description Counts distinct sessions by calendar day of the specified custom date property, using the selected date range and filters.
      */
     get: operations['getSessionDataDateSeries'];
     put?: never;
