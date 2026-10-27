@@ -1,10 +1,17 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { command, mountIsReadOnly, parseArguments } from '../test-artifact-integration.mjs';
+import {
+  command,
+  mountIsReadOnly,
+  parseArguments,
+  safeDiagnostic,
+  stopServer,
+} from '../test-artifact-integration.mjs';
 import { fixtureCaptchaFetch } from './captcha.mjs';
 import { digest, profiles, verifyTree } from './input.mjs';
 import { collectionHeaders, totp } from './probes.mjs';
@@ -225,4 +232,33 @@ test('fixture subprocesses stop on deadline, cancellation and missing executable
   } finally {
     clearTimeout(timer);
   }
+});
+
+test('failure receipts retain only approved status fields, never response bodies or credentials', () => {
+  const failure = Object.assign(new Error('private password and recovery code'), {
+    code: 'FIXTURE_HTTP_STATUS',
+    method: 'POST',
+    route: '/api/auth/login',
+    actualStatus: 401,
+    expectedStatus: 200,
+    body: 'private response',
+    headers: { authorization: 'private token' },
+  });
+  assert.deepEqual(safeDiagnostic(failure), {
+    code: 'FIXTURE_HTTP_STATUS',
+    method: 'POST',
+    route: '/api/auth/login',
+    actualStatus: 401,
+    expectedStatus: 200,
+  });
+  assert.deepEqual(safeDiagnostic(new Error('private SQL body')), { code: 'FIXTURE_FAILURE' });
+});
+
+test('controlled SIGTERM exit is recorded rather than misclassified as failed cleanup', async () => {
+  const server = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore' });
+  await new Promise((resolve, reject) => {
+    server.once('spawn', resolve);
+    server.once('error', reject);
+  });
+  assert.deepEqual(await stopServer(server), { code: null, signal: 'SIGTERM' });
 });

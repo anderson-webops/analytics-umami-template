@@ -176,9 +176,13 @@ export async function command(
   try {
     await new Promise((resolve, reject) => {
       child.once('error', reject);
-      child.once('exit', code =>
-        code === expectedCode ? resolve() : reject(new Error('Fixture subprocess failed')),
-      );
+      child.once('exit', (code, exitSignal) => {
+        if (code === expectedCode) return resolve();
+        const failure = new Error('Fixture subprocess failed');
+        failure.exitCode = code;
+        failure.exitSignal = exitSignal;
+        reject(failure);
+      });
     });
     signal?.throwIfAborted();
   } finally {
@@ -187,13 +191,35 @@ export async function command(
   }
 }
 
-async function stopServer(server) {
+export function safeDiagnostic(error) {
+  if (error?.code === 'FIXTURE_HTTP_STATUS') {
+    return {
+      code: error.code,
+      method: error.method,
+      route: error.route,
+      actualStatus: error.actualStatus,
+      expectedStatus: error.expectedStatus,
+    };
+  }
+  return {
+    code: error?.code === 'ERR_ASSERTION' ? 'ERR_ASSERTION' : 'FIXTURE_FAILURE',
+    ...(Number.isInteger(error?.exitCode) ? { exitCode: error.exitCode } : {}),
+  };
+}
+
+export async function stopServer(server) {
   if (!server || server.exitCode !== null || server.signalCode !== null) return;
   server.kill('SIGTERM');
   const timer = setTimeout(() => server.kill('SIGKILL'), 10000);
   try {
-    const code = await new Promise(resolve => server.once('exit', resolve));
-    assert.equal(code, 0, 'Runtime did not shut down cleanly');
+    const exit = await new Promise(resolve =>
+      server.once('exit', (code, signal) => resolve({ code, signal })),
+    );
+    assert(
+      [0, 143].includes(exit.code) || (exit.code === null && exit.signal === 'SIGTERM'),
+      'Runtime did not shut down cleanly',
+    );
+    return exit;
   } finally {
     clearTimeout(timer);
   }
@@ -391,23 +417,26 @@ async function executeFixture(options, transport, receipt) {
       },
     });
     receipt.stage = 'graceful-shutdown';
-    await stopServer(server);
+    receipt.runtimeExit = await stopServer(server);
     signal.throwIfAborted();
     receipt.checks['graceful-shutdown'] = 'passed';
+  } catch (error) {
+    receipt.failure = safeDiagnostic(error);
+    throw error;
   } finally {
     clearTimeout(deadline);
     process.removeListener('SIGINT', interrupted);
     process.removeListener('SIGTERM', interrupted);
-    let cleanupPassed = true;
+    const cleanupIssues = [];
     try {
       await stopServer(server);
-    } catch {
-      cleanupPassed = false;
+    } catch (error) {
+      cleanupIssues.push({ component: 'server', ...safeDiagnostic(error) });
     }
     try {
       await client?.end();
-    } catch {
-      cleanupPassed = false;
+    } catch (error) {
+      cleanupIssues.push({ component: 'client', ...safeDiagnostic(error) });
     }
     if (postgresInitialized) {
       try {
@@ -423,14 +452,15 @@ async function executeFixture(options, transport, receipt) {
             environment,
             15000,
           );
-      } catch {
-        cleanupPassed = false;
+      } catch (error) {
+        cleanupIssues.push({ component: 'postgres', ...safeDiagnostic(error) });
       }
     }
-    if (cleanupPassed) await fs.rm(temporary, { recursive: true });
-    receipt.cleanup = cleanupPassed ? 'passed' : 'failed-private-scratch-retained';
-    assert(cleanupPassed, 'Fixture cleanup failed');
+    if (cleanupIssues.length === 0) await fs.rm(temporary, { recursive: true });
+    receipt.cleanup = cleanupIssues.length === 0 ? 'passed' : 'failed-private-scratch-retained';
+    receipt.cleanupIssues = cleanupIssues;
     receipt.verifiedEntriesAfter = await verifyTree(options.runtime, transport);
+    assert.equal(cleanupIssues.length, 0, 'Fixture cleanup failed');
   }
 }
 
@@ -464,7 +494,8 @@ export async function main(values) {
     } else {
       receipt.status = 'input-verification-only';
     }
-  } catch {
+  } catch (error) {
+    receipt.failure ??= safeDiagnostic(error);
     process.exitCode = 1;
   } finally {
     receipt.finishedAt = new Date().toISOString();

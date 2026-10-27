@@ -60,7 +60,15 @@ export async function exerciseIntegration({
         ? AbortSignal.any([signal, AbortSignal.timeout(15000)])
         : AbortSignal.timeout(15000),
     });
-    assert.equal(response.status, status, `Unexpected status for ${method} ${route}`);
+    if (response.status !== status) {
+      const failure = new Error('Fixture HTTP status differs');
+      failure.code = 'FIXTURE_HTTP_STATUS';
+      failure.method = method;
+      failure.route = route.split('?')[0];
+      failure.actualStatus = response.status;
+      failure.expectedStatus = status;
+      throw failure;
+    }
     const text = await response.text();
     return { response, body: text ? JSON.parse(text) : null };
   }
