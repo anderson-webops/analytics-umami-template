@@ -162,7 +162,7 @@ COPYFILE_DISABLE=1 tar --no-xattrs --no-acls --no-fflags -cf - -C "$output" sour
 write_state building 0
 "$node_bin" "$installed_root/deploy/mac-build/run-bounded.mjs" "$output/build.log" 7200 8388608 \
   docker --context "$context" run --rm --init --network bridge --user 501:20 --cap-drop ALL \
-    --security-opt no-new-privileges --log-driver local --log-opt max-size=8m --log-opt max-file=1 \
+    --security-opt no-new-privileges --log-driver local --log-opt max-size=8m --log-opt max-file=1 --log-opt compress=false \
     --mount "type=volume,src=$store,dst=/pnpm-store,volume-nocopy" \
     "${common[@]}" --entrypoint /bin/bash "$image" -c '
       set -euo pipefail
@@ -174,7 +174,7 @@ colima --profile "$profile" ssh -- sh -c \
 write_state accepting 0
 "$node_bin" "$installed_root/deploy/mac-build/run-bounded.mjs" "$output/accept.log" 5400 8388608 \
   docker --context "$context" run --rm --init --network none --user 0:0 --privileged \
-    --log-driver local --log-opt max-size=8m --log-opt max-file=1 \
+    --log-driver local --log-opt max-size=8m --log-opt max-file=1 --log-opt compress=false \
     "${common[@]}" --entrypoint /bin/bash "$image" -c '
       set -euo pipefail
       node /work/source/deploy/mac-build/public-environment.mjs "$RELEASE_CONFIG" run \

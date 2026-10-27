@@ -60,3 +60,14 @@ test('every supervised phase stays within the existing time and output bounds', 
   assert.match(source, /freshVmDestroyed:destroyed==='true'/);
   assert.match(source, /defaultBuilderRestored:restored==='true'/);
 });
+
+test('bounded single-file Docker logs explicitly disable incompatible compression', () => {
+  const source = fs.readFileSync(path.join(directory, 'build-unsigned.sh'), 'utf8');
+  const logging = [...source.matchAll(/--log-driver local[^\n]+/g)];
+  assert.equal(logging.length, 2);
+  for (const [options] of logging) {
+    assert.match(options, /--log-opt max-size=8m/);
+    assert.match(options, /--log-opt max-file=1/);
+    assert.match(options, /--log-opt compress=false/);
+  }
+});
