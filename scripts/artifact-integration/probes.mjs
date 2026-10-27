@@ -26,6 +26,24 @@ export function collectionHeaders(credential, requestId = randomUUID(), timestam
   };
 }
 
+export async function verifyRevenueRetry(request, movement, credential, nonce, movementId) {
+  const identical = await request(
+    '/api/revenue/movements',
+    'POST',
+    movement,
+    collectionHeaders(credential, nonce),
+  );
+  assert.equal(identical.body.duplicate, true);
+  assert.equal(identical.body.movementId, movementId);
+  await request(
+    '/api/revenue/movements',
+    'POST',
+    { ...movement, sourceMovementId: randomUUID() },
+    collectionHeaders(credential, nonce),
+    409,
+  );
+}
+
 export async function exerciseIntegration({
   base,
   origin,
@@ -34,6 +52,7 @@ export async function exerciseIntegration({
   runJob,
   record,
   signal,
+  restartForHistory,
 }) {
   const {
     website,
@@ -167,13 +186,7 @@ export async function exerciseIntegration({
       201,
     );
     assert.equal(created.body.provenance, 'backend_attested');
-    await request(
-      '/api/revenue/movements',
-      'POST',
-      movement,
-      collectionHeaders(credential, nonce),
-      409,
-    );
+    await verifyRevenueRetry(request, movement, credential, nonce, created.body.movementId);
     const duplicate = await request(
       '/api/revenue/movements',
       'POST',
@@ -260,13 +273,15 @@ export async function exerciseIntegration({
     );
     let wrongCode = 0;
     while (adjacentCodes.has(String(wrongCode).padStart(6, '0'))) wrongCode += 1;
-    await request(
+    const invalidMfa = await request(
       '/api/2fa/verify',
       'POST',
       { token: String(wrongCode).padStart(6, '0') },
       { authorization: `Bearer ${repeatLogin.body.partialToken}` },
-      401,
+      400,
     );
+    assert.equal(invalidMfa.body.error.code, 'two-factor-error-invalid-code');
+    assert.equal(invalidMfa.response.headers.has('set-cookie'), false);
     assert.equal(await count('two_factor_auth', 'user_id=$1 AND is_enabled=true', [owner]), 1);
   });
 
@@ -393,7 +408,17 @@ export async function exerciseIntegration({
       collectionHeaders(credential),
       403,
     );
-    await request(`/api/websites/${website}`, 'DELETE', undefined, { cookie });
+    const expectHistoryHold = async () => {
+      await request(`/api/websites/${website}`, 'DELETE', {}, { cookie }, 500);
+      assert.equal(await count('website', 'website_id=$1', [website]), 1);
+      assert.equal(await count('attested_revenue_movement', 'website_id=$1', [website]), 1);
+      assert.equal(await count('website_collection_tombstone', 'website_id=$1', [website]), 0);
+    };
+    await expectHistoryHold();
+    await restartForHistory('kafka-only');
+    await expectHistoryHold();
+    await restartForHistory('fresh-synthetic-both');
+    await request(`/api/websites/${website}`, 'DELETE', {}, { cookie });
     assert.equal(await count('website', 'website_id=$1', [website]), 0);
     assert.equal(await count('attested_revenue_movement', 'website_id=$1', [website]), 0);
     const tombstone = await client.query(

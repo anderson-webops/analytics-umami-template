@@ -46,6 +46,10 @@ runtime evidence requires its own successful `run` receipt.
   keys, stale timestamps, nonce replay and event/session/identity trust tiers.
 - Attested revenue creation, idempotence, conflicts, financial browser-claim
   rejection, owner/generation revocation and durable deletion tombstones.
+- Independent missing-Kafka and missing-ClickHouse history holds preserve the
+  synthetic rows before deletion. Positive deletion uses attestations scoped
+  only to the harness's newly initialized, offline synthetic cluster. Production
+  history still needs its independent host/owner review.
 - Production-mode CAPTCHA handling and real password/MFA enrollment before
   authenticated event reporting and tenant-isolation checks.
 - One-batch replay/bookmark/heatmap cleanup over a 401-row expired backlog,

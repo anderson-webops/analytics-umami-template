@@ -10,11 +10,12 @@ import {
   mountIsReadOnly,
   parseArguments,
   safeDiagnostic,
+  safeRuntimeCodes,
   stopServer,
 } from '../test-artifact-integration.mjs';
 import { fixtureCaptchaFetch } from './captcha.mjs';
 import { digest, profiles, verifyTree } from './input.mjs';
-import { collectionHeaders, totp } from './probes.mjs';
+import { collectionHeaders, totp, verifyRevenueRetry } from './probes.mjs';
 
 const endpoint = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 const argumentsList = [
@@ -261,4 +262,41 @@ test('controlled SIGTERM exit is recorded rather than misclassified as failed cl
     server.once('error', reject);
   });
   assert.deepEqual(await stopServer(server), { code: null, signal: 'SIGTERM' });
+});
+
+test('revenue fixture distinguishes identical idempotence from nonce reuse for a different movement', async () => {
+  const movement = { sourceMovementId: randomUUID() };
+  const nonce = randomUUID();
+  const movementId = randomUUID();
+  const calls = [];
+  await verifyRevenueRetry(
+    async (...args) => {
+      calls.push(args);
+      return { body: { duplicate: true, movementId } };
+    },
+    movement,
+    'synthetic',
+    nonce,
+    movementId,
+  );
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0][2], movement);
+  assert.equal(calls[0][4], undefined);
+  assert.equal(calls[1][4], 409);
+  assert.notEqual(calls[1][2].sourceMovementId, movement.sourceMovementId);
+  assert.equal(calls[0][3]['x-umami-request-id'], nonce);
+  assert.equal(calls[1][3]['x-umami-request-id'], nonce);
+});
+
+test('runtime diagnostics retain only error codes and database identifier labels', () => {
+  assert.deepEqual(
+    safeRuntimeCodes('Code: `23503` constraint "fixture_reference"; code: \'P2010\''),
+    ['23503', 'P2010', 'constraint:fixture_reference'],
+  );
+  assert.deepEqual(
+    safeRuntimeCodes(
+      'password: private-value; recoveryCode: private-value; Authorization: Bearer private-value',
+    ),
+    [],
+  );
 });

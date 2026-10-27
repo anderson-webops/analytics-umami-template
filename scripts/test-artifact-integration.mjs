@@ -207,6 +207,18 @@ export function safeDiagnostic(error) {
   };
 }
 
+export function safeRuntimeCodes(text) {
+  const codes = Array.from(
+    text.matchAll(/\b[Cc]ode["'`\s]*:["'`\s]*(P[0-9]{4}|[0-9]{5}|ERR_[A-Z_]{1,60})\b/g),
+    match => match[1],
+  );
+  const identifiers = Array.from(
+    text.matchAll(/\b(constraint|column|relation) ["'`]([a-z_][a-z0-9_]{0,99})["'`]/gi),
+    match => `${match[1].toLowerCase()}:${match[2]}`,
+  );
+  return [...new Set([...codes, ...identifiers])].slice(0, 32);
+}
+
 export async function stopServer(server) {
   if (!server || server.exitCode !== null || server.signalCode !== null) return;
   server.kill('SIGTERM');
@@ -361,44 +373,76 @@ async function executeFixture(options, transport, receipt) {
       [fixture.website, fixture.owner, fixture.otherWebsite, fixture.otherOwner],
     );
     receipt.stage = 'runtime-startup';
-    server = spawn(
-      process.execPath,
-      [
-        '--import',
-        path.join(scriptsRoot, 'artifact-integration/captcha.mjs'),
-        path.join(options.runtime, 'server.js'),
-      ],
-      { cwd: options.runtime, env: runtimeEnvironment, stdio: ['ignore', 'pipe', 'pipe'] },
-    );
-    server.stdout.resume();
-    server.stderr.resume();
-    let spawnError = false;
-    server.once('error', () => {
-      spawnError = true;
-    });
-    const base = `http://127.0.0.1:${port}`;
-    const started = Date.now();
-    while (true) {
-      signal.throwIfAborted();
-      assert(
-        !spawnError && server.exitCode === null && server.signalCode === null,
-        'Runtime exited before readiness',
+    const diagnosticCodes = new Set();
+    async function startFixtureServer(historyProfile = 'unreviewed') {
+      assert(['unreviewed', 'kafka-only', 'fresh-synthetic-both'].includes(historyProfile));
+      server = spawn(
+        process.execPath,
+        [
+          '--import',
+          path.join(scriptsRoot, 'artifact-integration/captcha.mjs'),
+          path.join(options.runtime, 'server.js'),
+        ],
+        {
+          cwd: options.runtime,
+          env: {
+            ...runtimeEnvironment,
+            ...(historyProfile !== 'unreviewed' ? { KAFKA_HISTORY_ATTESTED_CLEAN: 'true' } : {}),
+            ...(historyProfile === 'fresh-synthetic-both'
+              ? { CLICKHOUSE_HISTORY_ATTESTED_CLEAN: 'true' }
+              : {}),
+          },
+          stdio: ['ignore', 'pipe', 'pipe'],
+        },
       );
-      let ready = false;
-      try {
-        ready =
-          (await fetch(`${base}/readyz`, { signal: AbortSignal.timeout(1000) })).status === 200;
-      } catch {}
-      if (ready) break;
-      assert(Date.now() - started < 60000, 'Runtime startup timed out');
-      await delay(100);
+      server.stdout.resume();
+      server.stderr.resume();
+      for (const stream of [server.stdout, server.stderr]) {
+        let previous = '';
+        stream.on('data', chunk => {
+          const text = previous + chunk.toString();
+          for (const code of safeRuntimeCodes(text)) {
+            if (diagnosticCodes.size < 32) diagnosticCodes.add(code);
+          }
+          previous = text.slice(-1024);
+          receipt.runtimeDiagnosticCodes = [...diagnosticCodes];
+        });
+      }
+      let spawnError = false;
+      server.once('error', () => {
+        spawnError = true;
+      });
+      const base = `http://127.0.0.1:${port}`;
+      const started = Date.now();
+      while (true) {
+        signal.throwIfAborted();
+        assert(
+          !spawnError && server.exitCode === null && server.signalCode === null,
+          'Runtime exited before readiness',
+        );
+        let ready = false;
+        try {
+          ready =
+            (await fetch(`${base}/readyz`, { signal: AbortSignal.timeout(1000) })).status === 200;
+        } catch {}
+        if (ready) break;
+        assert(Date.now() - started < 60000, 'Runtime startup timed out');
+        await delay(100);
+      }
     }
+    await startFixtureServer();
     await exerciseIntegration({
-      base,
+      base: `http://127.0.0.1:${port}`,
       origin,
       client,
       fixture,
       signal,
+      restartForHistory: async profile => {
+        await stopServer(server);
+        await startFixtureServer(profile);
+        receipt.historyAttestationScope =
+          'Only this newly initialized, loopback-only synthetic cluster; no production or complete historical audit claim';
+      },
       runJob: (name, expectedCode) =>
         command(
           process.execPath,
