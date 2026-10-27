@@ -67,6 +67,7 @@
     "runtime:manifest": "node scripts/runtime-artifact.mjs create .next/standalone",
     "runtime:verify": "node scripts/runtime-artifact.mjs verify .next/standalone",
     "test:runtime-artifact": "node --test scripts/test-runtime-artifact-manifest.mjs && node scripts/test-runtime-artifact.mjs",
+    "test:artifact-integration": "node --test scripts/artifact-integration/contract.test.mjs",
     "test:replay-browser": "node --import tsx --test scripts/test-replay-resources-browser.mjs",
     "test:migration-bridge": "node scripts/test-session-data-migration-bridge.js",
     "test:migration-history": "node --test scripts/test-migration-ledger-contract.mjs scripts/test-applied-migrations.mjs",
