@@ -48,3 +48,15 @@ test('unsigned builder retains the disposable guest and independent signature bo
   );
   assert.ok(source.indexOf('--mount none') < source.indexOf('container-phase.sh build'));
 });
+
+test('every supervised phase stays within the existing time and output bounds', () => {
+  const source = fs.readFileSync(path.join(directory, 'build-unsigned.sh'), 'utf8');
+  const phases = [...source.matchAll(/run-bounded\.mjs" "\$output\/[^"\n]+" (\d+) (\d+)/g)];
+  assert.equal(phases.length, 3);
+  for (const [, seconds, bytes] of phases) {
+    assert.ok(Number(seconds) >= 1 && Number(seconds) <= 7200);
+    assert.ok(Number(bytes) >= 1 && Number(bytes) <= 8 * 1024 * 1024);
+  }
+  assert.match(source, /freshVmDestroyed:destroyed==='true'/);
+  assert.match(source, /defaultBuilderRestored:restored==='true'/);
+});

@@ -94,11 +94,13 @@ toolchain_sha256="$("$node_bin" -p 'JSON.parse(require("node:fs").readFileSync(p
 test "$(shasum -a 256 "$toolchain_archive" | awk '{print $1}')" = "$toolchain_sha256"
 profile_created=false
 default_stopped=false
+profile_destroyed=false
+default_restored=false
 write_state() {
-  "$node_bin" --input-type=module - "$output/builder-state.json" "$profile" "$commit" "$tree" "$1" "$2" <<'NODE'
+  "$node_bin" --input-type=module - "$output/builder-state.json" "$profile" "$commit" "$tree" "$1" "$2" "$profile_destroyed" "$default_restored" <<'NODE'
 import fs from 'node:fs';
-const [destination, profile, commit, tree, status, result] = process.argv.slice(2);
-fs.writeFileSync(destination, `${JSON.stringify({schemaVersion:1,profile,commit,tree,status,exitCode:Number(result),freshVmDestroyed:status==='finished',hostMounts:'none',sshAgentForwarded:false,privateKeyRead:false,publicationAttempted:false,productionActivated:false})}\n`, {mode:0o600});
+const [destination, profile, commit, tree, status, result, destroyed, restored] = process.argv.slice(2);
+fs.writeFileSync(destination, `${JSON.stringify({schemaVersion:1,profile,commit,tree,status,exitCode:Number(result),freshVmDestroyed:destroyed==='true',defaultBuilderRestored:restored==='true',hostMounts:'none',sshAgentForwarded:false,privateKeyRead:false,publicationAttempted:false,productionActivated:false})}\n`, {mode:0o600});
 NODE
 }
 cleanup() {
@@ -106,10 +108,10 @@ cleanup() {
   trap - EXIT INT TERM HUP
   if [[ "$profile_created" = true ]]; then
     if ! colima --profile "$profile" delete --force --data; then result=1; fi
-    if [[ -d "$COLIMA_HOME/$profile" || -d "$LIMA_HOME/colima-$profile" ]]; then result=1; fi
+    if [[ -d "$COLIMA_HOME/$profile" || -d "$LIMA_HOME/colima-$profile" ]]; then result=1; else profile_destroyed=true; fi
   fi
   if [[ "$default_stopped" = true ]]; then
-    if ! colima --profile default start --save-config=false --activate=false --ssh-config=false; then result=1; fi
+    if colima --profile default start --save-config=false --activate=false --ssh-config=false; then default_restored=true; else result=1; fi
   fi
   if [[ "$result" = 0 ]]; then write_state finished 0; else write_state failed "$result"; fi
   exit "$result"
@@ -158,7 +160,7 @@ COPYFILE_DISABLE=1 tar --no-xattrs --no-acls --no-fflags -cf - -C "$output" sour
       printf "/.ai-work/\n" >> "$(git -C /work/source rev-parse --path-format=absolute --git-path info/exclude)"
     '
 write_state building 0
-"$node_bin" "$installed_root/deploy/mac-build/run-bounded.mjs" "$output/build.log" 10800 16777216 \
+"$node_bin" "$installed_root/deploy/mac-build/run-bounded.mjs" "$output/build.log" 7200 8388608 \
   docker --context "$context" run --rm --init --network bridge --user 501:20 --cap-drop ALL \
     --security-opt no-new-privileges --log-driver local --log-opt max-size=8m --log-opt max-file=1 \
     --mount "type=volume,src=$store,dst=/pnpm-store,volume-nocopy" \
@@ -170,7 +172,7 @@ write_state building 0
 colima --profile "$profile" ssh -- sh -c \
   'if findmnt -rn -t virtiofs,9p,fuse.sshfs -o TARGET; then exit 1; fi; test -z "${SSH_AUTH_SOCK:-}"'
 write_state accepting 0
-"$node_bin" "$installed_root/deploy/mac-build/run-bounded.mjs" "$output/accept.log" 5400 16777216 \
+"$node_bin" "$installed_root/deploy/mac-build/run-bounded.mjs" "$output/accept.log" 5400 8388608 \
   docker --context "$context" run --rm --init --network none --user 0:0 --privileged \
     --log-driver local --log-opt max-size=8m --log-opt max-file=1 \
     "${common[@]}" --entrypoint /bin/bash "$image" -c '
