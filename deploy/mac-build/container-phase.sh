@@ -143,6 +143,8 @@ elif [[ "$phase" = accept ]]; then
   node scripts/test-runtime-artifact.mjs --release --require-isolation \
     --expected-commit "$RELEASE_COMMIT" \
     --source-runtime /opt/anderson-sealed/runtime
+  ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node scripts/test-packaged-login-recovery.mjs \
+    /opt/anderson-sealed/runtime
   node --input-type=module -e '
     import fs from "node:fs";
     const receipt = {
