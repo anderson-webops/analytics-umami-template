@@ -1,0 +1,13 @@
+{
+  "name": "minimatch",
+  "version": "11.0.3-webops.1",
+  "private": true,
+  "main": "index.cjs",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "minimatch-modern": "npm:minimatch@11.0.3"
+  }
+}

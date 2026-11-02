@@ -20,13 +20,13 @@ function installedBraces(plugin) {
   };
 }
 
-test('both build-tool paths resolve the guarded local package', async () => {
+test('the retained build-tool path resolves the guarded local package', async () => {
   const lock = await readFile(new URL('../pnpm-lock.yaml', import.meta.url), 'utf8');
   assert.match(lock, /^ {2}braces: file:vendor\/braces$/m);
   assert.match(lock, /^ {2}braces@file:vendor\/braces:$/m);
   assert.doesNotMatch(lock, /^ {2}braces@3\.0\.3:$/m);
 
-  for (const plugin of ['rollup-plugin-copy', 'rollup-plugin-delete']) {
+  for (const plugin of ['rollup-plugin-delete']) {
     const { packagePath } = installedBraces(plugin);
     const manifest = JSON.parse(await readFile(packagePath, 'utf8'));
     assert.equal(manifest.version, '3.0.4-webops.3');
@@ -34,7 +34,7 @@ test('both build-tool paths resolve the guarded local package', async () => {
 });
 
 test('ordinary patterns retain compile, expand, and stringify behavior', () => {
-  for (const plugin of ['rollup-plugin-copy', 'rollup-plugin-delete']) {
+  for (const plugin of ['rollup-plugin-delete']) {
     const { braces, micromatch } = installedBraces(plugin);
     assert.deepEqual(braces('a/{b,c}/d'), ['a/(b|c)/d']);
     assert.deepEqual(braces.expand('a/{b,c}/d'), ['a/b/d', 'a/c/d']);
@@ -47,7 +47,7 @@ test('ordinary patterns retain compile, expand, and stringify behavior', () => {
 });
 
 test('compiled ranges and direct AST strings stay within an aggregate byte budget', () => {
-  const { braces } = installedBraces('rollup-plugin-copy');
+  const { braces } = installedBraces('rollup-plugin-delete');
   assert.equal(braces.compile('{1..10000}').length, 29);
   assert.ok(braces.compile('{1..1000000..-1}').length < 100);
   assert.equal(braces.compile('{1..3}', { transform: String }), '([1-3])');
@@ -78,13 +78,13 @@ test('compiled ranges and direct AST strings stay within an aggregate byte budge
 });
 
 test('compiled array patterns are bounded before aggregation', () => {
-  const { braces } = installedBraces('rollup-plugin-copy');
+  const { braces } = installedBraces('rollup-plugin-delete');
   assert.deepEqual(braces(['a', 'b']), ['a', 'b']);
   assert.throws(() => braces(Array(10001).fill('x')), /aggregate limit/);
 });
 
 test('aggregate expansion is bounded before Cartesian and array outputs are materialized', () => {
-  for (const plugin of ['rollup-plugin-copy', 'rollup-plugin-delete']) {
+  for (const plugin of ['rollup-plugin-delete']) {
     const { braces } = installedBraces(plugin);
     assert.equal(braces.expand('{a,b}'.repeat(13)).length, 8192);
     assert.throws(() => braces.expand('{a,b}'.repeat(30)), {
@@ -109,7 +109,7 @@ test('aggregate expansion is bounded before Cartesian and array outputs are mate
 });
 
 test('range limits cover explicit steps, descending sequences, and letters', () => {
-  const { braces } = installedBraces('rollup-plugin-copy');
+  const { braces } = installedBraces('rollup-plugin-delete');
   for (const pattern of ['{1..2001..2}', '{1001..1}', `{a..\u0510}`]) {
     assert.throws(() => braces.expand(pattern), {
       name: 'RangeError',
@@ -227,7 +227,7 @@ test('preflight rejects oversized alternatives and output before materializing r
 });
 
 test('deep strings are rejected before recursive walkers exhaust the stack', () => {
-  const { braces } = installedBraces('rollup-plugin-copy');
+  const { braces } = installedBraces('rollup-plugin-delete');
   for (const input of [
     `${'{'.repeat(4000)}x${'}'.repeat(4000)}`,
     `${'('.repeat(4000)}x${')'.repeat(4000)}`,
@@ -266,7 +266,7 @@ test('direct AST entry points cannot bypass the depth limit', () => {
 });
 
 test('iterable AST nodes cannot bypass recursive walker guards', () => {
-  const { braces } = installedBraces('rollup-plugin-copy');
+  const { braces } = installedBraces('rollup-plugin-delete');
   const ast = { type: 'root', nodes: new Set() };
   let current = ast;
   for (let depth = 0; depth < 257; depth += 1) {
