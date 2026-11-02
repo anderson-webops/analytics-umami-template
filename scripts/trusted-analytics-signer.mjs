@@ -142,9 +142,9 @@ export function validateAnalyticsManifest(
     os: 'linux',
     architecture: 'arm64',
     libc: 'glibc',
-    node: '24.18.1',
-    npm: '12.0.2',
-    package_manager: 'pnpm@11.18.0',
+    node: '26.13.0',
+    npm: '12.2.1',
+    package_manager: 'pnpm@12.16.1',
   };
   if (
     !exactKeys(manifest, [
@@ -354,7 +354,7 @@ async function verifyInstallation() {
     path.dirname(fileURLToPath(import.meta.url)) !== installedRoot ||
     process.platform !== 'darwin' ||
     process.arch !== 'arm64' ||
-    process.version !== 'v24.22.1' ||
+    process.version !== 'v26.13.0' ||
     process.execArgv.length
   ) {
     throw new Error('Use the reviewed installed Mac analytics signer.');

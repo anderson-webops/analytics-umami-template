@@ -604,7 +604,7 @@ describe('direct production startup', () => {
     expect(databaseCheckSource).toContain('pg_get_constraintdef');
     expect(read('scripts/start-runtime.mjs')).toContain('timeout: 120_000');
     expect(systemdUnit).toContain(
-      'ExecStart=/opt/node-24.18.1/bin/node .next/standalone/runtime-scripts/start-production.mjs',
+      'ExecStart=/opt/node-26.13.0/bin/node .next/standalone/runtime-scripts/start-production.mjs',
     );
     expect(systemdUnit).toContain('Environment=NODE_OPTIONS=--max-old-space-size=384');
     expect(systemdUnit).toContain('MemoryHigh=512M');

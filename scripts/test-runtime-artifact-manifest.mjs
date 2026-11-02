@@ -92,7 +92,7 @@ async function createFixture() {
     allowedRoots: ['.next', 'node_modules'],
     allowedFiles: ['package.json', 'pnpm-lock.yaml', 'server.js'],
     forbiddenStateTrees: ['.next/cache', 'uploads'],
-    runtime: { os: 'linux', arch: 'arm64', libc: 'glibc', node: '24.18.1' },
+    runtime: { os: 'linux', arch: 'arm64', libc: 'glibc', node: '26.13.0' },
     deployment: {
       ...templateContract.deployment,
       schemaVersion: 1,

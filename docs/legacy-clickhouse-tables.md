@@ -17,7 +17,7 @@ an absent current URL does not prove historical copies are gone. This is a
 new deployment prerequisite, not a flag for a source agent to set or a reason
 to bypass a reset failure.
 
-Using the repository-pinned Node 24 runtime,
+Using the repository-pinned Node 26 runtime,
 `node scripts/inspect-legacy-clickhouse-tables.mjs` is a read-only, bounded
 inventory. The protected server operator may run it with the existing private
 `CLICKHOUSE_URL`; source agents must not connect to the server or request that

@@ -113,9 +113,9 @@ function fixture(site = 'analytics.np-servicerequest.org') {
       os: 'linux',
       architecture: 'arm64',
       libc: 'glibc',
-      node: '24.18.1',
-      npm: '12.0.2',
-      package_manager: 'pnpm@11.18.0',
+      node: '26.13.0',
+      npm: '12.2.1',
+      package_manager: 'pnpm@12.16.1',
     },
     configuration_sha256: digest(configurationBytes),
     runtime_contract_sha256: digest(contractBytes),
@@ -242,7 +242,7 @@ for (const field of ['dependency_audit', 'native_bindings', 'package_signatures'
 test('rejects changed runtime, configuration, receipt and unknown envelope fields', () => {
   for (const mutate of [
     state => {
-      state.manifest.runtime.node = '24.22.1';
+      state.manifest.runtime.node = '26.12.1';
     },
     state => {
       state.manifest.runtime.architecture = 'x64';

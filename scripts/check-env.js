@@ -18,7 +18,7 @@ const PLACEHOLDER_SECRETS = new Set([
 ]);
 const SAFE_SCHEMA = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const SAFE_HEADER = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
-const EXPECTED_NODE_VERSION = '24.18.1';
+const EXPECTED_NODE_VERSION = '26.13.0';
 const FORBIDDEN_CLIENT_IP_HEADERS = new Set([
   'authorization',
   'connection',

@@ -23,9 +23,9 @@ export GIT_CONFIG_VALUE_0="$source_root"
 
 cd "$source_root"
 test "$(uname -m)" = aarch64
-test "$(node --version)" = v24.18.1
-test "$(npm --version)" = 12.0.2
-test "$(pnpm --version)" = 11.18.0
+test "$(node --version)" = v26.13.0
+test "$(npm --version)" = 12.2.1
+test "$(pnpm --version)" = 12.16.1
 test "$(pnpm config get virtual-store-dir-max-length)" = 60
 test "$(pnpm config get store-dir)" = /pnpm-store
 test "$(git rev-parse HEAD)" = "$RELEASE_COMMIT"

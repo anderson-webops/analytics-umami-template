@@ -9,7 +9,7 @@ reviewed releases and do not connect to or deploy on the production server.
 
 ## Host prerequisites
 
-- Node 24.18.1 installed at `/opt/node-24.18.1/bin/node` and pnpm 11.18.0 for builds
+- Node 26.13.0 installed at `/opt/node-26.13.0/bin/node` and pnpm 12.16.1 for builds
 - PostgreSQL 15 or newer, installed as an operating-system service or provided
   by a managed private database
 - Nginx terminating HTTPS for both existing IPv4 and IPv6 listeners

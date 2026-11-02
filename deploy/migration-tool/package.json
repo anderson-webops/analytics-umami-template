@@ -7,7 +7,7 @@
     "prisma.config.ts"
   ],
   "engines": {
-    "node": ">=24.18.1 <25"
+    "node": ">=26.13.0 <27"
   },
   "dependencies": {
     "prisma": "7.10.0"

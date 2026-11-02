@@ -7,8 +7,8 @@ if [[ "$script_path" != "$installed_root/build-unsigned.sh" || "$(uname -sm)" !=
   printf 'Use the reviewed installed Mac unsigned builder.\n' >&2
   exit 78
 fi
-node_bin=/opt/homebrew/opt/node@24/bin/node
-test "$("$node_bin" --version)" = v24.22.1
+node_bin=/opt/homebrew/opt/node@26/bin/node
+test "$("$node_bin" --version)" = v26.13.0
 export PATH=/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin
 "$node_bin" --input-type=module - "$installed_root" <<'NODE'
 import crypto from 'node:crypto';
@@ -129,7 +129,7 @@ colima --profile "$profile" ssh -- sh -c \
   'if findmnt -rn -t virtiofs,9p,fuse.sshfs -o TARGET; then exit 1; fi; test -z "${SSH_AUTH_SOCK:-}"'
 test "$(docker --context "$context" info --format '{{.OSType}}/{{.Architecture}}')" = linux/aarch64
 gzip -dc "$toolchain_archive" | docker --context "$context" load
-base_image=anderson-analytics-builder:node24.18.1-npm12.0.2-pnpm11.18.0
+base_image=anderson-analytics-builder:node26.13.0-npm12.2.1-pnpm12.16.1
 image=anderson-disposable-release:fixed-toolchain
 printf 'FROM %s\nRUN getent passwd 501 >/dev/null || useradd --uid 501 --gid 20 --no-create-home --shell /bin/bash artifact-builder\n' "$base_image" |
   docker --context "$context" build --network none --tag "$image" -

@@ -18,6 +18,7 @@ export default defineConfig({
       APP_SECRET: 'unit-test-only-secret-0000000000000000000000',
     },
     environment: 'jsdom',
+    execArgv: ['--no-experimental-webstorage'],
     include: ['src/**/*.test.{ts,tsx}', 'tests/api/coverage/**/*.test.ts'],
     setupFiles: ['./src/test/setup.ts'],
   },

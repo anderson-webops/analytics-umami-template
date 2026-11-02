@@ -20,7 +20,7 @@ Receipts use exclusive creation; existing evidence remains intact.
 
 ## Isolation contract
 
-Run with Node 24.18.1, a fresh private loopback-only network and PID namespace,
+Run with Node 26.13.0, a fresh private loopback-only network and PID namespace,
 the harness as PID 1 under a non-root identity,
 zero effective capabilities, no-new-privileges, and read-only root, fixture,
 assets and runtime mounts. Supply only a supported PostgreSQL tool directory and

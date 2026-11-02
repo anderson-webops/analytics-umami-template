@@ -132,8 +132,8 @@
     "os": "linux",
     "arch": "arm64",
     "libc": "glibc",
-    "node": "24.18.1",
-    "packageManager": "pnpm@11.18.0"
+    "node": "26.13.0",
+    "packageManager": "pnpm@12.16.1"
   },
   "deployment": {
     "schemaVersion": 4,

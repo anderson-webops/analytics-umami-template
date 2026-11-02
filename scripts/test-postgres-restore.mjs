@@ -248,7 +248,7 @@ try {
       bundle: true,
       format: 'esm',
       platform: 'node',
-      target: 'node24',
+      target: 'node26',
       packages: 'bundle',
       banner: {
         js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);",

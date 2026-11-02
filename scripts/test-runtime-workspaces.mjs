@@ -163,7 +163,7 @@ test('real install, prune and packaging preserve the exact tracked source invent
       name: 'workspace-packaging-fixture',
       version: '1.0.0',
       private: true,
-      packageManager: 'pnpm@11.18.0',
+      packageManager: 'pnpm@12.16.1',
       dependencies: { '@test/api': 'workspace:*', '@test/mcp': 'workspace:*' },
     });
     await write('packages/api/package.json', {

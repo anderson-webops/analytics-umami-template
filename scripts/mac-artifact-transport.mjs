@@ -553,7 +553,7 @@ export function verifyEmbeddedRuntime(transport, embedded, trustedContract) {
     embedded.runtime?.os !== 'linux' ||
     embedded.runtime?.arch !== 'arm64' ||
     embedded.runtime?.libc !== 'glibc' ||
-    embedded.runtime?.node !== '24.18.1' ||
+    embedded.runtime?.node !== '26.13.0' ||
     !embedded.entries ||
     typeof embedded.entries !== 'object' ||
     Object.keys(embedded.entries).length + 1 !== transport.files.length
@@ -622,9 +622,9 @@ export async function prepareTransport({
     process.platform !== 'linux' ||
     process.arch !== 'arm64' ||
     !process.report.getReport().header.glibcVersionRuntime ||
-    process.versions.node !== '24.18.1' ||
-    execFileSync('npm', ['--version'], { encoding: 'utf8' }).trim() !== '12.0.2' ||
-    execFileSync('pnpm', ['--version'], { encoding: 'utf8' }).trim() !== '11.18.0'
+    process.versions.node !== '26.13.0' ||
+    execFileSync('npm', ['--version'], { encoding: 'utf8' }).trim() !== '12.2.1' ||
+    execFileSync('pnpm', ['--version'], { encoding: 'utf8' }).trim() !== '12.16.1'
   ) {
     throw new Error('Transport packaging requires the exact reviewed Linux ARM64 toolchain.');
   }
@@ -656,7 +656,7 @@ export async function prepareTransport({
     runtimeManifest.runtime.os !== 'linux' ||
     runtimeManifest.runtime.arch !== 'arm64' ||
     runtimeManifest.runtime.libc !== 'glibc' ||
-    runtimeManifest.runtime.node !== '24.18.1'
+    runtimeManifest.runtime.node !== '26.13.0'
   ) {
     throw new Error(
       'Transport source, version, runtime, and deployment contract are inconsistent.',
@@ -694,9 +694,9 @@ export async function prepareTransport({
       os: 'linux',
       architecture: 'arm64',
       libc: 'glibc',
-      node: '24.18.1',
-      npm: '12.0.2',
-      package_manager: 'pnpm@11.18.0',
+      node: '26.13.0',
+      npm: '12.2.1',
+      package_manager: 'pnpm@12.16.1',
     },
     configuration_sha256: sha256(publicConfiguration),
     runtime_contract_sha256: runtimeManifest.contractSha256,

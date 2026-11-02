@@ -8,7 +8,7 @@ const image = {
   Architecture: 'arm64',
   RootFS: { Layers: [`sha256:${'b'.repeat(64)}`] },
   Config: {
-    Env: ['NODE_VERSION=24.18.1'],
+    Env: ['NODE_VERSION=26.13.0'],
     User: '',
     WorkingDir: '',
     Entrypoint: null,

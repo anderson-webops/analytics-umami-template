@@ -83,7 +83,7 @@ export function mountIsReadOnly(mountinfo, target) {
 async function assertIsolation(options) {
   assert.equal(process.platform, 'linux', 'Exact runtime execution requires Linux');
   assert.equal(process.arch, 'arm64', 'Exact runtime execution requires ARM64');
-  assert.equal(process.version, 'v24.18.1', 'Use the accepted artifact runtime toolchain');
+  assert.equal(process.version, 'v26.13.0', 'Use the accepted artifact runtime toolchain');
   assert(process.getuid() !== 0, 'Fixture must run as non-root');
   assert.equal(process.pid, 1, 'Fixture runner must be PID 1 in a private PID namespace');
   assert.deepEqual(

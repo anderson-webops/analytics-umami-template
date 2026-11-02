@@ -4,10 +4,10 @@
   "private": true,
   "description": "A modern, privacy-focused alternative to Google Analytics.",
   "author": "Umami Software, Inc. <hello@umami.is>",
-  "packageManager": "pnpm@11.18.0",
+  "packageManager": "pnpm@12.16.1",
   "engines": {
-    "node": ">=24.18.1 <25",
-    "pnpm": ">=11.18.0 <12"
+    "node": ">=26.13.0 <27",
+    "pnpm": ">=12.16.1 <13"
   },
   "license": "MIT",
   "homepage": "https://github.com/anderson-webops/analytics-umami-template",
@@ -217,7 +217,7 @@
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.7",
     "@types/jest": "^30.0.0",
-    "@types/node": "^24.13.3",
+    "@types/node": "^26.6.6",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

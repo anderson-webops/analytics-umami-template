@@ -79,7 +79,7 @@ async function bundleRuntimeScript(entryPoint, outputPath) {
     bundle: true,
     format: 'esm',
     platform: 'node',
-    target: 'node24',
+    target: 'node26',
     packages: 'bundle',
     banner: {
       js: "import { createRequire as __umamiCreateRequire } from 'node:module'; const require = __umamiCreateRequire(import.meta.url);",

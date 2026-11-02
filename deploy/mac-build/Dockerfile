@@ -1,4 +1,4 @@
-FROM node@sha256:9b02ede55039f443ad57453a741813c6cd105873f0f66fee95d25529e1ba0533 AS node-toolchain
+FROM node@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9 AS node-toolchain
 
 FROM postgres@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826
 
@@ -11,11 +11,12 @@ RUN --mount=type=cache,id=anderson-analytics-arm64-toolchain-npm12,target=/root/
       build-essential=12.9 \
       python3=3.11.2-1+b1 \
       bubblewrap=0.8.0-2+deb12u1 \
+      libatomic1=12.2.0-14+deb12u1 \
     && rm -rf /var/lib/apt/lists/* \
-    && npm install --global --ignore-scripts npm@12.0.2 pnpm@11.18.0 \
-    && test "$(node --version)" = 'v24.18.1' \
-    && test "$(npm --version)" = '12.0.2' \
-    && test "$(pnpm --version)" = '11.18.0' \
+    && npm install --global --ignore-scripts npm@12.2.1 pnpm@12.16.1 \
+    && test "$(node --version)" = 'v26.13.0' \
+    && test "$(npm --version)" = '12.2.1' \
+    && test "$(pnpm --version)" = '12.16.1' \
     && /usr/lib/postgresql/17/bin/postgres --version | grep -q 'PostgreSQL) 17.' \
     && bwrap --version
 
