@@ -1,29 +1,28 @@
-import { afterEach, expect, test, vi } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { LINKED_QUERY_TIMEOUT_MS } from '@/lib/share-query-budget';
+import { getLinkedDistinctIds } from './getLinkedDistinctIds';
+import { getLinkedSessionIds } from './getLinkedSessionIds';
+import { getSessionData } from './getSessionData';
+
+const { rawQuery, selectedMode } = vi.hoisted(() => ({
+  rawQuery: vi.fn(),
+  selectedMode: { current: 'prisma' as 'prisma' | 'clickhouse' },
+}));
+
+vi.mock('@/lib/db', () => ({
+  CLICKHOUSE: 'clickhouse',
+  PRISMA: 'prisma',
+  runQuery: (queries: Record<string, () => unknown>) => queries[selectedMode.current](),
+}));
+vi.mock('@/lib/prisma', () => ({ default: { rawQuery } }));
+vi.mock('@/lib/clickhouse', () => ({ default: { rawQuery } }));
 
 async function loadQueries(mode: 'prisma' | 'clickhouse') {
-  vi.resetModules();
-  const rawQuery = vi.fn().mockResolvedValue([]);
-
-  vi.doMock('@/lib/db', () => ({
-    CLICKHOUSE: 'clickhouse',
-    PRISMA: 'prisma',
-    runQuery: (queries: Record<string, () => unknown>) => queries[mode](),
-  }));
-  vi.doMock('@/lib/prisma', () => ({ default: { rawQuery } }));
-  vi.doMock('@/lib/clickhouse', () => ({ default: { rawQuery } }));
-
-  const [{ getLinkedDistinctIds }, { getLinkedSessionIds }, { getSessionData }] = await Promise.all(
-    [import('./getLinkedDistinctIds'), import('./getLinkedSessionIds'), import('./getSessionData')],
-  );
+  selectedMode.current = mode;
+  rawQuery.mockReset().mockResolvedValue([]);
 
   return { getLinkedDistinctIds, getLinkedSessionIds, getSessionData, rawQuery };
 }
-
-afterEach(() => {
-  vi.resetModules();
-  vi.clearAllMocks();
-});
 
 test.each(['prisma', 'clickhouse'] as const)(
   '%s requires bounded linked-session reads and retains ordinary property reads',

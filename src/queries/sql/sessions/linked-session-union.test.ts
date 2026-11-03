@@ -1,30 +1,21 @@
-import { afterEach, expect, test, vi } from 'vitest';
+import { expect, test, vi } from 'vitest';
+import { getLinkedDistinctIds } from './getLinkedDistinctIds';
+import { getLinkedSessionIds } from './getLinkedSessionIds';
+
+const { relationalQuery, legacyQuery } = vi.hoisted(() => ({
+  relationalQuery: vi.fn(),
+  legacyQuery: vi.fn(),
+}));
+
+vi.mock('@/lib/prisma', () => ({ default: { rawQuery: relationalQuery } }));
+vi.mock('@/lib/clickhouse', () => ({ default: { rawQuery: legacyQuery } }));
 
 async function loadQueries() {
-  vi.resetModules();
-  const relationalQuery = vi.fn().mockResolvedValue([]);
-  const legacyQuery = vi.fn().mockResolvedValue([]);
-
-  vi.doMock('@/lib/db', () => ({
-    CLICKHOUSE: 'clickhouse',
-    PRISMA: 'prisma',
-    runQuery: (queries: Record<string, () => unknown>) => queries.clickhouse(),
-  }));
-  vi.doMock('@/lib/prisma', () => ({ default: { rawQuery: relationalQuery } }));
-  vi.doMock('@/lib/clickhouse', () => ({ default: { rawQuery: legacyQuery } }));
-
-  const [{ getLinkedDistinctIds }, { getLinkedSessionIds }] = await Promise.all([
-    import('./getLinkedDistinctIds'),
-    import('./getLinkedSessionIds'),
-  ]);
+  relationalQuery.mockReset().mockResolvedValue([]);
+  legacyQuery.mockReset().mockResolvedValue([]);
 
   return { getLinkedDistinctIds, getLinkedSessionIds, relationalQuery, legacyQuery };
 }
-
-afterEach(() => {
-  vi.resetModules();
-  vi.clearAllMocks();
-});
 
 test('ClickHouse-mode trusted reads use canonical PostgreSQL links, not legacy claims', async () => {
   const { getLinkedDistinctIds, getLinkedSessionIds, relationalQuery, legacyQuery } =
