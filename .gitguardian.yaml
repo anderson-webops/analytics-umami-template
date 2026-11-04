@@ -1,0 +1,7 @@
+version: 2
+secret:
+  ignored_matches:
+    - name: Disposable event-series PostgreSQL fixture password in CI
+      match: 281a94510feb4d0e2c7391dd461db16f8683c8b324f97129b6d3831c8f488d85
+    - name: Mocked seeded-password rejection after CAPTCHA in login route tests
+      match: a58a4d9e0116e63f36b8a5be0295067deca4e43bd72e92be2473945cf5f90fd8
