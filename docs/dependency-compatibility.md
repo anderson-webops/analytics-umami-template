@@ -2,11 +2,13 @@
 
 ## Development launcher
 
-Dotenv 18 provides its own `dotenv run` executable. Development uses its explicit
-`run --quiet --` command boundary, and the competing `dotenv-cli` dependency is
-removed. The launcher regression exercises literal arguments, environment-file
-loading, existing-value precedence and child failure propagation. Production
-startup retains its independent environment and immutable-runtime validation.
+Development preloads Dotenv 18 through Node's `--import dotenv/config` and runs
+Next's declared CLI entrypoint directly. This preserves environment-file loading
+without Dotenv's separately detached subprocess surviving browser-test teardown.
+The competing `dotenv-cli` dependency is removed. Launcher regressions exercise
+literal arguments, existing-value precedence, failure propagation and process
+termination. Production startup retains its independent environment and
+immutable-runtime validation.
 
 ## TypeScript
 

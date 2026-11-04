@@ -18,7 +18,7 @@
   "type": "module",
   "scripts": {
     "predev": "pnpm run check:env",
-    "dev": "cross-env NEXT_TELEMETRY_DISABLED=1 dotenv run --quiet -- next dev --turbo --hostname 127.0.0.1",
+    "dev": "cross-env NEXT_TELEMETRY_DISABLED=1 node --import dotenv/config node_modules/next/dist/bin/next dev --turbo --hostname 127.0.0.1",
     "build": "npm-run-all check:collect-build-config check:env build:db check:db:build build:tracker build:recorder build:geo build:openapi build:packages build:app",
     "start": "node scripts/start-production.js",
     "build:production": "cross-env GEO_BUILD_REQUIRED=1 npm-run-all check:collect-build-config build:db build:tracker build:recorder build:geo build:openapi build:packages build:app postbuild",
