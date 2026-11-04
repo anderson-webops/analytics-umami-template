@@ -1,30 +1,32 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createClient } from '@clickhouse/client';
-import { expect, test, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
 
-const integrationTest = process.env.CLICKHOUSE_TEST_URL ? test : test.skip;
+const integrationSuite = process.env.CLICKHOUSE_TEST_URL ? describe : describe.skip;
 
-integrationTest('ClickHouse collection deletion preserves other sites', async () => {
-  const baseUrl = new URL(process.env.CLICKHOUSE_TEST_URL ?? '');
-  expect(baseUrl.hostname).toBe('127.0.0.1');
-  expect(baseUrl.pathname).toBe('/umami_event_series_test');
-
+integrationSuite('ClickHouse collection deletion', { concurrent: false }, () => {
   const databaseName = 'umami';
-  const databaseUrl = new URL(baseUrl);
-  databaseUrl.pathname = `/${databaseName}`;
   const originalClickhouseUrl = process.env.CLICKHOUSE_URL;
   const originalDatabaseUrl = process.env.DATABASE_URL;
   const originalKafkaHistoryAttestedClean = process.env.KAFKA_HISTORY_ATTESTED_CLEAN;
-  const admin = createClient({ url: baseUrl.toString() });
   const websiteId = randomUUID();
   const otherWebsiteId = randomUUID();
   const sessionId = randomUUID();
   let databaseCreated = false;
+  let admin: ReturnType<typeof createClient> | undefined;
   let fixture: ReturnType<typeof createClient> | undefined;
   let applicationClient: ReturnType<typeof createClient> | undefined;
+  let collectionTables: typeof import('./deleteCollectionSources').CLICKHOUSE_COLLECTION_TABLES;
+  let deleteSources: typeof import('./deleteCollectionSources').deleteClickhouseCollectionSources;
 
-  try {
+  beforeAll(async () => {
+    const baseUrl = new URL(process.env.CLICKHOUSE_TEST_URL ?? '');
+    expect(baseUrl.hostname).toBe('127.0.0.1');
+    expect(baseUrl.pathname).toBe('/umami_event_series_test');
+    const databaseUrl = new URL(baseUrl);
+    databaseUrl.pathname = `/${databaseName}`;
+    admin = createClient({ url: baseUrl.toString() });
     expect(process.env.KAFKA_URL).toBeFalsy();
     expect(process.env.KAFKA_BROKER).toBeFalsy();
     await admin.command({ query: `CREATE DATABASE ${databaseName}` });
@@ -34,9 +36,10 @@ integrationTest('ClickHouse collection deletion preserves other sites', async ()
     process.env.DATABASE_URL = 'postgresql://synthetic:synthetic@127.0.0.1:1/synthetic';
     process.env.KAFKA_HISTORY_ATTESTED_CLEAN = 'true';
     vi.resetModules();
-    const { CLICKHOUSE_COLLECTION_TABLES, deleteClickhouseCollectionSources } = await import(
-      './deleteCollectionSources'
-    );
+    ({
+      CLICKHOUSE_COLLECTION_TABLES: collectionTables,
+      deleteClickhouseCollectionSources: deleteSources,
+    } = await import('./deleteCollectionSources'));
 
     await fixture.command({
       query: `CREATE TABLE event_data (
@@ -46,7 +49,7 @@ integrationTest('ClickHouse collection deletion preserves other sites', async ()
         date_value Nullable(DateTime('UTC')), data_type UInt32, created_at DateTime('UTC')
       ) ENGINE = MergeTree ORDER BY (website_id, event_id, data_key)`,
     });
-    for (const table of CLICKHOUSE_COLLECTION_TABLES) {
+    for (const table of collectionTables) {
       if (table !== 'event_data' && table !== 'event_data_pivot_verified') {
         await fixture.command({
           query: `CREATE TABLE ${table} (website_id UUID, marker UInt8)
@@ -66,7 +69,7 @@ integrationTest('ClickHouse collection deletion preserves other sites', async ()
       await fixture.command({ query: statement });
     }
 
-    for (const table of CLICKHOUSE_COLLECTION_TABLES) {
+    for (const table of collectionTables) {
       if (table !== 'event_data' && table !== 'event_data_pivot_verified') {
         await fixture.insert({
           table,
@@ -95,33 +98,48 @@ integrationTest('ClickHouse collection deletion preserves other sites', async ()
       })),
     });
 
-    const countRows = async (table: string, sourceId: string) => {
-      const result = await fixture.query({
-        query: `SELECT count() AS rows FROM ${table} WHERE website_id = {sourceId:UUID}`,
-        query_params: { sourceId },
-        format: 'JSONEachRow',
-      });
-      const [row] = await result.json<{ rows: string }>();
-      return Number(row?.rows);
-    };
-    expect(await countRows('event_data_pivot_verified', websiteId)).toBe(1);
-    expect(await countRows('event_data_pivot_verified', otherWebsiteId)).toBe(1);
-
     applicationClient = await (await import('@/lib/clickhouse')).default.connect();
-    await deleteClickhouseCollectionSources([websiteId]);
-    await deleteClickhouseCollectionSources([websiteId]);
+  });
 
-    for (const table of CLICKHOUSE_COLLECTION_TABLES) {
+  const countRows = async (table: string, sourceId: string) => {
+    if (!fixture) {
+      throw new Error('The isolated ClickHouse fixture is unavailable.');
+    }
+    const result = await fixture.query({
+      query: `SELECT count() AS rows FROM ${table} WHERE website_id = {sourceId:UUID}`,
+      query_params: { sourceId },
+      format: 'JSONEachRow',
+    });
+    const [row] = await result.json<{ rows: string }>();
+    return Number(row?.rows);
+  };
+
+  const expectSiteIsolation = async () => {
+    for (const table of collectionTables) {
       expect(await countRows(table, websiteId)).toBe(0);
       expect(await countRows(table, otherWebsiteId)).toBe(1);
     }
-  } finally {
+  };
+
+  test('removes the selected site while preserving other sites', async () => {
+    expect(await countRows('event_data_pivot_verified', websiteId)).toBe(1);
+    expect(await countRows('event_data_pivot_verified', otherWebsiteId)).toBe(1);
+    await deleteSources([websiteId]);
+    await expectSiteIsolation();
+  });
+
+  test('repeating deletion preserves the same site isolation', async () => {
+    await deleteSources([websiteId]);
+    await expectSiteIsolation();
+  });
+
+  afterAll(async () => {
     await applicationClient?.close();
     await fixture?.close();
-    if (databaseCreated) {
+    if (databaseCreated && admin) {
       await admin.command({ query: `DROP DATABASE ${databaseName}` });
     }
-    await admin.close();
+    await admin?.close();
     if (originalClickhouseUrl === undefined) {
       delete process.env.CLICKHOUSE_URL;
     } else {
@@ -138,5 +156,5 @@ integrationTest('ClickHouse collection deletion preserves other sites', async ()
       process.env.KAFKA_HISTORY_ATTESTED_CLEAN = originalKafkaHistoryAttestedClean;
     }
     vi.resetModules();
-  }
+  });
 });
