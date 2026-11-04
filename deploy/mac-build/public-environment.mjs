@@ -1,17 +1,27 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
-import { validatePublicConfiguration } from '../../scripts/mac-artifact-transport.mjs';
+import {
+  validateAnalyticsReleaseIdentity,
+  validatePublicConfiguration,
+} from '../../scripts/mac-artifact-transport.mjs';
 
 const [configPath, mode, ...command] = process.argv.slice(2);
-if (!configPath || !['identity', 'run'].includes(mode)) {
-  throw new Error('Usage: public-environment.mjs CONFIG identity | run COMMAND [ARG...]');
+if (!configPath || !['identity', 'release-identity', 'run'].includes(mode)) {
+  throw new Error(
+    'Usage: public-environment.mjs CONFIG identity | release-identity TAG | run COMMAND [ARG...]',
+  );
 }
 
 const configuration = JSON.parse(await fs.readFile(configPath, 'utf8'));
 validatePublicConfiguration(configuration, configuration.site, configuration.repository);
 
-if (mode === 'identity') {
-  if (command.length) throw new Error('Identity mode takes no command.');
+if (mode !== 'run') {
+  if (mode === 'release-identity') {
+    if (command.length !== 1) throw new Error('Release identity requires one tag.');
+    validateAnalyticsReleaseIdentity(configuration.site, configuration.repository, command[0]);
+  } else if (command.length) {
+    throw new Error('Identity mode takes no command.');
+  }
   process.stdout.write(`${configuration.site}\n${configuration.repository}\n`);
 } else {
   if (!command.length) throw new Error('Run mode requires a command.');

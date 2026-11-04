@@ -50,24 +50,15 @@ configuration="$(realpath "$4")"
 output_parent="$(cd "$(dirname "$5")" && pwd -P)"
 output="$output_parent/$(basename "$5")"
 test ! -e "$output"
-[[ "$tag" =~ ^v4\.[0-9]+\.[0-9]+$ ]]
 source "$installed_root/deploy/mac-build/storage-env.sh"
 if [[ "${ANDERSON_UNSIGNED_LOCK_HELD:-}" != 1 ]]; then
   mkdir -p "$ANDERSON_BUILDER_EXCHANGE/locks"
   exec /usr/bin/lockf -t 0 "$ANDERSON_BUILDER_EXCHANGE/locks/release.lock" \
     /usr/bin/env ANDERSON_UNSIGNED_LOCK_HELD=1 /bin/bash "$script_path" "$@"
 fi
-identity="$("$node_bin" "$installed_root/deploy/mac-build/public-environment.mjs" "$configuration" identity)"
+identity="$("$node_bin" "$installed_root/deploy/mac-build/public-environment.mjs" "$configuration" release-identity "$tag")"
 site="${identity%%$'\n'*}"
 repository="${identity##*$'\n'}"
-case "$site:$repository" in
-  analytics.example.com:anderson-webops/analytics-umami-template | \
-  analytics.np-servicerequest.org:anderson-webops/analytics.np-servicerequest.org | \
-  analytics.mariettaviolinwithcarla.com:anderson-webops/analytics.mariettaviolinwithcarla.com | \
-  analytics.retrozetrocomics.com:anderson-webops/analytics.retrozetrocomics.com | \
-  analytics.jacobdanderson.net:anderson-webops/analytics.jacobdanderson.net) ;;
-  *) printf 'Application is outside this reviewed builder scope.\n' >&2; exit 78 ;;
-esac
 test "$(git -C "$source_root" remote get-url origin)" = "git@github.com:$repository.git"
 test -z "$(git -C "$source_root" status --porcelain)"
 test "$(git -C "$source_root" cat-file -t "refs/tags/$tag")" = tag

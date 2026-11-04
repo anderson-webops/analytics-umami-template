@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -31,6 +32,95 @@ test('unsigned controller cannot run from a checkout', () => {
   });
   assert.equal(result.status, 78);
   assert.match(result.stderr, /reviewed installed/);
+});
+
+test('legacy transport signing rejects a key path before touching it', () => {
+  const result = spawnSync(
+    process.execPath,
+    [
+      path.join(directory, '../../scripts/mac-artifact-transport.mjs'),
+      'sign',
+      '--output',
+      '/unavailable/candidate-output',
+      '--key',
+      '/unavailable/private-key',
+    ],
+    { encoding: 'utf8', env: { PATH: '/usr/bin:/bin' } },
+  );
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Checkout-controlled signing is retired/);
+  assert.doesNotMatch(result.stderr, /ENOENT|private-key/);
+  assert.equal(result.stdout, '');
+});
+
+test('unsigned builder uses its installed policy to bind the exact application and release line', () => {
+  const source = fs.readFileSync(path.join(directory, 'build-unsigned.sh'), 'utf8');
+  assert.match(
+    source,
+    /"\$installed_root\/deploy\/mac-build\/public-environment\.mjs" "\$configuration" release-identity "\$tag"/,
+  );
+  assert.ok(source.indexOf('release-identity') < source.indexOf('bundle create'));
+});
+
+test('public release identity command admits only the exact Avasan profile and v5 tag', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'classroom-release-identity-'));
+  const filename = path.join(root, 'configuration.json');
+  const configuration = {
+    schema_version: 1,
+    site: 'analytics.avasan.org',
+    repository: 'anderson-webops/analytics.avasan.org',
+    environment: {
+      PUBLIC_URL: 'https://analytics.avasan.org',
+      CLIENT_IP_HEADER: 'x-real-ip',
+      CLASSROOM_MODE: '1',
+      PRIVATE_MODE: '1',
+      DISABLE_PUBLIC_SHARES: '1',
+      DISABLE_TELEMETRY: '1',
+      NEXT_TELEMETRY_DISABLED: '1',
+      DISABLE_UPDATES: '1',
+      ENABLE_UPDATE_CHECKS: '0',
+      MCP_ENABLED: '0',
+      SKIP_BUILD_GEO: '1',
+    },
+  };
+  try {
+    fs.writeFileSync(filename, JSON.stringify(configuration));
+    for (const [tag, accepted] of [
+      ['v5.0.1', true],
+      ['v4.2.188', false],
+      ['v6.0.0', false],
+      ['v5.0.1\n', false],
+    ]) {
+      const result = spawnSync(
+        process.execPath,
+        [path.join(directory, 'public-environment.mjs'), filename, 'release-identity', tag],
+        {
+          encoding: 'utf8',
+          env: { PATH: '/usr/bin:/bin' },
+        },
+      );
+      assert.equal(result.status, accepted ? 0 : 1);
+      assert.equal(
+        result.stdout,
+        accepted ? `${configuration.site}\n${configuration.repository}\n` : '',
+      );
+    }
+    configuration.environment.MCP_ENABLED = '1';
+    fs.writeFileSync(filename, JSON.stringify(configuration));
+    const result = spawnSync(
+      process.execPath,
+      [path.join(directory, 'public-environment.mjs'), filename, 'release-identity', 'v5.0.1'],
+      {
+        encoding: 'utf8',
+        env: { PATH: '/usr/bin:/bin' },
+      },
+    );
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, '');
+    assert.match(result.stderr, /classroom privacy profile/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('unsigned builder retains the disposable guest and independent signature boundary', () => {

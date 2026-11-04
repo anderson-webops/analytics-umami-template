@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import {
+  validateAnalyticsReleaseIdentity,
   validatePublicConfiguration,
   verifyEmbeddedRuntime,
   verifyTransportArchive,
@@ -14,15 +15,6 @@ import {
 
 export const builderFingerprint =
   '9312fb21bf79162b8bf481d22190fe8e7352be8d80ceae99ad435faa1249f316';
-const scopes = new Map([
-  ['analytics.example.com', 'anderson-webops/analytics-umami-template'],
-  ...[
-    'analytics.np-servicerequest.org',
-    'analytics.mariettaviolinwithcarla.com',
-    'analytics.retrozetrocomics.com',
-    'analytics.jacobdanderson.net',
-  ].map(site => [site, `anderson-webops/${site}`]),
-]);
 const installedRoot = path.join(
   os.homedir(),
   'Library/Application Support/AndersonArtifactBuilder/analytics-v1',
@@ -63,12 +55,9 @@ export function validateAnalyticsApproval(approval, source, acceptance, contract
       'productionActivationAuthorized',
     ]) ||
     approval.schemaVersion !== 1 ||
-    !scopes.has(approval.site) ||
-    scopes.get(approval.site) !== approval.repository ||
     approval.builderId !== 'jacob-m3' ||
     !commitPattern.test(approval.commit) ||
     !commitPattern.test(approval.tree) ||
-    !/^v4\.\d+\.\d+$/.test(approval.tag) ||
     approval.productionActivationAuthorized !== false ||
     ['sourceSha256', 'contractSha256', 'acceptanceSha256'].some(
       name => !digestPattern.test(approval[name]),
@@ -77,6 +66,7 @@ export function validateAnalyticsApproval(approval, source, acceptance, contract
   ) {
     throw new Error('Analytics signing approval has an unsupported scope or identity.');
   }
+  validateAnalyticsReleaseIdentity(approval.site, approval.repository, approval.tag);
   if (
     source.repository !== approval.repository ||
     source.commit !== approval.commit ||
@@ -110,6 +100,27 @@ export function validateAnalyticsApproval(approval, source, acceptance, contract
     ].every(name => acceptance[name] === true)
   ) {
     throw new Error('Analytics exact-artifact or disposable isolation acceptance is missing.');
+  }
+  if (approval.site === 'analytics.avasan.org') {
+    const deployment = JSON.parse(contractBytes).deployment;
+    if (
+      ![
+        'classroomPrivacyVerified',
+        'classroomTwoFactorVerified',
+        'soleOwnerProvisioningVerified',
+      ].every(name => acceptance[name] === true) ||
+      deployment?.applicationId !== approval.site ||
+      !Array.isArray(deployment.requiredAdapterCapabilities) ||
+      ![
+        'classroom-2fa-privacy-acceptance-v1',
+        'database-aware-recovery-v1',
+        'writer-isolated-finalization-v1',
+      ].every(name => deployment.requiredAdapterCapabilities.includes(name))
+    ) {
+      throw new Error(
+        'Independent Avasan classroom, sole-owner and recovery acceptance is missing.',
+      );
+    }
   }
   const names = [
     `${approval.site}-${approval.tag}-linux-arm64-runtime.tar.gz`,

@@ -30,6 +30,7 @@ const publicEnvironmentNames = new Set([
   'DEFAULT_LOCALE',
   'DISABLE_PUBLIC_SHARES',
   'DISABLE_TELEMETRY',
+  'DISABLE_UPDATES',
   'ENABLE_TEST_CONSOLE',
   'ENABLE_UPDATE_CHECKS',
   'FAVICON_URL',
@@ -40,6 +41,7 @@ const publicEnvironmentNames = new Set([
   'PIXELS_URL',
   'PRIVATE_MODE',
   'PUBLIC_URL',
+  'SKIP_BUILD_GEO',
   'TRACKER_SCRIPT_NAME',
   'TRACKER_SCRIPT_SHA256',
   'TRACKER_SCRIPT_URL',
@@ -92,6 +94,31 @@ function hasControlCharacters(value) {
   return false;
 }
 
+export function validateAnalyticsReleaseIdentity(site, repository, tag) {
+  const releaseLine = site === 'analytics.avasan.org' ? 5 : 4;
+  const expectedRepository =
+    site === 'analytics.example.com'
+      ? 'anderson-webops/analytics-umami-template'
+      : [
+            'analytics.avasan.org',
+            'analytics.np-servicerequest.org',
+            'analytics.mariettaviolinwithcarla.com',
+            'analytics.retrozetrocomics.com',
+            'analytics.jacobdanderson.net',
+          ].includes(site)
+        ? `anderson-webops/${site}`
+        : null;
+  if (
+    !expectedRepository ||
+    repository !== expectedRepository ||
+    typeof tag !== 'string' ||
+    hasControlCharacters(tag) ||
+    !new RegExp(`^v${releaseLine}\\.\\d+\\.\\d+$`).test(tag)
+  ) {
+    throw new Error('Analytics release has an unsupported application, repository or major line.');
+  }
+}
+
 export function validatePublicConfiguration(configuration, site, repository) {
   if (
     !configuration ||
@@ -131,7 +158,13 @@ export function validatePublicConfiguration(configuration, site, repository) {
     );
   }
 
-  for (const name of ['CLASSROOM_MODE', 'CLOUD_MODE', 'MCP_ENABLED', 'PRIVATE_MODE']) {
+  for (const name of [
+    'CLASSROOM_MODE',
+    'CLOUD_MODE',
+    'DISABLE_UPDATES',
+    'MCP_ENABLED',
+    'PRIVATE_MODE',
+  ]) {
     if (environment[name] !== undefined && !['0', '1'].includes(environment[name])) {
       throw new Error(`The ${name} build flag must be 0 or 1.`);
     }
@@ -163,6 +196,32 @@ export function validatePublicConfiguration(configuration, site, repository) {
       parsed.search
     ) {
       throw new Error(`The ${name} build URL must be public HTTPS without credentials.`);
+    }
+  }
+
+  if (site === 'analytics.avasan.org' || repository === 'anderson-webops/analytics.avasan.org') {
+    const required = {
+      CLIENT_IP_HEADER: 'x-real-ip',
+      CLASSROOM_MODE: '1',
+      DISABLE_PUBLIC_SHARES: '1',
+      DISABLE_TELEMETRY: '1',
+      DISABLE_UPDATES: '1',
+      ENABLE_UPDATE_CHECKS: '0',
+      MCP_ENABLED: '0',
+      NEXT_TELEMETRY_DISABLED: '1',
+      PRIVATE_MODE: '1',
+      PUBLIC_URL: 'https://analytics.avasan.org',
+      SKIP_BUILD_GEO: '1',
+    };
+    if (
+      site !== 'analytics.avasan.org' ||
+      repository !== 'anderson-webops/analytics.avasan.org' ||
+      Object.keys(environment).sort().join(',') !== Object.keys(required).sort().join(',') ||
+      Object.entries(required).some(([name, value]) => environment[name] !== value)
+    ) {
+      throw new Error(
+        'Avasan build configuration must retain its isolated classroom privacy profile.',
+      );
     }
   }
 
@@ -724,117 +783,10 @@ export async function prepareTransport({
   return transport;
 }
 
-export async function signTransport(outputDir, privateKeyPath) {
-  if (process.platform !== 'darwin')
-    throw new Error('The private builder key must remain on the Mac.');
-  const keyMetadata = await fs.lstat(privateKeyPath);
-  const parentMetadata = await fs.lstat(path.dirname(privateKeyPath));
-  const approvedSigningDirectory = process.env.ANDERSON_BUILDER_SIGNING_DIR;
-  const disk = execFileSync('df', ['-P', privateKeyPath], { encoding: 'utf8' })
-    .trim()
-    .split('\n')[1]
-    ?.split(/\s+/)[0];
-  if (!disk?.startsWith('/dev/')) throw new Error('The signing key has no verified local disk.');
-  const diskInfo = execFileSync('diskutil', ['info', '-plist', disk]);
-  const encrypted = execFileSync('plutil', ['-extract', 'Encryption', 'raw', '-o', '-', '-'], {
-    input: diskInfo,
-    encoding: 'utf8',
-  }).trim();
-  if (
-    encrypted !== 'true' ||
-    !keyMetadata.isFile() ||
-    keyMetadata.nlink !== 1 ||
-    keyMetadata.uid !== process.getuid() ||
-    (keyMetadata.mode & 0o777) !== 0o600 ||
-    !parentMetadata.isDirectory() ||
-    parentMetadata.uid !== process.getuid() ||
-    (parentMetadata.mode & 0o077) !== 0 ||
-    !approvedSigningDirectory ||
-    (await fs.realpath(path.dirname(privateKeyPath))) !==
-      (await fs.realpath(approvedSigningDirectory)) ||
-    isWithin(repositoryRoot, await fs.realpath(privateKeyPath)) ||
-    isWithin(outputDir, await fs.realpath(privateKeyPath)) ||
-    (process.env.ANDERSON_BUILDER_EXCHANGE &&
-      isWithin(
-        await fs.realpath(process.env.ANDERSON_BUILDER_EXCHANGE),
-        await fs.realpath(privateKeyPath),
-      ))
-  ) {
-    throw new Error('The signing key must be a private Mac-owned file outside the repository.');
-  }
-  const manifestPath = path.join(outputDir, 'anderson-runtime-manifest.json');
-  const manifestBytes = await fs.readFile(manifestPath);
-  if (manifestBytes.length > maxManifestBytes)
-    throw new Error('Transport manifest exceeds its limit.');
-  const manifest = JSON.parse(manifestBytes.toString());
-  const publicConfiguration = await fs.readFile(
-    path.join(outputDir, 'public-build-configuration.json'),
+export async function signTransport() {
+  throw new Error(
+    'Checkout-controlled signing is retired. Use the independently reviewed installed analytics signer.',
   );
-  const receipt = JSON.parse(
-    await fs.readFile(path.join(outputDir, 'acceptance-receipt.json'), 'utf8'),
-  );
-  const sourceCommit = gitValue(['rev-parse', 'HEAD'], repositoryRoot);
-  if (
-    manifest.commit !== sourceCommit ||
-    gitValue(['cat-file', '-t', `refs/tags/${manifest.tag}`], repositoryRoot) !== 'tag' ||
-    gitValue(['rev-parse', `${manifest.tag}^{commit}`], repositoryRoot) !== sourceCommit ||
-    gitValue(['status', '--porcelain'], repositoryRoot) ||
-    !publicConfiguration.equals(
-      validatePublicConfiguration(
-        JSON.parse(publicConfiguration.toString()),
-        manifest.site,
-        manifest.repository,
-      ),
-    ) ||
-    manifest.configuration_sha256 !== sha256(publicConfiguration) ||
-    receipt.commit !== manifest.commit ||
-    receipt.tag !== manifest.tag ||
-    JSON.stringify(receipt.checks) !== JSON.stringify(manifest.checks) ||
-    manifest.runtime_contract_sha256 !==
-      (await digestFile(path.join(repositoryRoot, 'deploy/runtime-artifact.json'))).sha256
-  ) {
-    throw new Error(
-      'Transport manifest does not match clean reviewed Mac source and configuration.',
-    );
-  }
-  const archivePath = path.join(outputDir, manifest.archive.name);
-  const archive = await digestFile(archivePath);
-  if (archive.size !== manifest.archive.size || archive.sha256 !== manifest.archive.sha256) {
-    throw new Error('The archive changed before transport signing.');
-  }
-  const trustedContract = JSON.parse(
-    await fs.readFile(path.join(repositoryRoot, 'deploy/runtime-artifact.json'), 'utf8'),
-  );
-  const embedded = await verifyTransportArchive(archivePath, manifest.files);
-  verifyEmbeddedRuntime(manifest, embedded, trustedContract);
-  const privateKey = crypto.createPrivateKey(await fs.readFile(privateKeyPath));
-  if (privateKey.asymmetricKeyType !== 'ed25519')
-    throw new Error('The builder key must be Ed25519.');
-  const signature = crypto.sign(null, manifestBytes, privateKey);
-  if (
-    signature.length !== 64 ||
-    !crypto.verify(null, manifestBytes, crypto.createPublicKey(privateKey), signature)
-  ) {
-    throw new Error('The detached manifest signature could not be verified.');
-  }
-  const signaturePath = path.join(outputDir, 'anderson-runtime-manifest.sig');
-  await fs.writeFile(signaturePath, signature, { flag: 'wx', mode: 0o600 });
-  const names = [
-    manifest.archive.name,
-    'anderson-runtime-manifest.json',
-    'anderson-runtime-manifest.sig',
-    'public-build-configuration.json',
-    'acceptance-receipt.json',
-  ];
-  const checksums = [];
-  for (const name of names.sort()) {
-    checksums.push(`${(await digestFile(path.join(outputDir, name))).sha256}  ${name}`);
-  }
-  await fs.writeFile(path.join(outputDir, 'SHA256SUMS'), `${checksums.join('\n')}\n`, {
-    flag: 'wx',
-    mode: 0o600,
-  });
-  return { manifestSha256: sha256(manifestBytes), archive };
 }
 
 export async function verifySignedTransport(outputDir, publicKeyPath) {
@@ -917,14 +869,13 @@ async function main() {
     });
     process.stdout.write(`Prepared unsigned ${result.site} transport at ${result.commit}.\n`);
   } else if (command === 'sign') {
-    await signTransport(options.get('output'), options.get('key'));
-    process.stdout.write('Signed and checksummed the exact transport bytes.\n');
+    await signTransport();
   } else if (command === 'verify') {
     const manifest = await verifySignedTransport(options.get('output'), options.get('public-key'));
     process.stdout.write(`Verified signed ${manifest.site} transport at ${manifest.commit}.\n`);
   } else {
     throw new Error(
-      'Usage: mac-artifact-transport.mjs prepare --runtime ROOT --config FILE --receipt FILE --output DIR --builder-id ID --tag TAG | sign --output DIR --key FILE | verify --output DIR --public-key FILE',
+      'Usage: mac-artifact-transport.mjs prepare --runtime ROOT --config FILE --receipt FILE --output DIR --builder-id ID --tag TAG | verify --output DIR --public-key FILE',
     );
   }
 }

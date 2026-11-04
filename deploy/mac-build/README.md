@@ -5,7 +5,8 @@ Production activation remains a protected host operation.
 
 ## Reviewed local tools
 
-The legacy checkout-controlled `release.sh` and `publish.sh` entrypoints fail
+The legacy checkout-controlled `release.sh`, `publish.sh` and transport `sign`
+entrypoints fail
 closed. Build through a separately reviewed, owner-only installation of
 `build-unsigned.sh` under
 `~/Library/Application Support/AndersonArtifactBuilder/analytics-builder-v1/`.
@@ -26,7 +27,18 @@ env -i HOME="$HOME" USER="$USER" LOGNAME="$USER" \
 The source must be clean, match its annotated tag and local origin/main, and
 have aligned package/tag versions. The public configuration identifies exactly
 one application and repository. The reviewed builder scope currently covers the
-template example host, Personal, NP, Marietta and RetroZetro analytics.
+template example host, Personal, NP, Marietta and RetroZetro analytics on v4.
+The Avasan identity policy admits only its own repository on v5 and retains its
+closed classroom configuration. Cross-application identities and crossed major
+lines are rejected by the same installed policy used for signing.
+
+Avasan signing additionally requires independently approved classroom privacy,
+current two-factor and sole-owner provisioning acceptance, plus its classroom,
+database-recovery and isolated-finalization host capabilities. Generic fixture
+results do not satisfy those fields. Its classroom-specific runtime acceptance,
+Node 26 migration and host-adapter compatibility require separate exact-artifact
+validation; the identity policy does not establish that acceptance or alter the
+existing host finalizer. The generic production GeoIP requirement remains intact.
 
 ## Disposable build and acceptance
 

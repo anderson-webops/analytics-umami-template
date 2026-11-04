@@ -23,8 +23,25 @@ function fixture(site = 'analytics.np-servicerequest.org') {
       ? 'anderson-webops/analytics-umami-template'
       : `anderson-webops/${site}`;
   const commit = 'a'.repeat(40);
-  const tag = 'v4.2.185';
-  const contractBytes = Buffer.from('{"version":1}\n');
+  const classroom = site === 'analytics.avasan.org';
+  const tag = classroom ? 'v5.0.1' : 'v4.2.185';
+  const contractBytes = Buffer.from(
+    `${JSON.stringify(
+      classroom
+        ? {
+            version: 1,
+            deployment: {
+              applicationId: site,
+              requiredAdapterCapabilities: [
+                'classroom-2fa-privacy-acceptance-v1',
+                'database-aware-recovery-v1',
+                'writer-isolated-finalization-v1',
+              ],
+            },
+          }
+        : { version: 1 },
+    )}\n`,
+  );
   const approval = {
     schemaVersion: 1,
     site,
@@ -73,6 +90,13 @@ function fixture(site = 'analytics.np-servicerequest.org') {
     sourceChecksPassed: true,
     registrySignaturesVerified: true,
     noProviderEffects: true,
+    ...(classroom
+      ? {
+          classroomPrivacyVerified: true,
+          classroomTwoFactorVerified: true,
+          soleOwnerProvisioningVerified: true,
+        }
+      : {}),
   };
   const configurationBytes = validatePublicConfiguration(
     {
@@ -84,6 +108,17 @@ function fixture(site = 'analytics.np-servicerequest.org') {
         CLIENT_IP_HEADER: 'x-real-ip',
         DISABLE_TELEMETRY: '1',
         NEXT_TELEMETRY_DISABLED: '1',
+        ...(classroom
+          ? {
+              CLASSROOM_MODE: '1',
+              PRIVATE_MODE: '1',
+              DISABLE_PUBLIC_SHARES: '1',
+              DISABLE_UPDATES: '1',
+              MCP_ENABLED: '0',
+              ENABLE_UPDATE_CHECKS: '0',
+              SKIP_BUILD_GEO: '1',
+            }
+          : {}),
       },
     },
     site,
@@ -132,6 +167,7 @@ for (const site of [
   'analytics.mariettaviolinwithcarla.com',
   'analytics.retrozetrocomics.com',
   'analytics.jacobdanderson.net',
+  'analytics.avasan.org',
 ]) {
   test(`accepts only the reviewed source/acceptance identity for ${site}`, () => {
     const state = fixture(site);
@@ -196,7 +232,7 @@ for (const field of [
 }
 
 test('rejects another application, an expanded asset set, oversized input and changed contract bytes', () => {
-  const state = fixture('analytics.avasan.org');
+  const state = fixture('analytics.unreviewed.org');
   assert.throws(() =>
     validateAnalyticsApproval(state.approval, state.source, state.acceptance, state.contractBytes),
   );
@@ -213,6 +249,57 @@ test('rejects another application, an expanded asset set, oversized input and ch
   assert.throws(() =>
     validateAnalyticsApproval(valid.approval, valid.source, valid.acceptance, valid.contractBytes),
   );
+});
+
+for (const name of [
+  'classroomPrivacyVerified',
+  'classroomTwoFactorVerified',
+  'soleOwnerProvisioningVerified',
+]) {
+  test(`Avasan requires independent ${name} before signing`, () => {
+    for (const value of [undefined, false, 'true']) {
+      const state = fixture('analytics.avasan.org');
+      state.acceptance[name] = value;
+      assert.throws(
+        () =>
+          validateAnalyticsApproval(
+            state.approval,
+            state.source,
+            state.acceptance,
+            state.contractBytes,
+          ),
+        /Avasan classroom/,
+      );
+    }
+  });
+}
+
+test('Avasan cannot reuse a generic or incomplete host admission contract', () => {
+  for (const change of [
+    contract => {
+      contract.deployment.applicationId = 'analytics.example.com';
+    },
+    contract => {
+      contract.deployment.requiredAdapterCapabilities.pop();
+    },
+    contract => {
+      contract.deployment.requiredAdapterCapabilities =
+        contract.deployment.requiredAdapterCapabilities.join(',');
+    },
+    contract => {
+      delete contract.deployment;
+    },
+  ]) {
+    const state = fixture('analytics.avasan.org');
+    const contract = JSON.parse(state.contractBytes);
+    change(contract);
+    const bytes = Buffer.from(JSON.stringify(contract));
+    state.approval.contractSha256 = digest(bytes);
+    assert.throws(
+      () => validateAnalyticsApproval(state.approval, state.source, state.acceptance, bytes),
+      /Avasan classroom/,
+    );
+  }
 });
 
 test('approval never authorizes production activation', () => {

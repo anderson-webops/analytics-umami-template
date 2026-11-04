@@ -75,6 +75,13 @@ test('Mac rejects a build-time change to the reviewed public configuration', () 
       CLIENT_IP_HEADER: 'x-real-ip',
       DISABLE_TELEMETRY: '1',
       NEXT_TELEMETRY_DISABLED: '1',
+      CLASSROOM_MODE: '1',
+      PRIVATE_MODE: '1',
+      DISABLE_PUBLIC_SHARES: '1',
+      DISABLE_UPDATES: '1',
+      ENABLE_UPDATE_CHECKS: '0',
+      MCP_ENABLED: '0',
+      SKIP_BUILD_GEO: '1',
     },
   };
 
@@ -90,7 +97,7 @@ test('Mac rejects a build-time change to the reviewed public configuration', () 
     configuration.environment.PRIVATE_MODE = '0';
     fs.writeFileSync(
       path.join(assets, 'public-build-configuration.json'),
-      validatePublicConfiguration(configuration, site, repository),
+      Buffer.from(JSON.stringify(configuration)),
     );
     assert.throws(
       () => verifyUnsignedAssets(assets, site, tag, repository, reviewedPath),

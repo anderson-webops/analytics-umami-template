@@ -8,6 +8,8 @@ import { gunzipSync, gzipSync } from 'node:zlib';
 import {
   collectTransportRecords,
   createUstarHeader,
+  signTransport,
+  validateAnalyticsReleaseIdentity,
   validatePublicConfiguration,
   verifyTransportArchive,
   writeTransportArchive,
@@ -27,8 +29,99 @@ const configuration = {
     CLASSROOM_MODE: '1',
     PRIVATE_MODE: '1',
     MCP_ENABLED: '0',
+    DISABLE_PUBLIC_SHARES: '1',
+    DISABLE_UPDATES: '1',
+    ENABLE_UPDATE_CHECKS: '0',
+    SKIP_BUILD_GEO: '1',
   },
 };
+
+test('legacy transport signing fails before accessing any candidate input', async () => {
+  const inaccessible = new Proxy({}, { get: () => assert.fail('Legacy key input was accessed') });
+  await assert.rejects(
+    signTransport(inaccessible, inaccessible),
+    /Checkout-controlled signing is retired/,
+  );
+});
+
+for (const [site, tag] of [
+  ['analytics.example.com', 'v4.2.188'],
+  ['analytics.np-servicerequest.org', 'v4.2.188'],
+  ['analytics.mariettaviolinwithcarla.com', 'v4.2.188'],
+  ['analytics.retrozetrocomics.com', 'v4.2.188'],
+  ['analytics.jacobdanderson.net', 'v4.2.60'],
+  ['analytics.avasan.org', 'v5.0.1'],
+]) {
+  test(`release identity binds the reviewed repository and major line for ${site}`, () => {
+    const repository =
+      site === 'analytics.example.com'
+        ? 'anderson-webops/analytics-umami-template'
+        : `anderson-webops/${site}`;
+    validateAnalyticsReleaseIdentity(site, repository, tag);
+    assert.throws(() => validateAnalyticsReleaseIdentity(site, 'anderson-webops/other', tag));
+    for (const invalid of ['v6.0.0', 'v5.0.1-rc.1', 'v4.0.0\n', '', null]) {
+      assert.throws(() => validateAnalyticsReleaseIdentity(site, repository, invalid));
+    }
+    assert.throws(() =>
+      validateAnalyticsReleaseIdentity(
+        site,
+        repository,
+        site === 'analytics.avasan.org' ? 'v4.2.188' : 'v5.0.1',
+      ),
+    );
+  });
+}
+
+test('unknown applications cannot borrow a supported release line', () => {
+  assert.throws(() =>
+    validateAnalyticsReleaseIdentity(
+      'analytics.other.org',
+      'anderson-webops/analytics.other.org',
+      'v4.2.188',
+    ),
+  );
+});
+
+test('Avasan rejects extra allowed public fields and crossed repository identities', () => {
+  for (const extra of [{ CLOUD_MODE: '0' }, { TRACKER_SCRIPT_SHA256: 'a'.repeat(64) }]) {
+    assert.throws(
+      () =>
+        validatePublicConfiguration(
+          { ...configuration, environment: { ...configuration.environment, ...extra } },
+          site,
+          repository,
+        ),
+      /classroom privacy profile/,
+    );
+  }
+  const different = 'anderson-webops/analytics.np-servicerequest.org';
+  assert.throws(
+    () => validatePublicConfiguration({ ...configuration, repository: different }, site, different),
+    /classroom privacy profile/,
+  );
+});
+
+for (const name of [
+  'CLASSROOM_MODE',
+  'PRIVATE_MODE',
+  'DISABLE_PUBLIC_SHARES',
+  'DISABLE_UPDATES',
+  'MCP_ENABLED',
+  'ENABLE_UPDATE_CHECKS',
+  'SKIP_BUILD_GEO',
+]) {
+  test(`Avasan rejects absent or changed ${name} privacy configuration`, () => {
+    for (const replacement of [undefined, configuration.environment[name] === '1' ? '0' : '1']) {
+      const candidate = structuredClone(configuration);
+      if (replacement === undefined) delete candidate.environment[name];
+      else candidate.environment[name] = replacement;
+      assert.throws(
+        () => validatePublicConfiguration(candidate, site, repository),
+        /classroom privacy profile/,
+      );
+    }
+  });
+}
 
 test('public build configuration is canonical and rejects private or changed values', () => {
   const canonical = validatePublicConfiguration(configuration, site, repository);
@@ -73,6 +166,19 @@ test('public build configuration is canonical and rejects private or changed val
 });
 
 test('external tracker build configuration binds an approved script digest', () => {
+  const site = 'analytics.np-servicerequest.org';
+  const repository = `anderson-webops/${site}`;
+  const configuration = {
+    schema_version: 1,
+    site,
+    repository,
+    environment: {
+      PUBLIC_URL: `https://${site}`,
+      CLIENT_IP_HEADER: 'x-real-ip',
+      DISABLE_TELEMETRY: '1',
+      NEXT_TELEMETRY_DISABLED: '1',
+    },
+  };
   const digest = 'a'.repeat(64);
   const external = {
     ...configuration,
