@@ -446,10 +446,18 @@ test('accepts reviewed site-specific adapter gates but rejects unknown capabilit
     contract.deployment.requiredAdapterCapabilities.includes('retired-kafka-history-review-v1'),
   );
   contract.deployment.requiredAdapterCapabilities.push('coordinated-listener-transition-v1');
+  contract.deployment.requiredAdapterCapabilities.push('classroom-2fa-privacy-acceptance-v1');
+  contract.deployment.requiredAdapterCapabilities.push('writer-isolated-finalization-v1');
   await fs.writeFile(contractPath, JSON.stringify(contract));
   const manifest = await createRuntimeManifest(root, { contractPath, source });
   assert.ok(
     manifest.deployment.requiredAdapterCapabilities.includes('coordinated-listener-transition-v1'),
+  );
+  assert.ok(
+    manifest.deployment.requiredAdapterCapabilities.includes('classroom-2fa-privacy-acceptance-v1'),
+  );
+  assert.ok(
+    manifest.deployment.requiredAdapterCapabilities.includes('writer-isolated-finalization-v1'),
   );
   await verifyRuntimeArtifact(root, { contractPath });
 

@@ -215,6 +215,7 @@ function validateDeploymentContract(deployment) {
     ...requiredCapabilities,
     'coordinated-listener-transition-v1',
     'classroom-2fa-privacy-acceptance-v1',
+    'writer-isolated-finalization-v1',
     'database-aware-recovery-v1',
     'legacy-clickhouse-erasure-review-v1',
     'retired-kafka-history-review-v1',
