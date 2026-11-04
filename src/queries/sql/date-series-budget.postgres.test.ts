@@ -47,7 +47,9 @@ integrationTest(
     CREATE TABLE session_data (
       session_id UUID NOT NULL, website_id UUID NOT NULL, trust_tier SMALLINT NOT NULL,
       data_key TEXT NOT NULL, data_type INTEGER NOT NULL, date_value TIMESTAMPTZ NOT NULL
-    )`);
+    );
+    CREATE UNIQUE INDEX session_data_session_id_data_key_key
+      ON session_data(session_id, data_key)`);
 
       for (const [index, date] of [
         '2026-03-08T04:30:00Z',
