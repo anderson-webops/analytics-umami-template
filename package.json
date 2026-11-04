@@ -18,7 +18,7 @@
   "type": "module",
   "scripts": {
     "predev": "pnpm run check:env",
-    "dev": "cross-env NEXT_TELEMETRY_DISABLED=1 dotenv next dev --turbo --hostname 127.0.0.1",
+    "dev": "cross-env NEXT_TELEMETRY_DISABLED=1 dotenv run --quiet -- next dev --turbo --hostname 127.0.0.1",
     "build": "npm-run-all check:collect-build-config check:env build:db check:db:build build:tracker build:recorder build:geo build:openapi build:packages build:app",
     "start": "node scripts/start-production.js",
     "build:production": "cross-env GEO_BUILD_REQUIRED=1 npm-run-all check:collect-build-config build:db build:tracker build:recorder build:geo build:openapi build:packages build:app postbuild",
@@ -117,7 +117,7 @@
     "audit:all": "pnpm audit --audit-level low",
     "audit:prod": "pnpm audit --prod --audit-level low",
     "prevalidate": "npm-run-all build:db build:packages",
-    "validate": "npm-run-all check:migration-history test:migration-history test:database-host-policy test:collection-key-config test:service-identity test:legacy-clickhouse-inventory test:packaging test:typescript-entrypoints test:component-dependencies test:collect-build-config test:geo test:name-data test:braces test:build-tool-vendors test:selector-parser test:source-map check:native-bindings check:peers format:check typecheck test:unit",
+    "validate": "npm-run-all check:migration-history test:migration-history test:database-host-policy test:collection-key-config test:service-identity test:legacy-clickhouse-inventory test:packaging test:typescript-entrypoints test:component-dependencies test:development-launcher test:collect-build-config test:geo test:name-data test:braces test:build-tool-vendors test:selector-parser test:source-map check:native-bindings check:peers format:check typecheck test:unit",
     "test:collect-build-config": "node --test scripts/test-collect-build-config.mjs",
     "format": "biome format --write .",
     "check": "biome check .",
@@ -129,7 +129,8 @@
     "test:selector-parser": "node --test scripts/test-selector-parser-compat.mjs",
     "test:source-map": "node --test scripts/test-source-map-js-compat.mjs",
     "test:typescript-entrypoints": "node --test scripts/test-typescript-entrypoints.mjs scripts/test-typecheck.mjs",
-    "test:component-dependencies": "node --test scripts/test-component-dependencies.mjs"
+    "test:component-dependencies": "node --test scripts/test-component-dependencies.mjs",
+    "test:development-launcher": "node --test scripts/test-development-launcher.mjs"
   },
   "cacheDirectories": [
     ".next/cache"
@@ -225,7 +226,6 @@
     "@types/react-dom": "^19.3.0",
     "babel-plugin-react-compiler": "19.1.0-rc.3",
     "cross-env": "^10.1.0",
-    "dotenv-cli": "^11.1.0",
     "jsdom": "^30.1.3",
     "msw": "^3.0.3",
     "openapi-typescript": "^7.13.0",

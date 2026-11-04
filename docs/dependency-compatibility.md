@@ -1,5 +1,13 @@
 # Dependency compatibility
 
+## Development launcher
+
+Dotenv 18 provides its own `dotenv run` executable. Development uses its explicit
+`run --quiet --` command boundary, and the competing `dotenv-cli` dependency is
+removed. The launcher regression exercises literal arguments, environment-file
+loading, existing-value precedence and child failure propagation. Production
+startup retains its independent environment and immutable-runtime validation.
+
 ## TypeScript
 
 Application, tracker and maintained workspace type checks use TypeScript 7.0.2
