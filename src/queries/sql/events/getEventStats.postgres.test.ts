@@ -1,11 +1,16 @@
 import { Client } from 'pg';
-import { expect, test } from 'vitest';
+import { beforeAll, describe, expect, test } from 'vitest';
 
-const integrationTest = process.env.POSTGRES_EVENT_SERIES_TEST_URL ? test : test.skip;
+const integrationSuite = process.env.POSTGRES_EVENT_SERIES_TEST_URL ? describe : describe.skip;
 
-integrationTest(
-  'PostgreSQL event series ranks matching names and preserves their buckets',
-  async () => {
+integrationSuite('PostgreSQL event series', () => {
+  let getEventStats: typeof import('./getEventStats').getEventStats;
+
+  beforeAll(async () => {
+    ({ getEventStats } = await import('./getEventStats'));
+  });
+
+  test('ranks matching names and preserves their buckets', async () => {
     const url = process.env.POSTGRES_EVENT_SERIES_TEST_URL;
     expect(process.env.DATABASE_URL).toBe(url);
 
@@ -60,7 +65,6 @@ integrationTest(
         [websiteId, 'legacy-only', firstDay],
       );
 
-      const { getEventStats } = await import('./getEventStats');
       const defaultSeries = await getEventStats(websiteId, {}, filters);
       expect(new Set(defaultSeries.map(row => row.x)).size).toBe(50);
       expect(defaultSeries.filter(row => row.x === names[0])).toHaveLength(2);
@@ -82,5 +86,5 @@ integrationTest(
       await client.query('DROP TABLE IF EXISTS website_event');
       await client.end();
     }
-  },
-);
+  });
+});
