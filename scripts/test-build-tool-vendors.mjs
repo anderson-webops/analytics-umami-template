@@ -44,7 +44,9 @@ test('Redocly resolves a patched matcher with its callable API', () => {
   const redoclyRequire = createRequire(openapiRequire.resolve('@redocly/openapi-core'));
   const minimatch = redoclyRequire('minimatch');
   const manifest = redoclyRequire('minimatch/package.json');
-  assert.equal(manifest.version, '11.0.3-webops.1');
+  assert.equal(manifest.version, '11.0.4-webops.1');
+  const matcherRequire = createRequire(redoclyRequire.resolve('minimatch'));
+  assert.equal(matcherRequire('minimatch-modern/package.json').version, '11.0.4');
   assert.equal(minimatch('example.com/one', 'example.com/**'), true);
   assert.equal(minimatch('other.com/one', 'example.com/**'), false);
   assert.equal(minimatch('one.json', '*.{json,yaml}'), true);
