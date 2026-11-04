@@ -134,8 +134,8 @@ jobs:
 
       - name: Exercise authentication and role workflows
         env:
-          CLICKHOUSE_HISTORY_ATTESTED_CLEAN: 'true'
-          KAFKA_HISTORY_ATTESTED_CLEAN: 'true'
+          CLICKHOUSE_HISTORY_ATTESTED_CLEAN: "true"
+          KAFKA_HISTORY_ATTESTED_CLEAN: "true"
         run: |
           test -z "${CLICKHOUSE_URL:-}"
           test -z "${KAFKA_URL:-}"

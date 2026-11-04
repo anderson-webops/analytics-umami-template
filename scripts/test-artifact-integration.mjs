@@ -116,7 +116,7 @@ async function assertIsolation(options) {
     );
   }
   const requireRuntime = createRequire(path.join(options.runtime, 'server.js'));
-  for (const name of ['vitest', 'typescript', '@biomejs/biome']) {
+  for (const name of ['vitest', 'typescript', 'typescript-native', '@biomejs/biome']) {
     assert.throws(() => requireRuntime.resolve(name), 'Development dependencies are exposed');
   }
   return {

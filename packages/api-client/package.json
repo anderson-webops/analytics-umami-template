@@ -21,12 +21,12 @@
   "scripts": {
     "build": "tsup",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "node ../../scripts/typecheck.mjs --noEmit"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
     "tsup": "^9.0.0",
     "typescript": "^5.9.3",
-    "vitest": "~5.0.5"
+    "vitest": "~5.1.0"
   }
 }

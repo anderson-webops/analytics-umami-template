@@ -9,11 +9,11 @@ force flags, or replace a newer database with an older source tree.
 Three published migration files had been edited after successful deployments. This release restores
 their original bytes and SHA-256 values:
 
-| Migration | Restored source and successful ledger SHA-256 | Superseded edited SHA-256 |
-| --- | --- | --- |
-| `16_boards` | `52df2b4723b1c9e1c2dc66ffb191df56742a23e48a5cd7bc12947fbbc7b420fb` | `5cef1484333ad14bcbbc3e1b2262601d3274a072d9656fb422530d112f98b447` |
+| Migration                   | Restored source and successful ledger SHA-256                      | Superseded edited SHA-256                                          |
+| --------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| `16_boards`                 | `52df2b4723b1c9e1c2dc66ffb191df56742a23e48a5cd7bc12947fbbc7b420fb` | `5cef1484333ad14bcbbc3e1b2262601d3274a072d9656fb422530d112f98b447` |
 | `21_harden_auth_invariants` | `af596c3f844becd9f8382f6aec03d6541612f348aa4921ba8a35cc1d5fc6655b` | `e669afc3a59050a260a786d061a65ba42c33fed2bdaf94d486292017a48352a0` |
-| `23_update_session_data` | `5fc778b82bb34c3c04d78061e66d7036c3c51d0c506f5279f3c1cfc99f24f694` | `197a061867454962d30711d1f61abe92679bb862088a3feb5a552fb7d66dfad9` |
+| `23_update_session_data`    | `5fc778b82bb34c3c04d78061e66d7036c3c51d0c506f5279f3c1cfc99f24f694` | `197a061867454962d30711d1f61abe92679bb862088a3feb5a552fb7d66dfad9` |
 
 The current SQL effects are retained through new forward migrations:
 

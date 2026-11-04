@@ -1,5 +1,5 @@
 import { Column, Heading, Row, SearchField, Text } from '@umami/react-zen';
-import { useMemo, useState } from 'react';
+import { type ReactNode, useMemo, useState } from 'react';
 import { List, type RowComponentProps } from 'react-window';
 import { SessionModal } from '@/app/(main)/websites/[websiteId]/sessions/SessionModal';
 import { Avatar } from '@/components/common/Avatar';
@@ -127,29 +127,6 @@ export function RealtimeLog({ data }: { data: any }) {
     }
   };
 
-  const TableRow = ({ index, style, logs }: RowComponentProps<{ logs: any[] }>) => {
-    const row = logs[index];
-    return (
-      <Row alignItems="center" style={{ ...style, minWidth: 0 }} gap>
-        <Row minWidth="30px">
-          {showSessionLinks ? (
-            <Link href={updateParams({ session: row.sessionId })}>
-              <Avatar seed={row.sessionId} size={32} />
-            </Link>
-          ) : (
-            <Avatar seed={row.sessionId} size={32} />
-          )}
-        </Row>
-        <Row minWidth="100px">
-          <Text wrap="nowrap">{getTime(row)}</Text>
-        </Row>
-        <IconLabel icon={getIcon(row)} style={{ minWidth: 0, flex: 1 }}>
-          <Text truncate>{getDetail(row)}</Text>
-        </IconLabel>
-      </Row>
-    );
-  };
-
   const logs = useMemo(() => {
     if (!data) {
       return [];
@@ -216,10 +193,17 @@ export function RealtimeLog({ data }: { data: any }) {
         {logs?.length === 0 && <Empty />}
         {logs.length > 0 && (
           <List
-            rowComponent={TableRow}
+            rowComponent={RealtimeTableRow}
             rowCount={logs.length}
             rowHeight={ROW_HEIGHT}
-            rowProps={{ logs }}
+            rowProps={{
+              logs,
+              showSessionLinks,
+              getSessionHref: (sessionId: string) => updateParams({ session: sessionId }),
+              getTime,
+              getIcon,
+              getDetail,
+            }}
             defaultHeight={listHeight}
             style={{ width: '100%', height: listHeight }}
           />
@@ -227,5 +211,44 @@ export function RealtimeLog({ data }: { data: any }) {
       </Column>
       <SessionModal websiteId={website.id} />
     </Column>
+  );
+}
+
+function RealtimeTableRow({
+  index,
+  style,
+  logs,
+  showSessionLinks,
+  getSessionHref,
+  getTime,
+  getIcon,
+  getDetail,
+}: RowComponentProps<{
+  logs: any[];
+  showSessionLinks: boolean;
+  getSessionHref: (sessionId: string) => string;
+  getTime: (row: any) => string;
+  getIcon: (row: any) => ReactNode;
+  getDetail: (row: any) => ReactNode;
+}>) {
+  const row = logs[index];
+  return (
+    <Row alignItems="center" style={{ ...style, minWidth: 0 }} gap>
+      <Row minWidth="30px">
+        {showSessionLinks ? (
+          <Link href={getSessionHref(row.sessionId)}>
+            <Avatar seed={row.sessionId} size={32} />
+          </Link>
+        ) : (
+          <Avatar seed={row.sessionId} size={32} />
+        )}
+      </Row>
+      <Row minWidth="100px">
+        <Text wrap="nowrap">{getTime(row)}</Text>
+      </Row>
+      <IconLabel icon={getIcon(row)} style={{ minWidth: 0, flex: 1 }}>
+        <Text truncate>{getDetail(row)}</Text>
+      </IconLabel>
+    </Row>
   );
 }

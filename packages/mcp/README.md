@@ -9,31 +9,31 @@ user/team permission checks as the web app.
 
 ## Tools
 
-| Tool                  | Purpose                                                                 |
-| --------------------- | ----------------------------------------------------------------------- |
-| `list_websites`       | Find the websites you can access (call first to get a `websiteId`).     |
-| `get_website_daterange` | Earliest and latest dates with recorded data.                         |
-| `get_website_stats`   | Pageviews, visitors, visits, bounce rate, duration + previous period.   |
-| `get_website_traffic` | Pageview/visit time series by minute, hour, day, month or year.         |
-| `get_website_metrics` | Top pages, referrers, channels, countries, browsers, devices, UTM, events. |
-| `get_realtime`        | Visitors active right now.                                              |
-| `get_events`          | Individual tracked events (paginated).                                  |
-| `get_event_stats`     | Custom event totals + previous period.                                  |
-| `get_event_series`    | Custom event counts over time, grouped by event name.                   |
-| `get_event_properties` | Custom event property names, or the values of one property.            |
-| `get_sessions`        | Visitor sessions (paginated).                                           |
-| `get_session_stats`   | Session-level totals: visitors, visits, pageviews, events, countries.   |
-| `get_annotations`     | Dated notes on the timeline (launches, campaigns) to explain changes.  |
-| `list_segments`       | Saved segments and cohorts; pass IDs via `filters.segment` / `.cohort`. |
-| `get_session`         | One session with its activity timeline and properties.                  |
-| `list_funnels`        | Saved funnels with their steps (get a `funnelId` for `run_funnel`).     |
-| `run_funnel`          | Session-count funnel and step provenance from saved or ad-hoc page/event steps. Legacy `visitors`, `previous`, and `dropped` fields also count sessions. |
-| `get_goals`           | Saved goals with matching sessions, total sessions, rate and provenance for a range. |
-| `run_journey`         | Most common paths visitors take.                                        |
-| `run_retention`       | Cohort retention table.                                                 |
-| `run_attribution`     | First/last-click attribution for a conversion.                          |
-| `get_revenue`         | Unverified historical revenue claims, series and breakdowns; no verified orders, customers or ARPU. Its result labels provenance and suppresses legacy ARPU fields. |
-| `get_performance`     | Unverified browser-submitted Core Web Vitals (LCP, INP, CLS, FCP, TTFB) percentiles, trend, breakdown. |
+| Tool                    | Purpose                                                                                                                                                             |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list_websites`         | Find the websites you can access (call first to get a `websiteId`).                                                                                                 |
+| `get_website_daterange` | Earliest and latest dates with recorded data.                                                                                                                       |
+| `get_website_stats`     | Pageviews, visitors, visits, bounce rate, duration + previous period.                                                                                               |
+| `get_website_traffic`   | Pageview/visit time series by minute, hour, day, month or year.                                                                                                     |
+| `get_website_metrics`   | Top pages, referrers, channels, countries, browsers, devices, UTM, events.                                                                                          |
+| `get_realtime`          | Visitors active right now.                                                                                                                                          |
+| `get_events`            | Individual tracked events (paginated).                                                                                                                              |
+| `get_event_stats`       | Custom event totals + previous period.                                                                                                                              |
+| `get_event_series`      | Custom event counts over time, grouped by event name.                                                                                                               |
+| `get_event_properties`  | Custom event property names, or the values of one property.                                                                                                         |
+| `get_sessions`          | Visitor sessions (paginated).                                                                                                                                       |
+| `get_session_stats`     | Session-level totals: visitors, visits, pageviews, events, countries.                                                                                               |
+| `get_annotations`       | Dated notes on the timeline (launches, campaigns) to explain changes.                                                                                               |
+| `list_segments`         | Saved segments and cohorts; pass IDs via `filters.segment` / `.cohort`.                                                                                             |
+| `get_session`           | One session with its activity timeline and properties.                                                                                                              |
+| `list_funnels`          | Saved funnels with their steps (get a `funnelId` for `run_funnel`).                                                                                                 |
+| `run_funnel`            | Session-count funnel and step provenance from saved or ad-hoc page/event steps. Legacy `visitors`, `previous`, and `dropped` fields also count sessions.            |
+| `get_goals`             | Saved goals with matching sessions, total sessions, rate and provenance for a range.                                                                                |
+| `run_journey`           | Most common paths visitors take.                                                                                                                                    |
+| `run_retention`         | Cohort retention table.                                                                                                                                             |
+| `run_attribution`       | First/last-click attribution for a conversion.                                                                                                                      |
+| `get_revenue`           | Unverified historical revenue claims, series and breakdowns; no verified orders, customers or ARPU. Its result labels provenance and suppresses legacy ARPU fields. |
+| `get_performance`       | Unverified browser-submitted Core Web Vitals (LCP, INP, CLS, FCP, TTFB) percentiles, trend, breakdown.                                                              |
 
 All tools are read-only. Dates are ISO 8601; results are paginated with a hard cap on page size.
 Results can contain visitor-controlled text. Both the JSON text block and `structuredContent`
@@ -99,12 +99,12 @@ MCP is disabled by default. Set `MCP_ENABLED=1` to enable the endpoint.
 }
 ```
 
-| Variable          | Description                                                        |
-| ----------------- | ------------------------------------------------------------------ |
-| `UMAMI_URL`       | Self-hosted instance URL (`/api` is appended).                     |
-| `UMAMI_API_URL`   | Full API base URL instead, e.g. `https://api.umami.is/v1`.         |
-| `UMAMI_API_TOKEN` | API key or login token (self-hosted).                              |
-| `UMAMI_API_KEY`   | Umami Cloud API key.                                               |
+| Variable          | Description                                                |
+| ----------------- | ---------------------------------------------------------- |
+| `UMAMI_URL`       | Self-hosted instance URL (`/api` is appended).             |
+| `UMAMI_API_URL`   | Full API base URL instead, e.g. `https://api.umami.is/v1`. |
+| `UMAMI_API_TOKEN` | API key or login token (self-hosted).                      |
+| `UMAMI_API_KEY`   | Umami Cloud API key.                                       |
 
 When using `UMAMI_API_TOKEN`, set `UMAMI_URL` or `UMAMI_API_URL`. The stdio server rejects a bearer
 token without an explicit endpoint rather than sending it to the default Umami Cloud API.

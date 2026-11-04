@@ -4,10 +4,10 @@ The owned template updates both `fast-uri` overrides and the reviewed lockfile.
 No migration bytes, ledger checksums, authentication rules or published tags change.
 Downstream forks must merge this template correction before their site-specific work.
 
-| Dependency | Previous resolution | Corrected resolution | Evidence |
-| --- | --- | --- | --- |
-| fast-uri | 3.1.6 | 3.1.7 | [GHSA-qw65-cvwx-89v3](https://github.com/advisories/GHSA-qw65-cvwx-89v3), [GHSA-58mr-gqgx-xq4g](https://github.com/advisories/GHSA-58mr-gqgx-xq4g) |
-| undici | 7.29.0 | 8.10.2 | [GHSA-3wwx-pv8p-q78v](https://github.com/advisories/GHSA-3wwx-pv8p-q78v) |
+| Dependency | Previous resolution | Corrected resolution | Evidence                                                                                                                                           |
+| ---------- | ------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| fast-uri   | 3.1.6               | 3.1.7                | [GHSA-qw65-cvwx-89v3](https://github.com/advisories/GHSA-qw65-cvwx-89v3), [GHSA-58mr-gqgx-xq4g](https://github.com/advisories/GHSA-58mr-gqgx-xq4g) |
+| undici     | 7.29.0              | 8.10.2               | [GHSA-3wwx-pv8p-q78v](https://github.com/advisories/GHSA-3wwx-pv8p-q78v)                                                                           |
 
 The second fast-uri finding originally had no patched-version field in the registry
 audit response. Its upstream advisory explicitly identifies 3.1.7 as patched, and

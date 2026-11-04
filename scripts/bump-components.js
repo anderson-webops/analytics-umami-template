@@ -4,6 +4,28 @@ import path from 'node:path';
 
 const distDir = path.resolve(process.cwd(), 'dist');
 const packageFile = path.join(distDir, 'package.json');
+const sourcePackage = JSON.parse(
+  fs.readFileSync(path.resolve(process.cwd(), 'package.json'), 'utf8'),
+);
+const componentDependencies = Object.fromEntries(
+  [
+    'chart.js',
+    'chartjs-adapter-date-fns',
+    'colord',
+    'jsonwebtoken',
+    'lucide-react',
+    'react-simple-maps',
+    'react-window',
+    'thenby',
+    'uuid',
+  ].map(name => {
+    const version = sourcePackage.dependencies?.[name];
+    if (typeof version !== 'string' || !version) {
+      throw new Error(`The source dependency ${name} is missing.`);
+    }
+    return [name, version];
+  }),
+);
 
 const defaultPackage = {
   name: '@umami/components',
@@ -14,17 +36,7 @@ const defaultPackage = {
   type: 'module',
   main: './index.js',
   types: './index.d.ts',
-  dependencies: {
-    'chart.js': '^4.5.0',
-    'chartjs-adapter-date-fns': '^3.0.0',
-    colord: '^2.9.2',
-    jsonwebtoken: '^9.0.2',
-    'lucide-react': '^0.542.0',
-    'react-simple-maps': '^2.3.0',
-    'react-window': '^1.8.6',
-    thenby: '^1.3.4',
-    uuid: '^11.1.0',
-  },
+  dependencies: componentDependencies,
 };
 
 if (!fs.existsSync(distDir)) {
@@ -38,6 +50,8 @@ const pkg = fs.existsSync(packageFile)
 if (typeof pkg.name !== 'string' || !/^(?:@[a-z0-9._~-]+\/)?[a-z0-9._~-]+$/.test(pkg.name)) {
   throw new Error('Package name is invalid.');
 }
+
+pkg.dependencies = { ...pkg.dependencies, ...componentDependencies };
 
 const published = execFileSync('npm', ['view', pkg.name, 'version'], {
   encoding: 'utf8',

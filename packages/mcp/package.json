@@ -32,19 +32,19 @@
     "build": "tsup",
     "prepack": "pnpm --filter @umami/api-client build && pnpm run build",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "node ../../scripts/typecheck.mjs --noEmit",
     "start": "node dist/cli.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/server": "^2.3.1",
+    "@modelcontextprotocol/server": "^2.4.0",
     "@umami/api-client": "workspace:*",
     "zod": "^4.6.6"
   },
   "devDependencies": {
-    "@modelcontextprotocol/client": "^2.3.1",
+    "@modelcontextprotocol/client": "^2.4.0",
     "@types/node": "^26.6.6",
     "tsup": "^9.0.0",
     "typescript": "^5.9.3",
-    "vitest": "~5.0.5"
+    "vitest": "~5.1.0"
   }
 }

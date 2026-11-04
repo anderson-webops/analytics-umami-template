@@ -62,10 +62,6 @@ export function ListTable({
     );
   };
 
-  const ListTableRow = ({ index, style }: RowComponentProps) => {
-    return <div style={style}>{getRow(data[index], index)}</div>;
-  };
-
   return (
     <Column gap>
       <Grid
@@ -88,7 +84,7 @@ export function ListTable({
             rowCount={data.length}
             rowHeight={ITEM_SIZE}
             rowComponent={ListTableRow}
-            rowProps={{}}
+            rowProps={{ data, renderRow: getRow }}
           />
         ) : (
           data.map(getRow)
@@ -96,6 +92,18 @@ export function ListTable({
       </Column>
     </Column>
   );
+}
+
+function ListTableRow({
+  index,
+  style,
+  data,
+  renderRow,
+}: RowComponentProps<{
+  data: ListData[];
+  renderRow: (row: ListData, index: number) => ReactNode;
+}>) {
+  return <div style={style}>{renderRow(data[index], index)}</div>;
 }
 
 const AnimatedRow = ({

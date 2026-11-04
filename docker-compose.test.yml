@@ -89,7 +89,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "clickhouse-client --user umami --password umami --query \"SELECT throwIf(count() = 0) FROM system.tables WHERE database = 'umami' AND name = 'session_link'\"",
+          'clickhouse-client --user umami --password umami --query "SELECT throwIf(count() = 0) FROM system.tables WHERE database = ''umami'' AND name = ''session_link''"',
         ]
       interval: 2s
       timeout: 5s

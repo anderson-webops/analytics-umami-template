@@ -1,5 +1,12 @@
 import { sanitizeTrackingUrl } from './url-privacy';
 
+declare const process: {
+  env: {
+    COLLECT_API_HOST?: string;
+    COLLECT_API_ENDPOINT?: string;
+  };
+};
+
 /** Public types for the browser tracker. */
 export type TrackedProperties = {
   /**

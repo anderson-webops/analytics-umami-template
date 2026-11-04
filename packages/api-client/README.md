@@ -39,15 +39,15 @@ response types, or import `OperationInput<'getWebsiteStats'>` / `OperationOutput
 
 ### Options
 
-| Option    | Description                                                                                                 |
-| --------- | ----------------------------------------------------------------------------------------------------------- |
-| `baseUrl` | API root. Defaults to `https://api.umami.is/v1`. Self-hosted: `https://your-umami/api`.                    |
-| `token`   | Bearer token: login token or self-hosted API key.                                      |
-| `apiKey`  | Umami Cloud API key (sent as `x-umami-api-key`; also sent as a bearer token when `token` is not provided). |
-| `headers` | Extra headers for every request.                                                                            |
-| `fetch`   | Custom `fetch` (tests, other runtimes, in-process dispatch).                                                |
-| `timeout` | Total request timeout, including the body, in milliseconds (default: 60,000; maximum: 300,000).             |
-| `maxResponseBytes` | Response body limit in bytes (default: 16 MiB; maximum: 64 MiB).                                |
+| Option             | Description                                                                                                |
+| ------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `baseUrl`          | API root. Defaults to `https://api.umami.is/v1`. Self-hosted: `https://your-umami/api`.                    |
+| `token`            | Bearer token: login token or self-hosted API key.                                                          |
+| `apiKey`           | Umami Cloud API key (sent as `x-umami-api-key`; also sent as a bearer token when `token` is not provided). |
+| `headers`          | Extra headers for every request.                                                                           |
+| `fetch`            | Custom `fetch` (tests, other runtimes, in-process dispatch).                                               |
+| `timeout`          | Total request timeout, including the body, in milliseconds (default: 60,000; maximum: 300,000).            |
+| `maxResponseBytes` | Response body limit in bytes (default: 16 MiB; maximum: 64 MiB).                                           |
 
 Requests require HTTPS, except HTTP to `localhost`, `127.0.0.1`, or `[::1]` for a local instance. The default network transport rejects redirects rather than forwarding credentials to a different endpoint. Custom `fetch` implementations must honor the supplied `redirect: 'error'` option.
 

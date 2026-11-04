@@ -14,6 +14,7 @@ Feature branches and fixes are merged into `dev`, and `dev` is periodically merg
 ## Submitting a Pull Request
 
 1. Fork the repository and create your branch from `dev`:
+
    ```bash
    git checkout dev
    git pull origin dev
@@ -21,6 +22,7 @@ Feature branches and fixes are merged into `dev`, and `dev` is periodically merg
    ```
 2. Make your changes. Keep PRs focused — one logical change per PR.
 3. Ensure the project builds and lints cleanly:
+
    ```bash
    pnpm install
    pnpm build

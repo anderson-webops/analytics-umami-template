@@ -4,6 +4,7 @@ Use these endpoints for monitoring. They do not require authentication, set
 cookies, or redirect. Every response sends `Cache-Control: no-store`.
 
 ## Analytics App (Next SSR)
+
 - `GET /healthz` returns `200 {"ok":true}`.
 - `HEAD /healthz` returns `200` with no response body.
 - `GET /readyz` returns `200 {"ok":true}` when required services are available.

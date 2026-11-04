@@ -8,18 +8,18 @@ The report table and existing definition IDs are retained. No database migration
 
 Paths in the replacement column are relative to `/api/websites/{websiteId}`.
 
-| Legacy POST endpoint | Replacement GET endpoint(s) |
-| --- | --- |
-| `/api/reports/attribution` | `/attribution` |
-| `/api/reports/breakdown` | `/breakdown` |
-| `/api/reports/funnel` | `/funnels/stats` or `/funnels/{funnelId}/stats` |
-| `/api/reports/goal` | `/goals/stats` or `/goals/{goalId}/stats` |
-| `/api/reports/heatmap` | `/heatmaps` |
-| `/api/reports/journey` | `/journeys` |
+| Legacy POST endpoint       | Replacement GET endpoint(s)                                        |
+| -------------------------- | ------------------------------------------------------------------ |
+| `/api/reports/attribution` | `/attribution`                                                     |
+| `/api/reports/breakdown`   | `/breakdown`                                                       |
+| `/api/reports/funnel`      | `/funnels/stats` or `/funnels/{funnelId}/stats`                    |
+| `/api/reports/goal`        | `/goals/stats` or `/goals/{goalId}/stats`                          |
+| `/api/reports/heatmap`     | `/heatmaps`                                                        |
+| `/api/reports/journey`     | `/journeys`                                                        |
 | `/api/reports/performance` | `/performance/stats`, `/performance/chart`, `/performance/metrics` |
-| `/api/reports/retention` | `/retention` |
-| `/api/reports/revenue` | Existing `/revenue/stats`, `/revenue/chart`, `/revenue/metrics` |
-| `/api/reports/utm` | `/utm/metrics` |
+| `/api/reports/retention`   | `/retention`                                                       |
+| `/api/reports/revenue`     | Existing `/revenue/stats`, `/revenue/chart`, `/revenue/metrics`    |
+| `/api/reports/utm`         | `/utm/metrics`                                                     |
 
 New requests use `startAt` and `endAt` in epoch milliseconds, with optional `timezone`, `unit`,
 and existing filter parameters. Dates are normalized through the shared website filter pipeline,
@@ -65,15 +65,15 @@ and four dimension requests, preserving its previous output and comparison data.
 
 ## Saved definitions
 
-| Method | Path (relative to website) | Purpose |
-| --- | --- | --- |
-| GET | `/funnels` | List definitions, with pagination/search |
-| POST | `/funnels` | Create `{ name, description?, parameters }` |
-| GET | `/funnels/{funnelId}` | Read definition |
-| POST | `/funnels/{funnelId}` | Update `{ name, description?, parameters }` |
-| DELETE | `/funnels/{funnelId}` | Delete definition |
-| GET | `/funnels/{funnelId}/stats` | Calculate saved criteria with supplied dates/filters |
-| GET | `/funnels/stats` | Calculate supplied criteria without saving |
+| Method | Path (relative to website)  | Purpose                                              |
+| ------ | --------------------------- | ---------------------------------------------------- |
+| GET    | `/funnels`                  | List definitions, with pagination/search             |
+| POST   | `/funnels`                  | Create `{ name, description?, parameters }`          |
+| GET    | `/funnels/{funnelId}`       | Read definition                                      |
+| POST   | `/funnels/{funnelId}`       | Update `{ name, description?, parameters }`          |
+| DELETE | `/funnels/{funnelId}`       | Delete definition                                    |
+| GET    | `/funnels/{funnelId}/stats` | Calculate saved criteria with supplied dates/filters |
+| GET    | `/funnels/stats`            | Calculate supplied criteria without saving           |
 
 Goals expose the same structure under `/goals`. Website and definition type are fixed by the
 route and cannot be changed in an update body. IDs, names, descriptions, and board `reportId`

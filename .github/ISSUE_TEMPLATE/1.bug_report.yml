@@ -1,4 +1,4 @@
-name: '🐛 Bug Report'
+name: "🐛 Bug Report"
 description: Create a bug report for Umami.
 body:
   - type: textarea
@@ -25,12 +25,12 @@ body:
   - type: input
     attributes:
       label: Which Umami version are you using?
-      description: 'For example: 2.18.0, 2.15.1, 1.39.0, etc'
+      description: "For example: 2.18.0, 2.15.1, 1.39.0, etc"
   - type: input
     attributes:
       label: How are you deploying your application?
-      description: 'For example: Vercel, Railway, Docker, etc'
+      description: "For example: Vercel, Railway, Docker, etc"
   - type: input
     attributes:
       label: Which browser are you using?
-      description: 'For example: Chrome, Edge, Firefox, etc'
+      description: "For example: Chrome, Edge, Firefox, etc"
