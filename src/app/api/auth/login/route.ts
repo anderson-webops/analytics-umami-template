@@ -46,6 +46,10 @@ async function rejectInvalidCredentials(username: string, captchaEnabled: boolea
 
   const accountLimit = await recordFailedLogin(username);
 
+  if (accountLimit.unavailable) {
+    return serviceUnavailable({ message: 'Login verification is temporarily unavailable' });
+  }
+
   return accountLimit.blocked
     ? tooManyRequests(accountLimit.retryAfter, {
         message: 'Too many login attempts. Please try again later.',
@@ -86,6 +90,10 @@ export async function POST(request: Request) {
   const { username, password, captchaToken, recoveryCode } = body;
   const loginLimit = await getLoginLimit(request, username);
 
+  if (loginLimit.unavailable) {
+    return serviceUnavailable({ message: 'Login verification is temporarily unavailable' });
+  }
+
   if (loginLimit.blocked && !recoveryCode) {
     return tooManyRequests(loginLimit.retryAfter, {
       message: 'Too many login attempts. Please try again later.',
@@ -125,7 +133,7 @@ export async function POST(request: Request) {
 
   let workLease;
   try {
-    workLease = await reserveLoginPasswordWork();
+    workLease = await reserveLoginPasswordWork(recoveryMatch !== null);
   } catch {
     return serviceUnavailable({ message: 'Login verification is temporarily unavailable' });
   }

@@ -588,9 +588,50 @@ test.each([false, true])(
     expect(mocks.reserveLoginOverflowAttempt).not.toHaveBeenCalled();
     expect(mocks.checkPassword).toHaveBeenCalledTimes(1);
     expect(mocks.releaseLoginPasswordWork).toHaveBeenCalledTimes(1);
+    expect(mocks.reserveLoginPasswordWork).toHaveBeenCalledWith(true);
     expect(mocks.verifyLoginCaptcha).toHaveBeenCalledTimes(captchaEnabled ? 1 : 0);
   },
 );
+
+test.each([false, true])(
+  'unavailable source storage denies authority before recovery consumption (code %s)',
+  async withRecovery => {
+    mocks.parseRequest.mockResolvedValue({
+      body: {
+        username: 'alice',
+        password: 'secret',
+        ...(withRecovery ? { recoveryCode: 'UR-RECOVERY-FIXTURE' } : {}),
+      },
+      error: undefined,
+    });
+    mocks.getLoginLimit.mockResolvedValue({ blocked: true, retryAfter: 900, unavailable: true });
+    mocks.lookupLoginRecoveryCode.mockResolvedValue({
+      userId: 'user-1',
+      passwordHash: 'hashed-password',
+    });
+
+    const response = await POST(loginRequest());
+
+    expect(response.status).toBe(503);
+    expect(mocks.lookupLoginRecoveryCode).not.toHaveBeenCalled();
+    expect(mocks.consumeLoginRecoveryCode).not.toHaveBeenCalled();
+    expect(mocks.reserveLoginPasswordWork).not.toHaveBeenCalled();
+    expect(mocks.checkPassword).not.toHaveBeenCalled();
+    expect(mocks.createSecureToken).not.toHaveBeenCalled();
+    expect(mocks.saveAuth).not.toHaveBeenCalled();
+  },
+);
+
+test('failed credential recording reports unavailable storage instead of a recoverable quota', async () => {
+  mocks.checkPassword.mockResolvedValue(false);
+  mocks.recordFailedLogin.mockResolvedValue({ blocked: true, retryAfter: 900, unavailable: true });
+
+  const response = await POST(loginRequest());
+
+  expect(response.status).toBe(503);
+  expect(mocks.createSecureToken).not.toHaveBeenCalled();
+  expect(mocks.releaseLoginPasswordWork).toHaveBeenCalledTimes(1);
+});
 
 test('an invalid account-owned code never spends password work or reveals the user', async () => {
   mocks.parseRequest.mockResolvedValue({
@@ -726,6 +767,7 @@ test('exhausted shared password capacity rejects before account lookup', async (
   const response = await POST(loginRequest());
 
   expect(response.status).toBe(503);
+  expect(mocks.reserveLoginPasswordWork).toHaveBeenCalledWith(false);
   expect(mocks.reserveLoginAccountAttempt).not.toHaveBeenCalled();
   expect(mocks.getUserByUsername).not.toHaveBeenCalled();
   expect(mocks.checkPassword).not.toHaveBeenCalled();

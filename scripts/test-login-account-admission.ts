@@ -35,8 +35,16 @@ try {
     Array.from({ length: 24 }, () => reserveLoginPasswordWork()),
   );
   const admittedWork = workLeases.filter(lease => lease !== null);
-  assert.equal(admittedWork.length, 4);
+  assert.equal(admittedWork.length, 3);
   assert.equal(await reserveLoginPasswordWork(), null);
+  const recoveryLeases = await Promise.all(
+    Array.from({ length: 24 }, () => reserveLoginPasswordWork(true)),
+  );
+  const admittedRecovery = recoveryLeases.filter(lease => lease !== null);
+  assert.equal(admittedRecovery.length, 1);
+  assert.equal(admittedRecovery[0].key, 'login-password-work:3');
+  assert.equal(await reserveLoginPasswordWork(), null);
+  assert.equal(await reserveLoginPasswordWork(true), null);
   const retiredLease = admittedWork[0];
   await releaseLoginPasswordWork(retiredLease);
   const replacementLease = await reserveLoginPasswordWork();
@@ -60,7 +68,16 @@ try {
     where: { key: recoveredWork.key },
   });
   assert.equal(JSON.parse(recoveredSlot.value).leaseId, recoveredWork.leaseId);
-  await Promise.all([recoveredWork, ...admittedWork.slice(1)].map(releaseLoginPasswordWork));
+  await Promise.all(
+    [recoveredWork, ...admittedWork.slice(1), ...admittedRecovery].map(releaseLoginPasswordWork),
+  );
+  const fullRecoveryWork = await Promise.all(
+    Array.from({ length: 24 }, () => reserveLoginPasswordWork(true)),
+  );
+  const admittedFullRecovery = fullRecoveryWork.filter(lease => lease !== null);
+  assert.equal(admittedFullRecovery.length, 4);
+  assert.equal(await reserveLoginPasswordWork(true), null);
+  await Promise.all(admittedFullRecovery.map(releaseLoginPasswordWork));
 
   const attempts = await Promise.all(
     Array.from({ length: 24 }, () => reserveLoginAccountAttempt(userId)),

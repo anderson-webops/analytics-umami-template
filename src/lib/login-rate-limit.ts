@@ -19,7 +19,10 @@ type CounterKind = 'ip' | 'accountIp' | 'account';
 interface LoginLimit {
   blocked: boolean;
   retryAfter: number;
+  unavailable: boolean;
 }
+
+type CounterIncrement = number | 'capacity' | 'unavailable';
 
 type LoginAccountAttempt =
   | { blocked: false; retryAfter: 0; windowExpiresAt: string }
@@ -135,13 +138,16 @@ function getLegacyLoginAccountAttemptKey(userId: string): string {
   return `login-admission:${hash(userId).slice(0, 32)}`;
 }
 
-export async function reserveLoginPasswordWork(): Promise<LoginPasswordWorkLease | null> {
+export async function reserveLoginPasswordWork(
+  hasRecoveryProof = false,
+): Promise<LoginPasswordWorkLease | null> {
   const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
   const leaseId = randomUUID();
-  const startingSlot = Number.parseInt(leaseId[0], 16) % LOGIN_PASSWORD_WORK_SLOTS;
+  const slotCount = hasRecoveryProof ? LOGIN_PASSWORD_WORK_SLOTS : LOGIN_PASSWORD_WORK_SLOTS - 1;
+  const startingSlot = Number.parseInt(leaseId[0], 16) % slotCount;
 
-  for (let offset = 0; offset < LOGIN_PASSWORD_WORK_SLOTS; offset += 1) {
-    const slot = (startingSlot + offset) % LOGIN_PASSWORD_WORK_SLOTS;
+  for (let offset = 0; offset < slotCount; offset += 1) {
+    const slot = (startingSlot + offset) % slotCount;
     const key = `login-password-work:${slot}`;
     const rows = await client.$queryRaw<Array<{ key: string }>>`
       INSERT INTO "app_setting" ("key", "value")
@@ -340,19 +346,20 @@ function getSourceKeys(request: Request, username: string): { ip: string; accoun
   };
 }
 
-async function increment(kind: CounterKind, key: string): Promise<number | null> {
+async function increment(kind: CounterKind, key: string): Promise<CounterIncrement> {
   if (redis.enabled) {
     try {
-      return await redis.client.incrementWithExpiry(key, getWindowSeconds());
+      const count = await redis.client.incrementWithExpiry(key, getWindowSeconds());
+      return Number.isSafeInteger(count) && count > 0 ? count : 'unavailable';
     } catch {
-      return null;
+      return 'unavailable';
     }
   }
 
   const counter = getMemoryCount(kind, key);
 
   if (!counter) {
-    return null;
+    return 'capacity';
   }
 
   counter.count += 1;
@@ -397,15 +404,20 @@ export async function getLoginLimit(request: Request, username: string): Promise
   const { ip, accountIp } = getSourceKeys(request, username);
   const ipCount = await increment('ip', ip);
 
-  if (ipCount === null || ipCount > getIpLimit()) {
-    return { blocked: true, retryAfter: getWindowSeconds() };
+  if (typeof ipCount !== 'number' || ipCount > getIpLimit()) {
+    return {
+      blocked: true,
+      retryAfter: getWindowSeconds(),
+      unavailable: ipCount === 'unavailable',
+    };
   }
 
   const accountIpCount = await increment('accountIp', accountIp);
 
   return {
-    blocked: accountIpCount === null || accountIpCount > getAccountLimit(),
+    blocked: typeof accountIpCount !== 'number' || accountIpCount > getAccountLimit(),
     retryAfter: getWindowSeconds(),
+    unavailable: accountIpCount === 'unavailable',
   };
 }
 
@@ -413,8 +425,9 @@ export async function recordFailedLogin(username: string): Promise<LoginLimit> {
   const accountCount = await increment('account', getAccountKey(username));
 
   return {
-    blocked: accountCount === null || accountCount > getAccountLimit(),
+    blocked: typeof accountCount !== 'number' || accountCount > getAccountLimit(),
     retryAfter: getWindowSeconds(),
+    unavailable: accountCount === 'unavailable',
   };
 }
 

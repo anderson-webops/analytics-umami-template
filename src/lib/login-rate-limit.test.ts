@@ -152,15 +152,46 @@ test('Redis failure denies login instead of weakening to a local counter', async
   mocks.redis.enabled = true;
   mocks.redis.client.incrementWithExpiry.mockRejectedValueOnce(new Error('Redis unavailable'));
 
-  expect((await getLoginLimit(loginRequest('192.0.2.10'), 'alice')).blocked).toBe(true);
+  expect(await getLoginLimit(loginRequest('192.0.2.10'), 'alice')).toMatchObject({
+    blocked: true,
+    unavailable: true,
+  });
 });
+
+test('an unavailable second source counter is not recoverable quota exhaustion', async () => {
+  mocks.redis.enabled = true;
+  mocks.redis.client.incrementWithExpiry
+    .mockResolvedValueOnce(1)
+    .mockRejectedValueOnce(new Error('Redis unavailable'));
+
+  expect(await getLoginLimit(loginRequest('192.0.2.10'), 'alice')).toMatchObject({
+    blocked: true,
+    unavailable: true,
+  });
+});
+
+test.each([0, -1, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])(
+  'an invalid shared source count %s fails closed as unavailable',
+  async count => {
+    mocks.redis.enabled = true;
+    mocks.redis.client.incrementWithExpiry.mockResolvedValueOnce(count);
+
+    expect(await getLoginLimit(loginRequest('192.0.2.10'), 'alice')).toMatchObject({
+      blocked: true,
+      unavailable: true,
+    });
+  },
+);
 
 test('a full account fallback rejects new keys without erasing existing failures', async () => {
   for (let attempt = 0; attempt < 10_000; attempt += 1) {
     expect((await recordFailedLogin(`new-user-${attempt}`)).blocked).toBe(false);
   }
 
-  expect((await recordFailedLogin('overflow-user')).blocked).toBe(true);
+  expect(await recordFailedLogin('overflow-user')).toMatchObject({
+    blocked: true,
+    unavailable: false,
+  });
   expect((await recordFailedLogin('new-user-0')).blocked).toBe(false);
 }, 30_000);
 
@@ -179,7 +210,10 @@ test('a full IP fallback denies new clients but preserves and expires existing c
     await getLoginLimit(loginRequest(ip), `new-user-${attempt}`);
   }
 
-  expect((await getLoginLimit(loginRequest('203.0.113.1'), 'new-user')).blocked).toBe(true);
+  expect(await getLoginLimit(loginRequest('203.0.113.1'), 'new-user')).toMatchObject({
+    blocked: true,
+    unavailable: false,
+  });
   expect((await getLoginLimit(attacker, 'another-user')).blocked).toBe(true);
 
   vi.advanceTimersByTime(900_000);
@@ -219,7 +253,7 @@ test('password work uses bounded shared slots and an exact lease release', async
   const lease = await reserveLoginPasswordWork();
 
   expect(lease).toMatchObject({
-    key: expect.stringMatching(/^login-password-work:[0-3]$/),
+    key: expect.stringMatching(/^login-password-work:[0-2]$/),
     leaseId: expect.any(String),
   });
   expect(mocks.queryRaw.mock.calls[0][0].join('?')).toContain('ON CONFLICT');
@@ -235,7 +269,28 @@ test('password work exhaustion does not add unbounded work', async () => {
   mocks.queryRaw.mockResolvedValue([]);
 
   expect(await reserveLoginPasswordWork()).toBeNull();
+  expect(mocks.queryRaw).toHaveBeenCalledTimes(3);
+});
+
+test('anonymous saturation cannot reserve the recovery-only password slot', async () => {
+  mocks.queryRaw.mockImplementation(async (_query, key) =>
+    key === 'login-password-work:3' ? [{ key }] : [],
+  );
+
+  expect(await reserveLoginPasswordWork()).toBeNull();
+  expect(mocks.queryRaw.mock.calls.map(call => call[1])).not.toContain('login-password-work:3');
+  const recoveryLease = await reserveLoginPasswordWork(true);
+  expect(recoveryLease?.key).toBe('login-password-work:3');
+});
+
+test('recovery password work remains bounded by the original four slots', async () => {
+  mocks.queryRaw.mockResolvedValue([]);
+
+  expect(await reserveLoginPasswordWork(true)).toBeNull();
   expect(mocks.queryRaw).toHaveBeenCalledTimes(4);
+  expect(new Set(mocks.queryRaw.mock.calls.map(call => call[1]))).toEqual(
+    new Set(Array.from({ length: 4 }, (_, index) => `login-password-work:${index}`)),
+  );
 });
 
 test('a successful password check releases only its reserved account window', async () => {
