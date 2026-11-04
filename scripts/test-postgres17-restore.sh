@@ -230,8 +230,8 @@ ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 \
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 DOTENV_CONFIG_PATH=/dev/null CLOUD_MODE='' \
   CLICKHOUSE_HISTORY_ATTESTED_CLEAN=true KAFKA_HISTORY_ATTESTED_CLEAN=true \
   node --import tsx scripts/test-collection-generation-lifecycle.ts
-ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm exec tsx scripts/test-two-factor-admission.ts
-ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm exec tsx scripts/test-password-verification-admission.ts
+ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-two-factor-admission.ts
+ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-password-verification-admission.ts
 APP_SECRET=synthetic-login-admission-secret-0000000000000000 \
   ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 node --import tsx scripts/test-login-account-admission.ts
 ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 \

@@ -51,15 +51,19 @@ function reserveSource(id: string) {
 
 function runChild() {
   return new Promise<void>((resolve, reject) => {
-    const child = spawn('pnpm', ['exec', 'tsx', 'scripts/test-collection-rate-limit.ts'], {
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        COLLECTION_RATE_TEST_CHILD: '1',
-        COLLECTION_RATE_TEST_SOURCE_ID: sourceId,
+    const child = spawn(
+      process.execPath,
+      ['--import', 'tsx', 'scripts/test-collection-rate-limit.ts'],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          COLLECTION_RATE_TEST_CHILD: '1',
+          COLLECTION_RATE_TEST_SOURCE_ID: sourceId,
+        },
+        stdio: ['ignore', 'ignore', 'pipe'],
       },
-      stdio: ['ignore', 'ignore', 'pipe'],
-    });
+    );
     let errorOutput = '';
     child.stderr.on('data', chunk => {
       errorOutput = (errorOutput + String(chunk)).slice(-2_000);

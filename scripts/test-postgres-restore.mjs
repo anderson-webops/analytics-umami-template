@@ -79,7 +79,7 @@ function startup() {
   return run(process.execPath, ['runtime-scripts/start-production.mjs'], fixture);
 }
 function provision(extra = {}) {
-  return run('pnpm', ['exec', 'tsx', 'scripts/provision-site.ts'], root, {
+  return run(process.execPath, ['--import', 'tsx', 'scripts/provision-site.ts'], root, {
     UMAMI_WEBSITE_NAME: 'Synthetic Restore',
     UMAMI_WEBSITE_DOMAIN: 'analytics.example.com',
     ...extra,
