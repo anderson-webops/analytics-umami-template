@@ -12,6 +12,22 @@ test('migration-tool deployment pins portable pnpm paths and copies package file
   assert.match(source, /--config\.package-import-method=copy/);
 });
 
+test('migration-tool artifact checks match the exact maintained Prisma pin', async () => {
+  const root = path.join(import.meta.dirname, '..');
+  const manifest = JSON.parse(
+    await fs.readFile(path.join(root, 'deploy/migration-tool/package.json'), 'utf8'),
+  );
+  const version = manifest.dependencies.prisma;
+  assert.match(version, /^\d+\.\d+\.\d+$/);
+  const source = await fs.readFile(path.join(root, 'scripts/postbuild.js'), 'utf8');
+  assert.ok(source.includes(`migrationTool.version !== '${version}'`));
+  assert.ok(
+    source.includes(
+      `node_modules/.pnpm/@prisma+engines@${version}/node_modules/@prisma/engines/schema-engine-linux-arm64-openssl-3.0.x`,
+    ),
+  );
+});
+
 test('shortens pinned pnpm links without changing resolved packages', async () => {
   const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'portable-pnpm-links-'));
   try {

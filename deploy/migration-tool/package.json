@@ -10,6 +10,6 @@
     "node": ">=26.13.0 <27"
   },
   "dependencies": {
-    "prisma": "7.10.0"
+    "prisma": "7.10.1"
   }
 }

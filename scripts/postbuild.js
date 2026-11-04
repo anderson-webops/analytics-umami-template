@@ -185,13 +185,13 @@ async function run() {
   const migrationTool = JSON.parse(
     await fs.readFile(path.join(migrationToolDirectory, 'node_modules/prisma/package.json')),
   );
-  if (migrationTool.version !== '7.10.0') {
+  if (migrationTool.version !== '7.10.1') {
     throw new Error('The packaged Prisma migration tool does not match the locked version.');
   }
   if (process.platform === 'linux' && process.arch === 'arm64') {
     const enginePath = path.join(
       migrationToolDirectory,
-      'node_modules/.pnpm/@prisma+engines@7.10.0/node_modules/@prisma/engines/schema-engine-linux-arm64-openssl-3.0.x',
+      'node_modules/.pnpm/@prisma+engines@7.10.1/node_modules/@prisma/engines/schema-engine-linux-arm64-openssl-3.0.x',
     );
     const engine = await fs.open(enginePath, 'r');
     try {
