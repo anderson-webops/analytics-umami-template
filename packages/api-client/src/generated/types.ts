@@ -302,7 +302,7 @@ export interface paths {
     put?: never;
     /**
      * Rotate login recovery codes
-     * @description Requires a current session and password. An administrator may specify another user. Replaces previous codes and returns each new one-use code once.
+     * @description Requires a current full session and password. Prepares replacement codes without revoking the active set. An administrator may prepare codes for another owner. Pending codes permit bounded password/CAPTCHA/MFA login, but only that owner can confirm possession. Confirming spends the proof code and atomically activates the remaining unused codes, at least one. Issuance and delivery acknowledgement alone do not confirm owner readiness.
      */
     post: operations['rotateLoginRecoveryCodes'];
     delete?: never;
@@ -5234,27 +5234,46 @@ export interface operations {
     };
     requestBody: {
       content: {
-        'application/json': {
-          /** @description Current account password. */
-          password: string;
-          /**
-           * Format: uuid
-           * @description Target account for administrator-assisted recovery.
-           */
-          userId?: string;
-        };
+        'application/json':
+          | {
+              /** @constant */
+              action: 'prepare';
+              /** @description Current account password. */
+              password: string;
+              /**
+               * Format: uuid
+               * @description Target account for administrator-assisted recovery.
+               */
+              userId?: string;
+            }
+          | {
+              /** @constant */
+              action: 'confirm';
+              /** @description Password used to authenticate the account. */
+              password: string;
+              recoveryCode: string;
+              /** @constant */
+              saved: true;
+            };
       };
     };
     responses: {
-      /** @description New codes. */
+      /** @description Prepared codes or durable owner confirmation. */
       200: {
         headers: {
           [name: string]: unknown;
         };
         content: {
-          'application/json': {
-            recoveryCodes: string[];
-          };
+          'application/json':
+            | {
+                recoveryCodes: string[];
+                /** @constant */
+                requiresOwnerConfirmation: true;
+              }
+            | {
+                /** @constant */
+                confirmed: true;
+              };
         };
       };
       /** @description Bad request. */

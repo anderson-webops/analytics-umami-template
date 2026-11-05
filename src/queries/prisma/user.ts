@@ -3,6 +3,7 @@ import { ROLES } from '@/lib/constants';
 import { hash, isUuid } from '@/lib/crypto';
 import { isEnvEnabled } from '@/lib/env';
 import { getRandomChars } from '@/lib/generate';
+import { rebindLoginRecoveryPreparation } from '@/lib/login-recovery';
 import prisma from '@/lib/prisma';
 import redis from '@/lib/redis';
 import { hasCurrentSessionGeneration } from '@/lib/session-generation';
@@ -311,6 +312,7 @@ async function writePasswordIfCurrent(
         where: { userId, passwordFingerprint: hash(expectedPassword), consumedAt: null },
         data: { passwordFingerprint: hash(nextPassword) },
       });
+      await rebindLoginRecoveryPreparation(transaction, userId, expectedPassword, nextPassword);
     }
 
     return transaction.user.findUnique({

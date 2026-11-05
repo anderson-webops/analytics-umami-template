@@ -5192,7 +5192,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Rotate login recovery codes
-   * Requires a current session and password. An administrator may specify another user. Replaces previous codes and returns each new one-use code once.
+   * Requires a current full session and password. Prepares replacement codes without revoking the active set. An administrator may prepare codes for another owner. Pending codes permit bounded password/CAPTCHA/MFA login, but only that owner can confirm possession. Confirming spends the proof code and atomically activates the remaining unused codes, at least one. Issuance and delivery acknowledgement alone do not confirm owner readiness.
    * `POST /api/auth/recovery-codes`
    */
   rotateLoginRecoveryCodes(

@@ -1,10 +1,59 @@
-import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Prisma } from '@/generated/prisma/client';
 import { hash, secret } from '@/lib/crypto';
 import prisma from '@/lib/prisma';
 
 const CODE_COUNT = 8;
 const CODE_PATTERN = /^UR-[0-9A-F]{64}$/;
+const PREPARATION_TTL_MS = 15 * 60 * 1000;
+
+export function getLoginRecoveryPreparationKeys(userId: string) {
+  const ownerId = userId.toLowerCase();
+  return {
+    pending: `login-recovery:pending:${ownerId}`,
+    confirmed: `login-recovery:confirmed:${ownerId}`,
+  };
+}
+
+export class RecoveryPreparationError extends Error {}
+
+interface RecoveryPreparation {
+  version: 1;
+  userId: string;
+  batchId: string;
+  passwordFingerprint: string;
+  keyFingerprint: string;
+  digests: string[];
+  consumedDigests: string[];
+  expiresAt: number;
+}
+
+function readPreparation(value: string): RecoveryPreparation {
+  try {
+    const data = JSON.parse(value);
+    if (
+      data?.version === 1 &&
+      typeof data.userId === 'string' &&
+      typeof data.batchId === 'string' &&
+      typeof data.passwordFingerprint === 'string' &&
+      typeof data.keyFingerprint === 'string' &&
+      Number.isSafeInteger(data.expiresAt) &&
+      Array.isArray(data.digests) &&
+      data.digests.length === CODE_COUNT &&
+      new Set(data.digests).size === CODE_COUNT &&
+      Array.isArray(data.consumedDigests) &&
+      data.consumedDigests.length <= CODE_COUNT &&
+      new Set(data.consumedDigests).size === data.consumedDigests.length &&
+      data.consumedDigests.every((digest: unknown) => data.digests.includes(digest)) &&
+      data.digests.every(
+        (digest: unknown) => typeof digest === 'string' && /^[a-f0-9]{64}$/.test(digest),
+      )
+    ) {
+      return data;
+    }
+  } catch {}
+  throw new RecoveryPreparationError();
+}
 
 export function getLoginRecoveryKeyFingerprint(): string {
   return createHash('sha256')
@@ -53,11 +102,136 @@ export function generateLoginRecoveryCodes() {
 
 export class RecoveryTargetNotFoundError extends Error {}
 
-export async function persistLoginRecoveryCodes(
+export async function prepareLoginRecoveryCodes(
   transaction: Prisma.TransactionClient,
-  userId: string,
+  userIdInput: string,
   credentials: ReturnType<typeof generateLoginRecoveryCodes>,
 ) {
+  const userId = userIdInput.toLowerCase();
+  const target = await transaction.user.findUnique({
+    where: { id: userId, deletedAt: null },
+    select: { password: true },
+  });
+  if (!target) throw new RecoveryTargetNotFoundError();
+
+  const preparation: RecoveryPreparation = {
+    version: 1,
+    userId,
+    batchId: randomUUID(),
+    passwordFingerprint: hash(target.password),
+    keyFingerprint: getLoginRecoveryKeyFingerprint(),
+    digests: credentials.map(({ digest }) => digest),
+    consumedDigests: [],
+    expiresAt: Date.now() + PREPARATION_TTL_MS,
+  };
+  readPreparation(JSON.stringify(preparation));
+  const key = getLoginRecoveryPreparationKeys(userId).pending;
+  const value = JSON.stringify(preparation);
+  await transaction.appSetting.upsert({
+    where: { key },
+    create: { key, value },
+    update: { value },
+  });
+}
+
+export async function confirmPreparedLoginRecoveryCodes(
+  transaction: Prisma.TransactionClient,
+  userIdInput: string,
+  code: string,
+) {
+  const userId = userIdInput.toLowerCase();
+  const digest = digestLoginRecoveryCode(code);
+  if (!digest) throw new RecoveryPreparationError();
+
+  const target = await transaction.user.findUnique({
+    where: { id: userId, deletedAt: null },
+    select: { password: true },
+  });
+  if (!target) throw new RecoveryTargetNotFoundError();
+  const passwordFingerprint = hash(target.password);
+  const keyFingerprint = getLoginRecoveryKeyFingerprint();
+  const keys = getLoginRecoveryPreparationKeys(userId);
+  const pendingRows = await transaction.$queryRaw<Array<{ value: string }>>`
+    SELECT "value" FROM "app_setting" WHERE "key" = ${keys.pending} FOR UPDATE
+  `;
+  const pending = pendingRows[0];
+  if (!pending) {
+    const confirmed = await transaction.appSetting.findUnique({ where: { key: keys.confirmed } });
+    let receipt;
+    try {
+      receipt = JSON.parse(confirmed?.value ?? 'null');
+    } catch {}
+    if (
+      receipt?.version === 1 &&
+      receipt.userId === userId &&
+      receipt.passwordFingerprint === passwordFingerprint &&
+      receipt.keyFingerprint === keyFingerprint &&
+      receipt.proofDigest === digest
+    ) {
+      return;
+    }
+    throw new RecoveryPreparationError();
+  }
+
+  const preparation = readPreparation(pending.value);
+  if (
+    preparation.userId !== userId ||
+    preparation.passwordFingerprint !== passwordFingerprint ||
+    preparation.keyFingerprint !== keyFingerprint ||
+    preparation.expiresAt <= Date.now() ||
+    !preparation.digests.includes(digest) ||
+    preparation.consumedDigests.includes(digest)
+  ) {
+    throw new RecoveryPreparationError();
+  }
+
+  const remaining = preparation.digests.filter(
+    value => value !== digest && !preparation.consumedDigests.includes(value),
+  );
+  if (remaining.length === 0) throw new RecoveryPreparationError();
+  await persistLoginRecoveryCodes(
+    transaction,
+    userId,
+    remaining.map(value => ({ digest: value })),
+  );
+  const value = JSON.stringify({
+    version: 1,
+    userId,
+    batchId: preparation.batchId,
+    passwordFingerprint,
+    keyFingerprint,
+    proofDigest: digest,
+    confirmedAt: new Date().toISOString(),
+  });
+  await transaction.appSetting.upsert({
+    where: { key: keys.confirmed },
+    create: { key: keys.confirmed, value },
+    update: { value },
+  });
+}
+
+export async function rebindLoginRecoveryPreparation(
+  transaction: Prisma.TransactionClient,
+  userId: string,
+  expectedPassword: string,
+  nextPassword: string,
+) {
+  const keys = getLoginRecoveryPreparationKeys(userId);
+  await transaction.$executeRaw`
+    UPDATE "app_setting"
+    SET "value" = jsonb_set("value"::jsonb, '{passwordFingerprint}',
+      to_jsonb(${hash(nextPassword)}::text))::text
+    WHERE "key" IN (${keys.pending}, ${keys.confirmed})
+      AND "value"::jsonb->>'passwordFingerprint' = ${hash(expectedPassword)}
+  `;
+}
+
+export async function persistLoginRecoveryCodes(
+  transaction: Prisma.TransactionClient,
+  userIdInput: string,
+  credentials: ReadonlyArray<{ digest: string }>,
+) {
+  const userId = userIdInput.toLowerCase();
   const target = await transaction.user.findUnique({
     where: { id: userId, deletedAt: null },
     select: { password: true },
@@ -66,6 +240,10 @@ export async function persistLoginRecoveryCodes(
     throw new RecoveryTargetNotFoundError();
   }
 
+  const keys = getLoginRecoveryPreparationKeys(userId);
+  await transaction.appSetting.deleteMany({
+    where: { key: { in: [keys.pending, keys.confirmed] } },
+  });
   await transaction.loginRecoveryCredential.deleteMany({ where: { userId } });
   await transaction.loginRecoveryCredential.createMany({
     data: credentials.map(({ digest }) => ({
@@ -104,6 +282,20 @@ export async function lookupLoginRecoveryCode(
       AND credential."key_fingerprint" = ${getLoginRecoveryKeyFingerprint()}
       AND owner."deleted_at" IS NULL
       AND lower(owner."username") = ${username.trim().toLowerCase()}
+    UNION ALL
+    SELECT owner."user_id" AS "userId",
+           owner."password" AS "passwordHash",
+           pending."value"::jsonb->>'passwordFingerprint' AS "passwordFingerprint"
+    FROM "user" AS owner
+    JOIN "app_setting" AS pending
+      ON pending."key" = 'login-recovery:pending:' || owner."user_id"::text
+    WHERE owner."deleted_at" IS NULL
+      AND lower(owner."username") = ${username.trim().toLowerCase()}
+      AND pending."value"::jsonb->>'userId' = owner."user_id"::text
+      AND pending."value"::jsonb->>'keyFingerprint' = ${getLoginRecoveryKeyFingerprint()}
+      AND (pending."value"::jsonb->>'expiresAt')::numeric > EXTRACT(EPOCH FROM clock_timestamp()) * 1000
+      AND (pending."value"::jsonb->'digests') @> jsonb_build_array(${digest}::text)
+      AND NOT (pending."value"::jsonb->'consumedDigests') @> jsonb_build_array(${digest}::text)
     LIMIT 1
   `;
 
@@ -126,6 +318,7 @@ export async function consumeLoginRecoveryCode(
 
   const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
   const rows = await client.$queryRaw<Array<{ userId: string }>>`
+    WITH active AS (
     UPDATE "login_recovery_credential" AS credential
     SET "consumed_at" = clock_timestamp()
     FROM "user" AS owner
@@ -139,6 +332,26 @@ export async function consumeLoginRecoveryCode(
       AND credential."password_fingerprint" = ${hash(match.passwordHash)}
       AND lower(owner."username") = ${username.trim().toLowerCase()}
     RETURNING credential."user_id" AS "userId"
+    ), pending AS (
+      UPDATE "app_setting" AS preparation
+      SET "value" = jsonb_set(preparation."value"::jsonb, '{consumedDigests}',
+        (preparation."value"::jsonb->'consumedDigests') || jsonb_build_array(${digest}::text))::text
+      FROM "user" AS owner
+      WHERE preparation."key" = ${getLoginRecoveryPreparationKeys(match.userId).pending}
+        AND owner."user_id" = ${match.userId}::uuid
+        AND owner."deleted_at" IS NULL
+        AND lower(owner."username") = ${username.trim().toLowerCase()}
+        AND owner."password" = ${match.passwordHash}
+        AND preparation."value"::jsonb->>'userId' = owner."user_id"::text
+        AND preparation."value"::jsonb->>'passwordFingerprint' = ${hash(match.passwordHash)}
+        AND preparation."value"::jsonb->>'keyFingerprint' = ${getLoginRecoveryKeyFingerprint()}
+        AND (preparation."value"::jsonb->>'expiresAt')::numeric > EXTRACT(EPOCH FROM clock_timestamp()) * 1000
+        AND (preparation."value"::jsonb->'digests') @> jsonb_build_array(${digest}::text)
+        AND NOT (preparation."value"::jsonb->'consumedDigests') @> jsonb_build_array(${digest}::text)
+        AND NOT EXISTS (SELECT 1 FROM active)
+      RETURNING owner."user_id" AS "userId"
+    )
+    SELECT "userId" FROM active UNION ALL SELECT "userId" FROM pending
   `;
 
   return rows[0]?.userId ?? null;

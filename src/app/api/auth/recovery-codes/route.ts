@@ -1,9 +1,11 @@
 import { ROLES } from '@/lib/constants';
 import { isEnvEnabled } from '@/lib/env';
 import {
+  confirmPreparedLoginRecoveryCodes,
   generateLoginRecoveryCodes,
   getLoginRecoveryKeyFingerprint,
-  persistLoginRecoveryCodes,
+  prepareLoginRecoveryCodes,
+  RecoveryPreparationError,
   RecoveryTargetNotFoundError,
 } from '@/lib/login-recovery';
 import { checkPassword } from '@/lib/password';
@@ -86,8 +88,9 @@ export async function POST(request: Request) {
     return unauthorized();
   }
 
-  const userId = auth.user.id;
-  const targetUserId = body.userId ?? userId;
+  const userId = auth.user.id.toLowerCase();
+  const confirming = 'action' in body && body.action === 'confirm';
+  const targetUserId = ('userId' in body ? (body.userId ?? userId) : userId).toLowerCase();
   if (targetUserId !== userId && auth.user.role !== ROLES.admin) {
     return forbidden();
   }
@@ -113,7 +116,7 @@ export async function POST(request: Request) {
     return badRequest({ code: 'incorrect-username-password', message: 'Incorrect password' });
   }
 
-  const credentials = generateLoginRecoveryCodes();
+  const credentials = confirming ? null : generateLoginRecoveryCodes();
 
   try {
     await runActiveSessionMutation(auth, async transaction => {
@@ -122,9 +125,19 @@ export async function POST(request: Request) {
         await assertActorIsAdministrator(transaction, userId);
       }
 
-      await persistLoginRecoveryCodes(transaction, targetUserId, credentials);
+      if ('action' in body && body.action === 'confirm') {
+        await confirmPreparedLoginRecoveryCodes(transaction, userId, body.recoveryCode);
+      } else if (credentials) {
+        await prepareLoginRecoveryCodes(transaction, targetUserId, credentials);
+      }
     });
   } catch (error) {
+    if (error instanceof RecoveryPreparationError) {
+      return badRequest({
+        code: 'recovery-preparation-invalid',
+        message: 'Prepare a new set of codes and confirm a code from that set.',
+      });
+    }
     if (error instanceof RecoveryTargetNotFoundError) {
       return notFound();
     }
@@ -141,7 +154,9 @@ export async function POST(request: Request) {
   }
 
   return json(
-    { recoveryCodes: credentials.map(({ code }) => code) },
+    credentials
+      ? { recoveryCodes: credentials.map(({ code }) => code), requiresOwnerConfirmation: true }
+      : { confirmed: true },
     { headers: { 'Cache-Control': 'no-store' } },
   );
 }

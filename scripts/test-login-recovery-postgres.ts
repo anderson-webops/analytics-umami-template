@@ -12,11 +12,14 @@ import {
   reserveLoginOverflowAttempt,
 } from '@/lib/login-rate-limit';
 import {
+  confirmPreparedLoginRecoveryCodes,
   consumeLoginRecoveryCode,
   generateLoginRecoveryCodes,
   getLoginRecoveryKeyFingerprint,
+  getLoginRecoveryPreparationKeys,
   lookupLoginRecoveryCode,
   persistLoginRecoveryCodes,
+  prepareLoginRecoveryCodes,
 } from '@/lib/login-recovery';
 import { hashPassword } from '@/lib/password';
 import prisma from '@/lib/prisma';
@@ -44,7 +47,21 @@ async function recoveryRequest(token: string, password: string, userId: string) 
         'content-type': 'application/json',
         origin: siteOrigin,
       },
-      body: JSON.stringify({ password, userId }),
+      body: JSON.stringify({ action: 'prepare', password, userId }),
+    }),
+  );
+}
+
+async function confirmRecoveryRequest(token: string, password: string, recoveryCode: string) {
+  return issueRecoveryCodes(
+    new Request(`${siteOrigin}/api/auth/recovery-codes`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+        origin: siteOrigin,
+      },
+      body: JSON.stringify({ action: 'confirm', password, recoveryCode, saved: true }),
     }),
   );
 }
@@ -113,11 +130,83 @@ try {
   const secondMatch = await lookupLoginRecoveryCode('alice', second.code);
   assert.deepEqual(secondMatch, { userId: ownerId, passwordHash: 'old-hash' });
   assert.ok(secondMatch);
+  const prepared = generateLoginRecoveryCodes();
+  await runCredentialRevocationMutation(transaction =>
+    prepareLoginRecoveryCodes(transaction, ownerId, prepared),
+  );
+  assert.ok(await lookupLoginRecoveryCode('alice', second.code));
+  assert.ok(await lookupLoginRecoveryCode('alice', prepared[0].code));
+  const pendingMatch = await lookupLoginRecoveryCode('alice', prepared[2].code);
+  assert.ok(pendingMatch);
+  const pendingAttempts = await Promise.all(
+    Array.from({ length: 24 }, () =>
+      consumeLoginRecoveryCode('alice', prepared[2].code, pendingMatch),
+    ),
+  );
+  assert.equal(pendingAttempts.filter(userId => userId === ownerId).length, 1);
   await rehashPasswordIfCurrent(ownerId, 'old-hash', 'rehash-hash', 1);
   assert.deepEqual(await lookupLoginRecoveryCode('alice', second.code), {
     userId: ownerId,
     passwordHash: 'rehash-hash',
   });
+  await assert.rejects(
+    runCredentialRevocationMutation(async transaction => {
+      await confirmPreparedLoginRecoveryCodes(transaction, ownerId, prepared[0].code);
+      throw new Error('synthetic interrupted confirmation transaction');
+    }),
+    /synthetic interrupted confirmation transaction/,
+  );
+  assert.ok(await lookupLoginRecoveryCode('alice', second.code));
+  assert.ok(await lookupLoginRecoveryCode('alice', prepared[1].code));
+  assert.equal(await lookupLoginRecoveryCode('alice', prepared[2].code), null);
+  await runCredentialRevocationMutation(transaction =>
+    confirmPreparedLoginRecoveryCodes(transaction, ownerId, prepared[0].code),
+  );
+  const preparationKeys = getLoginRecoveryPreparationKeys(ownerId);
+  const confirmationReceipt = await prisma.client.appSetting.findUniqueOrThrow({
+    where: { key: preparationKeys.confirmed },
+  });
+  assert.equal(JSON.parse(confirmationReceipt.value).passwordFingerprint, hash('rehash-hash'));
+  assert.equal(
+    await prisma.client.appSetting.findUnique({ where: { key: preparationKeys.pending } }),
+    null,
+  );
+  assert.equal(await lookupLoginRecoveryCode('alice', prepared[0].code), null);
+  assert.ok(await lookupLoginRecoveryCode('alice', prepared[1].code));
+  assert.equal(await lookupLoginRecoveryCode('alice', prepared[2].code), null);
+  for (let race = 0; race < 4; race += 1) {
+    const batch = generateLoginRecoveryCodes();
+    await runCredentialRevocationMutation(transaction =>
+      prepareLoginRecoveryCodes(transaction, ownerId.toUpperCase(), batch),
+    );
+    const match = await lookupLoginRecoveryCode('alice', batch[1].code);
+    assert.ok(match);
+    const [consumed] = await Promise.all([
+      consumeLoginRecoveryCode('alice', batch[1].code, match),
+      runCredentialRevocationMutation(transaction =>
+        confirmPreparedLoginRecoveryCodes(transaction, ownerId, batch[0].code),
+      ),
+    ]);
+    const afterRace = await lookupLoginRecoveryCode('alice', batch[1].code);
+    if (consumed === ownerId) assert.equal(afterRace, null);
+    else assert.ok(afterRace);
+  }
+  const abandoned = generateLoginRecoveryCodes();
+  await runCredentialRevocationMutation(transaction =>
+    prepareLoginRecoveryCodes(transaction, ownerId, abandoned),
+  );
+  await runCredentialRevocationMutation(transaction =>
+    persistLoginRecoveryCodes(transaction, ownerId.toUpperCase(), generateLoginRecoveryCodes()),
+  );
+  assert.equal(await lookupLoginRecoveryCode('alice', abandoned[0].code), null);
+  assert.equal(
+    await prisma.client.appSetting.findUnique({ where: { key: preparationKeys.pending } }),
+    null,
+  );
+  assert.equal(
+    await prisma.client.appSetting.findUnique({ where: { key: preparationKeys.confirmed } }),
+    null,
+  );
   await client.query('UPDATE "user" SET password = $2 WHERE user_id = $1', [ownerId, 'new-hash']);
   assert.equal(await lookupLoginRecoveryCode('alice', second.code), null);
   assert.equal(await consumeLoginRecoveryCode('alice', second.code, secondMatch), null);
@@ -181,18 +270,53 @@ try {
   const badPasswordResponse = await recoveryRequest(administratorToken, 'wrong-password', otherId);
   assert.equal(badPasswordResponse.status, 400);
 
-  const issuedResponse = await recoveryRequest(administratorToken, administratorPassword, otherId);
+  const priorCodes = generateLoginRecoveryCodes();
+  await runCredentialRevocationMutation(transaction =>
+    persistLoginRecoveryCodes(transaction, otherId, priorCodes),
+  );
+
+  const issuedResponse = await recoveryRequest(
+    administratorToken,
+    administratorPassword,
+    otherId.toUpperCase(),
+  );
   assert.equal(issuedResponse.status, 200);
   assert.equal(issuedResponse.headers.get('Cache-Control'), 'no-store');
   const { recoveryCodes } = (await issuedResponse.json()) as { recoveryCodes: string[] };
   assert.equal(recoveryCodes.length, 8);
   assert.equal(new Set(recoveryCodes).size, recoveryCodes.length);
-  const storedTargetCodes = await client.query<{ code_digest: string }>(
+  const interruptedCodes = await client.query<{ code_digest: string }>(
     'SELECT code_digest FROM login_recovery_credential WHERE user_id = $1',
     [otherId],
   );
-  assert.equal(storedTargetCodes.rows.length, recoveryCodes.length);
+  assert.equal(interruptedCodes.rows.length, 8);
+  assert.ok(
+    interruptedCodes.rows.every(row => priorCodes.some(code => code.digest === row.code_digest)),
+  );
+  assert.ok(await lookupLoginRecoveryCode('bob', recoveryCodes[0]));
+  const pendingLogin = await loginRequest('bob', targetPassword, recoveryCodes[6]);
+  assert.equal(pendingLogin.status, 200);
+  assert.ok(await lookupLoginRecoveryCode('bob', priorCodes[0].code));
+  assert.equal(
+    (await confirmRecoveryRequest(administratorToken, administratorPassword, recoveryCodes[7]))
+      .status,
+    400,
+  );
+  const confirmations = await Promise.all(
+    Array.from({ length: 3 }, () =>
+      confirmRecoveryRequest(targetToken, targetPassword, recoveryCodes[7]),
+    ),
+  );
+  assert.ok(confirmations.every(response => response.status === 200));
+  const storedTargetCodes = await client.query<{ code_digest: string }>(
+    'SELECT code_digest FROM login_recovery_credential WHERE user_id = $1 ORDER BY code_digest',
+    [otherId],
+  );
+  assert.equal(storedTargetCodes.rows.length, 6);
   assert.ok(storedTargetCodes.rows.every(row => !recoveryCodes.includes(row.code_digest)));
+  assert.equal(await lookupLoginRecoveryCode('bob', priorCodes[0].code), null);
+  assert.equal(await lookupLoginRecoveryCode('bob', recoveryCodes[7]), null);
+  assert.equal(await lookupLoginRecoveryCode('bob', recoveryCodes[6]), null);
   assert.deepEqual(await lookupLoginRecoveryCode('bob', recoveryCodes[0]), {
     userId: otherId,
     passwordHash: targetHash,
@@ -266,7 +390,7 @@ try {
   );
   assert.equal(downgradedResponse.status, 401);
   const retainedCodes = await client.query<{ code_digest: string }>(
-    'SELECT code_digest FROM login_recovery_credential WHERE user_id = $1',
+    'SELECT code_digest FROM login_recovery_credential WHERE user_id = $1 ORDER BY code_digest',
     [otherId],
   );
   assert.deepEqual(retainedCodes.rows, storedTargetCodes.rows);

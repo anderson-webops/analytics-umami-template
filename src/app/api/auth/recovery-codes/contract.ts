@@ -40,14 +40,23 @@ const rotate = defineOperation({
     operationId: 'rotateLoginRecoveryCodes',
     summary: 'Rotate login recovery codes',
     description:
-      'Requires a current session and password. An administrator may specify another user. Replaces previous codes and returns each new one-use code once.',
+      'Requires a current full session and password. Prepares replacement codes without revoking the active set. An administrator may prepare codes for another owner. Pending codes permit bounded password/CAPTCHA/MFA login, but only that owner can confirm possession. Confirming spends the proof code and atomically activates the remaining unused codes, at least one. Issuance and delivery acknowledgement alone do not confirm owner readiness.',
     tags: ['Authentication'],
     requestBody: {
       required: true,
       content: { 'application/json': { schema: rotateLoginRecoveryCodesSchema } },
     },
     responses: {
-      '200': jsonResponse(z.object({ recoveryCodes: z.array(z.string()) }), 'New codes.'),
+      '200': jsonResponse(
+        z.union([
+          z.object({
+            recoveryCodes: z.array(z.string()),
+            requiresOwnerConfirmation: z.literal(true),
+          }),
+          z.object({ confirmed: z.literal(true) }),
+        ]),
+        'Prepared codes or durable owner confirmation.',
+      ),
       '400': badRequestResponse,
       '401': unauthorizedResponse,
       '403': forbiddenResponse,

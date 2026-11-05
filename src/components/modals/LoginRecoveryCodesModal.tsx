@@ -10,6 +10,7 @@ import {
   Modal,
   PasswordField,
   Text,
+  TextField,
 } from '@umami/react-zen';
 import { useState } from 'react';
 import { ControlledDialog } from '@/components/common/ControlledDialog';
@@ -31,17 +32,36 @@ export function LoginRecoveryCodesModal({
 
   const handleSubmit = async ({ password }: { password: string }) => {
     const response = await mutateAsync({
+      action: 'prepare',
       password,
       ...(target ? { userId: target.id } : {}),
     }).catch(() => null);
     if (!response) return;
     setCodes(response.recoveryCodes);
+  };
+
+  const handleConfirm = async ({
+    password,
+    recoveryCode,
+  }: {
+    password: string;
+    recoveryCode: string;
+  }) => {
+    if (!saved) return;
+    const response = await mutateAsync({
+      action: 'confirm',
+      password,
+      recoveryCode,
+      saved: true,
+    }).catch(() => null);
+    if (response?.confirmed !== true) return;
     onRotated?.();
+    onClose();
   };
 
   return (
     <ControlledDialog>
-      <Modal isOpen={true} onOpenChange={codes ? () => {} : onClose}>
+      <Modal isOpen={true} onOpenChange={onClose}>
         <Dialog
           title={target ? 'Issue login recovery codes' : 'Login recovery codes'}
           className="rr-block"
@@ -51,8 +71,8 @@ export function LoginRecoveryCodesModal({
             <Column gap="4">
               <Text>
                 {target
-                  ? `Give these to ${target.username} through a verified private channel. They will not be shown again.`
-                  : 'Save these now. Each login attempt spends one code; they will not be shown again.'}
+                  ? `Give these to ${target.username} privately. The owner must confirm a code in Security within 15 minutes. Previous codes remain active until then.`
+                  : 'Save the codes, then confirm one within 15 minutes. Confirmation spends that code and activates the unused codes. Previous codes remain active until confirmation.'}
               </Text>
               <Column gap="2">
                 {codes.map(code => (
@@ -69,11 +89,42 @@ export function LoginRecoveryCodesModal({
                 />{' '}
                 {target ? 'I delivered these codes' : 'I saved these codes'}
               </label>
-              <FormButtons>
-                <Button variant="primary" onPress={onClose} isDisabled={!saved}>
-                  {t(labels.close)}
-                </Button>
-              </FormButtons>
+              {target ? (
+                <FormButtons>
+                  <Button variant="primary" onPress={onClose} isDisabled={!saved}>
+                    {t(labels.close)}
+                  </Button>
+                </FormButtons>
+              ) : (
+                <Form
+                  onSubmit={handleConfirm}
+                  error={getErrorMessage(error)}
+                  defaultValues={{ password: '', recoveryCode: '' }}
+                >
+                  <FormField
+                    label={t(labels.currentPassword)}
+                    name="password"
+                    rules={{ required: t(labels.required) }}
+                  >
+                    <PasswordField autoComplete="current-password" />
+                  </FormField>
+                  <FormField
+                    label="Code from your saved copy"
+                    name="recoveryCode"
+                    rules={{ required: t(labels.required) }}
+                  >
+                    <TextField autoComplete="off" spellCheck={false} />
+                  </FormField>
+                  <FormButtons>
+                    <Button onPress={onClose} isDisabled={isPending}>
+                      {t(labels.cancel)}
+                    </Button>
+                    <FormSubmitButton variant="primary" isDisabled={!saved || isPending}>
+                      Confirm codes
+                    </FormSubmitButton>
+                  </FormButtons>
+                </Form>
+              )}
             </Column>
           ) : (
             <Form
@@ -81,7 +132,7 @@ export function LoginRecoveryCodesModal({
               error={getErrorMessage(error)}
               defaultValues={{ password: '' }}
             >
-              <Text>New codes replace any previous login recovery codes.</Text>
+              <Text>Previous codes stay active until the owner confirms the replacement.</Text>
               <FormField
                 label={t(labels.currentPassword)}
                 name="password"
@@ -96,6 +147,11 @@ export function LoginRecoveryCodesModal({
                 <FormSubmitButton variant="primary" isDisabled={isPending}>
                   Generate codes
                 </FormSubmitButton>
+                {!target && (
+                  <Button onPress={() => setCodes([])} isDisabled={isPending}>
+                    Confirm received codes
+                  </Button>
+                )}
               </FormButtons>
             </Form>
           )}
