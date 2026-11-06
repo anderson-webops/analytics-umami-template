@@ -13,7 +13,10 @@ export default {
     format: 'iife',
   },
   plugins: [
-    typescript({ tsconfig: './tsconfig.tracker.json' }),
+    typescript({
+      tsconfig: './tsconfig.tracker.json',
+      compilerOptions: { allowImportingTsExtensions: false },
+    }),
     replace({
       "process.env['COLLECT_API_HOST']": JSON.stringify(host),
       "process.env['COLLECT_API_ENDPOINT']": JSON.stringify(endpoint),

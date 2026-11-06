@@ -11,6 +11,42 @@ const require = createRequire(import.meta.url);
 const root = fileURLToPath(new URL('../', import.meta.url));
 const launcher = path.join(root, 'scripts/typecheck.mjs');
 
+test('tracker bundling emits JavaScript without invalid compiler options', async () => {
+  const fixture = await mkdtemp(path.join(root, 'public', '.tracker-typescript-'));
+  const output = path.join(fixture, 'script.js');
+
+  try {
+    const result = spawnSync(
+      process.execPath,
+      [
+        path.join(root, 'node_modules/rollup/dist/bin/rollup'),
+        '--config',
+        path.join(root, 'rollup.tracker.config.js'),
+        '--file',
+        output,
+      ],
+      {
+        cwd: root,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          DOTENV_CONFIG_PATH: path.join(fixture, '.env'),
+          COLLECT_API_HOST: '',
+          COLLECT_API_ENDPOINT: '/api/send',
+        },
+        timeout: 20_000,
+      },
+    );
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.doesNotMatch(result.stdout + result.stderr, /\bTS\d+:/);
+    const script = await readFile(output, 'utf8');
+    assert.match(script, /\bumami\b/);
+    assert.match(script, /\/api\/send/);
+  } finally {
+    await rm(fixture, { recursive: true, force: true });
+  }
+});
+
 test('native TypeScript 7 checks valid code and rejects a real type error', async () => {
   const fixture = await mkdtemp(path.join(tmpdir(), 'analytics-native-typescript-'));
   const source = path.join(fixture, 'fixture.ts');
