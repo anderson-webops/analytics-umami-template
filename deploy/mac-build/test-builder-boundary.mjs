@@ -8,6 +8,17 @@ import { fileURLToPath } from 'node:url';
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 
+test('Linux builder installs system certificate roots before package bootstrapping', () => {
+  const source = fs.readFileSync(path.join(directory, 'Dockerfile'), 'utf8');
+  const certificates = source.indexOf('ca-certificates=');
+  const bootstrap = source.indexOf('npm install --global');
+
+  assert.ok(certificates >= 0 && certificates < bootstrap);
+  assert.match(source, /ca-certificates=\d{8}(?:[+~]deb\d+u\d+)?\s/);
+  assert.match(source, /test -s \/etc\/ssl\/certs\/ca-certificates\.crt/);
+  assert.doesNotMatch(source, /strict-ssl=false|NODE_TLS_REJECT_UNAUTHORIZED=0|--insecure/);
+});
+
 for (const script of ['release.sh', 'publish.sh']) {
   for (const argumentsList of [
     [],

@@ -7,12 +7,14 @@ COPY --from=node-toolchain /usr/local/ /usr/local/
 RUN --mount=type=cache,id=anderson-analytics-arm64-toolchain-npm12,target=/root/.npm,sharing=locked \
     apt-get update \
     && apt-get install --no-install-recommends -y \
+      ca-certificates=20250419~deb12u2 \
       git=1:2.39.5-0+deb12u3 \
       build-essential=12.9 \
       python3=3.11.2-1+b1 \
       bubblewrap=0.8.0-2+deb12u1 \
       libatomic1=12.2.0-14+deb12u1 \
     && rm -rf /var/lib/apt/lists/* \
+    && test -s /etc/ssl/certs/ca-certificates.crt \
     && npm install --global --ignore-scripts npm@12.2.1 pnpm@12.16.1 \
     && test "$(node --version)" = 'v26.13.0' \
     && test "$(npm --version)" = '12.2.1' \
