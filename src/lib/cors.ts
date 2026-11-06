@@ -1,13 +1,16 @@
 const DEFAULT_CORS_MAX_AGE = process.env.CORS_MAX_AGE || '86400';
 
-export function getApiCorsHeaders(headers: HeadersInit = {}) {
-  return {
+export function getApiCorsHeaders(headers: HeadersInit = {}): Record<string, string> {
+  const corsHeaders = new Headers({
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Content-Type, x-umami-cache',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Max-Age': DEFAULT_CORS_MAX_AGE,
-    ...headers,
-  };
+  });
+  new Headers(headers).forEach((value, key) => {
+    corsHeaders.set(key, value);
+  });
+  return Object.fromEntries(corsHeaders.entries());
 }
 
 export function withCorsHeaders(response: Response, headers: HeadersInit = {}) {
