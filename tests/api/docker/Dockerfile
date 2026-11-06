@@ -41,8 +41,9 @@ RUN pnpm run audit:all \
     && pnpm run build:recorder \
     && SKIP_BUILD_GEO=1 pnpm run build:geo \
     && pnpm run build:openapi \
-    && pnpm run build:app \
-    && node --input-type=module -e 'import fs from "node:fs/promises"; import path from "node:path"; import { repairStandaloneRuntime } from "./scripts/repair-standalone.js"; const { appDir } = await repairStandaloneRuntime(); if (!appDir) throw new Error("Compiled API fixture is missing."); for (const relative of ["public", ".next/static"]) await fs.cp(relative, path.join(appDir, relative), { recursive: true });'
+    && pnpm run build:app
+
+RUN node --input-type=module -e 'import fs from "node:fs/promises"; import path from "node:path"; import { repairStandaloneRuntime } from "./scripts/repair-standalone.js"; import { copyReplayCssBindings } from "./scripts/standalone-css-bindings.mjs"; const { appDir } = await repairStandaloneRuntime(); if (!appDir) throw new Error("Compiled API fixture is missing."); await copyReplayCssBindings(appDir); for (const relative of ["public", ".next/static"]) await fs.cp(relative, path.join(appDir, relative), { recursive: true });'
 
 ENV NODE_OPTIONS=--max-old-space-size=4096
 CMD ["node", "tests/api/docker/start.mjs"]

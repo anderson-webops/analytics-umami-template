@@ -108,6 +108,7 @@ test('the full API matrix uses a compiled server rather than an accumulating dev
   const launcher = readFileSync(startup, 'utf8');
   assert.match(fixture, /pnpm run build:app/);
   assert.match(fixture, /repairStandaloneRuntime/);
+  assert.match(fixture, /await copyReplayCssBindings\(appDir\)/);
   assert.match(launcher, /path\.join\(appDir, 'server\.js'\)/);
   assert.doesNotMatch(launcher, /'dev'|--webpack|DISABLE_MEM/);
   assert.match(launcher, /HOSTNAME: '0\.0\.0\.0'/);
