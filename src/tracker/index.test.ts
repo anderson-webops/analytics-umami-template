@@ -522,7 +522,7 @@ test('removes private URL components from automatic and explicit tracking', asyn
     expect(JSON.stringify(payloads)).not.toContain('SYNTHETIC-');
     expect(JSON.stringify(payloads)).not.toContain('private-');
   } finally {
-    history.replaceState(null, '', originalUrl);
+    originalReplaceState.call(history, null, '', originalUrl);
     delete (document as Document & { referrer?: string }).referrer;
   }
 });
