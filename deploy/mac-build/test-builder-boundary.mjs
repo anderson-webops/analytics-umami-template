@@ -11,12 +11,64 @@ const directory = path.dirname(fileURLToPath(import.meta.url));
 test('Linux builder installs system certificate roots before package bootstrapping', () => {
   const source = fs.readFileSync(path.join(directory, 'Dockerfile'), 'utf8');
   const certificates = source.indexOf('ca-certificates=');
-  const bootstrap = source.indexOf('npm install --global');
+  const bootstrap = source.indexOf(
+    'npm ci --prefix /opt/analytics-builder-profile/build-toolchain',
+  );
 
   assert.ok(certificates >= 0 && certificates < bootstrap);
   assert.match(source, /ca-certificates=\d{8}(?:[+~]deb\d+u\d+)?\s/);
   assert.match(source, /test -s \/etc\/ssl\/certs\/ca-certificates\.crt/);
   assert.doesNotMatch(source, /strict-ssl=false|NODE_TLS_REJECT_UNAUTHORIZED=0|--insecure/);
+});
+
+test('Linux builder installs and verifies independently locked npm and pnpm graphs', () => {
+  const source = fs.readFileSync(path.join(directory, 'Dockerfile'), 'utf8');
+  const npm = JSON.parse(
+    fs.readFileSync(path.join(directory, '../../build-toolchain/UPSTREAM.json')),
+  );
+  const pnpm = JSON.parse(
+    fs.readFileSync(path.join(directory, 'pnpm-toolchain/package-lock.json')),
+  );
+  const root = JSON.parse(fs.readFileSync(path.join(directory, '../../package.json')));
+
+  assert.equal(npm.npm, '12.2.2');
+  assert.equal(pnpm.packages['node_modules/pnpm'].version, '12.18.0');
+  assert.equal(root.packageManager, 'pnpm@12.18.0');
+  const pnpmManifest = JSON.parse(
+    fs.readFileSync(path.join(directory, 'pnpm-toolchain/package.json')),
+  );
+  assert.deepEqual(pnpmManifest.allowScripts, { 'pnpm@12.18.0': true });
+  assert.match(source, /pnpm-toolchain --workspaces=false --strict-allow-scripts/);
+  assert.match(source, /npm ci --prefix \/opt\/analytics-builder-profile\/build-toolchain/);
+  assert.match(
+    source,
+    /npm ci --prefix \/opt\/analytics-builder-profile\/deploy\/mac-build\/pnpm-toolchain/,
+  );
+  assert.match(source, /rm -rf \/usr\/local\/lib\/node_modules\/npm/);
+  assert.match(
+    source,
+    /node \/opt\/analytics-builder-profile\/deploy\/mac-build\/verify-toolchain\.mjs/,
+  );
+  assert.doesNotMatch(source, /npm install --global/);
+});
+
+test('Linux builder context admits only the reviewed toolchain inputs', () => {
+  const source = fs.readFileSync(path.join(directory, 'Dockerfile.dockerignore'), 'utf8');
+  assert.match(source, /^\*\*$/m);
+  assert.match(source, /^!build-toolchain\/package-lock\.json$/m);
+  assert.match(source, /^!deploy\/mac-build\/pnpm-toolchain\/package-lock\.json$/m);
+  assert.doesNotMatch(source, /^!.*(?:node_modules|\.ai-work|\.env)/m);
+  for (const pattern of [
+    'build-toolchain/**',
+    'scripts/**',
+    'deploy/**',
+    'deploy/mac-build/**',
+    'deploy/mac-build/pnpm-toolchain/**',
+    '**/node_modules',
+    '**/.ai-work',
+    '**/.env*',
+  ])
+    assert.ok(source.split('\n').includes(pattern), `Missing closed context rule: ${pattern}`);
 });
 
 for (const script of ['release.sh', 'publish.sh']) {

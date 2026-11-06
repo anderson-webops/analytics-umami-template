@@ -66,7 +66,7 @@ upstream `gl_ES` without renaming its public file.
 
 ## Production Deployment
 
-Use PostgreSQL 15 or newer, Node 26.13.0, pnpm 12.16.1, the supplied systemd
+Use PostgreSQL 15 or newer, Node 26.13.0, pnpm 12.18.0, the supplied systemd
 unit, and Nginx. Each release is built from an exact commit in its own directory
 and promoted by changing the `current` symlink. Both source and packaged
 production launchers and the legacy `start` aliases use guarded, verify-only

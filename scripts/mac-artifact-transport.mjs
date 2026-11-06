@@ -682,8 +682,8 @@ export async function prepareTransport({
     process.arch !== 'arm64' ||
     !process.report.getReport().header.glibcVersionRuntime ||
     process.versions.node !== '26.13.0' ||
-    execFileSync('npm', ['--version'], { encoding: 'utf8' }).trim() !== '12.2.1' ||
-    execFileSync('pnpm', ['--version'], { encoding: 'utf8' }).trim() !== '12.16.1'
+    execFileSync('npm', ['--version'], { encoding: 'utf8' }).trim() !== '12.2.2' ||
+    execFileSync('pnpm', ['--version'], { encoding: 'utf8' }).trim() !== '12.18.0'
   ) {
     throw new Error('Transport packaging requires the exact reviewed Linux ARM64 toolchain.');
   }
@@ -754,8 +754,8 @@ export async function prepareTransport({
       architecture: 'arm64',
       libc: 'glibc',
       node: '26.13.0',
-      npm: '12.2.1',
-      package_manager: 'pnpm@12.16.1',
+      npm: '12.2.2',
+      package_manager: 'pnpm@12.18.0',
     },
     configuration_sha256: sha256(publicConfiguration),
     runtime_contract_sha256: runtimeManifest.contractSha256,

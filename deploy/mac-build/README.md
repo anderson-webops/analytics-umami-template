@@ -11,7 +11,7 @@ closed. Build through a separately reviewed, owner-only installation of
 `build-unsigned.sh` under
 `~/Library/Application Support/AndersonArtifactBuilder/analytics-builder-v1/`.
 Its hash inventory includes the launcher and its source-independent helpers.
-Its installation metadata pins the fixed Node 26.13.0/npm 12.2.1/pnpm 12.16.1/
+Its installation metadata pins the fixed Node 26.13.0/npm 12.2.2/pnpm 12.18.0/
 PostgreSQL 17 Linux ARM64 toolchain archive.
 
 Invoke the installed tool from a fresh environment containing only `HOME`,

@@ -1,0 +1,2097 @@
+{
+  "profile": "webops-locked-npm-v1",
+  "node": "26.13.0",
+  "npm": "12.2.2",
+  "upstreamIntegrity": "sha512-KglgbZyacf7jH+FHuNRqVuCzQi8VhI2a7J87Ix43FsPTuZoGWmIXXGdZtBUOA79vwL+IJREqURVzupA7PsQTcA==",
+  "archive": "vendor/npm-12.2.2-webops.1.tgz",
+  "changes": "Remove bundled dependency copies and their packaging declarations. Preserve every CLI code, documentation and license byte, then resolve production dependencies through the independently locked root overrides.",
+  "archiveSha256": "937f92496a66d6a89955961eb2c70a8e873e4b407b1d4c09e77a0ddec0fafe4d",
+  "lockSha256": "bd9366e4e37579a4f85c69a0ca906983d23a6a6ab7795666a97f8903bee66cf3",
+  "files": [
+    {
+      "path": "package/LICENSE",
+      "upstreamSha256": "7610d223851f421d315df5e77974f1c68a04b97e02060e5bbbcf13d95e3ca257",
+      "sha256": "7610d223851f421d315df5e77974f1c68a04b97e02060e5bbbcf13d95e3ca257"
+    },
+    {
+      "path": "package/bin/node-gyp-bin/node-gyp",
+      "upstreamSha256": "7d8db08dc7f9d6d9f74341cf838a2d3532b4dec44aa0131ab8ec8076843c0c40",
+      "sha256": "7d8db08dc7f9d6d9f74341cf838a2d3532b4dec44aa0131ab8ec8076843c0c40"
+    },
+    {
+      "path": "package/bin/npm",
+      "upstreamSha256": "13372aa943f8eb32c9a8b6f946ed6a49118edd60051321953288b1f35611aefb",
+      "sha256": "13372aa943f8eb32c9a8b6f946ed6a49118edd60051321953288b1f35611aefb"
+    },
+    {
+      "path": "package/bin/npx",
+      "upstreamSha256": "a8be7733861aede8f9c331ad7b60aa225dd085271d6de68946f0fb5d0717de09",
+      "sha256": "a8be7733861aede8f9c331ad7b60aa225dd085271d6de68946f0fb5d0717de09"
+    },
+    {
+      "path": "package/man/man1/npm-access.1",
+      "upstreamSha256": "2a98154ecfde80f44c307b979310eeb5f6376555c02dce03ae98525ce303e842",
+      "sha256": "2a98154ecfde80f44c307b979310eeb5f6376555c02dce03ae98525ce303e842"
+    },
+    {
+      "path": "package/man/man1/npm-approve-scripts.1",
+      "upstreamSha256": "efe8cac9e44b0ad8e13e9af2119f4d59ea29fd1788da86a8d90e55c15a5b356c",
+      "sha256": "efe8cac9e44b0ad8e13e9af2119f4d59ea29fd1788da86a8d90e55c15a5b356c"
+    },
+    {
+      "path": "package/man/man1/npm-audit.1",
+      "upstreamSha256": "d4bcc79eab192914c9671f29a160023f5a1b1db9b8ccd0679bd3451142aebc94",
+      "sha256": "d4bcc79eab192914c9671f29a160023f5a1b1db9b8ccd0679bd3451142aebc94"
+    },
+    {
+      "path": "package/man/man1/npm-bugs.1",
+      "upstreamSha256": "a079b317484a9bc74ba8789379398f1627ad21a119c19a5e5fb756516393b8ae",
+      "sha256": "a079b317484a9bc74ba8789379398f1627ad21a119c19a5e5fb756516393b8ae"
+    },
+    {
+      "path": "package/man/man1/npm-cache.1",
+      "upstreamSha256": "7f1d47bae7f9afdbd538183b7d2690ec88ac637ae890cfb3c0b532b9bb738b04",
+      "sha256": "7f1d47bae7f9afdbd538183b7d2690ec88ac637ae890cfb3c0b532b9bb738b04"
+    },
+    {
+      "path": "package/man/man1/npm-ci.1",
+      "upstreamSha256": "e336c653bb00d2757f87fd03b038566398b757a12ca7bb1615dc68ed9cf20a44",
+      "sha256": "e336c653bb00d2757f87fd03b038566398b757a12ca7bb1615dc68ed9cf20a44"
+    },
+    {
+      "path": "package/man/man1/npm-completion.1",
+      "upstreamSha256": "20cb04e49ae7effd52c3edacfee2e64ffbb7db18b74dac06832fa5bbc446b82e",
+      "sha256": "20cb04e49ae7effd52c3edacfee2e64ffbb7db18b74dac06832fa5bbc446b82e"
+    },
+    {
+      "path": "package/man/man1/npm-config.1",
+      "upstreamSha256": "7b3d6f4f99659f8b03096efe01a0f0f884aeeea982954b38ff448ae845cb7889",
+      "sha256": "7b3d6f4f99659f8b03096efe01a0f0f884aeeea982954b38ff448ae845cb7889"
+    },
+    {
+      "path": "package/man/man1/npm-dedupe.1",
+      "upstreamSha256": "4180bf3ae19114c264f0423fe3e230413169842412dd7e3b685acf60b1a19229",
+      "sha256": "4180bf3ae19114c264f0423fe3e230413169842412dd7e3b685acf60b1a19229"
+    },
+    {
+      "path": "package/man/man1/npm-deny-scripts.1",
+      "upstreamSha256": "3ca369f4a52b07244dde39cfdb3a2a2e86f014e655324c496700b35313fb6d90",
+      "sha256": "3ca369f4a52b07244dde39cfdb3a2a2e86f014e655324c496700b35313fb6d90"
+    },
+    {
+      "path": "package/man/man1/npm-deprecate.1",
+      "upstreamSha256": "8b13b88518b05e74e7afbe6682b21fcf023fc2eedc47b648f5edf00dd0e9fba0",
+      "sha256": "8b13b88518b05e74e7afbe6682b21fcf023fc2eedc47b648f5edf00dd0e9fba0"
+    },
+    {
+      "path": "package/man/man1/npm-diff.1",
+      "upstreamSha256": "6a089e8d22595e0c74941dcdca3f8d4f73694fb74f7f57eb706018bd1734cfcf",
+      "sha256": "6a089e8d22595e0c74941dcdca3f8d4f73694fb74f7f57eb706018bd1734cfcf"
+    },
+    {
+      "path": "package/man/man1/npm-dist-tag.1",
+      "upstreamSha256": "fa45a922112b74e7a244d2bd82511ef07793bbb7870cbc63e324667ac95b105d",
+      "sha256": "fa45a922112b74e7a244d2bd82511ef07793bbb7870cbc63e324667ac95b105d"
+    },
+    {
+      "path": "package/man/man1/npm-docs.1",
+      "upstreamSha256": "7d1e9454448e648f8cf048ceaddd9c1b26728062de43035e424fa4057e4601fa",
+      "sha256": "7d1e9454448e648f8cf048ceaddd9c1b26728062de43035e424fa4057e4601fa"
+    },
+    {
+      "path": "package/man/man1/npm-doctor.1",
+      "upstreamSha256": "889f6152e46e64e60d6c43773920e6c062e1abdcc400bfa7da6d8d5fcbf0b7f2",
+      "sha256": "889f6152e46e64e60d6c43773920e6c062e1abdcc400bfa7da6d8d5fcbf0b7f2"
+    },
+    {
+      "path": "package/man/man1/npm-edit.1",
+      "upstreamSha256": "27efb0e62bcf7cace4e3249a89805b90971d961bbbacb2f882bbe6221b71ed98",
+      "sha256": "27efb0e62bcf7cace4e3249a89805b90971d961bbbacb2f882bbe6221b71ed98"
+    },
+    {
+      "path": "package/man/man1/npm-exec.1",
+      "upstreamSha256": "e227aca57d1378d1554514a79e8bfb60f5eb198c7d5862d06432a32a16c6c79e",
+      "sha256": "e227aca57d1378d1554514a79e8bfb60f5eb198c7d5862d06432a32a16c6c79e"
+    },
+    {
+      "path": "package/man/man1/npm-explain.1",
+      "upstreamSha256": "7824868fdf3cc8fb802bc2f2b9e99f0ae427bad8287d1dc5f8572ff44e6e7c1a",
+      "sha256": "7824868fdf3cc8fb802bc2f2b9e99f0ae427bad8287d1dc5f8572ff44e6e7c1a"
+    },
+    {
+      "path": "package/man/man1/npm-explore.1",
+      "upstreamSha256": "13dde1fe3083a2e7cf14195414d71f6cf39811ac485d5a7821813f4ab9a0d4be",
+      "sha256": "13dde1fe3083a2e7cf14195414d71f6cf39811ac485d5a7821813f4ab9a0d4be"
+    },
+    {
+      "path": "package/man/man1/npm-find-dupes.1",
+      "upstreamSha256": "31d4f14cfd4fd8fd9c96bc6ab3cdce5f5b0e667fb2039b9621c0e4bb95819fe3",
+      "sha256": "31d4f14cfd4fd8fd9c96bc6ab3cdce5f5b0e667fb2039b9621c0e4bb95819fe3"
+    },
+    {
+      "path": "package/man/man1/npm-fund.1",
+      "upstreamSha256": "946c2c234d2b3eefc9420abd81f9b174f77cd39d2b4ae2dd736481d399020e58",
+      "sha256": "946c2c234d2b3eefc9420abd81f9b174f77cd39d2b4ae2dd736481d399020e58"
+    },
+    {
+      "path": "package/man/man1/npm-get.1",
+      "upstreamSha256": "94064c99eb8c17abccf12d4b0baf5b3fe0450cf448e861976cec5f430cac7a0b",
+      "sha256": "94064c99eb8c17abccf12d4b0baf5b3fe0450cf448e861976cec5f430cac7a0b"
+    },
+    {
+      "path": "package/man/man1/npm-help-search.1",
+      "upstreamSha256": "ded24ffee80923ad4a47fad03a37efb45fb6ce6aab0ae4df8066c3994188d5f2",
+      "sha256": "ded24ffee80923ad4a47fad03a37efb45fb6ce6aab0ae4df8066c3994188d5f2"
+    },
+    {
+      "path": "package/man/man1/npm-help.1",
+      "upstreamSha256": "b0e55c1c733a8b24517768a30bb1432f025c3088721065efe1bc100ec863ec3b",
+      "sha256": "b0e55c1c733a8b24517768a30bb1432f025c3088721065efe1bc100ec863ec3b"
+    },
+    {
+      "path": "package/man/man1/npm-init.1",
+      "upstreamSha256": "0f91e2a83fbff0733aff36cbcb66f937b78f2467f8825030d7225753162d7724",
+      "sha256": "0f91e2a83fbff0733aff36cbcb66f937b78f2467f8825030d7225753162d7724"
+    },
+    {
+      "path": "package/man/man1/npm-install-ci-test.1",
+      "upstreamSha256": "19f67994fe29c513d08eddf560035fb36d2a5293d4db029f55d0461d86d5ea43",
+      "sha256": "19f67994fe29c513d08eddf560035fb36d2a5293d4db029f55d0461d86d5ea43"
+    },
+    {
+      "path": "package/man/man1/npm-install-scripts.1",
+      "upstreamSha256": "66746b1a8ab467716aecf05f4696e486f972316c2c4013372edb22e8acaab0fe",
+      "sha256": "66746b1a8ab467716aecf05f4696e486f972316c2c4013372edb22e8acaab0fe"
+    },
+    {
+      "path": "package/man/man1/npm-install-test.1",
+      "upstreamSha256": "66d16a5b6b047e97e9d763038e57d4f3abbf4c917e87a17fb7d0aeab222bb72f",
+      "sha256": "66d16a5b6b047e97e9d763038e57d4f3abbf4c917e87a17fb7d0aeab222bb72f"
+    },
+    {
+      "path": "package/man/man1/npm-install.1",
+      "upstreamSha256": "5b110ced06bf4c56b3d0f3c808b44620ced9c52836b8895158eec4a80ddd2fed",
+      "sha256": "5b110ced06bf4c56b3d0f3c808b44620ced9c52836b8895158eec4a80ddd2fed"
+    },
+    {
+      "path": "package/man/man1/npm-link.1",
+      "upstreamSha256": "2646cee0498c30a8a6c30abc09880e11ddb039302adfb471d81c13ca88ed9bf0",
+      "sha256": "2646cee0498c30a8a6c30abc09880e11ddb039302adfb471d81c13ca88ed9bf0"
+    },
+    {
+      "path": "package/man/man1/npm-ll.1",
+      "upstreamSha256": "8f966f74e4d5b566b2dc80e339364c128892f21dd3a5eb5cf61293ca2fb03172",
+      "sha256": "8f966f74e4d5b566b2dc80e339364c128892f21dd3a5eb5cf61293ca2fb03172"
+    },
+    {
+      "path": "package/man/man1/npm-login.1",
+      "upstreamSha256": "2b625d003f36dbdfc13224f437c3c43861769f7794a7f3cdcda02b6db9e8d817",
+      "sha256": "2b625d003f36dbdfc13224f437c3c43861769f7794a7f3cdcda02b6db9e8d817"
+    },
+    {
+      "path": "package/man/man1/npm-logout.1",
+      "upstreamSha256": "707faa433c450862b92577c04fcddb20db4492e2184f0b9d6be489daf667331e",
+      "sha256": "707faa433c450862b92577c04fcddb20db4492e2184f0b9d6be489daf667331e"
+    },
+    {
+      "path": "package/man/man1/npm-ls.1",
+      "upstreamSha256": "13dbf4c61b0d354e52550a2e71bed76af7c398643c476d888a53741f57eab45b",
+      "sha256": "13dbf4c61b0d354e52550a2e71bed76af7c398643c476d888a53741f57eab45b"
+    },
+    {
+      "path": "package/man/man1/npm-org.1",
+      "upstreamSha256": "4b628f262f852a385774b5b5b7998e330336009ff3eb34f7091bd37a42c3acb3",
+      "sha256": "4b628f262f852a385774b5b5b7998e330336009ff3eb34f7091bd37a42c3acb3"
+    },
+    {
+      "path": "package/man/man1/npm-outdated.1",
+      "upstreamSha256": "0b26cbd165bc439f6fc51271c9af30bb1ff35aa5699dd10af0386b8ec3184d3a",
+      "sha256": "0b26cbd165bc439f6fc51271c9af30bb1ff35aa5699dd10af0386b8ec3184d3a"
+    },
+    {
+      "path": "package/man/man1/npm-owner.1",
+      "upstreamSha256": "98174b3ca36f8da1cfaf17bb32f093fe3628e334b3f4d1fe81fd3782debf911c",
+      "sha256": "98174b3ca36f8da1cfaf17bb32f093fe3628e334b3f4d1fe81fd3782debf911c"
+    },
+    {
+      "path": "package/man/man1/npm-pack.1",
+      "upstreamSha256": "c77a7e9e8884ffb8b80c1294ef10dc6ec3e0c0cdb1fe2444485b6512f07888dc",
+      "sha256": "c77a7e9e8884ffb8b80c1294ef10dc6ec3e0c0cdb1fe2444485b6512f07888dc"
+    },
+    {
+      "path": "package/man/man1/npm-patch.1",
+      "upstreamSha256": "d73e8e8c9415526500e4e143a57477e56d055869a7fa105f518751fc03e4f2d5",
+      "sha256": "d73e8e8c9415526500e4e143a57477e56d055869a7fa105f518751fc03e4f2d5"
+    },
+    {
+      "path": "package/man/man1/npm-ping.1",
+      "upstreamSha256": "cb64e90dfe09332046955acd74af035972bfe4ec1ffb1022559999ad47429ba9",
+      "sha256": "cb64e90dfe09332046955acd74af035972bfe4ec1ffb1022559999ad47429ba9"
+    },
+    {
+      "path": "package/man/man1/npm-pkg.1",
+      "upstreamSha256": "79a0bb613dfc451dcace8bb39c49aa08fbeea93de8327382c100ad21ece3394a",
+      "sha256": "79a0bb613dfc451dcace8bb39c49aa08fbeea93de8327382c100ad21ece3394a"
+    },
+    {
+      "path": "package/man/man1/npm-prefix.1",
+      "upstreamSha256": "7b009c2ef3f113d286eea18abe42ec12edc2bf48ce0df3404d1e4dc851d1608c",
+      "sha256": "7b009c2ef3f113d286eea18abe42ec12edc2bf48ce0df3404d1e4dc851d1608c"
+    },
+    {
+      "path": "package/man/man1/npm-profile.1",
+      "upstreamSha256": "e60a48629a6adb7806e863d98bd31d833f6fead989530f67121284c3bf359b5a",
+      "sha256": "e60a48629a6adb7806e863d98bd31d833f6fead989530f67121284c3bf359b5a"
+    },
+    {
+      "path": "package/man/man1/npm-prune.1",
+      "upstreamSha256": "06cffb98ee84c2dc8027554660ac1f9f52dd6b06b3ff7c182dba28d60adaa981",
+      "sha256": "06cffb98ee84c2dc8027554660ac1f9f52dd6b06b3ff7c182dba28d60adaa981"
+    },
+    {
+      "path": "package/man/man1/npm-publish.1",
+      "upstreamSha256": "a833c5c95dee80f6863155dabdb0493e3d13492b487822257fc7a5036262fc61",
+      "sha256": "a833c5c95dee80f6863155dabdb0493e3d13492b487822257fc7a5036262fc61"
+    },
+    {
+      "path": "package/man/man1/npm-query.1",
+      "upstreamSha256": "ce8bf34fa4103ece0e0af1be78a31c5a7e18c736ef9b8817dbed0a53e7f05011",
+      "sha256": "ce8bf34fa4103ece0e0af1be78a31c5a7e18c736ef9b8817dbed0a53e7f05011"
+    },
+    {
+      "path": "package/man/man1/npm-rebuild.1",
+      "upstreamSha256": "7d4225e9a7d3eb96d5153304856e3d60497208d3f7d06d5b7fb0432d9d818539",
+      "sha256": "7d4225e9a7d3eb96d5153304856e3d60497208d3f7d06d5b7fb0432d9d818539"
+    },
+    {
+      "path": "package/man/man1/npm-repo.1",
+      "upstreamSha256": "c2b144b98e776c8b657f3d15563402754e05c4035eddf1ba59105ec462ed9c0c",
+      "sha256": "c2b144b98e776c8b657f3d15563402754e05c4035eddf1ba59105ec462ed9c0c"
+    },
+    {
+      "path": "package/man/man1/npm-restart.1",
+      "upstreamSha256": "7317471451e1294e60f993740cecd6a9d2044cbc2ac89db6f91c9c94d6c3c37d",
+      "sha256": "7317471451e1294e60f993740cecd6a9d2044cbc2ac89db6f91c9c94d6c3c37d"
+    },
+    {
+      "path": "package/man/man1/npm-root.1",
+      "upstreamSha256": "d220b6f39ca3973b09d14f9a6815bdf27e9cc2f1de9c8bdc780ac4561e1329b5",
+      "sha256": "d220b6f39ca3973b09d14f9a6815bdf27e9cc2f1de9c8bdc780ac4561e1329b5"
+    },
+    {
+      "path": "package/man/man1/npm-run.1",
+      "upstreamSha256": "558cb5ceced68670a6e22e1f1be1f02d7b0f1cb2f9c351cd0c0344671f6c5725",
+      "sha256": "558cb5ceced68670a6e22e1f1be1f02d7b0f1cb2f9c351cd0c0344671f6c5725"
+    },
+    {
+      "path": "package/man/man1/npm-sbom.1",
+      "upstreamSha256": "a917f3b2fe6cd38b9fe70bd44960ee9e8441f0c13dccc96308e9eb796fbdad9f",
+      "sha256": "a917f3b2fe6cd38b9fe70bd44960ee9e8441f0c13dccc96308e9eb796fbdad9f"
+    },
+    {
+      "path": "package/man/man1/npm-search.1",
+      "upstreamSha256": "0b307c8bf518c2aa46c9f1d3a5fc107a5f760b93cc1f8c91cd7056d558b63a6e",
+      "sha256": "0b307c8bf518c2aa46c9f1d3a5fc107a5f760b93cc1f8c91cd7056d558b63a6e"
+    },
+    {
+      "path": "package/man/man1/npm-set.1",
+      "upstreamSha256": "62f9600fae6ce3cbb52c7d2b2015dd798d07df3ade8e732b97d77313e329344c",
+      "sha256": "62f9600fae6ce3cbb52c7d2b2015dd798d07df3ade8e732b97d77313e329344c"
+    },
+    {
+      "path": "package/man/man1/npm-stage.1",
+      "upstreamSha256": "38bdfd50ffb9281b4940240869a5632a6de5a3b0a07e031c7aca471c33d87449",
+      "sha256": "38bdfd50ffb9281b4940240869a5632a6de5a3b0a07e031c7aca471c33d87449"
+    },
+    {
+      "path": "package/man/man1/npm-start.1",
+      "upstreamSha256": "6bc434868f222840facb6e9643dce00551e73a837823f8d0975bbe73c7f5e94b",
+      "sha256": "6bc434868f222840facb6e9643dce00551e73a837823f8d0975bbe73c7f5e94b"
+    },
+    {
+      "path": "package/man/man1/npm-stop.1",
+      "upstreamSha256": "29491d005443c3fc38256a792042128e9d30168afef732dc603dcdc07e990962",
+      "sha256": "29491d005443c3fc38256a792042128e9d30168afef732dc603dcdc07e990962"
+    },
+    {
+      "path": "package/man/man1/npm-team.1",
+      "upstreamSha256": "733206566eb6f960bb319ccb855d61693cce9f7b3327f93e7dd2a68eb0f664d1",
+      "sha256": "733206566eb6f960bb319ccb855d61693cce9f7b3327f93e7dd2a68eb0f664d1"
+    },
+    {
+      "path": "package/man/man1/npm-test.1",
+      "upstreamSha256": "0e0ba471ebed54eaea9592fe0b7197032072e6a4fc710744b3235983f08cbbe0",
+      "sha256": "0e0ba471ebed54eaea9592fe0b7197032072e6a4fc710744b3235983f08cbbe0"
+    },
+    {
+      "path": "package/man/man1/npm-token.1",
+      "upstreamSha256": "6c1a82dcd914d945ed6232157c527a89a3fbba7deec2a98a2dd1f0450c80f547",
+      "sha256": "6c1a82dcd914d945ed6232157c527a89a3fbba7deec2a98a2dd1f0450c80f547"
+    },
+    {
+      "path": "package/man/man1/npm-trust.1",
+      "upstreamSha256": "ea47c7b64dfbfe4bfc6b62180085ca2aa888eceb02ce8fa72b2c6ed834435c06",
+      "sha256": "ea47c7b64dfbfe4bfc6b62180085ca2aa888eceb02ce8fa72b2c6ed834435c06"
+    },
+    {
+      "path": "package/man/man1/npm-undeprecate.1",
+      "upstreamSha256": "1a613ab5f3faa6ff4cfd94c9fc4b8c2f41ec214e617acc39eb60cd56eef2ff77",
+      "sha256": "1a613ab5f3faa6ff4cfd94c9fc4b8c2f41ec214e617acc39eb60cd56eef2ff77"
+    },
+    {
+      "path": "package/man/man1/npm-uninstall.1",
+      "upstreamSha256": "2a3b35f85df1f63cb5c6333eb75aaf0b64a5765f6ad80d2915a2aa7046fe19b6",
+      "sha256": "2a3b35f85df1f63cb5c6333eb75aaf0b64a5765f6ad80d2915a2aa7046fe19b6"
+    },
+    {
+      "path": "package/man/man1/npm-unpublish.1",
+      "upstreamSha256": "94a786c7f39f0432196b982776046fb0483e3f7aca59e936733d6e32d2cd27c2",
+      "sha256": "94a786c7f39f0432196b982776046fb0483e3f7aca59e936733d6e32d2cd27c2"
+    },
+    {
+      "path": "package/man/man1/npm-update.1",
+      "upstreamSha256": "c8df996bfd75243a8c39403d78965feb66a03bfc03938af1fb61c90d78833933",
+      "sha256": "c8df996bfd75243a8c39403d78965feb66a03bfc03938af1fb61c90d78833933"
+    },
+    {
+      "path": "package/man/man1/npm-version.1",
+      "upstreamSha256": "3d2cc56f5ee0187da47be877ad2952bc4254e030fdea54a63cfab36ca9ecc564",
+      "sha256": "3d2cc56f5ee0187da47be877ad2952bc4254e030fdea54a63cfab36ca9ecc564"
+    },
+    {
+      "path": "package/man/man1/npm-view.1",
+      "upstreamSha256": "3d1e8461119c8f081a5ac94a2e710604aecb8a2c19ac539ff91fb693f331a167",
+      "sha256": "3d1e8461119c8f081a5ac94a2e710604aecb8a2c19ac539ff91fb693f331a167"
+    },
+    {
+      "path": "package/man/man1/npm-whoami.1",
+      "upstreamSha256": "490d3b0e288ccd5490cec7e9c12707dc3817aed0b40fbe5793ba5416b83ea1e5",
+      "sha256": "490d3b0e288ccd5490cec7e9c12707dc3817aed0b40fbe5793ba5416b83ea1e5"
+    },
+    {
+      "path": "package/man/man1/npm.1",
+      "upstreamSha256": "75077ff01146445d700400c48799d78b82936bea3fb4d4b445ced303f7104ed9",
+      "sha256": "75077ff01146445d700400c48799d78b82936bea3fb4d4b445ced303f7104ed9"
+    },
+    {
+      "path": "package/man/man1/npx.1",
+      "upstreamSha256": "1be80b5e8ee89776e96c4bdebd5ff1297af08ea994fb36b4ee2991b7e39e09ef",
+      "sha256": "1be80b5e8ee89776e96c4bdebd5ff1297af08ea994fb36b4ee2991b7e39e09ef"
+    },
+    {
+      "path": "package/man/man5/folders.5",
+      "upstreamSha256": "aa035df7b69c06348294f8db9efb75ac6b37b311e8bb80d8444e99f74c0982d6",
+      "sha256": "aa035df7b69c06348294f8db9efb75ac6b37b311e8bb80d8444e99f74c0982d6"
+    },
+    {
+      "path": "package/man/man5/install.5",
+      "upstreamSha256": "b1111816616adab5ee8301f6f3043baccb007aba304a7a911ceebf2f7da0a259",
+      "sha256": "b1111816616adab5ee8301f6f3043baccb007aba304a7a911ceebf2f7da0a259"
+    },
+    {
+      "path": "package/man/man5/npm-extension.5",
+      "upstreamSha256": "56ffbf5b1f56b8709e88f45e347a9cf59d8b8d7e654e4c1f840bcb8dff9bf2c6",
+      "sha256": "56ffbf5b1f56b8709e88f45e347a9cf59d8b8d7e654e4c1f840bcb8dff9bf2c6"
+    },
+    {
+      "path": "package/man/man5/npm-global.5",
+      "upstreamSha256": "aa035df7b69c06348294f8db9efb75ac6b37b311e8bb80d8444e99f74c0982d6",
+      "sha256": "aa035df7b69c06348294f8db9efb75ac6b37b311e8bb80d8444e99f74c0982d6"
+    },
+    {
+      "path": "package/man/man5/npm-json.5",
+      "upstreamSha256": "7d9656672c9523c327194f4540a07fcbbc3a1163c9131e07a48580ae1846d3d3",
+      "sha256": "7d9656672c9523c327194f4540a07fcbbc3a1163c9131e07a48580ae1846d3d3"
+    },
+    {
+      "path": "package/man/man5/npmrc.5",
+      "upstreamSha256": "19c6f38828f62f79857f1fd39117b488f88feded953e88ddd212b276dfc10965",
+      "sha256": "19c6f38828f62f79857f1fd39117b488f88feded953e88ddd212b276dfc10965"
+    },
+    {
+      "path": "package/man/man5/package-json.5",
+      "upstreamSha256": "7d9656672c9523c327194f4540a07fcbbc3a1163c9131e07a48580ae1846d3d3",
+      "sha256": "7d9656672c9523c327194f4540a07fcbbc3a1163c9131e07a48580ae1846d3d3"
+    },
+    {
+      "path": "package/man/man5/package-lock-json.5",
+      "upstreamSha256": "d13969d69a816983b70d612f702f98ab6b404a4e8de167c6522b7aac2dbccb2c",
+      "sha256": "d13969d69a816983b70d612f702f98ab6b404a4e8de167c6522b7aac2dbccb2c"
+    },
+    {
+      "path": "package/man/man7/config.7",
+      "upstreamSha256": "c0e329f4aeaddd66eda667bea58de5b3e60717c3845d6ade783064249f1bd1b7",
+      "sha256": "c0e329f4aeaddd66eda667bea58de5b3e60717c3845d6ade783064249f1bd1b7"
+    },
+    {
+      "path": "package/man/man7/dependency-selectors.7",
+      "upstreamSha256": "c5715fe652832a40fe378b61856c01e7514775e865cf49f268be296d600d5fe3",
+      "sha256": "c5715fe652832a40fe378b61856c01e7514775e865cf49f268be296d600d5fe3"
+    },
+    {
+      "path": "package/man/man7/developers.7",
+      "upstreamSha256": "f9e1b21ad316f0648d38663176f5b3a8c12ce79b5498a7b63cc0e10da5672941",
+      "sha256": "f9e1b21ad316f0648d38663176f5b3a8c12ce79b5498a7b63cc0e10da5672941"
+    },
+    {
+      "path": "package/man/man7/logging.7",
+      "upstreamSha256": "88c696cabb9ad18756a2409889635aea63a3c39c01ab519a250398a31c550d5d",
+      "sha256": "88c696cabb9ad18756a2409889635aea63a3c39c01ab519a250398a31c550d5d"
+    },
+    {
+      "path": "package/man/man7/orgs.7",
+      "upstreamSha256": "d4f678ba9c0c2da8615ed457fa91911afd4c7310aaeb162d80794483a1b66fed",
+      "sha256": "d4f678ba9c0c2da8615ed457fa91911afd4c7310aaeb162d80794483a1b66fed"
+    },
+    {
+      "path": "package/man/man7/package-spec.7",
+      "upstreamSha256": "de5f6eff58bc4a943832c7c6585959dd12ce731fbfbd4936bf72629b50186f40",
+      "sha256": "de5f6eff58bc4a943832c7c6585959dd12ce731fbfbd4936bf72629b50186f40"
+    },
+    {
+      "path": "package/man/man7/registry.7",
+      "upstreamSha256": "ff76491af0fe8a6e0fd797f3e7837acefddbc7a38c9681bab32dbb1b74885fa7",
+      "sha256": "ff76491af0fe8a6e0fd797f3e7837acefddbc7a38c9681bab32dbb1b74885fa7"
+    },
+    {
+      "path": "package/man/man7/removal.7",
+      "upstreamSha256": "d94b97a2b9ae01af2e1267fc0ab11436f927afdde960647df48354faffa79348",
+      "sha256": "d94b97a2b9ae01af2e1267fc0ab11436f927afdde960647df48354faffa79348"
+    },
+    {
+      "path": "package/man/man7/scope.7",
+      "upstreamSha256": "f26eeb7132a9da13749dc9b0e7d53835b5e4f1ed9f89ebb882c8534915f4494e",
+      "sha256": "f26eeb7132a9da13749dc9b0e7d53835b5e4f1ed9f89ebb882c8534915f4494e"
+    },
+    {
+      "path": "package/man/man7/scripts.7",
+      "upstreamSha256": "c05b63b23a689807bbf5a11f3af16030404f6960cbd97a7daea0f326c10b1f5a",
+      "sha256": "c05b63b23a689807bbf5a11f3af16030404f6960cbd97a7daea0f326c10b1f5a"
+    },
+    {
+      "path": "package/man/man7/workspaces.7",
+      "upstreamSha256": "c88b5989badff9b16c5f3b6e39b6af4ecd7d07c62b70da037183e03892c47c60",
+      "sha256": "c88b5989badff9b16c5f3b6e39b6af4ecd7d07c62b70da037183e03892c47c60"
+    },
+    {
+      "path": "package/bin/node-gyp-bin/node-gyp.cmd",
+      "upstreamSha256": "8cb8b915e6f433f7f8994eae04e74595d5a169d1e593833bb4a5f2cbe213f02d",
+      "sha256": "8cb8b915e6f433f7f8994eae04e74595d5a169d1e593833bb4a5f2cbe213f02d"
+    },
+    {
+      "path": "package/bin/npm.cmd",
+      "upstreamSha256": "21b46c69ad6e2f231f02a9e120f4ba6c8e75fef5a45637103002eab99f888ab8",
+      "sha256": "21b46c69ad6e2f231f02a9e120f4ba6c8e75fef5a45637103002eab99f888ab8"
+    },
+    {
+      "path": "package/bin/npx.cmd",
+      "upstreamSha256": "4dd3574f4396fc3b45c52b6ac80fd52be2dd2660d2a153b4cc807dbbfeefa7a0",
+      "sha256": "4dd3574f4396fc3b45c52b6ac80fd52be2dd2660d2a153b4cc807dbbfeefa7a0"
+    },
+    {
+      "path": "package/lib/utils/completion.fish",
+      "upstreamSha256": "24906ad3817adf9d24e03449869581e960eee3ec1ee4aefca8ae0b11692d367e",
+      "sha256": "24906ad3817adf9d24e03449869581e960eee3ec1ee4aefca8ae0b11692d367e"
+    },
+    {
+      "path": "package/docs/output/using-npm/config.html",
+      "upstreamSha256": "131d0f78b8b99748237da970fb1bcdac9f7baff1d567dff4b0ea051a8712299b",
+      "sha256": "131d0f78b8b99748237da970fb1bcdac9f7baff1d567dff4b0ea051a8712299b"
+    },
+    {
+      "path": "package/docs/output/using-npm/dependency-selectors.html",
+      "upstreamSha256": "b12194e090fc0782ed702ca7ad67355b40777a0f94c4442879c544b0b69fe374",
+      "sha256": "b12194e090fc0782ed702ca7ad67355b40777a0f94c4442879c544b0b69fe374"
+    },
+    {
+      "path": "package/docs/output/using-npm/developers.html",
+      "upstreamSha256": "8ebafba459237fb5347dde8aaca748a36cdfea78343e1fc737a163944503ea20",
+      "sha256": "8ebafba459237fb5347dde8aaca748a36cdfea78343e1fc737a163944503ea20"
+    },
+    {
+      "path": "package/docs/output/configuring-npm/folders.html",
+      "upstreamSha256": "6655a7b6e09674b58665893d262a2a66a2507bb48f7d87536eed790db61025b7",
+      "sha256": "6655a7b6e09674b58665893d262a2a66a2507bb48f7d87536eed790db61025b7"
+    },
+    {
+      "path": "package/docs/output/configuring-npm/install.html",
+      "upstreamSha256": "ef5b3a22f87d851cd0f04956f9e866bdbd8c09cc26452942b95d2a0c593f517b",
+      "sha256": "ef5b3a22f87d851cd0f04956f9e866bdbd8c09cc26452942b95d2a0c593f517b"
+    },
+    {
+      "path": "package/docs/output/using-npm/logging.html",
+      "upstreamSha256": "4e831579bf4d9d9b8beb87e095b28126b119d188c1d7226b0b9ec2e99e261bdb",
+      "sha256": "4e831579bf4d9d9b8beb87e095b28126b119d188c1d7226b0b9ec2e99e261bdb"
+    },
+    {
+      "path": "package/docs/output/commands/npm-access.html",
+      "upstreamSha256": "f652628fa41921508ca0513a0255dadb9eba7d27d7d4f141a13cd7d487432279",
+      "sha256": "f652628fa41921508ca0513a0255dadb9eba7d27d7d4f141a13cd7d487432279"
+    },
+    {
+      "path": "package/docs/output/commands/npm-approve-scripts.html",
+      "upstreamSha256": "0cf910525b0e3d15fc4f4d41c41c35c2296f36d406915f5c5d46988ead5b3af3",
+      "sha256": "0cf910525b0e3d15fc4f4d41c41c35c2296f36d406915f5c5d46988ead5b3af3"
+    },
+    {
+      "path": "package/docs/output/commands/npm-audit.html",
+      "upstreamSha256": "494df51ed08a4964ddb2fd8c5473b6216f7ca7b1d5e84f0a0ccce354bcb05772",
+      "sha256": "494df51ed08a4964ddb2fd8c5473b6216f7ca7b1d5e84f0a0ccce354bcb05772"
+    },
+    {
+      "path": "package/docs/output/commands/npm-bugs.html",
+      "upstreamSha256": "f00f9c5b4d154f736569b832508911ddf9256863eb431ea6288d2cf82f9939e7",
+      "sha256": "f00f9c5b4d154f736569b832508911ddf9256863eb431ea6288d2cf82f9939e7"
+    },
+    {
+      "path": "package/docs/output/commands/npm-cache.html",
+      "upstreamSha256": "263c6cb7ee7d3c2f8df2444aad6464ce0bc72f61fd49febec47a39fa14130856",
+      "sha256": "263c6cb7ee7d3c2f8df2444aad6464ce0bc72f61fd49febec47a39fa14130856"
+    },
+    {
+      "path": "package/docs/output/commands/npm-ci.html",
+      "upstreamSha256": "63dd72bfc7925747c329d6fc1f7294b1e3cbc179f5b73b3738c9acf7aee7d121",
+      "sha256": "63dd72bfc7925747c329d6fc1f7294b1e3cbc179f5b73b3738c9acf7aee7d121"
+    },
+    {
+      "path": "package/docs/output/commands/npm-completion.html",
+      "upstreamSha256": "a81ec2fbe64395ebbf352013d8e6846c93d29761f19ceed355d16e3ebf1ee411",
+      "sha256": "a81ec2fbe64395ebbf352013d8e6846c93d29761f19ceed355d16e3ebf1ee411"
+    },
+    {
+      "path": "package/docs/output/commands/npm-config.html",
+      "upstreamSha256": "7d111b1b481c8147630e990c24f923b304bd7e275f86ab361313a3b6aece3d16",
+      "sha256": "7d111b1b481c8147630e990c24f923b304bd7e275f86ab361313a3b6aece3d16"
+    },
+    {
+      "path": "package/docs/output/commands/npm-dedupe.html",
+      "upstreamSha256": "21b3bc93145c95a2e917d7c1485a85e6df7465115238d02ffee8d98fef95f2e0",
+      "sha256": "21b3bc93145c95a2e917d7c1485a85e6df7465115238d02ffee8d98fef95f2e0"
+    },
+    {
+      "path": "package/docs/output/commands/npm-deny-scripts.html",
+      "upstreamSha256": "20cd29c1d3109e2da431067168f2938dc874115a5440ab0091013faed56ffb30",
+      "sha256": "20cd29c1d3109e2da431067168f2938dc874115a5440ab0091013faed56ffb30"
+    },
+    {
+      "path": "package/docs/output/commands/npm-deprecate.html",
+      "upstreamSha256": "51999144a90b767679f30ac573ba6abfd3da04622f6cd243124b70e74adc32bf",
+      "sha256": "51999144a90b767679f30ac573ba6abfd3da04622f6cd243124b70e74adc32bf"
+    },
+    {
+      "path": "package/docs/output/commands/npm-diff.html",
+      "upstreamSha256": "6456fa28b92409a8c0d1e23d389731f6eedc9e7bf497332b847548c7f9d20799",
+      "sha256": "6456fa28b92409a8c0d1e23d389731f6eedc9e7bf497332b847548c7f9d20799"
+    },
+    {
+      "path": "package/docs/output/commands/npm-dist-tag.html",
+      "upstreamSha256": "6d15aa5d6f9436bfe4959a915405bcf06fe660b1fffde743080a879c9a807edf",
+      "sha256": "6d15aa5d6f9436bfe4959a915405bcf06fe660b1fffde743080a879c9a807edf"
+    },
+    {
+      "path": "package/docs/output/commands/npm-docs.html",
+      "upstreamSha256": "3376d0bea6d1a0a7ac447c4947cb8eb17e8fab787d9b9646415088a6f0c6135e",
+      "sha256": "3376d0bea6d1a0a7ac447c4947cb8eb17e8fab787d9b9646415088a6f0c6135e"
+    },
+    {
+      "path": "package/docs/output/commands/npm-doctor.html",
+      "upstreamSha256": "f3d148f70096bb9c7857bc15fdbc8cc909162d83b25a904c16df2926936f27e2",
+      "sha256": "f3d148f70096bb9c7857bc15fdbc8cc909162d83b25a904c16df2926936f27e2"
+    },
+    {
+      "path": "package/docs/output/commands/npm-edit.html",
+      "upstreamSha256": "6a962887e59bfc07d1885d89116861f52293a7f2c4aa0b63860dd58b842499d5",
+      "sha256": "6a962887e59bfc07d1885d89116861f52293a7f2c4aa0b63860dd58b842499d5"
+    },
+    {
+      "path": "package/docs/output/commands/npm-exec.html",
+      "upstreamSha256": "50cd8f0c05125394261122e8ded548736f392a134a8c1e34cb1d182622b28f7a",
+      "sha256": "50cd8f0c05125394261122e8ded548736f392a134a8c1e34cb1d182622b28f7a"
+    },
+    {
+      "path": "package/docs/output/commands/npm-explain.html",
+      "upstreamSha256": "8b44179691b967501650ff46290a7383690ed6931c1427ee08db607b626749e7",
+      "sha256": "8b44179691b967501650ff46290a7383690ed6931c1427ee08db607b626749e7"
+    },
+    {
+      "path": "package/docs/output/commands/npm-explore.html",
+      "upstreamSha256": "35b27f353a5a1f5a9fdbc951bc72d7a52664e195e056502fa808137dce4fc4ba",
+      "sha256": "35b27f353a5a1f5a9fdbc951bc72d7a52664e195e056502fa808137dce4fc4ba"
+    },
+    {
+      "path": "package/docs/output/configuring-npm/npm-extension.html",
+      "upstreamSha256": "5794117d48f76b3bd8ee9b0ff1305e498ee68f101ff562361008b2d3c3020ab6",
+      "sha256": "5794117d48f76b3bd8ee9b0ff1305e498ee68f101ff562361008b2d3c3020ab6"
+    },
+    {
+      "path": "package/docs/output/commands/npm-find-dupes.html",
+      "upstreamSha256": "fec042c086f480fb86e2415f1d37c93ff963fa8cab2f1b7a0c3f9a1c4c4c9684",
+      "sha256": "fec042c086f480fb86e2415f1d37c93ff963fa8cab2f1b7a0c3f9a1c4c4c9684"
+    },
+    {
+      "path": "package/docs/output/commands/npm-fund.html",
+      "upstreamSha256": "a1399689fc459566ec93dead22b9c1bb5610f9bee71c163cf581accedbd6fc07",
+      "sha256": "a1399689fc459566ec93dead22b9c1bb5610f9bee71c163cf581accedbd6fc07"
+    },
+    {
+      "path": "package/docs/output/commands/npm-get.html",
+      "upstreamSha256": "54eb9c9d3ab29e95c532688d65ecabf1a079dc534a18e89d6aad39aa59dec4af",
+      "sha256": "54eb9c9d3ab29e95c532688d65ecabf1a079dc534a18e89d6aad39aa59dec4af"
+    },
+    {
+      "path": "package/docs/output/configuring-npm/npm-global.html",
+      "upstreamSha256": "6655a7b6e09674b58665893d262a2a66a2507bb48f7d87536eed790db61025b7",
+      "sha256": "6655a7b6e09674b58665893d262a2a66a2507bb48f7d87536eed790db61025b7"
+    },
+    {
+      "path": "package/docs/output/commands/npm-help-search.html",
+      "upstreamSha256": "017b56ba76a5a7737a92692f80e91f4090c78b2dd4a9083611e8e9004e4ffab7",
+      "sha256": "017b56ba76a5a7737a92692f80e91f4090c78b2dd4a9083611e8e9004e4ffab7"
+    },
+    {
+      "path": "package/docs/output/commands/npm-help.html",
+      "upstreamSha256": "4e146a6c0c907761db95c5709f0b719284a39b848d196d001a9ead93436f45dd",
+      "sha256": "4e146a6c0c907761db95c5709f0b719284a39b848d196d001a9ead93436f45dd"
+    },
+    {
+      "path": "package/docs/output/commands/npm-init.html",
+      "upstreamSha256": "d6c29fcad2e788106da7bbfc392ac24ecd55a93375082ad9a8e707afc2d484ed",
+      "sha256": "d6c29fcad2e788106da7bbfc392ac24ecd55a93375082ad9a8e707afc2d484ed"
+    },
+    {
+      "path": "package/docs/output/commands/npm-install-ci-test.html",
+      "upstreamSha256": "77ffc6dfb53ac62554c0be8e8bb26c95cf88a34c54d24bd9a1fe6e7ad99ba58c",
+      "sha256": "77ffc6dfb53ac62554c0be8e8bb26c95cf88a34c54d24bd9a1fe6e7ad99ba58c"
+    },
+    {
+      "path": "package/docs/output/commands/npm-install-scripts.html",
+      "upstreamSha256": "5058cc494dcc976b1b3070076e84b68f2acc8ad41569e00373f9baf16b07e77f",
+      "sha256": "5058cc494dcc976b1b3070076e84b68f2acc8ad41569e00373f9baf16b07e77f"
+    },
+    {
+      "path": "package/docs/output/commands/npm-install-test.html",
+      "upstreamSha256": "7c752d7c15e2618ac866b1c62ce5da0a736750c13ac84a26654df9525e552beb",
+      "sha256": "7c752d7c15e2618ac866b1c62ce5da0a736750c13ac84a26654df9525e552beb"
+    },
+    {
+      "path": "package/docs/output/commands/npm-install.html",
+      "upstreamSha256": "c53fd2ca77bedafe66b779f37934a07d4ca3ea3f8efce61aea6c9eb0ec5db261",
+      "sha256": "c53fd2ca77bedafe66b779f37934a07d4ca3ea3f8efce61aea6c9eb0ec5db261"
+    },
+    {
+      "path": "package/docs/output/configuring-npm/npm-json.html",
+      "upstreamSha256": "2e29ef6965a90102759fc507f7c36da1cc6106c5d221f923b0477ef7bb3acf6f",
+      "sha256": "2e29ef6965a90102759fc507f7c36da1cc6106c5d221f923b0477ef7bb3acf6f"
+    },
+    {
+      "path": "package/docs/output/commands/npm-link.html",
+      "upstreamSha256": "ac1cd9e7c8a2cdef0e633b621310d302512b9a079f0dbd3f5ee8778e29eed0cf",
+      "sha256": "ac1cd9e7c8a2cdef0e633b621310d302512b9a079f0dbd3f5ee8778e29eed0cf"
+    },
+    {
+      "path": "package/docs/output/commands/npm-ll.html",
+      "upstreamSha256": "1f8eedb5574536f53c90f2c2e4dfce3ebc6e7cc3c17b33d8f4731ccb5552de8d",
+      "sha256": "1f8eedb5574536f53c90f2c2e4dfce3ebc6e7cc3c17b33d8f4731ccb5552de8d"
+    },
+    {
+      "path": "package/docs/output/commands/npm-login.html",
+      "upstreamSha256": "3d8e59f6e671c16fe18b7243efaa1186ae368750701f05ef0f90041e0e380813",
+      "sha256": "3d8e59f6e671c16fe18b7243efaa1186ae368750701f05ef0f90041e0e380813"
+    },
+    {
+      "path": "package/docs/output/commands/npm-logout.html",
+      "upstreamSha256": "33bc639576c68e0f03f01ba9782daf5b27d9be49ca1699e724055d655a486042",
+      "sha256": "33bc639576c68e0f03f01ba9782daf5b27d9be49ca1699e724055d655a486042"
+    },
+    {
+      "path": "package/docs/output/commands/npm-ls.html",
+      "upstreamSha256": "1e154ea9953be471088a059c05aacf1d3e1e7758cc774ec6a1002a0b0ce133c6",
+      "sha256": "1e154ea9953be471088a059c05aacf1d3e1e7758cc774ec6a1002a0b0ce133c6"
+    },
+    {
+      "path": "package/docs/output/commands/npm-org.html",
+      "upstreamSha256": "66bec5902b429fcff9eb7d0e006bf86f15fa46b9ce5aa2928a82b18a3d9e2a6e",
+      "sha256": "66bec5902b429fcff9eb7d0e006bf86f15fa46b9ce5aa2928a82b18a3d9e2a6e"
+    },
+    {
+      "path": "package/docs/output/commands/npm-outdated.html",
+      "upstreamSha256": "682b32a171f318cd877feef95e42f9bbf5f02ddb30199626451ca98ddb0227ef",
+      "sha256": "682b32a171f318cd877feef95e42f9bbf5f02ddb30199626451ca98ddb0227ef"
+    },
+    {
+      "path": "package/docs/output/commands/npm-owner.html",
+      "upstreamSha256": "3a05ff0c2c7e343691282d917261e30b7d9fb05128febdb8a1236b57b2f9076a",
+      "sha256": "3a05ff0c2c7e343691282d917261e30b7d9fb05128febdb8a1236b57b2f9076a"
+    },
+    {
+      "path": "package/docs/output/commands/npm-pack.html",
+      "upstreamSha256": "517379bd12a88967624df99c957f7b894df7a6f64cd7f5f8995568d76188646e",
+      "sha256": "517379bd12a88967624df99c957f7b894df7a6f64cd7f5f8995568d76188646e"
+    },
+    {
+      "path": "package/docs/output/commands/npm-patch.html",
+      "upstreamSha256": "ad277bc6a1a21faaa269d0c1ab60c611413b27f21e40e3cedaa30bd47faffe7c",
+      "sha256": "ad277bc6a1a21faaa269d0c1ab60c611413b27f21e40e3cedaa30bd47faffe7c"
+    },
+    {
+      "path": "package/docs/output/commands/npm-ping.html",
+      "upstreamSha256": "c5e8549d47193c7d0b7b13269e14645760c74785d0e91f56a75eae83aa06645b",
+      "sha256": "c5e8549d47193c7d0b7b13269e14645760c74785d0e91f56a75eae83aa06645b"
+    },
+    {
+      "path": "package/docs/output/commands/npm-pkg.html",
+      "upstreamSha256": "591378b913bc97a9d6bcc0ab3d4c208b634d3f4e570934507e7c1afbb437f994",
+      "sha256": "591378b913bc97a9d6bcc0ab3d4c208b634d3f4e570934507e7c1afbb437f994"
+    },
+    {
+      "path": "package/docs/output/commands/npm-prefix.html",
+      "upstreamSha256": "8acbf0bac6c4f5059ac99bf7a9e212dd4c8611e4678cc25c8a70dc2fe686b3bc",
+      "sha256": "8acbf0bac6c4f5059ac99bf7a9e212dd4c8611e4678cc25c8a70dc2fe686b3bc"
+    },
+    {
+      "path": "package/docs/output/commands/npm-profile.html",
+      "upstreamSha256": "f824a3f58a6a01ad76395b6004374ac6a6a019029ba6435a9bbb9a13de26ea6f",
+      "sha256": "f824a3f58a6a01ad76395b6004374ac6a6a019029ba6435a9bbb9a13de26ea6f"
+    },
+    {
+      "path": "package/docs/output/commands/npm-prune.html",
+      "upstreamSha256": "4c81bce095f718aff065e6a490fa4493bdaaf53bc4ac41f04942a62222c45374",
+      "sha256": "4c81bce095f718aff065e6a490fa4493bdaaf53bc4ac41f04942a62222c45374"
+    },
+    {
+      "path": "package/docs/output/commands/npm-publish.html",
+      "upstreamSha256": "f7a59f38f779fed92b81ec301f379f4e7fc7a7f30160084fc22057d5845d7b6e",
+      "sha256": "f7a59f38f779fed92b81ec301f379f4e7fc7a7f30160084fc22057d5845d7b6e"
+    },
+    {
+      "path": "package/docs/output/commands/npm-query.html",
+      "upstreamSha256": "72d01fa32f20b2b47099a2890e274dfd555798347b08966a5b7e1f4aee357d18",
+      "sha256": "72d01fa32f20b2b47099a2890e274dfd555798347b08966a5b7e1f4aee357d18"
+    },
+    {
+      "path": "package/docs/output/commands/npm-rebuild.html",
+      "upstreamSha256": "f5ef727b62c5222d0ee9f7870825456d97fc138330d42662462d8f8c2232bd4a",
+      "sha256": "f5ef727b62c5222d0ee9f7870825456d97fc138330d42662462d8f8c2232bd4a"
+    },
+    {
+      "path": "package/docs/output/commands/npm-repo.html",
+      "upstreamSha256": "3ffe3f9d77d25d9ffcee2dce6c6a0c7c781c98a239c6bde0cf6aeacb680e4dc5",
+      "sha256": "3ffe3f9d77d25d9ffcee2dce6c6a0c7c781c98a239c6bde0cf6aeacb680e4dc5"
+    },
+    {
+      "path": "package/docs/output/commands/npm-restart.html",
+      "upstreamSha256": "5d1cbc819ed4d94788180204f1d64eb9c168c382312c0bab3cb4b9691c635f6d",
+      "sha256": "5d1cbc819ed4d94788180204f1d64eb9c168c382312c0bab3cb4b9691c635f6d"
+    },
+    {
+      "path": "package/docs/output/commands/npm-root.html",
+      "upstreamSha256": "a1085742ed7fc17c684c245946d2f48f966926afc6102227f6e7d1fe98297b69",
+      "sha256": "a1085742ed7fc17c684c245946d2f48f966926afc6102227f6e7d1fe98297b69"
+    },
+    {
+      "path": "package/docs/output/commands/npm-run.html",
+      "upstreamSha256": "22b4370de3d1ad98f2de0f208ef9ef59c91475f72105c8644886e0712efb5f32",
+      "sha256": "22b4370de3d1ad98f2de0f208ef9ef59c91475f72105c8644886e0712efb5f32"
+    },
+    {
+      "path": "package/docs/output/commands/npm-sbom.html",
+      "upstreamSha256": "e5b3fffe9e9fed6850c94b231b29fa43d18edaddfefe5093f20670bb6c947bbf",
+      "sha256": "e5b3fffe9e9fed6850c94b231b29fa43d18edaddfefe5093f20670bb6c947bbf"
+    },
+    {
+      "path": "package/docs/output/commands/npm-search.html",
+      "upstreamSha256": "1a5546c664366562c51c3a34ab3ce099fc1a827edef2b4de0a8a40d9fde3bd38",
+      "sha256": "1a5546c664366562c51c3a34ab3ce099fc1a827edef2b4de0a8a40d9fde3bd38"
+    },
+    {
+      "path": "package/docs/output/commands/npm-set.html",
+      "upstreamSha256": "a1094f77840d790dd44f891946899178438da44279507fdd3a15e2b2b61ef949",
+      "sha256": "a1094f77840d790dd44f891946899178438da44279507fdd3a15e2b2b61ef949"
+    },
+    {
+      "path": "package/docs/output/commands/npm-stage.html",
+      "upstreamSha256": "c38010d9491c669938b8e1a0c6af1c75be1ce64a0879c77ca6e9d5ae199425f1",
+      "sha256": "c38010d9491c669938b8e1a0c6af1c75be1ce64a0879c77ca6e9d5ae199425f1"
+    },
+    {
+      "path": "package/docs/output/commands/npm-start.html",
+      "upstreamSha256": "18dcd74926170d97f8fb0fca43a791a07311ba5586821d1ff09418c705df15ad",
+      "sha256": "18dcd74926170d97f8fb0fca43a791a07311ba5586821d1ff09418c705df15ad"
+    },
+    {
+      "path": "package/docs/output/commands/npm-stop.html",
+      "upstreamSha256": "66c903beacb6bb4b581562b322e0fc2f1a33e42e0aad3501a66a436dca5e430e",
+      "sha256": "66c903beacb6bb4b581562b322e0fc2f1a33e42e0aad3501a66a436dca5e430e"
+    },
+    {
+      "path": "package/docs/output/commands/npm-team.html",
+      "upstreamSha256": "5c53d6341c0506361958eb000ae741645e8e24e44d53de048dca67c88a3e9aaa",
+      "sha256": "5c53d6341c0506361958eb000ae741645e8e24e44d53de048dca67c88a3e9aaa"
+    },
+    {
+      "path": "package/docs/output/commands/npm-test.html",
+      "upstreamSha256": "24bab32d8a631849380b4b87987380f108a57fc1c471421dacf7a117e9c093b4",
+      "sha256": "24bab32d8a631849380b4b87987380f108a57fc1c471421dacf7a117e9c093b4"
+    },
+    {
+      "path": "package/docs/output/commands/npm-token.html",
+      "upstreamSha256": "eba12b644c6d98ee9fe0231b05bd0aec0ca80ab1735b1803f60f2340d68bf9e9",
+      "sha256": "eba12b644c6d98ee9fe0231b05bd0aec0ca80ab1735b1803f60f2340d68bf9e9"
+    },
+    {
+      "path": "package/docs/output/commands/npm-trust.html",
+      "upstreamSha256": "cb66b8fdb838acedd2528bbcd24b690274d7a3579946d407d162cad401c4a676",
+      "sha256": "cb66b8fdb838acedd2528bbcd24b690274d7a3579946d407d162cad401c4a676"
+    },
+    {
+      "path": "package/docs/output/commands/npm-undeprecate.html",
+      "upstreamSha256": "090296221c91f507cdc0a4d09f1221666f8a9dbab25fffb930fd3e56fb8d0337",
+      "sha256": "090296221c91f507cdc0a4d09f1221666f8a9dbab25fffb930fd3e56fb8d0337"
+    },
+    {
+      "path": "package/docs/output/commands/npm-uninstall.html",
+      "upstreamSha256": "827bc0d7bafb30f42eb3c813305c3c1956a19cb9141bbca7b93efc2828f6e70c",
+      "sha256": "827bc0d7bafb30f42eb3c813305c3c1956a19cb9141bbca7b93efc2828f6e70c"
+    },
+    {
+      "path": "package/docs/output/commands/npm-unpublish.html",
+      "upstreamSha256": "92a4618fed6eb6ba8d0d563c6cc52e828f71950ff3eb801eaa97f6173f9405ff",
+      "sha256": "92a4618fed6eb6ba8d0d563c6cc52e828f71950ff3eb801eaa97f6173f9405ff"
+    },
+    {
+      "path": "package/docs/output/commands/npm-update.html",
+      "upstreamSha256": "35cde30637c76187f94d4fa794079e8d749280eaa85ae2b7dd1818c31fb6c155",
+      "sha256": "35cde30637c76187f94d4fa794079e8d749280eaa85ae2b7dd1818c31fb6c155"
+    },
+    {
+      "path": "package/docs/output/commands/npm-version.html",
+      "upstreamSha256": "58fafb46771dae706fb76a996a40eac6540b00091ba70612801d551a885d0662",
+      "sha256": "58fafb46771dae706fb76a996a40eac6540b00091ba70612801d551a885d0662"
+    },
+    {
+      "path": "package/docs/output/commands/npm-view.html",
+      "upstreamSha256": "b2bc048b49d88853ac8ec2ed11d64be251cda15ed4c799ef6934db3ade6712f8",
+      "sha256": "b2bc048b49d88853ac8ec2ed11d64be251cda15ed4c799ef6934db3ade6712f8"
+    },
+    {
+      "path": "package/docs/output/commands/npm-whoami.html",
+      "upstreamSha256": "135ca12c42990742918df979053218eb4676cc8d01c4e5f426bdbbef5dbe693f",
+      "sha256": "135ca12c42990742918df979053218eb4676cc8d01c4e5f426bdbbef5dbe693f"
+    },
+    {
+      "path": "package/docs/output/commands/npm.html",
+      "upstreamSha256": "701ae75f4f15f3b28a2582bb3f247b96e2ef765f50a049e792c48653db0b714e",
+      "sha256": "701ae75f4f15f3b28a2582bb3f247b96e2ef765f50a049e792c48653db0b714e"
+    },
+    {
+      "path": "package/docs/output/configuring-npm/npmrc.html",
+      "upstreamSha256": "ec0729986c53ec565d53177409f5209a32ea01ca417374af67cd32f8555275f3",
+      "sha256": "ec0729986c53ec565d53177409f5209a32ea01ca417374af67cd32f8555275f3"
+    },
+    {
+      "path": "package/docs/output/commands/npx.html",
+      "upstreamSha256": "781c5f596540be3579de0faade75cf719c932108e558aeceb7a0f16bee3b4b83",
+      "sha256": "781c5f596540be3579de0faade75cf719c932108e558aeceb7a0f16bee3b4b83"
+    },
+    {
+      "path": "package/docs/output/using-npm/orgs.html",
+      "upstreamSha256": "73590b2756757dfb84b108950edbdf4ab5f7bbf90e4e0135c13936c668f3019f",
+      "sha256": "73590b2756757dfb84b108950edbdf4ab5f7bbf90e4e0135c13936c668f3019f"
+    },
+    {
+      "path": "package/docs/output/configuring-npm/package-json.html",
+      "upstreamSha256": "2e29ef6965a90102759fc507f7c36da1cc6106c5d221f923b0477ef7bb3acf6f",
+      "sha256": "2e29ef6965a90102759fc507f7c36da1cc6106c5d221f923b0477ef7bb3acf6f"
+    },
+    {
+      "path": "package/docs/output/configuring-npm/package-lock-json.html",
+      "upstreamSha256": "ca4567c235170c29931895b579ca2ce99c2685827f58c759a6b0a2f0c0b2f54a",
+      "sha256": "ca4567c235170c29931895b579ca2ce99c2685827f58c759a6b0a2f0c0b2f54a"
+    },
+    {
+      "path": "package/docs/output/using-npm/package-spec.html",
+      "upstreamSha256": "f0f728e6e4e7bd2ac71216a74c5591be5c9516eba0ee3fc77925a0ed70ec9e99",
+      "sha256": "f0f728e6e4e7bd2ac71216a74c5591be5c9516eba0ee3fc77925a0ed70ec9e99"
+    },
+    {
+      "path": "package/docs/output/using-npm/registry.html",
+      "upstreamSha256": "5b3fc5410ddce3f7f9296106fdd689a0c26f20fc82b8d5eee2d5aa85cdca02e6",
+      "sha256": "5b3fc5410ddce3f7f9296106fdd689a0c26f20fc82b8d5eee2d5aa85cdca02e6"
+    },
+    {
+      "path": "package/docs/output/using-npm/removal.html",
+      "upstreamSha256": "6909c3b190d0b2fd5a72d4471812fd065cac4563455d6fd70d8f705f8b71cd2a",
+      "sha256": "6909c3b190d0b2fd5a72d4471812fd065cac4563455d6fd70d8f705f8b71cd2a"
+    },
+    {
+      "path": "package/docs/output/using-npm/scope.html",
+      "upstreamSha256": "62d7504b6701ec41d7860d6b2cc851bbb442eddb8f52ed8e2001f0f13eaea3f9",
+      "sha256": "62d7504b6701ec41d7860d6b2cc851bbb442eddb8f52ed8e2001f0f13eaea3f9"
+    },
+    {
+      "path": "package/docs/output/using-npm/scripts.html",
+      "upstreamSha256": "9efc0886ee806bae402631aec38dc74985fc8ee44546d535537bb651f99047ba",
+      "sha256": "9efc0886ee806bae402631aec38dc74985fc8ee44546d535537bb651f99047ba"
+    },
+    {
+      "path": "package/docs/output/using-npm/workspaces.html",
+      "upstreamSha256": "9814edf9ef8f1e31aedfc84b655c5352635fca170626eccdc01b7a4d38040921",
+      "sha256": "9814edf9ef8f1e31aedfc84b655c5352635fca170626eccdc01b7a4d38040921"
+    },
+    {
+      "path": "package/lib/commands/access.js",
+      "upstreamSha256": "3662878761cc22d16ee87438b040465aff5b2643c6a21865a5471dab374c3e2c",
+      "sha256": "3662878761cc22d16ee87438b040465aff5b2643c6a21865a5471dab374c3e2c"
+    },
+    {
+      "path": "package/lib/utils/allow-scripts-cmd.js",
+      "upstreamSha256": "cf94711a4c4eb75bf6a8d514330e76dc5f5e7f0bf7d4740ddcd1c2a8be74901d",
+      "sha256": "cf94711a4c4eb75bf6a8d514330e76dc5f5e7f0bf7d4740ddcd1c2a8be74901d"
+    },
+    {
+      "path": "package/lib/utils/allow-scripts-prune.js",
+      "upstreamSha256": "f2b974f9ec92dea5ff8dbc1fed6790dbb1703ea01f12f67f34019895ded1438a",
+      "sha256": "f2b974f9ec92dea5ff8dbc1fed6790dbb1703ea01f12f67f34019895ded1438a"
+    },
+    {
+      "path": "package/lib/utils/allow-scripts-remediation.js",
+      "upstreamSha256": "ec89484bbb97c0be26fcc0acb7e28cfe158c4678d4ff80f8b313b01b9e1d6d1f",
+      "sha256": "ec89484bbb97c0be26fcc0acb7e28cfe158c4678d4ff80f8b313b01b9e1d6d1f"
+    },
+    {
+      "path": "package/lib/utils/allow-scripts-writer.js",
+      "upstreamSha256": "26489d84171505b0d2f30113f20760f3945c8aca7c160883fc5ab16100c1f764",
+      "sha256": "26489d84171505b0d2f30113f20760f3945c8aca7c160883fc5ab16100c1f764"
+    },
+    {
+      "path": "package/lib/commands/approve-scripts.js",
+      "upstreamSha256": "4d93fc84381805884bb3b2ec7fd7e9db6a0ed0b8420137d2b5a7429a4fd7f303",
+      "sha256": "4d93fc84381805884bb3b2ec7fd7e9db6a0ed0b8420137d2b5a7429a4fd7f303"
+    },
+    {
+      "path": "package/lib/commands/stage/approve.js",
+      "upstreamSha256": "d7b7a893b7aa5ce5dc3fb2c2267bbc5bece2f7912ec1af93b3dd01f74ef542ef",
+      "sha256": "d7b7a893b7aa5ce5dc3fb2c2267bbc5bece2f7912ec1af93b3dd01f74ef542ef"
+    },
+    {
+      "path": "package/lib/arborist-cmd.js",
+      "upstreamSha256": "042c5156b4683c768617d3ea76a39f395b27912cf94c0e6538bd6a72f6363652",
+      "sha256": "042c5156b4683c768617d3ea76a39f395b27912cf94c0e6538bd6a72f6363652"
+    },
+    {
+      "path": "package/lib/utils/audit-error.js",
+      "upstreamSha256": "23865b702f4666b19c8c09321860affd39e4438afb1c419e8d82088ac964227f",
+      "sha256": "23865b702f4666b19c8c09321860affd39e4438afb1c419e8d82088ac964227f"
+    },
+    {
+      "path": "package/lib/commands/audit.js",
+      "upstreamSha256": "757054a551473e213a42e67d531982cf1e78e87f9d313e44ade949e630b5bb5e",
+      "sha256": "757054a551473e213a42e67d531982cf1e78e87f9d313e44ade949e630b5bb5e"
+    },
+    {
+      "path": "package/lib/utils/auth.js",
+      "upstreamSha256": "fdd57b4b0f4b3270295dbd6b7a0d929a6ceee7d6951952794c14da04cf434cdd",
+      "sha256": "fdd57b4b0f4b3270295dbd6b7a0d929a6ceee7d6951952794c14da04cf434cdd"
+    },
+    {
+      "path": "package/lib/base-cmd.js",
+      "upstreamSha256": "1bca82d776ce31d36d5460a965998e30858c39db0207df1fd1bd8e1fce0e81c2",
+      "sha256": "1bca82d776ce31d36d5460a965998e30858c39db0207df1fd1bd8e1fce0e81c2"
+    },
+    {
+      "path": "package/lib/commands/bugs.js",
+      "upstreamSha256": "f27fcc94433f876f4e660994f2ca48c73b81bb4ef2f21fbe8c6577bcb94af91a",
+      "sha256": "f27fcc94433f876f4e660994f2ca48c73b81bb4ef2f21fbe8c6577bcb94af91a"
+    },
+    {
+      "path": "package/lib/commands/cache.js",
+      "upstreamSha256": "3eebc9e9a74db052c5c381f6bc178506e1fd0491ea560a25b0c4e26d2549efd5",
+      "sha256": "3eebc9e9a74db052c5c381f6bc178506e1fd0491ea560a25b0c4e26d2549efd5"
+    },
+    {
+      "path": "package/lib/utils/check-allow-scripts.js",
+      "upstreamSha256": "2a83cd67859e88f84a37fa6da87ec43d2a886dcc162f0443ffb14563b60daec8",
+      "sha256": "2a83cd67859e88f84a37fa6da87ec43d2a886dcc162f0443ffb14563b60daec8"
+    },
+    {
+      "path": "package/lib/commands/ci.js",
+      "upstreamSha256": "f592777c4270b6ecc2fb4abd4e81acfa78b490c79157ce2c4e446e44bb9ff983",
+      "sha256": "f592777c4270b6ecc2fb4abd4e81acfa78b490c79157ce2c4e446e44bb9ff983"
+    },
+    {
+      "path": "package/lib/commands/trust/circleci.js",
+      "upstreamSha256": "5cc497928534d37f2fcca6b0fa748329d5c767e76e500e19ca6e24c55f6ec18e",
+      "sha256": "5cc497928534d37f2fcca6b0fa748329d5c767e76e500e19ca6e24c55f6ec18e"
+    },
+    {
+      "path": "package/lib/utils/cli-only-flag.js",
+      "upstreamSha256": "535dd7538f1878d14e3537d5abb21826d10f558770ab2ae7494a9648c386f4d3",
+      "sha256": "535dd7538f1878d14e3537d5abb21826d10f558770ab2ae7494a9648c386f4d3"
+    },
+    {
+      "path": "package/lib/cli.js",
+      "upstreamSha256": "67666f06479f9b0bbc01412c198caadd4287d34d5ed74a02871ea78f186451e7",
+      "sha256": "67666f06479f9b0bbc01412c198caadd4287d34d5ed74a02871ea78f186451e7"
+    },
+    {
+      "path": "package/lib/utils/cmd-list.js",
+      "upstreamSha256": "c1e5bd0cfb373df4db6027c2900be524f9cbbdd73e7fccdd779fb79e21758137",
+      "sha256": "c1e5bd0cfb373df4db6027c2900be524f9cbbdd73e7fccdd779fb79e21758137"
+    },
+    {
+      "path": "package/lib/commands/completion.js",
+      "upstreamSha256": "3e8192e1504aadad5d13f06a1867746af37e22b9461366c8cb728252b68935aa",
+      "sha256": "3e8192e1504aadad5d13f06a1867746af37e22b9461366c8cb728252b68935aa"
+    },
+    {
+      "path": "package/lib/commands/config.js",
+      "upstreamSha256": "0a1c190eb860b613bec06fd7d4cbc194f11232d5b508414de51f2c112c436d23",
+      "sha256": "0a1c190eb860b613bec06fd7d4cbc194f11232d5b508414de51f2c112c436d23"
+    },
+    {
+      "path": "package/lib/commands/dedupe.js",
+      "upstreamSha256": "f0b346b7385f1a96d8bd90bc865224c5966e839e8579b10204af0d371bb028dc",
+      "sha256": "f0b346b7385f1a96d8bd90bc865224c5966e839e8579b10204af0d371bb028dc"
+    },
+    {
+      "path": "package/lib/commands/deny-scripts.js",
+      "upstreamSha256": "cca496e77470e334a96d8aabff154020985b1159aa2142f550c7044859dc7625",
+      "sha256": "cca496e77470e334a96d8aabff154020985b1159aa2142f550c7044859dc7625"
+    },
+    {
+      "path": "package/lib/commands/deprecate.js",
+      "upstreamSha256": "aa3c5e6632827dfb01b26275f4f8d96b8ebf9f6485bc2b2bbac3ea9cea595aaf",
+      "sha256": "aa3c5e6632827dfb01b26275f4f8d96b8ebf9f6485bc2b2bbac3ea9cea595aaf"
+    },
+    {
+      "path": "package/lib/utils/did-you-mean.js",
+      "upstreamSha256": "485939e62fe8286448867a78f0bffbca058fb4ddce56d02e2d0698c2b2a6f8c2",
+      "sha256": "485939e62fe8286448867a78f0bffbca058fb4ddce56d02e2d0698c2b2a6f8c2"
+    },
+    {
+      "path": "package/lib/commands/diff.js",
+      "upstreamSha256": "3ac0cb785c4e81dbd00924e0eec25b5256d314f7b888cd7efcb44cd7b1f6d6a4",
+      "sha256": "3ac0cb785c4e81dbd00924e0eec25b5256d314f7b888cd7efcb44cd7b1f6d6a4"
+    },
+    {
+      "path": "package/lib/utils/display.js",
+      "upstreamSha256": "c6268a43166143f3a833b95be55080dfa44e370ae7bab39dbf943816d3a11450",
+      "sha256": "c6268a43166143f3a833b95be55080dfa44e370ae7bab39dbf943816d3a11450"
+    },
+    {
+      "path": "package/lib/commands/dist-tag.js",
+      "upstreamSha256": "982d0b80c55cd91219069b9f186e0ed494524d494d6fb43cc88e82816266f933",
+      "sha256": "982d0b80c55cd91219069b9f186e0ed494524d494d6fb43cc88e82816266f933"
+    },
+    {
+      "path": "package/lib/commands/docs.js",
+      "upstreamSha256": "c382c4b51fe264adc5c77a4486fffb0614f63112e3531d692fbab3be55c9ab38",
+      "sha256": "c382c4b51fe264adc5c77a4486fffb0614f63112e3531d692fbab3be55c9ab38"
+    },
+    {
+      "path": "package/lib/commands/doctor.js",
+      "upstreamSha256": "7eb15bf012c18d93d7b6dc51c4191040d8d66727c9b42766e0d97b1d76e96993",
+      "sha256": "7eb15bf012c18d93d7b6dc51c4191040d8d66727c9b42766e0d97b1d76e96993"
+    },
+    {
+      "path": "package/lib/commands/stage/download.js",
+      "upstreamSha256": "2db24308b3221cb1a0260c654961727c648c4490d8910c0c10c1f4c24e0546c5",
+      "sha256": "2db24308b3221cb1a0260c654961727c648c4490d8910c0c10c1f4c24e0546c5"
+    },
+    {
+      "path": "package/lib/commands/edit.js",
+      "upstreamSha256": "dc477742efc393de617537e836065ceedf697d9a369c4817cc29d33f80a5020c",
+      "sha256": "dc477742efc393de617537e836065ceedf697d9a369c4817cc29d33f80a5020c"
+    },
+    {
+      "path": "package/lib/cli/entry.js",
+      "upstreamSha256": "c7256f02ac883b9142cade606570fb48bd0768969388a1a42913fd432d82ac3f",
+      "sha256": "c7256f02ac883b9142cade606570fb48bd0768969388a1a42913fd432d82ac3f"
+    },
+    {
+      "path": "package/lib/utils/error-message.js",
+      "upstreamSha256": "7838999be58f3ab07c308ffb5d64623861b62a8f3ba6341b60b25bfbc2b9e3f8",
+      "sha256": "7838999be58f3ab07c308ffb5d64623861b62a8f3ba6341b60b25bfbc2b9e3f8"
+    },
+    {
+      "path": "package/lib/commands/exec.js",
+      "upstreamSha256": "f341403051a805d7f970d3c0d19d5d374d20c859aef73330ada18e4f0402949d",
+      "sha256": "f341403051a805d7f970d3c0d19d5d374d20c859aef73330ada18e4f0402949d"
+    },
+    {
+      "path": "package/lib/cli/exit-handler.js",
+      "upstreamSha256": "e46eb255a1649669ceaddc9e074d94fae75fb5a875fc21ca385fc5bf33f6369d",
+      "sha256": "e46eb255a1649669ceaddc9e074d94fae75fb5a875fc21ca385fc5bf33f6369d"
+    },
+    {
+      "path": "package/lib/utils/explain-dep.js",
+      "upstreamSha256": "e64b5b5ccdf12c6b0c6d15ad0609f189c58a8726bc210a76b306bbc678bb2bf1",
+      "sha256": "e64b5b5ccdf12c6b0c6d15ad0609f189c58a8726bc210a76b306bbc678bb2bf1"
+    },
+    {
+      "path": "package/lib/utils/explain-eresolve.js",
+      "upstreamSha256": "f25856d2c646c6fa7d0e725fedbf4d9c8082399fe88eb6cc139821a11de8f494",
+      "sha256": "f25856d2c646c6fa7d0e725fedbf4d9c8082399fe88eb6cc139821a11de8f494"
+    },
+    {
+      "path": "package/lib/commands/explain.js",
+      "upstreamSha256": "4d7b41bf95e4edec580b7423c7de72e759ad2df4207857f29f259ae1a0428bfa",
+      "sha256": "4d7b41bf95e4edec580b7423c7de72e759ad2df4207857f29f259ae1a0428bfa"
+    },
+    {
+      "path": "package/lib/commands/explore.js",
+      "upstreamSha256": "dd2c459318e7517ab6aef153654589b91cc5a9868948b3a8e1b809a497ce2e6b",
+      "sha256": "dd2c459318e7517ab6aef153654589b91cc5a9868948b3a8e1b809a497ce2e6b"
+    },
+    {
+      "path": "package/lib/commands/find-dupes.js",
+      "upstreamSha256": "2d22e23fc1d802488a14e63f816456ce5c7de3736d2e866dc3b016deb05bb31d",
+      "sha256": "2d22e23fc1d802488a14e63f816456ce5c7de3736d2e866dc3b016deb05bb31d"
+    },
+    {
+      "path": "package/lib/utils/format-bytes.js",
+      "upstreamSha256": "a30511049e1b2c82d52ef1d280b4d47ccc8c61e3f07ea218796bac77af9a1486",
+      "sha256": "a30511049e1b2c82d52ef1d280b4d47ccc8c61e3f07ea218796bac77af9a1486"
+    },
+    {
+      "path": "package/lib/utils/format-search-stream.js",
+      "upstreamSha256": "ae32a00a460e20eea05379a945bd8eda661196913803e63571285081a64d7710",
+      "sha256": "ae32a00a460e20eea05379a945bd8eda661196913803e63571285081a64d7710"
+    },
+    {
+      "path": "package/lib/utils/format.js",
+      "upstreamSha256": "ac0fa4fd962101ff38db72bd5d67d5e5d8361630cd158f7d39178ad3a5a06df6",
+      "sha256": "ac0fa4fd962101ff38db72bd5d67d5e5d8361630cd158f7d39178ad3a5a06df6"
+    },
+    {
+      "path": "package/lib/commands/fund.js",
+      "upstreamSha256": "da089ced981ea7e38f4d460d38c484b769fd97bc2db94fc842fbed2b65939579",
+      "sha256": "da089ced981ea7e38f4d460d38c484b769fd97bc2db94fc842fbed2b65939579"
+    },
+    {
+      "path": "package/lib/utils/get-identity.js",
+      "upstreamSha256": "413e8dc0720dbf7355bed01c183d5cdaba072adf8482970bd200e6b80f501d46",
+      "sha256": "413e8dc0720dbf7355bed01c183d5cdaba072adf8482970bd200e6b80f501d46"
+    },
+    {
+      "path": "package/lib/utils/get-workspaces.js",
+      "upstreamSha256": "4fd2ce9974110875ddc6facca0d3d5b32431177f64fb5039900401d7cb074b5a",
+      "sha256": "4fd2ce9974110875ddc6facca0d3d5b32431177f64fb5039900401d7cb074b5a"
+    },
+    {
+      "path": "package/lib/commands/get.js",
+      "upstreamSha256": "18efbd39586dd29488a87df4f22ad850dd1f554d6962d47ebb4de9897acf1722",
+      "sha256": "18efbd39586dd29488a87df4f22ad850dd1f554d6962d47ebb4de9897acf1722"
+    },
+    {
+      "path": "package/lib/commands/trust/github.js",
+      "upstreamSha256": "8f4133b49e8e3c92093fdae68151a47db3b6f1d8abcaa0db6ad77608ac70aec0",
+      "sha256": "8f4133b49e8e3c92093fdae68151a47db3b6f1d8abcaa0db6ad77608ac70aec0"
+    },
+    {
+      "path": "package/lib/commands/trust/gitlab.js",
+      "upstreamSha256": "0cb55d83d5eaa15587027dd82407d0236ff2a045ff929e7a17209be1776b9316",
+      "sha256": "0cb55d83d5eaa15587027dd82407d0236ff2a045ff929e7a17209be1776b9316"
+    },
+    {
+      "path": "package/lib/commands/help-search.js",
+      "upstreamSha256": "427065a122af378f3da15865130dbf20eeca2aad9c0b48ab7b40a2d4c5998985",
+      "sha256": "427065a122af378f3da15865130dbf20eeca2aad9c0b48ab7b40a2d4c5998985"
+    },
+    {
+      "path": "package/lib/commands/help.js",
+      "upstreamSha256": "f281ab4b9946654c0867542ff64252099d673fffd80698f9ab078d76473b08dc",
+      "sha256": "f281ab4b9946654c0867542ff64252099d673fffd80698f9ab078d76473b08dc"
+    },
+    {
+      "path": "package/index.js",
+      "upstreamSha256": "1e16645b5484c9eb8b8c5f3d227d0e35df11caaa78803b5f8b8e2254c11decc3",
+      "sha256": "1e16645b5484c9eb8b8c5f3d227d0e35df11caaa78803b5f8b8e2254c11decc3"
+    },
+    {
+      "path": "package/lib/commands/stage/index.js",
+      "upstreamSha256": "d537953882c62fd813784529129e21d7bf91e950bc0124e30a088c45f912368a",
+      "sha256": "d537953882c62fd813784529129e21d7bf91e950bc0124e30a088c45f912368a"
+    },
+    {
+      "path": "package/lib/commands/trust/index.js",
+      "upstreamSha256": "e4725637bf50d8638c21d653dbfd723e9017124d30f96b8811266d209662bdc6",
+      "sha256": "e4725637bf50d8638c21d653dbfd723e9017124d30f96b8811266d209662bdc6"
+    },
+    {
+      "path": "package/lib/commands/init.js",
+      "upstreamSha256": "8f757b29f436c3a08fa935a2eb74ed6ffaba9c5b5d9b5fb4b1cb9aba6c3e8757",
+      "sha256": "8f757b29f436c3a08fa935a2eb74ed6ffaba9c5b5d9b5fb4b1cb9aba6c3e8757"
+    },
+    {
+      "path": "package/lib/commands/install-ci-test.js",
+      "upstreamSha256": "9d6a27eb0116b8f55895639a9c4edfc2c083729c9ba75aa88c685bd3caed9fd9",
+      "sha256": "9d6a27eb0116b8f55895639a9c4edfc2c083729c9ba75aa88c685bd3caed9fd9"
+    },
+    {
+      "path": "package/lib/commands/install-scripts.js",
+      "upstreamSha256": "9c194224a1a8a24417138bac19d2a89709d6bcdc335fd893cebc1db10567ead4",
+      "sha256": "9c194224a1a8a24417138bac19d2a89709d6bcdc335fd893cebc1db10567ead4"
+    },
+    {
+      "path": "package/lib/commands/install-test.js",
+      "upstreamSha256": "4db009aa28b8feaade604258f8090b2fed39dd8a5eea2afcefa07755dcbd0e49",
+      "sha256": "4db009aa28b8feaade604258f8090b2fed39dd8a5eea2afcefa07755dcbd0e49"
+    },
+    {
+      "path": "package/lib/commands/install.js",
+      "upstreamSha256": "0d90b3c7ff4e5fe28270d49feb31660002f83b7f2382838f00317f929c3b948b",
+      "sha256": "0d90b3c7ff4e5fe28270d49feb31660002f83b7f2382838f00317f929c3b948b"
+    },
+    {
+      "path": "package/lib/utils/installed-deep.js",
+      "upstreamSha256": "d45e1f1894ab8ae5d4d363008624c7e436c599262894ed1aa5054875986d7de2",
+      "sha256": "d45e1f1894ab8ae5d4d363008624c7e436c599262894ed1aa5054875986d7de2"
+    },
+    {
+      "path": "package/lib/utils/installed-shallow.js",
+      "upstreamSha256": "9ce217f5dff637215f6b39ba4e11935dc512149a7c08cbf99c014946d49b05a7",
+      "sha256": "9ce217f5dff637215f6b39ba4e11935dc512149a7c08cbf99c014946d49b05a7"
+    },
+    {
+      "path": "package/lib/utils/is-windows.js",
+      "upstreamSha256": "caa3e47f0362dab075fa0d817a11f5040874fd80c79c4de867869e54eadc90bd",
+      "sha256": "caa3e47f0362dab075fa0d817a11f5040874fd80c79c4de867869e54eadc90bd"
+    },
+    {
+      "path": "package/lib/utils/key-values.js",
+      "upstreamSha256": "65d31df1b9ba0242d871885878594bbe6a47b7b853b2f8d3da069417d60b5dc3",
+      "sha256": "65d31df1b9ba0242d871885878594bbe6a47b7b853b2f8d3da069417d60b5dc3"
+    },
+    {
+      "path": "package/lib/lifecycle-cmd.js",
+      "upstreamSha256": "b50f4f3a2248905d87e11e162b1b068a40346fe3ae089908ba04938f9df57ef2",
+      "sha256": "b50f4f3a2248905d87e11e162b1b068a40346fe3ae089908ba04938f9df57ef2"
+    },
+    {
+      "path": "package/lib/commands/link.js",
+      "upstreamSha256": "fb32c43108fd6803e99b06d1c6f5331a46d0f815057d69e4a4ad77ad2a7e0c46",
+      "sha256": "fb32c43108fd6803e99b06d1c6f5331a46d0f815057d69e4a4ad77ad2a7e0c46"
+    },
+    {
+      "path": "package/lib/commands/stage/list.js",
+      "upstreamSha256": "a70d3cf3f97c0579f749e71b57cb30c2d7669378cf1d5596ff4ca8404b19586a",
+      "sha256": "a70d3cf3f97c0579f749e71b57cb30c2d7669378cf1d5596ff4ca8404b19586a"
+    },
+    {
+      "path": "package/lib/commands/trust/list.js",
+      "upstreamSha256": "1999714d799cc5b53198cb406a598dab8a67bbbea6f860f74ecf73a091434f76",
+      "sha256": "1999714d799cc5b53198cb406a598dab8a67bbbea6f860f74ecf73a091434f76"
+    },
+    {
+      "path": "package/lib/commands/ll.js",
+      "upstreamSha256": "8e757fdd4df21442479380d019cb34852f8b1db7489a12e39968851b1f48bb32",
+      "sha256": "8e757fdd4df21442479380d019cb34852f8b1db7489a12e39968851b1f48bb32"
+    },
+    {
+      "path": "package/lib/utils/log-file.js",
+      "upstreamSha256": "0545402f1a53075726505829f4dc6b0ec2f43e857fd559b8868c60feae1c46a4",
+      "sha256": "0545402f1a53075726505829f4dc6b0ec2f43e857fd559b8868c60feae1c46a4"
+    },
+    {
+      "path": "package/lib/commands/login.js",
+      "upstreamSha256": "2aefa001aefabaf170695e322c99e8d8a40e9fad769c82eb34f4805ed0e6a038",
+      "sha256": "2aefa001aefabaf170695e322c99e8d8a40e9fad769c82eb34f4805ed0e6a038"
+    },
+    {
+      "path": "package/lib/commands/logout.js",
+      "upstreamSha256": "207bd8e7e577df61fd383a99da8bc1ed27917ad9b678b8471ef25968d126147b",
+      "sha256": "207bd8e7e577df61fd383a99da8bc1ed27917ad9b678b8471ef25968d126147b"
+    },
+    {
+      "path": "package/lib/commands/ls.js",
+      "upstreamSha256": "c57198c47da053ded29bb775c3139663f22877090a11415b71380b864bb18f42",
+      "sha256": "c57198c47da053ded29bb775c3139663f22877090a11415b71380b864bb18f42"
+    },
+    {
+      "path": "package/bin/npm-cli.js",
+      "upstreamSha256": "8e5f6f3429f8cdbe693cdc29904e9d5a7b127a494bd15c804bd54c7403bfcbe7",
+      "sha256": "8e5f6f3429f8cdbe693cdc29904e9d5a7b127a494bd15c804bd54c7403bfcbe7"
+    },
+    {
+      "path": "package/bin/npm-prefix.js",
+      "upstreamSha256": "28cce617d054378c32e0dd6d36b3dfb8bce95d2da33b58a4349448e33504f91b",
+      "sha256": "28cce617d054378c32e0dd6d36b3dfb8bce95d2da33b58a4349448e33504f91b"
+    },
+    {
+      "path": "package/lib/utils/npm-usage.js",
+      "upstreamSha256": "7d4bfb9b5db6a3d58fe5d295950fa49fd05ff877b1d066845ffcbf0da03165c2",
+      "sha256": "7d4bfb9b5db6a3d58fe5d295950fa49fd05ff877b1d066845ffcbf0da03165c2"
+    },
+    {
+      "path": "package/lib/npm.js",
+      "upstreamSha256": "7142c67ca2a1de8c3d438bbbf717a39ec869e05a9f128627c14ead380ecac770",
+      "sha256": "7142c67ca2a1de8c3d438bbbf717a39ec869e05a9f128627c14ead380ecac770"
+    },
+    {
+      "path": "package/bin/npx-cli.js",
+      "upstreamSha256": "237adf8f3747cad8b9b62fcfd0d9c8d509a64e550337707f55100afcb79e8900",
+      "sha256": "237adf8f3747cad8b9b62fcfd0d9c8d509a64e550337707f55100afcb79e8900"
+    },
+    {
+      "path": "package/lib/utils/oidc.js",
+      "upstreamSha256": "9903d2d222077d776220cb7ccfa58b28dfee8224fccc9f7974a9d85edf936398",
+      "sha256": "9903d2d222077d776220cb7ccfa58b28dfee8224fccc9f7974a9d85edf936398"
+    },
+    {
+      "path": "package/lib/utils/open-url.js",
+      "upstreamSha256": "a9f95ab6f89da28dc71a512d5a523861396ffcc696d7e48a528086e3d6cf2530",
+      "sha256": "a9f95ab6f89da28dc71a512d5a523861396ffcc696d7e48a528086e3d6cf2530"
+    },
+    {
+      "path": "package/lib/commands/org.js",
+      "upstreamSha256": "b3eeab2660941d03dc70f6814b4f523666433e9172941d255d5022186a93e274",
+      "sha256": "b3eeab2660941d03dc70f6814b4f523666433e9172941d255d5022186a93e274"
+    },
+    {
+      "path": "package/lib/commands/outdated.js",
+      "upstreamSha256": "a9346312844e60cc1ca8b192988d86a8b2498c8231984c679931c7be804cd8ed",
+      "sha256": "a9346312844e60cc1ca8b192988d86a8b2498c8231984c679931c7be804cd8ed"
+    },
+    {
+      "path": "package/lib/utils/output-error.js",
+      "upstreamSha256": "2ae03b0d5c6fa544a114e837a22d9f1081f19e7e3fd072a44210a1831e66a8b1",
+      "sha256": "2ae03b0d5c6fa544a114e837a22d9f1081f19e7e3fd072a44210a1831e66a8b1"
+    },
+    {
+      "path": "package/lib/commands/owner.js",
+      "upstreamSha256": "90f8b1c62f12c04869a2c34afc363537baa8d58ba0abeb813c7c1612ea5f9886",
+      "sha256": "90f8b1c62f12c04869a2c34afc363537baa8d58ba0abeb813c7c1612ea5f9886"
+    },
+    {
+      "path": "package/lib/commands/pack.js",
+      "upstreamSha256": "01483e35200380c9ac3604cb83102009361c75722369a332b4acb204245ad8ab",
+      "sha256": "01483e35200380c9ac3604cb83102009361c75722369a332b4acb204245ad8ab"
+    },
+    {
+      "path": "package/lib/package-url-cmd.js",
+      "upstreamSha256": "1efa73ae4c0e57260a5b7ea2ed2d3129500239ca1b57662db866480d25e9d11b",
+      "sha256": "1efa73ae4c0e57260a5b7ea2ed2d3129500239ca1b57662db866480d25e9d11b"
+    },
+    {
+      "path": "package/lib/utils/patch-diff.js",
+      "upstreamSha256": "5ba39f3f35d54110aec56269ad1f789268c263d0332149c11d8ad873b1f9c9d0",
+      "sha256": "5ba39f3f35d54110aec56269ad1f789268c263d0332149c11d8ad873b1f9c9d0"
+    },
+    {
+      "path": "package/lib/commands/patch.js",
+      "upstreamSha256": "28004ecf341978d53cc8070b6be5014c6183e8a4489d12b2ad60d813ed966d4c",
+      "sha256": "28004ecf341978d53cc8070b6be5014c6183e8a4489d12b2ad60d813ed966d4c"
+    },
+    {
+      "path": "package/lib/commands/ping.js",
+      "upstreamSha256": "a4b38d65d6bdbfd9f8d610134d18662c6cdb7963e15d171f7dc1a1fefeeb2580",
+      "sha256": "a4b38d65d6bdbfd9f8d610134d18662c6cdb7963e15d171f7dc1a1fefeeb2580"
+    },
+    {
+      "path": "package/lib/utils/ping.js",
+      "upstreamSha256": "7a258e3f88f9c9e322e88f20e6d9fb57bcc0df30b9bbd3a11e11d98f8ee93198",
+      "sha256": "7a258e3f88f9c9e322e88f20e6d9fb57bcc0df30b9bbd3a11e11d98f8ee93198"
+    },
+    {
+      "path": "package/lib/commands/pkg.js",
+      "upstreamSha256": "3c6ed5dac6ac8a749165d8225cf3d8c002835d8ce818ec3f3fbc95f396e85b03",
+      "sha256": "3c6ed5dac6ac8a749165d8225cf3d8c002835d8ce818ec3f3fbc95f396e85b03"
+    },
+    {
+      "path": "package/lib/commands/prefix.js",
+      "upstreamSha256": "09c35ebcc3843b43098d4e00cb8f226cf634fad8403ffc013d163b816747a7b6",
+      "sha256": "09c35ebcc3843b43098d4e00cb8f226cf634fad8403ffc013d163b816747a7b6"
+    },
+    {
+      "path": "package/lib/commands/profile.js",
+      "upstreamSha256": "a1710a460fd3b8a825978c37c52602c583215e50b357e644b71b60e5ef5f80ea",
+      "sha256": "a1710a460fd3b8a825978c37c52602c583215e50b357e644b71b60e5ef5f80ea"
+    },
+    {
+      "path": "package/lib/commands/prune.js",
+      "upstreamSha256": "8323ba0d5b92813087ea7215b55a51442c622abe7f5a9a1bde310a0389521889",
+      "sha256": "8323ba0d5b92813087ea7215b55a51442c622abe7f5a9a1bde310a0389521889"
+    },
+    {
+      "path": "package/lib/commands/publish.js",
+      "upstreamSha256": "546d15c33d302b996451cb243921c770252cc82e160a2269b2061451b2801fbd",
+      "sha256": "546d15c33d302b996451cb243921c770252cc82e160a2269b2061451b2801fbd"
+    },
+    {
+      "path": "package/lib/commands/stage/publish.js",
+      "upstreamSha256": "c2fc55789ad3ff18afdb659ff19807504ac95f51211996ea0ece1d9339d26a6f",
+      "sha256": "c2fc55789ad3ff18afdb659ff19807504ac95f51211996ea0ece1d9339d26a6f"
+    },
+    {
+      "path": "package/lib/commands/query.js",
+      "upstreamSha256": "6b9ba1038ccae2cb288b0ff661d83457857da6ce5caf23bbb5e19250b0504bee",
+      "sha256": "6b9ba1038ccae2cb288b0ff661d83457857da6ce5caf23bbb5e19250b0504bee"
+    },
+    {
+      "path": "package/lib/utils/queryable.js",
+      "upstreamSha256": "ae17e85ef07cfe7e8bb726331d8eea860746c65890bf18723f145b6ac0fcef0c",
+      "sha256": "ae17e85ef07cfe7e8bb726331d8eea860746c65890bf18723f145b6ac0fcef0c"
+    },
+    {
+      "path": "package/lib/utils/read-user-info.js",
+      "upstreamSha256": "69e5d049522a613c5d3fd2ab5915f56c8e2789e7ea7b7e8671586d6d1d7b1fcc",
+      "sha256": "69e5d049522a613c5d3fd2ab5915f56c8e2789e7ea7b7e8671586d6d1d7b1fcc"
+    },
+    {
+      "path": "package/lib/commands/rebuild.js",
+      "upstreamSha256": "0dab7e1fe2399f64e1e37dcc1e98339a1aea66d6b90c9f5aa80171748bf5e413",
+      "sha256": "0dab7e1fe2399f64e1e37dcc1e98339a1aea66d6b90c9f5aa80171748bf5e413"
+    },
+    {
+      "path": "package/lib/utils/reify-finish.js",
+      "upstreamSha256": "47846727f6577287faccac06ba9de1e720abc1d37d41d51574c9c25b0a145a71",
+      "sha256": "47846727f6577287faccac06ba9de1e720abc1d37d41d51574c9c25b0a145a71"
+    },
+    {
+      "path": "package/lib/utils/reify-output.js",
+      "upstreamSha256": "e30ad90be17734d630abafa8359e7577ab35239d093033fa4ab415ce9f86c5b5",
+      "sha256": "e30ad90be17734d630abafa8359e7577ab35239d093033fa4ab415ce9f86c5b5"
+    },
+    {
+      "path": "package/lib/commands/stage/reject.js",
+      "upstreamSha256": "d9f597e36b0305f2b26c9c44c3bf6341b169b5c9d2388076b7cff4791b148fe9",
+      "sha256": "d9f597e36b0305f2b26c9c44c3bf6341b169b5c9d2388076b7cff4791b148fe9"
+    },
+    {
+      "path": "package/lib/commands/repo.js",
+      "upstreamSha256": "81ec1a5e9f8bcf55e2d37fe58af3e2df3b052d35adb7467671e785be818032d8",
+      "sha256": "81ec1a5e9f8bcf55e2d37fe58af3e2df3b052d35adb7467671e785be818032d8"
+    },
+    {
+      "path": "package/lib/utils/resolve-allow-scripts.js",
+      "upstreamSha256": "ed578216aa03fe4579885c567c488354a7ea7590441b1cb0ecd2b1353dd3f6d0",
+      "sha256": "ed578216aa03fe4579885c567c488354a7ea7590441b1cb0ecd2b1353dd3f6d0"
+    },
+    {
+      "path": "package/lib/commands/restart.js",
+      "upstreamSha256": "7b1cf79b5b51d60bdea0e082264a4c7420cdf2dda5aa781ec69f482db0d29905",
+      "sha256": "7b1cf79b5b51d60bdea0e082264a4c7420cdf2dda5aa781ec69f482db0d29905"
+    },
+    {
+      "path": "package/lib/commands/trust/revoke.js",
+      "upstreamSha256": "7cd39625b51167e96857c7b4bde73c2e846493e1ad21a7e70c42caa36eb2aa7a",
+      "sha256": "7cd39625b51167e96857c7b4bde73c2e846493e1ad21a7e70c42caa36eb2aa7a"
+    },
+    {
+      "path": "package/lib/commands/root.js",
+      "upstreamSha256": "ab2be783dcefe94fbb44c819db9103f32cb03895be75d12aeeb2fd167ee5c348",
+      "sha256": "ab2be783dcefe94fbb44c819db9103f32cb03895be75d12aeeb2fd167ee5c348"
+    },
+    {
+      "path": "package/lib/commands/run.js",
+      "upstreamSha256": "b7acdea61c0886f048d2b8c5ecbce1599416eec6ba5553ee21d77687f50ccf8c",
+      "sha256": "b7acdea61c0886f048d2b8c5ecbce1599416eec6ba5553ee21d77687f50ccf8c"
+    },
+    {
+      "path": "package/lib/utils/sbom-cyclonedx.js",
+      "upstreamSha256": "39cd3b891faeb35d979e674bdef4fd48c5f3e07fa38e7d2928f81eb2c7065656",
+      "sha256": "39cd3b891faeb35d979e674bdef4fd48c5f3e07fa38e7d2928f81eb2c7065656"
+    },
+    {
+      "path": "package/lib/utils/sbom-spdx.js",
+      "upstreamSha256": "88c353b0b5f5d498578c3a9efd5634167c796837d2df099596ecc63959707596",
+      "sha256": "88c353b0b5f5d498578c3a9efd5634167c796837d2df099596ecc63959707596"
+    },
+    {
+      "path": "package/lib/commands/sbom.js",
+      "upstreamSha256": "4207e0d6174beaae75ba2486b1c27727c9f38797eec9308a0cfdc6b9b830ba98",
+      "sha256": "4207e0d6174beaae75ba2486b1c27727c9f38797eec9308a0cfdc6b9b830ba98"
+    },
+    {
+      "path": "package/lib/commands/search.js",
+      "upstreamSha256": "15e5f454024daddeabb158802aa4609e83238f132797968c309f433b286b4b6f",
+      "sha256": "15e5f454024daddeabb158802aa4609e83238f132797968c309f433b286b4b6f"
+    },
+    {
+      "path": "package/lib/commands/set.js",
+      "upstreamSha256": "ad636e516e3582dc4a8d70ec778c73aeeea057da18f2e89b34b7f8d36bd397ab",
+      "sha256": "ad636e516e3582dc4a8d70ec778c73aeeea057da18f2e89b34b7f8d36bd397ab"
+    },
+    {
+      "path": "package/lib/commands/start.js",
+      "upstreamSha256": "b9839f12dd5a8b3404513afcb846d7c43df3a7cbec5b25ec0004f1e3153ac6f4",
+      "sha256": "b9839f12dd5a8b3404513afcb846d7c43df3a7cbec5b25ec0004f1e3153ac6f4"
+    },
+    {
+      "path": "package/lib/commands/stop.js",
+      "upstreamSha256": "b35fd221d4822b1a4ca6f5167e6db02f1f48fdab53c864d8e78cab1281ebdc69",
+      "sha256": "b35fd221d4822b1a4ca6f5167e6db02f1f48fdab53c864d8e78cab1281ebdc69"
+    },
+    {
+      "path": "package/lib/utils/strict-allow-scripts-preflight.js",
+      "upstreamSha256": "43883fabd9bb3007a3f5038f2bccb628b69def9397d4413b31b13b00149830ea",
+      "sha256": "43883fabd9bb3007a3f5038f2bccb628b69def9397d4413b31b13b00149830ea"
+    },
+    {
+      "path": "package/lib/utils/tar.js",
+      "upstreamSha256": "4e2b3f4dd2d35e3eb31fe27c91ca89798e832aa813db946c8773fffab50ceae6",
+      "sha256": "4e2b3f4dd2d35e3eb31fe27c91ca89798e832aa813db946c8773fffab50ceae6"
+    },
+    {
+      "path": "package/lib/commands/team.js",
+      "upstreamSha256": "ca4eb9f1ea23c90a0e37f787073f8048d2888277c741c13182071c22c22f4f8e",
+      "sha256": "ca4eb9f1ea23c90a0e37f787073f8048d2888277c741c13182071c22c22f4f8e"
+    },
+    {
+      "path": "package/lib/commands/test.js",
+      "upstreamSha256": "d7678bf75b6efec8710cec74aa98c09315a5c6bd478028925d70fe1bf815bf0d",
+      "sha256": "d7678bf75b6efec8710cec74aa98c09315a5c6bd478028925d70fe1bf815bf0d"
+    },
+    {
+      "path": "package/lib/utils/timers.js",
+      "upstreamSha256": "7460bb4f2d2ef8719ee2a52c9f84c24157a3b96e81e4d6e67d9f2c7b15f426ab",
+      "sha256": "7460bb4f2d2ef8719ee2a52c9f84c24157a3b96e81e4d6e67d9f2c7b15f426ab"
+    },
+    {
+      "path": "package/lib/commands/token.js",
+      "upstreamSha256": "f9ca9b7f425dcb39d4b8cd883aaab866e0fb05b60354a534604830531d94d7ba",
+      "sha256": "f9ca9b7f425dcb39d4b8cd883aaab866e0fb05b60354a534604830531d94d7ba"
+    },
+    {
+      "path": "package/lib/trust-cmd.js",
+      "upstreamSha256": "9c9727b7b0f561094ba5664b57c4b993733d33d0bc9aeb584ac9dd87699a62ed",
+      "sha256": "9c9727b7b0f561094ba5664b57c4b993733d33d0bc9aeb584ac9dd87699a62ed"
+    },
+    {
+      "path": "package/lib/commands/undeprecate.js",
+      "upstreamSha256": "fcb930d4dc49127a95f551bae393a02296e61d9f7ca8b01c13bd72d9a5501b15",
+      "sha256": "fcb930d4dc49127a95f551bae393a02296e61d9f7ca8b01c13bd72d9a5501b15"
+    },
+    {
+      "path": "package/lib/commands/uninstall.js",
+      "upstreamSha256": "2171cdef3de5c0dc0f6aec00217af44b36a3faf843fe72ddf90825487cffe80a",
+      "sha256": "2171cdef3de5c0dc0f6aec00217af44b36a3faf843fe72ddf90825487cffe80a"
+    },
+    {
+      "path": "package/lib/commands/unpublish.js",
+      "upstreamSha256": "033e0e39ea2337e82f40e3bc67d9646fb877f3a8f7f69d92418229e8f170894b",
+      "sha256": "033e0e39ea2337e82f40e3bc67d9646fb877f3a8f7f69d92418229e8f170894b"
+    },
+    {
+      "path": "package/lib/cli/update-notifier.js",
+      "upstreamSha256": "e91d75e236f1f9975f4f7ef5ddf424b8b60bf294c6d13d2b261088fd73e480f8",
+      "sha256": "e91d75e236f1f9975f4f7ef5ddf424b8b60bf294c6d13d2b261088fd73e480f8"
+    },
+    {
+      "path": "package/lib/utils/update-workspaces.js",
+      "upstreamSha256": "cecdda1e3cde98d280d55d0d01f00285ac3d78e99bf34ced1bbccdb781e4034e",
+      "sha256": "cecdda1e3cde98d280d55d0d01f00285ac3d78e99bf34ced1bbccdb781e4034e"
+    },
+    {
+      "path": "package/lib/commands/update.js",
+      "upstreamSha256": "cb083986cbaaf73dc25946d18e98a9cdb713d05933ab67f5d7239b7ca777d020",
+      "sha256": "cb083986cbaaf73dc25946d18e98a9cdb713d05933ab67f5d7239b7ca777d020"
+    },
+    {
+      "path": "package/lib/cli/validate-engines.js",
+      "upstreamSha256": "eb2770f8aef0656afa06b7512961b30a25636dfaed29cd0d842def07b95eeed7",
+      "sha256": "eb2770f8aef0656afa06b7512961b30a25636dfaed29cd0d842def07b95eeed7"
+    },
+    {
+      "path": "package/lib/utils/validate-lockfile.js",
+      "upstreamSha256": "3dd52ee7b0d181e9ea89e8cb637158da5eb20941774d4572a2f0177f383778f6",
+      "sha256": "3dd52ee7b0d181e9ea89e8cb637158da5eb20941774d4572a2f0177f383778f6"
+    },
+    {
+      "path": "package/lib/utils/validate-uuid.js",
+      "upstreamSha256": "eda8b572a2c36b2a2342ba2d3128b9e9132cb2af95f5d077a585f607a7dd3fa1",
+      "sha256": "eda8b572a2c36b2a2342ba2d3128b9e9132cb2af95f5d077a585f607a7dd3fa1"
+    },
+    {
+      "path": "package/lib/utils/verify-signatures.js",
+      "upstreamSha256": "7c39ad2ca991d5edf6ddcd9623aea1ff1820007484e6e0bc6a422330df278b6c",
+      "sha256": "7c39ad2ca991d5edf6ddcd9623aea1ff1820007484e6e0bc6a422330df278b6c"
+    },
+    {
+      "path": "package/lib/commands/version.js",
+      "upstreamSha256": "189c16cfd81a3188b6d21d931ba6c7230c60577c6b2769a1221677fc2e0794b9",
+      "sha256": "189c16cfd81a3188b6d21d931ba6c7230c60577c6b2769a1221677fc2e0794b9"
+    },
+    {
+      "path": "package/lib/commands/stage/view.js",
+      "upstreamSha256": "181dd853165b38c2a4398e26a9b5a08f3668bb3c14b85bedbb3748d66d9c0014",
+      "sha256": "181dd853165b38c2a4398e26a9b5a08f3668bb3c14b85bedbb3748d66d9c0014"
+    },
+    {
+      "path": "package/lib/commands/view.js",
+      "upstreamSha256": "614b68b27fd034429b0ba86a04f1dd053b2abb494fc2c99d333dc43d152566f6",
+      "sha256": "614b68b27fd034429b0ba86a04f1dd053b2abb494fc2c99d333dc43d152566f6"
+    },
+    {
+      "path": "package/lib/utils/warn-workspace-allow-scripts.js",
+      "upstreamSha256": "b024c112ec6752985b304a83a29907bf7b1cfaeb4dac0814ff0c954c29c61496",
+      "sha256": "b024c112ec6752985b304a83a29907bf7b1cfaeb4dac0814ff0c954c29c61496"
+    },
+    {
+      "path": "package/lib/commands/whoami.js",
+      "upstreamSha256": "d76223c1a10cbc0fae7092c77fc2e7fbde74b8f0ed258ffafbc53b4f807e4656",
+      "sha256": "d76223c1a10cbc0fae7092c77fc2e7fbde74b8f0ed258ffafbc53b4f807e4656"
+    },
+    {
+      "path": "package/package.json",
+      "upstreamSha256": "44c37a6a06ae01d4ad987bc4710031ae3a42d47173100316e4913ab2cd113cd3",
+      "sha256": "c50a5c3c75593559f572c2853db55dbb756597919a0934afd9f8405d7c4d6744"
+    },
+    {
+      "path": "package/docs/content/using-npm/config.md",
+      "upstreamSha256": "25017688758b0905c4ca7c6b77c5d2eab17e4d1a6c856c3cdf8e6d539d894177",
+      "sha256": "25017688758b0905c4ca7c6b77c5d2eab17e4d1a6c856c3cdf8e6d539d894177"
+    },
+    {
+      "path": "package/docs/content/using-npm/dependency-selectors.md",
+      "upstreamSha256": "5038794ecfa8801b2c2f37d5d32ca302eec1a48a04b45ebdc6717985d5d93d04",
+      "sha256": "5038794ecfa8801b2c2f37d5d32ca302eec1a48a04b45ebdc6717985d5d93d04"
+    },
+    {
+      "path": "package/docs/content/using-npm/developers.md",
+      "upstreamSha256": "5af894bcb75054efe58a6305b217fb7dbc72a2da5e9bde5de39cf03d20e2ca26",
+      "sha256": "5af894bcb75054efe58a6305b217fb7dbc72a2da5e9bde5de39cf03d20e2ca26"
+    },
+    {
+      "path": "package/docs/content/configuring-npm/folders.md",
+      "upstreamSha256": "350ff467e2c4c6ae5d68cc7e2128d3115743971e99839753520612e1ffe1a522",
+      "sha256": "350ff467e2c4c6ae5d68cc7e2128d3115743971e99839753520612e1ffe1a522"
+    },
+    {
+      "path": "package/docs/content/configuring-npm/install.md",
+      "upstreamSha256": "edaed251152c5ae1d435082e9d811028be4bc276aa809022af3076214cb25cfa",
+      "sha256": "edaed251152c5ae1d435082e9d811028be4bc276aa809022af3076214cb25cfa"
+    },
+    {
+      "path": "package/docs/content/using-npm/logging.md",
+      "upstreamSha256": "900db43ef2eee353b87c66b4385dcb14aff73f71f2c85ff93c9bcda951fb89d9",
+      "sha256": "900db43ef2eee353b87c66b4385dcb14aff73f71f2c85ff93c9bcda951fb89d9"
+    },
+    {
+      "path": "package/docs/content/commands/npm-access.md",
+      "upstreamSha256": "c7d4a8fe3eee5216ee6d4ab7c965338b2a6b790a7e522a42fd75357847538d9f",
+      "sha256": "c7d4a8fe3eee5216ee6d4ab7c965338b2a6b790a7e522a42fd75357847538d9f"
+    },
+    {
+      "path": "package/docs/content/commands/npm-approve-scripts.md",
+      "upstreamSha256": "5325882c6e86afcd1feef351ddb977282a75c4bbc84eb71f980d7a8d652b22a3",
+      "sha256": "5325882c6e86afcd1feef351ddb977282a75c4bbc84eb71f980d7a8d652b22a3"
+    },
+    {
+      "path": "package/docs/content/commands/npm-audit.md",
+      "upstreamSha256": "bb6f56df23bb8353ef7d44e8fe06af8d05909d259e67c6031c0bcb3087e4acdf",
+      "sha256": "bb6f56df23bb8353ef7d44e8fe06af8d05909d259e67c6031c0bcb3087e4acdf"
+    },
+    {
+      "path": "package/docs/content/commands/npm-bugs.md",
+      "upstreamSha256": "2cf5aba514185c1a37ff3b41f065866984d432be26e596f3ba97d33643ddcb7d",
+      "sha256": "2cf5aba514185c1a37ff3b41f065866984d432be26e596f3ba97d33643ddcb7d"
+    },
+    {
+      "path": "package/docs/content/commands/npm-cache.md",
+      "upstreamSha256": "147e7dcca435dd1de421bd16c0c6bb889462fc7aed8acdb428814c5b379885a3",
+      "sha256": "147e7dcca435dd1de421bd16c0c6bb889462fc7aed8acdb428814c5b379885a3"
+    },
+    {
+      "path": "package/docs/content/commands/npm-ci.md",
+      "upstreamSha256": "2f34b6327e8fa41a333b5413bf74965c758819a0e4887b525c3797785172b347",
+      "sha256": "2f34b6327e8fa41a333b5413bf74965c758819a0e4887b525c3797785172b347"
+    },
+    {
+      "path": "package/docs/content/commands/npm-completion.md",
+      "upstreamSha256": "74f866ad8a9b501e4a21e055b2f183da32940190c3e088e86abb370192ef974c",
+      "sha256": "74f866ad8a9b501e4a21e055b2f183da32940190c3e088e86abb370192ef974c"
+    },
+    {
+      "path": "package/docs/content/commands/npm-config.md",
+      "upstreamSha256": "733aafab7835ac4dd9ea349571febf40ac0dfbe985deeb284cc093663d6067f5",
+      "sha256": "733aafab7835ac4dd9ea349571febf40ac0dfbe985deeb284cc093663d6067f5"
+    },
+    {
+      "path": "package/docs/content/commands/npm-dedupe.md",
+      "upstreamSha256": "1cd1a4f2ce1b2c0d1ebaa774e7dfe9b1cbb70445dae03ee2d0a65f28b6f7573f",
+      "sha256": "1cd1a4f2ce1b2c0d1ebaa774e7dfe9b1cbb70445dae03ee2d0a65f28b6f7573f"
+    },
+    {
+      "path": "package/docs/content/commands/npm-deny-scripts.md",
+      "upstreamSha256": "c177375340ee90843b0e8803870e130a5bd7bf0e94c849e0831c2f77c2b9bbf4",
+      "sha256": "c177375340ee90843b0e8803870e130a5bd7bf0e94c849e0831c2f77c2b9bbf4"
+    },
+    {
+      "path": "package/docs/content/commands/npm-deprecate.md",
+      "upstreamSha256": "450e1114f6a90c4afc09d5c73540144e5c05cdb6350485e5f65cf0ece18d046e",
+      "sha256": "450e1114f6a90c4afc09d5c73540144e5c05cdb6350485e5f65cf0ece18d046e"
+    },
+    {
+      "path": "package/docs/content/commands/npm-diff.md",
+      "upstreamSha256": "9a8d8eec44ab732586888e495246f1ab6365b8136344d263ea5b23e8236cd129",
+      "sha256": "9a8d8eec44ab732586888e495246f1ab6365b8136344d263ea5b23e8236cd129"
+    },
+    {
+      "path": "package/docs/content/commands/npm-dist-tag.md",
+      "upstreamSha256": "9c02369ee28805f11a930ee7e84fee17450cc2990cb745927594fbd950aec9dd",
+      "sha256": "9c02369ee28805f11a930ee7e84fee17450cc2990cb745927594fbd950aec9dd"
+    },
+    {
+      "path": "package/docs/content/commands/npm-docs.md",
+      "upstreamSha256": "61ec1406d34f50c01d562aa73a04d774a85041b4eb6f74d1a409d5866e6aac90",
+      "sha256": "61ec1406d34f50c01d562aa73a04d774a85041b4eb6f74d1a409d5866e6aac90"
+    },
+    {
+      "path": "package/docs/content/commands/npm-doctor.md",
+      "upstreamSha256": "146fce4c2b26bdf30c02acfb3c33117acf761ccf2b3191968e09dae3ae788eed",
+      "sha256": "146fce4c2b26bdf30c02acfb3c33117acf761ccf2b3191968e09dae3ae788eed"
+    },
+    {
+      "path": "package/docs/content/commands/npm-edit.md",
+      "upstreamSha256": "a9a045b5ef622b6539c30c7bedaa28763b3cdecf0251bc875b11b55a6967aead",
+      "sha256": "a9a045b5ef622b6539c30c7bedaa28763b3cdecf0251bc875b11b55a6967aead"
+    },
+    {
+      "path": "package/docs/content/commands/npm-exec.md",
+      "upstreamSha256": "7b272260066365802eac8f0e659e97b5715babfa55c3b2fa2d1d09efd1dca8d2",
+      "sha256": "7b272260066365802eac8f0e659e97b5715babfa55c3b2fa2d1d09efd1dca8d2"
+    },
+    {
+      "path": "package/docs/content/commands/npm-explain.md",
+      "upstreamSha256": "b8c1bbe66774886c7a9aba5d60409787b7ce3395fa2f3ddad6874750dce4bb76",
+      "sha256": "b8c1bbe66774886c7a9aba5d60409787b7ce3395fa2f3ddad6874750dce4bb76"
+    },
+    {
+      "path": "package/docs/content/commands/npm-explore.md",
+      "upstreamSha256": "0ff8ba0c8ae4e03a53878a29c6d324f223149050f734baa9cc614c8efdf15ef6",
+      "sha256": "0ff8ba0c8ae4e03a53878a29c6d324f223149050f734baa9cc614c8efdf15ef6"
+    },
+    {
+      "path": "package/docs/content/configuring-npm/npm-extension.md",
+      "upstreamSha256": "653477530574f5922075b5b6c18a302599f9116575dff634dcce6b947f5f1b37",
+      "sha256": "653477530574f5922075b5b6c18a302599f9116575dff634dcce6b947f5f1b37"
+    },
+    {
+      "path": "package/docs/content/commands/npm-find-dupes.md",
+      "upstreamSha256": "e12de7d37c5bb7d03429e690d5478edb33d14ad9be885ca4ddb479377c05646b",
+      "sha256": "e12de7d37c5bb7d03429e690d5478edb33d14ad9be885ca4ddb479377c05646b"
+    },
+    {
+      "path": "package/docs/content/commands/npm-fund.md",
+      "upstreamSha256": "1545c991cf3513b11e0f2c36e41d136628567bc72f1e3cfac6afc2e3811b1df2",
+      "sha256": "1545c991cf3513b11e0f2c36e41d136628567bc72f1e3cfac6afc2e3811b1df2"
+    },
+    {
+      "path": "package/docs/content/commands/npm-get.md",
+      "upstreamSha256": "3df65ec88b44742e878e94bd6d5faa16dc5ae22bd8636a9f139130564a2c1b0f",
+      "sha256": "3df65ec88b44742e878e94bd6d5faa16dc5ae22bd8636a9f139130564a2c1b0f"
+    },
+    {
+      "path": "package/docs/content/commands/npm-help-search.md",
+      "upstreamSha256": "2b27019281b07506bc039dd0ee712676ab422192b805741d8a4a1c57fb1cda15",
+      "sha256": "2b27019281b07506bc039dd0ee712676ab422192b805741d8a4a1c57fb1cda15"
+    },
+    {
+      "path": "package/docs/content/commands/npm-help.md",
+      "upstreamSha256": "c97538407ee4cb8cd22faa5c94976cae7a7e4e6c95d3eef57cc9fcf8c0b44809",
+      "sha256": "c97538407ee4cb8cd22faa5c94976cae7a7e4e6c95d3eef57cc9fcf8c0b44809"
+    },
+    {
+      "path": "package/docs/content/commands/npm-init.md",
+      "upstreamSha256": "c8834ecff01ab6bb1aadf3c7449d3e692095f518c5b6d03ac6d3e85744833d28",
+      "sha256": "c8834ecff01ab6bb1aadf3c7449d3e692095f518c5b6d03ac6d3e85744833d28"
+    },
+    {
+      "path": "package/docs/content/commands/npm-install-ci-test.md",
+      "upstreamSha256": "59c69b07b3039d0e1d2399278c031c0978e2cba542866ce45d2d767f668a459b",
+      "sha256": "59c69b07b3039d0e1d2399278c031c0978e2cba542866ce45d2d767f668a459b"
+    },
+    {
+      "path": "package/docs/content/commands/npm-install-scripts.md",
+      "upstreamSha256": "960ad3b07a1adb47aa706d212aecccd4afa44f67a30acafe68185d30768d4d4b",
+      "sha256": "960ad3b07a1adb47aa706d212aecccd4afa44f67a30acafe68185d30768d4d4b"
+    },
+    {
+      "path": "package/docs/content/commands/npm-install-test.md",
+      "upstreamSha256": "4afa1a846cab0018e96a66d2bd8b4583133ef3694dce7d3e76b7e9fe68c6880d",
+      "sha256": "4afa1a846cab0018e96a66d2bd8b4583133ef3694dce7d3e76b7e9fe68c6880d"
+    },
+    {
+      "path": "package/docs/content/commands/npm-install.md",
+      "upstreamSha256": "d9b3e6a79cf5234d469176a8f7bd1c9d789a48895df188718e480d9e83299753",
+      "sha256": "d9b3e6a79cf5234d469176a8f7bd1c9d789a48895df188718e480d9e83299753"
+    },
+    {
+      "path": "package/docs/content/commands/npm-link.md",
+      "upstreamSha256": "81c45e8dc809d2e4bca3078d8f33ace1361aa7737a02078e2077ea460dc2d197",
+      "sha256": "81c45e8dc809d2e4bca3078d8f33ace1361aa7737a02078e2077ea460dc2d197"
+    },
+    {
+      "path": "package/docs/content/commands/npm-ll.md",
+      "upstreamSha256": "72463aa13d8de52a9a803c98572980d6428a973aacfc996f2d8379b1059012c9",
+      "sha256": "72463aa13d8de52a9a803c98572980d6428a973aacfc996f2d8379b1059012c9"
+    },
+    {
+      "path": "package/docs/content/commands/npm-login.md",
+      "upstreamSha256": "0607db3024b65fc92dbb61f31485b1b3c0ba9d10aca80aaf98f6f8c554f78237",
+      "sha256": "0607db3024b65fc92dbb61f31485b1b3c0ba9d10aca80aaf98f6f8c554f78237"
+    },
+    {
+      "path": "package/docs/content/commands/npm-logout.md",
+      "upstreamSha256": "0513eb046dd7ff1c356f725ed3c8a32adbc6f558291a5fe304cdc75cbb1e00fb",
+      "sha256": "0513eb046dd7ff1c356f725ed3c8a32adbc6f558291a5fe304cdc75cbb1e00fb"
+    },
+    {
+      "path": "package/docs/content/commands/npm-ls.md",
+      "upstreamSha256": "6f1323afb183dcc605871e431b7e08c0172073cb89798f49af433b20d772a83f",
+      "sha256": "6f1323afb183dcc605871e431b7e08c0172073cb89798f49af433b20d772a83f"
+    },
+    {
+      "path": "package/docs/content/commands/npm-org.md",
+      "upstreamSha256": "13da27e53f7bdea8b746310b47d7926320c1ac718fba388382fcb7e4111adec6",
+      "sha256": "13da27e53f7bdea8b746310b47d7926320c1ac718fba388382fcb7e4111adec6"
+    },
+    {
+      "path": "package/docs/content/commands/npm-outdated.md",
+      "upstreamSha256": "9fde6fd522505afb1d8e3d7638451d10523c3780211d59508a77e6417e353250",
+      "sha256": "9fde6fd522505afb1d8e3d7638451d10523c3780211d59508a77e6417e353250"
+    },
+    {
+      "path": "package/docs/content/commands/npm-owner.md",
+      "upstreamSha256": "baf8b7d215b45dadff838647952b24dae746bacfe3d6873a2faa6b017eaf6589",
+      "sha256": "baf8b7d215b45dadff838647952b24dae746bacfe3d6873a2faa6b017eaf6589"
+    },
+    {
+      "path": "package/docs/content/commands/npm-pack.md",
+      "upstreamSha256": "2cdc1a993f475f0857b0413f31ad5526ba9beeab34ba20dfcb05f6b8048d6919",
+      "sha256": "2cdc1a993f475f0857b0413f31ad5526ba9beeab34ba20dfcb05f6b8048d6919"
+    },
+    {
+      "path": "package/docs/content/commands/npm-patch.md",
+      "upstreamSha256": "7ff3dd495c8687da62cb38eecb677d6b793243f0bb47985c9aceb3e0c06170e1",
+      "sha256": "7ff3dd495c8687da62cb38eecb677d6b793243f0bb47985c9aceb3e0c06170e1"
+    },
+    {
+      "path": "package/docs/content/commands/npm-ping.md",
+      "upstreamSha256": "73a4fb43b5bf524b46e7e3f94e1cafc11e91c9dffd7b5b4cb46bd9ad6a29f46e",
+      "sha256": "73a4fb43b5bf524b46e7e3f94e1cafc11e91c9dffd7b5b4cb46bd9ad6a29f46e"
+    },
+    {
+      "path": "package/docs/content/commands/npm-pkg.md",
+      "upstreamSha256": "97d66b6620b75eac11cd4b66505f64e4dba4fe1715174584da1fe5e7c124d426",
+      "sha256": "97d66b6620b75eac11cd4b66505f64e4dba4fe1715174584da1fe5e7c124d426"
+    },
+    {
+      "path": "package/docs/content/commands/npm-prefix.md",
+      "upstreamSha256": "26abee328e3bca0207a1b8c811e934e218fecbb604da2c19d69f6bf425825823",
+      "sha256": "26abee328e3bca0207a1b8c811e934e218fecbb604da2c19d69f6bf425825823"
+    },
+    {
+      "path": "package/docs/content/commands/npm-profile.md",
+      "upstreamSha256": "73bfb19342131c7387ad2a860e1d34c88bd5fd1d0af2ff47a8b0880ea5178da8",
+      "sha256": "73bfb19342131c7387ad2a860e1d34c88bd5fd1d0af2ff47a8b0880ea5178da8"
+    },
+    {
+      "path": "package/docs/content/commands/npm-prune.md",
+      "upstreamSha256": "11c067e87967879806b04badef84a5c02c782198014563d90e9bd8e8cda9c246",
+      "sha256": "11c067e87967879806b04badef84a5c02c782198014563d90e9bd8e8cda9c246"
+    },
+    {
+      "path": "package/docs/content/commands/npm-publish.md",
+      "upstreamSha256": "2b03bf44a57aad7527e3f31bbff1c453820617c78aac83b6464abdef767e89d0",
+      "sha256": "2b03bf44a57aad7527e3f31bbff1c453820617c78aac83b6464abdef767e89d0"
+    },
+    {
+      "path": "package/docs/content/commands/npm-query.md",
+      "upstreamSha256": "a6063e095b82b1f37573200063aeb28ad1c83c0c9627bb9f30bc0d9817a3fdbf",
+      "sha256": "a6063e095b82b1f37573200063aeb28ad1c83c0c9627bb9f30bc0d9817a3fdbf"
+    },
+    {
+      "path": "package/docs/content/commands/npm-rebuild.md",
+      "upstreamSha256": "58daab806ec373664ac03d7816828275abd4ff39b23aaf2da04c7c14bfa5d3e6",
+      "sha256": "58daab806ec373664ac03d7816828275abd4ff39b23aaf2da04c7c14bfa5d3e6"
+    },
+    {
+      "path": "package/docs/content/commands/npm-repo.md",
+      "upstreamSha256": "9c1a1cd0e9f36bd8bc1a33bb8a10a95342756f84381d4d13e3206afd02fe9339",
+      "sha256": "9c1a1cd0e9f36bd8bc1a33bb8a10a95342756f84381d4d13e3206afd02fe9339"
+    },
+    {
+      "path": "package/docs/content/commands/npm-restart.md",
+      "upstreamSha256": "5e18c2cd8f4a6b98484241d083ebe92cf43c1f3c8b5d543fcd248eed0eda7710",
+      "sha256": "5e18c2cd8f4a6b98484241d083ebe92cf43c1f3c8b5d543fcd248eed0eda7710"
+    },
+    {
+      "path": "package/docs/content/commands/npm-root.md",
+      "upstreamSha256": "11b516b907c6f22c17a24cd8254407fbaa08963b65fc8c5c07f744ea1b66fefb",
+      "sha256": "11b516b907c6f22c17a24cd8254407fbaa08963b65fc8c5c07f744ea1b66fefb"
+    },
+    {
+      "path": "package/docs/content/commands/npm-run.md",
+      "upstreamSha256": "81c9fc05d4309af7e1c5f6f22dc05cb1bb352be22ec39d72de59383babc67781",
+      "sha256": "81c9fc05d4309af7e1c5f6f22dc05cb1bb352be22ec39d72de59383babc67781"
+    },
+    {
+      "path": "package/docs/content/commands/npm-sbom.md",
+      "upstreamSha256": "5046f72a829e861515d32648c7fe4c9900c4879f99ed97f8d7b1f7befac9fe1c",
+      "sha256": "5046f72a829e861515d32648c7fe4c9900c4879f99ed97f8d7b1f7befac9fe1c"
+    },
+    {
+      "path": "package/docs/content/commands/npm-search.md",
+      "upstreamSha256": "a0122507149038699bdda37e0d4b1773c4c43b489bfaa6c5169373f67b76ffff",
+      "sha256": "a0122507149038699bdda37e0d4b1773c4c43b489bfaa6c5169373f67b76ffff"
+    },
+    {
+      "path": "package/docs/content/commands/npm-set.md",
+      "upstreamSha256": "9956e4bea6af8b1f2298c9d7db551b3a7b412cc9e4cb8a9f2d578c47758e9f2b",
+      "sha256": "9956e4bea6af8b1f2298c9d7db551b3a7b412cc9e4cb8a9f2d578c47758e9f2b"
+    },
+    {
+      "path": "package/docs/content/commands/npm-stage.md",
+      "upstreamSha256": "97dcee2fafae193625e3c1f9e2aeef30d49a6ca2ef80b3315dc89f1f2352e9f3",
+      "sha256": "97dcee2fafae193625e3c1f9e2aeef30d49a6ca2ef80b3315dc89f1f2352e9f3"
+    },
+    {
+      "path": "package/docs/content/commands/npm-start.md",
+      "upstreamSha256": "d2e4562474e33e1dfb770c5a2acff5dfdf7eac10cea8b109962523993202d721",
+      "sha256": "d2e4562474e33e1dfb770c5a2acff5dfdf7eac10cea8b109962523993202d721"
+    },
+    {
+      "path": "package/docs/content/commands/npm-stop.md",
+      "upstreamSha256": "b70a0d10fc2357f2a64c8a670124ad36325206bf0093eaf6fba90d8119607b67",
+      "sha256": "b70a0d10fc2357f2a64c8a670124ad36325206bf0093eaf6fba90d8119607b67"
+    },
+    {
+      "path": "package/docs/content/commands/npm-team.md",
+      "upstreamSha256": "7b11a6c91e75942049ee3111fb64ca58e8c91d329fc8066f2df154650d05d308",
+      "sha256": "7b11a6c91e75942049ee3111fb64ca58e8c91d329fc8066f2df154650d05d308"
+    },
+    {
+      "path": "package/docs/content/commands/npm-test.md",
+      "upstreamSha256": "a826f7edd0f3df86ff6e273812499159351895c109168f8cb257a080689632c2",
+      "sha256": "a826f7edd0f3df86ff6e273812499159351895c109168f8cb257a080689632c2"
+    },
+    {
+      "path": "package/docs/content/commands/npm-token.md",
+      "upstreamSha256": "19a22c738666227873d6f03e37cb9fd72a35158f693ccda7e7f6ae39f488e487",
+      "sha256": "19a22c738666227873d6f03e37cb9fd72a35158f693ccda7e7f6ae39f488e487"
+    },
+    {
+      "path": "package/docs/content/commands/npm-trust.md",
+      "upstreamSha256": "a1985d31c897c042b0dfb2c4de501ac556f328a6084611e8592d7eed61a55228",
+      "sha256": "a1985d31c897c042b0dfb2c4de501ac556f328a6084611e8592d7eed61a55228"
+    },
+    {
+      "path": "package/docs/content/commands/npm-undeprecate.md",
+      "upstreamSha256": "4249114331e96ff100065775797265ee0d93e96df7326c97fbf8608b4088dd58",
+      "sha256": "4249114331e96ff100065775797265ee0d93e96df7326c97fbf8608b4088dd58"
+    },
+    {
+      "path": "package/docs/content/commands/npm-uninstall.md",
+      "upstreamSha256": "c43075e0191e9634e1edf4b05a5d642a7ffa6778ec7307ef98398cf0b9504674",
+      "sha256": "c43075e0191e9634e1edf4b05a5d642a7ffa6778ec7307ef98398cf0b9504674"
+    },
+    {
+      "path": "package/docs/content/commands/npm-unpublish.md",
+      "upstreamSha256": "5d337f65977750f3736a287a3f7ea325e2a8ae97e5ea040c1a5552454a2e15ac",
+      "sha256": "5d337f65977750f3736a287a3f7ea325e2a8ae97e5ea040c1a5552454a2e15ac"
+    },
+    {
+      "path": "package/docs/content/commands/npm-update.md",
+      "upstreamSha256": "942c8aebc45d195a8f7b7e3e106bd61fc5e44855335d768458e6d0ee1dea02cb",
+      "sha256": "942c8aebc45d195a8f7b7e3e106bd61fc5e44855335d768458e6d0ee1dea02cb"
+    },
+    {
+      "path": "package/docs/content/commands/npm-version.md",
+      "upstreamSha256": "502bbbc4134e33143f99e61958d8ab2d0cb2816f16491c3ba2429d03d1c9d37e",
+      "sha256": "502bbbc4134e33143f99e61958d8ab2d0cb2816f16491c3ba2429d03d1c9d37e"
+    },
+    {
+      "path": "package/docs/content/commands/npm-view.md",
+      "upstreamSha256": "39388f3f6cde9be8da43dc8894d5043c5d7e92e9ab16acf2c24d8b35eff525f2",
+      "sha256": "39388f3f6cde9be8da43dc8894d5043c5d7e92e9ab16acf2c24d8b35eff525f2"
+    },
+    {
+      "path": "package/docs/content/commands/npm-whoami.md",
+      "upstreamSha256": "e75154616953db99f46f7bfb7e3d7b18da2e6080d491d00fce2043d72632b060",
+      "sha256": "e75154616953db99f46f7bfb7e3d7b18da2e6080d491d00fce2043d72632b060"
+    },
+    {
+      "path": "package/docs/content/commands/npm.md",
+      "upstreamSha256": "63ed4db073963ad0ddc03dbe964be8c0101dc5ea357f63f27373b3e448013403",
+      "sha256": "63ed4db073963ad0ddc03dbe964be8c0101dc5ea357f63f27373b3e448013403"
+    },
+    {
+      "path": "package/docs/content/configuring-npm/npmrc.md",
+      "upstreamSha256": "27679e35984fed04bb01697704e096092839c968fd797ce6e50c4660959d4df6",
+      "sha256": "27679e35984fed04bb01697704e096092839c968fd797ce6e50c4660959d4df6"
+    },
+    {
+      "path": "package/docs/content/commands/npx.md",
+      "upstreamSha256": "3cf5d789adb651d8f41c21b826bcfde54882e15b852e53b86ab008c28c301517",
+      "sha256": "3cf5d789adb651d8f41c21b826bcfde54882e15b852e53b86ab008c28c301517"
+    },
+    {
+      "path": "package/docs/content/using-npm/orgs.md",
+      "upstreamSha256": "c0627e35a4df724fd448052b6f63fb764152339a9a3f924dcb129f8e6b70cea5",
+      "sha256": "c0627e35a4df724fd448052b6f63fb764152339a9a3f924dcb129f8e6b70cea5"
+    },
+    {
+      "path": "package/docs/content/configuring-npm/package-json.md",
+      "upstreamSha256": "32833f1e3b910cac4deaf7690ad8082eee5b25db262253a823572a9332910399",
+      "sha256": "32833f1e3b910cac4deaf7690ad8082eee5b25db262253a823572a9332910399"
+    },
+    {
+      "path": "package/docs/content/configuring-npm/package-lock-json.md",
+      "upstreamSha256": "931d585fc91607d8d7929f71e72230b09ceef45abd300b6761df024f3872ef85",
+      "sha256": "931d585fc91607d8d7929f71e72230b09ceef45abd300b6761df024f3872ef85"
+    },
+    {
+      "path": "package/docs/content/using-npm/package-spec.md",
+      "upstreamSha256": "de31cf3dcd710c6aac5e18d170adea815365b5296b8fcac6510ac8e84500ffd1",
+      "sha256": "de31cf3dcd710c6aac5e18d170adea815365b5296b8fcac6510ac8e84500ffd1"
+    },
+    {
+      "path": "package/README.md",
+      "upstreamSha256": "4c8033d19dbb94ea04739f077aaf17b8d24b9d7f1a49db50d61f7d37509fba19",
+      "sha256": "4c8033d19dbb94ea04739f077aaf17b8d24b9d7f1a49db50d61f7d37509fba19"
+    },
+    {
+      "path": "package/docs/content/using-npm/registry.md",
+      "upstreamSha256": "dd6db156b9e425776add3367f555dd0d4b41d0feb585ba27b851a6fee86b83de",
+      "sha256": "dd6db156b9e425776add3367f555dd0d4b41d0feb585ba27b851a6fee86b83de"
+    },
+    {
+      "path": "package/docs/content/using-npm/removal.md",
+      "upstreamSha256": "41c1f5d4bf35eea318f2b9ca8ce629bf7c5fa0751f13266b69dca782ec3dd30f",
+      "sha256": "41c1f5d4bf35eea318f2b9ca8ce629bf7c5fa0751f13266b69dca782ec3dd30f"
+    },
+    {
+      "path": "package/docs/content/using-npm/scope.md",
+      "upstreamSha256": "a3d5191047739a56ab0e6110d38eacc25c870aede38ffcb33d8a93481c4c757f",
+      "sha256": "a3d5191047739a56ab0e6110d38eacc25c870aede38ffcb33d8a93481c4c757f"
+    },
+    {
+      "path": "package/docs/content/using-npm/scripts.md",
+      "upstreamSha256": "a24080ac9adfc97fca19d3cc6f3c447e98af10ac37f99a5449d3de6eb950ccea",
+      "sha256": "a24080ac9adfc97fca19d3cc6f3c447e98af10ac37f99a5449d3de6eb950ccea"
+    },
+    {
+      "path": "package/docs/content/using-npm/workspaces.md",
+      "upstreamSha256": "87f5ce2c28468c9d5fa1789805b2131641f989f122da9771bd0b5ac4c8ec8d5a",
+      "sha256": "87f5ce2c28468c9d5fa1789805b2131641f989f122da9771bd0b5ac4c8ec8d5a"
+    },
+    {
+      "path": "package/bin/npm.ps1",
+      "upstreamSha256": "3bf7c5ef339b71d6f8bc4ef4a7b7adb90727788674f0a3cef2ede8f5969ca327",
+      "sha256": "3bf7c5ef339b71d6f8bc4ef4a7b7adb90727788674f0a3cef2ede8f5969ca327"
+    },
+    {
+      "path": "package/bin/npx.ps1",
+      "upstreamSha256": "1c66d32433ad5e4302716eaf377958edbf11fca23560861a9c63ab846d9f9e31",
+      "sha256": "1c66d32433ad5e4302716eaf377958edbf11fca23560861a9c63ab846d9f9e31"
+    },
+    {
+      "path": "package/lib/utils/completion.sh",
+      "upstreamSha256": "021d7be9d47b80afe8644d634990c01d30f914610a7061f729d82713ad26e84a",
+      "sha256": "021d7be9d47b80afe8644d634990c01d30f914610a7061f729d82713ad26e84a"
+    }
+  ]
+}

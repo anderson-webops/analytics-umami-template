@@ -6,6 +6,8 @@ node_modules
 .pnp.js
 .pnpm-store
 package-lock.json
+!/build-toolchain/package-lock.json
+!/deploy/mac-build/pnpm-toolchain/package-lock.json
 
 # testing
 /coverage

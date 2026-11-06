@@ -2,6 +2,8 @@ packages:
   - "**"
   - "!dist"
   - "!**/dist/**"
+  - "!build-toolchain"
+  - "!deploy/mac-build/pnpm-toolchain"
 supportedArchitectures:
   os:
     - current

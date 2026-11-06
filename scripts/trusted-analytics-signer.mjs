@@ -154,8 +154,8 @@ export function validateAnalyticsManifest(
     architecture: 'arm64',
     libc: 'glibc',
     node: '26.13.0',
-    npm: '12.2.1',
-    package_manager: 'pnpm@12.16.1',
+    npm: '12.2.2',
+    package_manager: 'pnpm@12.18.0',
   };
   if (
     !exactKeys(manifest, [

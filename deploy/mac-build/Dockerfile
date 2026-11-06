@@ -4,6 +4,11 @@ FROM postgres@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b
 
 COPY --from=node-toolchain /usr/local/ /usr/local/
 
+COPY build-toolchain/ /opt/analytics-builder-profile/build-toolchain/
+COPY scripts/build-toolchain-state.mjs scripts/build-toolchain-cache.mjs /opt/analytics-builder-profile/scripts/
+COPY deploy/mac-build/pnpm-toolchain/ /opt/analytics-builder-profile/deploy/mac-build/pnpm-toolchain/
+COPY deploy/mac-build/verify-toolchain.mjs /opt/analytics-builder-profile/deploy/mac-build/verify-toolchain.mjs
+
 RUN --mount=type=cache,id=anderson-analytics-arm64-toolchain-npm12,target=/root/.npm,sharing=locked \
     apt-get update \
     && apt-get install --no-install-recommends -y \
@@ -15,10 +20,17 @@ RUN --mount=type=cache,id=anderson-analytics-arm64-toolchain-npm12,target=/root/
       libatomic1=12.2.0-14+deb12u1 \
     && rm -rf /var/lib/apt/lists/* \
     && test -s /etc/ssl/certs/ca-certificates.crt \
-    && npm install --global --ignore-scripts npm@12.2.1 pnpm@12.16.1 \
+    && npm ci --prefix /opt/analytics-builder-profile/build-toolchain --workspaces=false --ignore-scripts --no-fund --no-audit \
+    && rm -rf /usr/local/lib/node_modules/npm \
+    && ln -sfn /opt/analytics-builder-profile/build-toolchain/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -sfn /opt/analytics-builder-profile/build-toolchain/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+    && npm ci --prefix /opt/analytics-builder-profile/deploy/mac-build/pnpm-toolchain --workspaces=false --strict-allow-scripts --no-fund --no-audit \
+    && ln -sfn /opt/analytics-builder-profile/deploy/mac-build/pnpm-toolchain/node_modules/pnpm/pnpm /usr/local/bin/pnpm \
+    && ln -sfn /opt/analytics-builder-profile/deploy/mac-build/pnpm-toolchain/node_modules/pnpm/pnpx /usr/local/bin/pnpx \
     && test "$(node --version)" = 'v26.13.0' \
-    && test "$(npm --version)" = '12.2.1' \
-    && test "$(pnpm --version)" = '12.16.1' \
+    && test "$(npm --version)" = '12.2.2' \
+    && test "$(pnpm --version)" = '12.18.0' \
+    && node /opt/analytics-builder-profile/deploy/mac-build/verify-toolchain.mjs \
     && /usr/lib/postgresql/17/bin/postgres --version | grep -q 'PostgreSQL) 17.' \
     && bwrap --version
 

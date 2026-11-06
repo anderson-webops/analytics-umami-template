@@ -9,6 +9,7 @@ pg_data=/work/postgres-data
 pg_socket=/work/postgres-socket
 export PG17_BINDIR="$pg_bin"
 export HOME=/work/home
+export NPM_CONFIG_CACHE=/work/home/.npm
 export TMPDIR=/work/tmp
 export NODE_OPTIONS=--max-old-space-size=2304
 export PNPM_CONFIG_VIRTUAL_STORE_DIR_MAX_LENGTH=60
@@ -24,8 +25,8 @@ export GIT_CONFIG_VALUE_0="$source_root"
 cd "$source_root"
 test "$(uname -m)" = aarch64
 test "$(node --version)" = v26.13.0
-test "$(npm --version)" = 12.2.1
-test "$(pnpm --version)" = 12.16.1
+test "$(npm --version)" = 12.2.2
+test "$(pnpm --version)" = 12.18.0
 test "$(pnpm config get virtual-store-dir-max-length)" = 60
 test "$(pnpm config get store-dir)" = /pnpm-store
 test "$(git rev-parse HEAD)" = "$RELEASE_COMMIT"
