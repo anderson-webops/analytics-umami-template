@@ -32,6 +32,7 @@ a published release from verified live deployment.
 Treat this as a standing instruction for this site.
 
 Shared Sites policy (`../AGENTS.md` when available) applies. These essentials also apply in standalone checkouts:
+
 - Never SSH, SCP, SFTP, tunnel to, or configure access to production. Do not deploy from this checkout; publishing the template does not activate downstream sites, which are handled by protected server-side automation.
 - GitGuardian quota, authentication, network, or service failure is not a commit/push blocker. Review outgoing changes, run another available local secret scan, preserve other hooks, and stop on real secret findings.
 - Deliver validated template changes through the owned `origin`; never push them to the Umami `upstream` remote.

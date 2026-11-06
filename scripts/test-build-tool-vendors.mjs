@@ -2,8 +2,16 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import test from 'node:test';
+import { satisfies } from 'semver';
 
 const rootRequire = createRequire(import.meta.url);
+
+test('the DOM test environment retains its supported HTTP client range', () => {
+  const domRequire = createRequire(rootRequire.resolve('jsdom'));
+  const manifest = rootRequire('jsdom/package.json');
+  const client = domRequire('undici/package.json');
+  assert.ok(satisfies(client.version, manifest.dependencies.undici));
+});
 
 test('build consumers resolve the guarded deepmerge fork', () => {
   for (const consumer of [
