@@ -305,6 +305,8 @@ async function main() {
 
       if (options.build) {
         upArgs.push('--build');
+      } else {
+        upArgs.push('--no-build');
       }
 
       started = true;
@@ -323,7 +325,7 @@ async function main() {
     if (options.upOnly) {
       options.keep = true;
       console.log(
-        `\nRun tests with: PLAYWRIGHT_BASE_URL=${BASE_URL} UMAMI_TEST_DB=${profile} pnpm test:api:run` +
+        '\nRun tests with the same fixture environment: pnpm test:api --no-build --keep' +
           '\nRe-running against the same stack? Add API_SKIP_SEED=1 (fixed-ID key generations cannot be reseeded).' +
           '\nStop the stack with: pnpm test:api:down',
       );

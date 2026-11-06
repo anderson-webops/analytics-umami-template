@@ -404,11 +404,15 @@ test.describe('Event data', () => {
     });
 
     expect(response.status).toBe(200);
-    expect(response.body).toHaveLength(9);
+    expect(response.body).toHaveLength(3);
     for (const point of response.body) {
-      expect(point).toEqual({ t: expect.any(String), y: 1 });
+      expect(point).toEqual({ t: expect.any(String), y: 3 });
       expect(Number.isNaN(new Date(point.t).getTime())).toBe(false);
     }
+    expect(new Set(response.body.map((point: { t: string }) => point.t)).size).toBe(3);
+    expect(response.body.reduce((total: number, point: { y: number }) => total + point.y, 0)).toBe(
+      9,
+    );
 
     expect(shared.status).toBe(200);
     expect(denied.status).toBe(401);

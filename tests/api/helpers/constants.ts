@@ -1,3 +1,5 @@
+import fixtureAdmin from '../docker/fixture-admin.json' with { type: 'json' };
+
 /**
  * Constants mirrored from src/lib/constants.ts. The API suite deliberately does
  * not import from src/ (server-only modules, path aliases), so keep these in
@@ -8,7 +10,7 @@
 export const ADMIN_USER = {
   id: '41e2b680-648e-4b09-bcd7-3e2b10c06264',
   username: 'admin',
-  password: process.env.API_TEST_ADMIN_PASSWORD || 'umami',
+  password: process.env.API_TEST_ADMIN_PASSWORD || fixtureAdmin.password,
   role: 'admin',
 } as const;
 

@@ -26,12 +26,15 @@ test.describe('Account', () => {
     expect(asUser.body.user).toMatchObject({ id: seed.user.id, role: 'user', isAdmin: false });
   });
 
-  test('GET /api/me identifies API key callers', async ({ apiKey, tokens, seed }) => {
+  test('GET /api/me identifies API key callers', async ({ apiKey, apiKeyCredentials, seed }) => {
     const response = await apiKey.get('/api/me');
 
     expect(response.status).toBe(200);
     expect(response.body.user.id).toBe(seed.admin.id);
-    expect(response.body.apiKey).toMatchObject({ id: tokens.apiKey.id, name: expect.any(String) });
+    expect(response.body.apiKey).toMatchObject({
+      id: apiKeyCredentials.id,
+      name: expect.any(String),
+    });
   });
 
   test('GET /api/me requires authentication', async ({ api }) => {
@@ -119,7 +122,7 @@ test.describe('Account', () => {
     test('GET /api/me/api-keys lists the caller keys without secrets', async ({
       user,
       admin,
-      tokens,
+      apiKeyCredentials,
     }) => {
       const response = await user.get('/api/me/api-keys');
       const adminKeys = await admin.get('/api/me/api-keys');
@@ -141,7 +144,7 @@ test.describe('Account', () => {
 
       // Keys are scoped to the caller: the admin sees the worker key, not the user key.
       expect(adminKeys.status).toBe(200);
-      expect(adminKeys.body.map((k: any) => k.id)).toContain(tokens.apiKey.id);
+      expect(adminKeys.body.map((k: any) => k.id)).toContain(apiKeyCredentials.id);
       expect(adminKeys.body.map((k: any) => k.id)).not.toContain(keyId);
     });
 

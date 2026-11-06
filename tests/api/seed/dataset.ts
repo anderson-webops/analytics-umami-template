@@ -57,6 +57,7 @@ export const UTM_QUERY = 'utm_source=newsletter&utm_medium=email&utm_campaign=la
 
 /** The first N personas send `identify` calls and carry a distinct id. */
 const IDENTIFIED_PERSONAS = 3;
+const IDENTITY_ACTIVITY_DAY = 2;
 const DAY = 86_400;
 const HOUR = 3_600;
 
@@ -221,7 +222,7 @@ export function buildDataset(now = Date.now()): Dataset {
 
       const afterPages = start + pageCount * 60;
 
-      if (day === 2) {
+      if (day === IDENTITY_ACTIVITY_DAY) {
         batch.push(
           customEvent(
             SEED_IDS.website,
@@ -270,7 +271,7 @@ export function buildDataset(now = Date.now()): Dataset {
         );
       }
 
-      if (index < IDENTIFIED_PERSONAS && day === DAYS - 1) {
+      if (index < IDENTIFIED_PERSONAS && day === IDENTITY_ACTIVITY_DAY) {
         batch.push({
           type: 'identify',
           payload: {

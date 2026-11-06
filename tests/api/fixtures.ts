@@ -8,7 +8,6 @@ export interface WorkerTokens {
   admin: string;
   user: string;
   viewer: string;
-  apiKey: { id: string; key: string };
 }
 
 interface WorkerFixtures {
@@ -16,6 +15,7 @@ interface WorkerFixtures {
   seed: SeedState;
   /** Auth tokens created once per worker process. */
   tokens: WorkerTokens;
+  apiKeyCredentials: { id: string; key: string };
 }
 
 interface TestFixtures {
@@ -47,7 +47,21 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
         const user = await login(raw, seed.user);
         const viewer = await login(raw, seed.viewer);
 
-        const created = await raw.bearer(admin).post('/api/me/api-keys', {
+        await use({ admin, user, viewer });
+      } finally {
+        await context.dispose();
+      }
+    },
+    { scope: 'worker' },
+  ],
+
+  apiKeyCredentials: [
+    async ({ seed, tokens }, use, workerInfo) => {
+      const context = await request.newContext({ baseURL: workerInfo.project.use.baseURL });
+      const raw = new ApiClient(context).bearer(tokens.admin);
+
+      try {
+        const created = await raw.post('/api/me/api-keys', {
           name: `api-tests-worker-${workerInfo.workerIndex}`,
           currentPassword: seed.admin.password,
         });
@@ -58,9 +72,11 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
 
         const apiKey = { id: created.body.id as string, key: created.body.key as string };
 
-        await use({ admin, user, viewer, apiKey });
-
-        await raw.bearer(admin).del(`/api/me/api-keys/${apiKey.id}`);
+        try {
+          await use(apiKey);
+        } finally {
+          await raw.del(`/api/me/api-keys/${apiKey.id}`);
+        }
       } finally {
         await context.dispose();
       }
@@ -72,7 +88,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   admin: async ({ api, tokens }, use) => use(api.bearer(tokens.admin)),
   user: async ({ api, tokens }, use) => use(api.bearer(tokens.user)),
   viewer: async ({ api, tokens }, use) => use(api.bearer(tokens.viewer)),
-  apiKey: async ({ api, tokens }, use) => use(api.bearer(tokens.apiKey.key)),
+  apiKey: async ({ api, apiKeyCredentials }, use) => use(api.bearer(apiKeyCredentials.key)),
 
   share: async ({ api, seed }, use) =>
     use(async (slug = seed.share.slug) => {

@@ -66,15 +66,17 @@ test.describe('Analytics', () => {
     expect(Object.keys(response.body).sort()).toEqual([
       'comparison',
       'pageviews',
+      'unverifiedViews',
       'visitors',
       'visits',
     ]);
-    for (const key of ['pageviews', 'visitors', 'visits']) {
+    for (const key of ['pageviews', 'unverifiedViews', 'visitors', 'visits']) {
       expect(response.body[key]).toEqual(original.body[key]);
       expect(response.body.comparison[key]).toEqual(original.body.comparison[key]);
     }
     expect(Object.keys(response.body.comparison).sort()).toEqual([
       'pageviews',
+      'unverifiedViews',
       'visitors',
       'visits',
     ]);
@@ -117,6 +119,7 @@ test.describe('Analytics', () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({
+      trafficProvenance: 'unverified_public_observations',
       pageviews: expect.any(Array),
       sessions: expect.any(Array),
     });
@@ -167,7 +170,10 @@ test.describe('Analytics', () => {
 
     expect(browser.status).toBe(200);
     expect(browser.body.length).toBeGreaterThan(0);
-    expect(browser.body[0]).toEqual(point);
+    expect(browser.body[0]).toEqual({
+      ...point,
+      metricProvenance: 'unverified_public_observations',
+    });
 
     expect(url.status).toBe(200);
     const paths = url.body.map((row: any) => row.x);
@@ -187,6 +193,16 @@ test.describe('Analytics', () => {
 
     expect(channel.status).toBe(200);
     expect(Array.isArray(channel.body)).toBe(true);
+    for (const response of [browser, url, channel]) {
+      expect(response.headers['x-metric-provenance']).toBe('unverified_public_observations');
+      for (const row of response.body) {
+        expect(row.metricProvenance).toBe('unverified_public_observations');
+      }
+    }
+    expect(event.headers['x-metric-provenance']).toBe('backend_authorized_event_counts');
+    for (const row of event.body) {
+      expect(row.metricProvenance).toBe('backend_authorized_event_counts');
+    }
   });
 
   test('GET /api/websites/{websiteId}/metrics supports search, limit and offset', async ({

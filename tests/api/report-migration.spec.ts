@@ -23,6 +23,14 @@ const calculations = [
   ['goal', 'goals/stats', { type: 'path', value: '/' }],
 ] as const;
 
+const currentReportMetadata: Partial<
+  Record<(typeof calculations)[number][0], Record<string, string>>
+> = {
+  journey: { trafficProvenance: 'may_include_unverified_public_observations' },
+  retention: { trafficProvenance: 'may_include_unverified_public_observations' },
+  breakdown: { metricProvenance: 'unverified_public_observations' },
+};
+
 // SQL rankings can have ties, so compare result content independently of tied row order.
 function canonical(value: any): any {
   if (Array.isArray(value))
@@ -62,7 +70,13 @@ for (const [type, path, parameters] of calculations) {
     const result = await admin.get(url, { params });
     expect(legacy.status).toBe(200);
     expect(result.status).toBe(200);
-    expect(canonical(result.body)).toEqual(canonical(legacy.body));
+    let expected = legacy.body;
+    const metadata = currentReportMetadata[type];
+    if (metadata) {
+      expect(Array.isArray(legacy.body)).toBe(true);
+      expected = legacy.body.map((row: Record<string, unknown>) => ({ ...row, ...metadata }));
+    }
+    expect(canonical(result.body)).toEqual(canonical(expected));
     expect((await viewer.get(url, { params })).status).toBe(401);
     expect((await (await share()).get(url, { params })).status).toBe(
       type === 'heatmap' ? 401 : 200,
@@ -178,7 +192,15 @@ test('performance and UTM datasets reproduce legacy aggregates', async ({
   for (const type of ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content']) {
     const response = await admin.get(`${base}/utm/metrics`, { params: { ...range, type } });
     expect(response.status).toBe(200);
-    expect(canonical(response.body)).toEqual(canonical(utm.body[type]));
+    expect(response.headers['x-metric-provenance']).toBe('unverified_public_observations');
+    expect(canonical(response.body)).toEqual(
+      canonical(
+        utm.body[type].map((row: Record<string, unknown>) => ({
+          ...row,
+          metricProvenance: 'unverified_public_observations',
+        })),
+      ),
+    );
   }
   expect(
     (await admin.get(`${base}/utm/metrics`, { params: { ...range, type: 'invalid' } })).status,

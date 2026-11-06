@@ -9,6 +9,29 @@ import { ingestDataset } from '../seed/ingest';
 import { getRecordedReplayIdentity } from '../seed/setup';
 
 describe('collector seed identity', () => {
+  test.each(['2026-11-01T12:00:00Z', '2026-11-06T12:00:00Z', '2027-01-01T12:00:00Z'])(
+    'identified properties share a rotation day with authenticated activity at %s',
+    instant => {
+      const dataset = buildDataset(Date.parse(instant));
+      const identities = dataset.batch.filter(event => event.type === 'identify');
+
+      expect(identities).toHaveLength(dataset.distinctIds.length);
+      for (const identity of identities) {
+        const activity = dataset.batch.find(
+          event =>
+            event.type === 'event' &&
+            event.payload.name === 'signup' &&
+            event.payload.website === identity.payload.website &&
+            event.payload.id === identity.payload.id,
+        );
+        expect(activity).toBeDefined();
+        expect(Math.floor(Number(identity.payload.timestamp) / 86_400)).toBe(
+          Math.floor(Number(activity?.payload.timestamp) / 86_400),
+        );
+      }
+    },
+  );
+
   test('public pageviews never claim a verified identity', () => {
     const dataset = buildDataset();
     const pageviews = [

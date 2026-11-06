@@ -1,5 +1,6 @@
 import type { APIRequestContext } from '@playwright/test';
 import { recordApiCall } from './coverage/recorder';
+import { redactRequestFailure } from './helpers/request-error';
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
@@ -85,12 +86,16 @@ export class ApiClient {
 
     const headers = { ...this.headers, ...options.headers };
     await paceAuthenticatedRead(method, path, headers);
-    const response = await this.context.fetch(path, {
-      method,
-      data: options.data,
-      params: params as Record<string, string | number | boolean>,
-      headers,
-    });
+    const response = await this.context
+      .fetch(path, {
+        method,
+        data: options.data,
+        params: params as Record<string, string | number | boolean>,
+        headers,
+      })
+      .catch(failure => {
+        throw redactRequestFailure(failure);
+      });
 
     recordApiCall(method, path);
 

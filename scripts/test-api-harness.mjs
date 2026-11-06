@@ -1,0 +1,147 @@
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+import test from 'node:test';
+import { pathToFileURL } from 'node:url';
+import { verifyFixtureEnvironment } from '../tests/api/docker/start.mjs';
+
+const root = path.resolve(import.meta.dirname, '..');
+const startup = path.join(root, 'tests/api/docker/start.mjs');
+const fixtureEnvironment = {
+  UMAMI_TEST_LOCAL_COMPOSE: '1',
+  DATABASE_URL: 'postgresql://umami:umami@db:5432/umami',
+  APP_SECRET: 'umami-disposable-api-test-secret-00000000000000',
+  KAFKA_HISTORY_ATTESTED_CLEAN: 'true',
+  CLICKHOUSE_HISTORY_ATTESTED_CLEAN: 'true',
+};
+
+test('the disposable fixture accepts only its exact database and application identity', () => {
+  verifyFixtureEnvironment(fixtureEnvironment);
+  verifyFixtureEnvironment({
+    ...fixtureEnvironment,
+    CLICKHOUSE_URL: 'http://umami:umami@clickhouse:8123/umami',
+  });
+});
+
+for (const [name, value] of [
+  ['UMAMI_TEST_LOCAL_COMPOSE', undefined],
+  ['UMAMI_TEST_LOCAL_COMPOSE', 'true'],
+  ['DATABASE_URL', 'postgresql://umami:umami@localhost:5432/umami'],
+  ['DATABASE_URL', 'postgresql://umami:umami@db:5432/another'],
+  ['DATABASE_URL', 'postgresql://other:umami@db:5432/umami'],
+  ['DATABASE_URL', 'postgresql://umami:other@db:5432/umami'],
+  ['DATABASE_URL', 'postgresql://umami:umami@db:5433/umami'],
+  ['DATABASE_URL', 'postgresql://umami:umami@db:5432/umami?schema=other'],
+  ['DATABASE_URL', 'postgresql://umami:umami@db:5432/umami#fragment'],
+  ['DATABASE_URL', 'https://db/umami'],
+  ['APP_SECRET', 'another-application-secret-000000000000000000'],
+  ['NODE_ENV', 'production'],
+  ['DIRECT_DATABASE_URL', fixtureEnvironment.DATABASE_URL],
+  ['SKIP_DB_CHECK', '1'],
+  ['SKIP_DB_MIGRATION', '1'],
+  ['REDIS_URL', 'redis://cache.example.invalid'],
+  ['KAFKA_URL', 'kafka.example.invalid'],
+  ['KAFKA_BROKER', 'kafka.example.invalid'],
+  ['KAFKA_HISTORY_ATTESTED_CLEAN', undefined],
+  ['KAFKA_HISTORY_ATTESTED_CLEAN', 'false'],
+  ['CLICKHOUSE_HISTORY_ATTESTED_CLEAN', undefined],
+  ['CLICKHOUSE_HISTORY_ATTESTED_CLEAN', 'false'],
+  ['CLICKHOUSE_URL', 'http://umami:umami@localhost:8123/umami'],
+]) {
+  test(`the disposable fixture rejects ${name}=${value ?? '(missing)'}`, () => {
+    assert.throws(() => verifyFixtureEnvironment({ ...fixtureEnvironment, [name]: value }));
+  });
+}
+
+test('importing the fixture launcher does not run migrations or start a server', () => {
+  const result = spawnSync(
+    process.execPath,
+    ['--input-type=module', '-e', `await import(${JSON.stringify(pathToFileURL(startup).href)})`],
+    { env: { PATH: process.env.PATH }, encoding: 'utf8', timeout: 10_000 },
+  );
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, '');
+});
+
+test('direct startup rejects an unowned environment before any database command', () => {
+  const result = spawnSync(process.execPath, [startup], {
+    env: { PATH: process.env.PATH },
+    encoding: 'utf8',
+    timeout: 10_000,
+  });
+  assert.ifError(result.error);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /disposable API fixture/);
+});
+
+test('Compose names the dedicated test image without restoring production containers', () => {
+  const compose = readFileSync(path.join(root, 'docker-compose.test.yml'), 'utf8');
+  assert.match(compose, /dockerfile: tests\/api\/docker\/Dockerfile/);
+  assert.match(compose, /UMAMI_TEST_LOCAL_COMPOSE: "1"/);
+  assert.match(compose, /127\.0\.0\.1:\$\{UMAMI_TEST_PORT:-3100\}:3000/);
+  assert.match(compose, /tmpfs:/);
+  assert.match(compose, /cap_drop: \[ALL\]/);
+  assert.match(compose, /no-new-privileges:true/);
+  assert.equal(existsSync(path.join(root, 'Dockerfile')), false);
+  assert.equal(existsSync(path.join(root, 'docker-compose.yml')), false);
+});
+
+test('the API image shares the current verified Node and independent tool graphs', () => {
+  const fixture = readFileSync(path.join(root, 'tests/api/docker/Dockerfile'), 'utf8');
+  const builder = readFileSync(path.join(root, 'deploy/mac-build/Dockerfile'), 'utf8');
+  assert.equal(fixture.match(/^FROM (\S+)/m)?.[1], builder.match(/^FROM (\S+)/m)?.[1]);
+  assert.match(fixture, /verify-toolchain\.mjs/);
+  assert.match(fixture, /--frozen-lockfile/);
+  assert.match(fixture, /pnpm run audit:all/);
+  assert.match(fixture, /pnpm run audit:prod/);
+  assert.match(fixture, /USER node/);
+  assert.match(fixture, /disposable-api-tests/);
+  assert.match(fixture, /apt-get install --no-install-recommends -y ca-certificates openssl/);
+  assert.match(fixture, /--config\.package-import-method=hardlink/);
+  assert.ok(fixture.indexOf('RUN pnpm install') < fixture.indexOf('COPY --chown=node:node . .'));
+});
+
+test('the full API matrix uses a compiled server rather than an accumulating development compiler', () => {
+  const fixture = readFileSync(path.join(root, 'tests/api/docker/Dockerfile'), 'utf8');
+  const launcher = readFileSync(startup, 'utf8');
+  assert.match(fixture, /pnpm run build:app/);
+  assert.match(fixture, /repairStandaloneRuntime/);
+  assert.match(launcher, /path\.join\(appDir, 'server\.js'\)/);
+  assert.doesNotMatch(launcher, /'dev'|--webpack|DISABLE_MEM/);
+  assert.match(launcher, /HOSTNAME: '0\.0\.0\.0'/);
+  assert.match(launcher, /NODE_ENV: 'production'/);
+});
+
+test('the API build context excludes private state and existing installations', () => {
+  const context = readFileSync(path.join(root, 'tests/api/docker/Dockerfile.dockerignore'), 'utf8');
+  assert.equal(context.split('\n')[0], '**');
+  assert.ok(context.split('\n').includes('!.gitignore'));
+  for (const pattern of ['**/.ai-work', '**/.git', '**/node_modules', '**/.env*']) {
+    assert.ok(context.split('\n').includes(pattern), `Missing context exclusion ${pattern}`);
+  }
+});
+
+test('kept-stack commands preserve genuine fixture ownership and prohibit an implicit rebuild', () => {
+  const launcher = readFileSync(path.join(root, 'scripts/test-api.ts'), 'utf8');
+  assert.match(launcher, /upArgs\.push\('--no-build'\)/);
+  assert.match(launcher, /same fixture environment: pnpm test:api --no-build --keep/);
+  assert.doesNotMatch(launcher, /Run tests with: PLAYWRIGHT_BASE_URL=/);
+});
+
+test('fixture startup and API clients share a provisioned, nondefault synthetic administrator', () => {
+  const administrator = JSON.parse(
+    readFileSync(path.join(root, 'tests/api/docker/fixture-admin.json'), 'utf8'),
+  );
+  const launcher = readFileSync(startup, 'utf8');
+  const client = readFileSync(path.join(root, 'tests/api/helpers/constants.ts'), 'utf8');
+  assert.equal(administrator.username, 'admin');
+  assert.ok(administrator.password.length >= 12 && administrator.password.length <= 72);
+  assert.notEqual(administrator.password, 'umami');
+  assert.notEqual(administrator.password, fixtureEnvironment.APP_SECRET);
+  assert.match(launcher, /scripts\/change-password\.js/);
+  assert.match(launcher, /UMAMI_PASSWORD: fixtureAdmin\.password/);
+  assert.match(launcher, /check-db\.js', '--verify-only'/);
+  assert.match(client, /API_TEST_ADMIN_PASSWORD \|\| fixtureAdmin\.password/);
+});

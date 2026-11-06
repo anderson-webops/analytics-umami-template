@@ -1,30 +1,21 @@
-# Compose stack for the API integration test suite (`pnpm test:api`).
-#
-# This is NOT the deployable stack — see docker-compose.yml for that. Databases
-# run on tmpfs and are discarded on `down`, so every run starts from an empty
-# schema (migrations + the default admin user are applied by the umami image on
-# boot via scripts/start-docker.sh).
-#
-# Profiles:
-#   postgres    umami + Postgres              -> pnpm test:api
-#   clickhouse  umami + Postgres + ClickHouse -> pnpm test:api:clickhouse
-#
-# Environment overrides:
-#   UMAMI_TEST_PORT   loopback host port for the app (default 3100, avoids the dev server on 3000)
-#   UMAMI_TEST_IMAGE  image tag to run/build (default umami-test:local)
-#   SKIP_BUILD_GEO    "1" (default) skips the MaxMind download during the image build
-
 x-umami-service: &umami-service
   image: ${UMAMI_TEST_IMAGE:-umami-test:local}
   build:
     context: .
-    args:
-      SKIP_BUILD_GEO: ${SKIP_BUILD_GEO:-1}
+    dockerfile: tests/api/docker/Dockerfile
   ports:
     - "127.0.0.1:${UMAMI_TEST_PORT:-3100}:3000"
   init: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
   healthcheck:
-    test: ["CMD-SHELL", "curl -fsS http://localhost:3000/api/heartbeat || exit 1"]
+    test:
+      [
+        "CMD",
+        "node",
+        "-e",
+        "fetch('http://127.0.0.1:3000/api/heartbeat').then(response => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))",
+      ]
     interval: 2s
     timeout: 5s
     retries: 90
@@ -32,7 +23,10 @@ x-umami-service: &umami-service
 
 x-umami-env: &umami-env
   DATABASE_URL: postgresql://umami:umami@db:5432/umami
-  APP_SECRET: umami-api-test-secret
+  APP_SECRET: umami-disposable-api-test-secret-00000000000000
+  UMAMI_TEST_LOCAL_COMPOSE: "1"
+  KAFKA_HISTORY_ATTESTED_CLEAN: "true"
+  CLICKHOUSE_HISTORY_ATTESTED_CLEAN: "true"
   TWO_FACTOR_ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef # gitleaks:allow -- deterministic test-only key
   # Playwright/curl user agents are classified as bots; without this /api/send silently drops events.
   DISABLE_BOT_CHECK: "1"
@@ -43,7 +37,7 @@ x-umami-env: &umami-env
 
 services:
   db:
-    image: postgres:15-alpine
+    image: postgres@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826
     environment:
       POSTGRES_DB: umami
       POSTGRES_USER: umami
