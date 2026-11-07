@@ -18,6 +18,7 @@ import {
 import {
   confirmPreparedLoginRecoveryCodes,
   consumeLoginRecoveryCode,
+  digestLoginRecoveryCode,
   generateLoginRecoveryCodes,
   getLoginRecoveryKeyFingerprint,
   getLoginRecoveryPreparationKeys,
@@ -93,6 +94,53 @@ async function loginRequest(
       body: JSON.stringify({ username, password, recoveryCode, captchaToken }),
     }),
   );
+}
+
+async function waitForRecoveryCredentialLock() {
+  for (let attempt = 0; attempt < 250; attempt += 1) {
+    const result = await client.query<{ waiting: boolean }>(
+      `SELECT EXISTS (
+        SELECT 1 FROM pg_stat_activity
+        WHERE datname = current_database() AND wait_event_type = 'Lock'
+          AND query LIKE '%"login_recovery_credential"%'
+      ) AS waiting`,
+    );
+    if (result.rows[0].waiting) return;
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  assert.fail('Recovery credential operation did not reach the expected database lock');
+}
+
+async function confirmBehindConsumption(userId: string, code: string, proof: string) {
+  const contender = new Client({ connectionString: databaseUrl.toString() });
+  let transactionOpen = false;
+  let pending: Promise<{ error?: unknown }> | undefined;
+  try {
+    await contender.connect();
+    await contender.query('BEGIN');
+    transactionOpen = true;
+    const consumed = await contender.query(
+      `UPDATE login_recovery_credential SET consumed_at = clock_timestamp()
+       WHERE user_id = $1 AND code_digest = $2 AND consumed_at IS NULL`,
+      [userId, digestLoginRecoveryCode(code)],
+    );
+    assert.equal(consumed.rowCount, 1);
+    pending = runCredentialRevocationMutation(transaction =>
+      confirmPreparedLoginRecoveryCodes(transaction, userId, proof),
+    ).then(
+      () => ({}),
+      error => ({ error }),
+    );
+    await waitForRecoveryCredentialLock();
+    await contender.query('COMMIT');
+    transactionOpen = false;
+    const result = await pending;
+    if (result.error) throw result.error;
+  } finally {
+    if (transactionOpen) await contender.query('ROLLBACK');
+    await pending;
+    await contender.end();
+  }
 }
 
 try {
@@ -367,6 +415,153 @@ try {
   );
   assert.equal(afterDelete.rows[0].count, '0');
 
+  const issuedBatch = generateLoginRecoveryCodes();
+  const issuedKeys = getLoginRecoveryPreparationKeys(otherId);
+  await runCredentialRevocationMutation(transaction =>
+    persistLoginRecoveryCodes(transaction, otherId, issuedBatch),
+  );
+  const issuedDigests = await client.query<{ code_digest: string }>(
+    'SELECT code_digest FROM login_recovery_credential WHERE user_id = $1 ORDER BY code_digest',
+    [otherId],
+  );
+  await assert.rejects(
+    runCredentialRevocationMutation(async transaction => {
+      await confirmPreparedLoginRecoveryCodes(transaction, otherId, issuedBatch[0].code);
+      throw new Error('synthetic interrupted issued-batch confirmation');
+    }),
+    /synthetic interrupted issued-batch confirmation/,
+  );
+  assert.ok(await lookupLoginRecoveryCode('bob', issuedBatch[0].code));
+  assert.equal(
+    await prisma.client.appSetting.findUnique({ where: { key: issuedKeys.confirmed } }),
+    null,
+  );
+  await assert.rejects(
+    runCredentialRevocationMutation(transaction =>
+      confirmPreparedLoginRecoveryCodes(transaction, otherId, issuedBatch[0].code, {
+        requirePending: true,
+      }),
+    ),
+    RecoveryPreparationError,
+  );
+  await Promise.all(
+    Array.from({ length: 12 }, () =>
+      runCredentialRevocationMutation(transaction =>
+        confirmPreparedLoginRecoveryCodes(transaction, otherId, issuedBatch[0].code),
+      ),
+    ),
+  );
+  const adoptedRows = await client.query<{ code_digest: string; consumed_at: Date | null }>(
+    'SELECT code_digest, consumed_at FROM login_recovery_credential WHERE user_id = $1 ORDER BY code_digest',
+    [otherId],
+  );
+  assert.deepEqual(
+    adoptedRows.rows.map(row => row.code_digest),
+    issuedDigests.rows.map(row => row.code_digest),
+  );
+  assert.equal(adoptedRows.rows.filter(row => row.consumed_at !== null).length, 1);
+  assert.equal(await lookupLoginRecoveryCode('bob', issuedBatch[0].code), null);
+  const adoptedReceipt = await prisma.client.appSetting.findUniqueOrThrow({
+    where: { key: issuedKeys.confirmed },
+  });
+  for (const credential of issuedBatch.slice(1)) {
+    const match = await lookupLoginRecoveryCode('bob', credential.code);
+    assert.ok(match);
+    assert.equal(await consumeLoginRecoveryCode('bob', credential.code, match), otherId);
+  }
+  await assert.rejects(
+    runCredentialRevocationMutation(transaction =>
+      confirmPreparedLoginRecoveryCodes(transaction, otherId, issuedBatch[0].code),
+    ),
+    RecoveryPreparationError,
+  );
+  assert.equal(
+    (await prisma.client.appSetting.findUniqueOrThrow({ where: { key: issuedKeys.confirmed } }))
+      .value,
+    adoptedReceipt.value,
+  );
+  await runCredentialRevocationMutation(transaction =>
+    persistLoginRecoveryCodes(transaction, otherId, [issuedBatch[0]]),
+  );
+  await assert.rejects(
+    runCredentialRevocationMutation(transaction =>
+      confirmPreparedLoginRecoveryCodes(transaction, otherId, issuedBatch[0].code),
+    ),
+    RecoveryPreparationError,
+  );
+  assert.ok(await lookupLoginRecoveryCode('bob', issuedBatch[0].code));
+
+  for (const scenario of ['proof-consumption', 'final-code-consumption']) {
+    const raced = generateLoginRecoveryCodes().slice(0, 2);
+    await runCredentialRevocationMutation(transaction =>
+      persistLoginRecoveryCodes(transaction, otherId, raced),
+    );
+    if (scenario === 'final-code-consumption') {
+      await runCredentialRevocationMutation(transaction =>
+        confirmPreparedLoginRecoveryCodes(transaction, otherId, raced[0].code),
+      );
+    }
+    const previousReceipt = await prisma.client.appSetting.findUnique({
+      where: { key: issuedKeys.confirmed },
+    });
+    await assert.rejects(
+      confirmBehindConsumption(
+        otherId,
+        raced[scenario === 'proof-consumption' ? 0 : 1].code,
+        raced[0].code,
+      ),
+      RecoveryPreparationError,
+    );
+    assert.equal(
+      (await prisma.client.appSetting.findUnique({ where: { key: issuedKeys.confirmed } }))?.value,
+      previousReceipt?.value,
+    );
+  }
+
+  const contested = generateLoginRecoveryCodes();
+  await runCredentialRevocationMutation(transaction =>
+    persistLoginRecoveryCodes(transaction, otherId, contested),
+  );
+  const contestedMatch = await lookupLoginRecoveryCode('bob', contested[0].code);
+  assert.ok(contestedMatch);
+  let releaseConfirmation: () => void = () => undefined;
+  let notifyConfirmation: () => void = () => undefined;
+  const confirmationReady = new Promise<void>(resolve => {
+    notifyConfirmation = resolve;
+  });
+  const release = new Promise<void>(resolve => {
+    releaseConfirmation = resolve;
+  });
+  const confirming = runCredentialRevocationMutation(async transaction => {
+    await confirmPreparedLoginRecoveryCodes(transaction, otherId, contested[0].code);
+    notifyConfirmation();
+    await release;
+  });
+  const confirmationOutcome = confirming.then(
+    () => ({}),
+    error => ({ error }),
+  );
+  let consumptionOutcome: Promise<{ userId: string | null } | { error: unknown }> | undefined;
+  try {
+    await Promise.race([confirmationReady, confirming]);
+    consumptionOutcome = consumeLoginRecoveryCode('bob', contested[0].code, contestedMatch).then(
+      userId => ({ userId }),
+      error => ({ error }),
+    );
+    await waitForRecoveryCredentialLock();
+  } finally {
+    releaseConfirmation();
+    await confirmationOutcome;
+    await consumptionOutcome;
+  }
+  const confirmationResult = await confirmationOutcome;
+  if ('error' in confirmationResult) throw confirmationResult.error;
+  const consumptionResult = await consumptionOutcome;
+  assert.ok(consumptionResult);
+  if ('error' in consumptionResult) throw consumptionResult.error;
+  assert.equal(consumptionResult.userId, null);
+  assert.ok(await lookupLoginRecoveryCode('bob', contested[1].code));
+
   const administratorPassword = 'synthetic-admin-password-000000000000';
   const administratorHash = await hashPassword(administratorPassword);
   const targetPassword = 'synthetic-target-password-000000000000';
@@ -394,6 +589,62 @@ try {
     { userId: otherId, role: 'user', pwd: hash(targetHash), sessionGeneration: 0 },
     secret(),
     { expiresIn: '5m' },
+  );
+
+  const issuedHttpOwner = randomUUID();
+  await prisma.client.user.create({
+    data: { id: issuedHttpOwner, username: 'issued-owner', password: targetHash, role: 'user' },
+  });
+  const issuedHttpCodes = generateLoginRecoveryCodes();
+  await runCredentialRevocationMutation(transaction =>
+    persistLoginRecoveryCodes(transaction, issuedHttpOwner, issuedHttpCodes),
+  );
+  const issuedHttpToken = await createSecureToken(
+    { userId: issuedHttpOwner, role: 'user', pwd: hash(targetHash), sessionGeneration: 0 },
+    secret(),
+    { expiresIn: '5m' },
+  );
+  await prisma.client.user.update({
+    where: { id: issuedHttpOwner },
+    data: { twoFactorRequired: true },
+  });
+  assert.equal(
+    (await confirmRecoveryRequest(issuedHttpToken, targetPassword, issuedHttpCodes[0].code)).status,
+    401,
+  );
+  await prisma.client.user.update({
+    where: { id: issuedHttpOwner },
+    data: { twoFactorRequired: false },
+  });
+  const revokedHttpToken = await createSecureToken(
+    { userId: issuedHttpOwner, role: 'user', pwd: hash(targetHash), sessionGeneration: 1 },
+    secret(),
+    { expiresIn: '5m' },
+  );
+  assert.equal(
+    (await confirmRecoveryRequest(revokedHttpToken, targetPassword, issuedHttpCodes[0].code))
+      .status,
+    401,
+  );
+  const adoptedHttpResponse = await confirmRecoveryRequest(
+    issuedHttpToken,
+    targetPassword,
+    issuedHttpCodes[0].code,
+  );
+  assert.equal(adoptedHttpResponse.status, 200);
+  assert.equal(adoptedHttpResponse.headers.get('Cache-Control'), 'no-store');
+  assert.deepEqual(await adoptedHttpResponse.json(), { confirmed: true });
+  for (const credential of issuedHttpCodes.slice(1)) {
+    const match = await lookupLoginRecoveryCode('issued-owner', credential.code);
+    assert.ok(match);
+    assert.equal(
+      await consumeLoginRecoveryCode('issued-owner', credential.code, match),
+      issuedHttpOwner,
+    );
+  }
+  assert.equal(
+    (await confirmRecoveryRequest(issuedHttpToken, targetPassword, issuedHttpCodes[0].code)).status,
+    400,
   );
 
   const forbiddenResponse = await recoveryRequest(targetToken, targetPassword, administratorId);

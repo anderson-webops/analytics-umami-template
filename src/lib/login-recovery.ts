@@ -134,6 +134,30 @@ export async function prepareLoginRecoveryCodes(
   });
 }
 
+async function persistLoginRecoveryConfirmation(
+  transaction: Prisma.TransactionClient,
+  userId: string,
+  confirmation: {
+    batchId: string;
+    passwordFingerprint: string;
+    keyFingerprint: string;
+    proofDigest: string;
+  },
+) {
+  const key = getLoginRecoveryPreparationKeys(userId).confirmed;
+  const value = JSON.stringify({
+    version: 1,
+    userId,
+    ...confirmation,
+    confirmedAt: new Date().toISOString(),
+  });
+  await transaction.appSetting.upsert({
+    where: { key },
+    create: { key, value },
+    update: { value },
+  });
+}
+
 export async function confirmPreparedLoginRecoveryCodes(
   transaction: Prisma.TransactionClient,
   userIdInput: string,
@@ -159,6 +183,15 @@ export async function confirmPreparedLoginRecoveryCodes(
   if (!pending) {
     if (options.requirePending) throw new RecoveryPreparationError();
     const confirmed = await transaction.appSetting.findUnique({ where: { key: keys.confirmed } });
+    const active = await transaction.$queryRaw<Array<{ codeDigest: string }>>`
+      SELECT "code_digest" AS "codeDigest" FROM "login_recovery_credential"
+      WHERE "user_id" = ${userId}::uuid
+        AND "password_fingerprint" = ${passwordFingerprint}
+        AND "key_fingerprint" = ${keyFingerprint}
+        AND "consumed_at" IS NULL
+      ORDER BY "code_digest"
+      FOR UPDATE
+    `;
     let receipt;
     try {
       receipt = JSON.parse(confirmed?.value ?? 'null');
@@ -168,11 +201,32 @@ export async function confirmPreparedLoginRecoveryCodes(
       receipt.userId === userId &&
       receipt.passwordFingerprint === passwordFingerprint &&
       receipt.keyFingerprint === keyFingerprint &&
-      receipt.proofDigest === digest
+      receipt.proofDigest === digest &&
+      active.length > 0
     ) {
       return;
     }
-    throw new RecoveryPreparationError();
+    if (confirmed || active.length < 2 || !active.some(row => row.codeDigest === digest)) {
+      throw new RecoveryPreparationError();
+    }
+    const consumed = await transaction.loginRecoveryCredential.updateMany({
+      where: {
+        userId,
+        codeDigest: digest,
+        passwordFingerprint,
+        keyFingerprint,
+        consumedAt: null,
+      },
+      data: { consumedAt: new Date() },
+    });
+    if (consumed.count !== 1) throw new RecoveryPreparationError();
+    await persistLoginRecoveryConfirmation(transaction, userId, {
+      batchId: randomUUID(),
+      passwordFingerprint,
+      keyFingerprint,
+      proofDigest: digest,
+    });
+    return;
   }
 
   const preparation = readPreparation(pending.value);
@@ -196,19 +250,11 @@ export async function confirmPreparedLoginRecoveryCodes(
     userId,
     remaining.map(value => ({ digest: value })),
   );
-  const value = JSON.stringify({
-    version: 1,
-    userId,
+  await persistLoginRecoveryConfirmation(transaction, userId, {
     batchId: preparation.batchId,
     passwordFingerprint,
     keyFingerprint,
     proofDigest: digest,
-    confirmedAt: new Date().toISOString(),
-  });
-  await transaction.appSetting.upsert({
-    where: { key: keys.confirmed },
-    create: { key: keys.confirmed, value },
-    update: { value },
   });
 }
 

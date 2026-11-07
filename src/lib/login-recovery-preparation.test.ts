@@ -4,6 +4,7 @@ import { hash } from '@/lib/crypto';
 import {
   confirmPreparedLoginRecoveryCodes,
   generateLoginRecoveryCodes,
+  getLoginRecoveryKeyFingerprint,
   getLoginRecoveryPreparationKeys,
   persistLoginRecoveryCodes,
   prepareLoginRecoveryCodes,
@@ -17,7 +18,13 @@ let settings: Map<string, string>;
 let password: string;
 let targetExists: boolean;
 let credentials: Array<{ code: string; digest: string }>;
-let active: Array<{ codeDigest: string; passwordFingerprint: string; keyFingerprint: string }>;
+let active: Array<{
+  userId?: string;
+  codeDigest: string;
+  passwordFingerprint: string;
+  keyFingerprint: string;
+  consumedAt?: Date | null;
+}>;
 let transaction: Prisma.TransactionClient;
 
 beforeEach(() => {
@@ -32,8 +39,18 @@ beforeEach(() => {
     { codeDigest: 'previous', passwordFingerprint: hash(password), keyFingerprint: 'previous-key' },
   ];
   transaction = {
-    $queryRaw: vi.fn(async (_query, key) =>
-      settings.has(key) ? [{ value: settings.get(key) }] : [],
+    $queryRaw: vi.fn(async (query, key) =>
+      query.join('').includes('login_recovery_credential')
+        ? active.filter(
+            credential =>
+              credential.userId === key &&
+              !credential.consumedAt &&
+              credential.passwordFingerprint === hash(password) &&
+              credential.keyFingerprint === getLoginRecoveryKeyFingerprint(),
+          )
+        : settings.has(key)
+          ? [{ value: settings.get(key) }]
+          : [],
     ),
     user: { findUnique: vi.fn(async () => (targetExists ? { password } : null)) },
     appSetting: {
@@ -48,6 +65,19 @@ beforeEach(() => {
       }),
     },
     loginRecoveryCredential: {
+      updateMany: vi.fn(async ({ where, data }) => {
+        const credential = active.find(
+          candidate =>
+            candidate.userId === where.userId &&
+            candidate.codeDigest === where.codeDigest &&
+            candidate.passwordFingerprint === where.passwordFingerprint &&
+            candidate.keyFingerprint === where.keyFingerprint &&
+            !candidate.consumedAt,
+        );
+        if (!credential) return { count: 0 };
+        Object.assign(credential, data);
+        return { count: 1 };
+      }),
       deleteMany: vi.fn(async () => {
         active = [];
       }),
@@ -102,6 +132,85 @@ test('lost confirmation response is safely repeatable without reactivating or re
   expect(active).toHaveLength(6);
   expect(settings.get(getLoginRecoveryPreparationKeys('owner').confirmed)).toBe(receipt);
   expect(transaction.loginRecoveryCredential.deleteMany).toHaveBeenCalledOnce();
+});
+
+test('owner proof adopts an issued batch without replacing its remaining credentials', async () => {
+  await persistLoginRecoveryCodes(transaction, 'owner', credentials);
+  const previous = active.slice(1);
+  await confirmPreparedLoginRecoveryCodes(transaction, 'owner', credentials[0].code);
+  expect(active).toHaveLength(8);
+  expect(active[0].consumedAt).toBeInstanceOf(Date);
+  expect(active.slice(1)).toEqual(previous);
+  expect(transaction.loginRecoveryCredential.deleteMany).toHaveBeenCalledOnce();
+  expect(transaction.loginRecoveryCredential.createMany).toHaveBeenCalledOnce();
+  const receipt = settings.get(getLoginRecoveryPreparationKeys('owner').confirmed);
+  expect(JSON.parse(receipt ?? 'null')).toMatchObject({
+    version: 1,
+    userId: 'owner',
+    passwordFingerprint: hash(password),
+    keyFingerprint: getLoginRecoveryKeyFingerprint(),
+    proofDigest: credentials[0].digest,
+  });
+  for (const { code } of credentials) expect(receipt).not.toContain(code);
+  await confirmPreparedLoginRecoveryCodes(transaction, 'owner', credentials[0].code);
+  expect(transaction.loginRecoveryCredential.updateMany).toHaveBeenCalledOnce();
+});
+
+test('an exhausted confirmed batch cannot report repeatable usable confirmation', async () => {
+  await prepareLoginRecoveryCodes(transaction, 'owner', credentials);
+  await confirmPreparedLoginRecoveryCodes(transaction, 'owner', credentials[0].code);
+  for (const credential of active) credential.consumedAt = new Date();
+  const receipt = settings.get(getLoginRecoveryPreparationKeys('owner').confirmed);
+  await expect(
+    confirmPreparedLoginRecoveryCodes(transaction, 'owner', credentials[0].code),
+  ).rejects.toBeInstanceOf(RecoveryPreparationError);
+  expect(settings.get(getLoginRecoveryPreparationKeys('owner').confirmed)).toBe(receipt);
+});
+
+test.each(['wrong-owner', 'password', 'key', 'consumed', 'last-code', 'raced-consumption'])(
+  'issued batch adoption rejects %s without manufacturing a receipt',
+  async change => {
+    await persistLoginRecoveryCodes(transaction, 'owner', credentials);
+    if (change === 'password') password = 'replacement-hash';
+    if (change === 'key')
+      vi.stubEnv('APP_SECRET', 'replacement-preparation-secret-000000000000000');
+    if (change === 'consumed') active[0].consumedAt = new Date();
+    if (change === 'last-code') {
+      for (const credential of active.slice(1)) credential.consumedAt = new Date();
+    }
+    if (change === 'raced-consumption')
+      vi.mocked(transaction.loginRecoveryCredential.updateMany).mockResolvedValue({ count: 0 });
+    await expect(
+      confirmPreparedLoginRecoveryCodes(
+        transaction,
+        change === 'wrong-owner' ? 'different-owner' : 'owner',
+        credentials[0].code,
+      ),
+    ).rejects.toBeInstanceOf(RecoveryPreparationError);
+    expect(settings.has(getLoginRecoveryPreparationKeys('owner').confirmed)).toBe(false);
+  },
+);
+
+test('a different active code cannot replace an already confirmed proof receipt', async () => {
+  await persistLoginRecoveryCodes(transaction, 'owner', credentials);
+  await confirmPreparedLoginRecoveryCodes(transaction, 'owner', credentials[0].code);
+  const receipt = settings.get(getLoginRecoveryPreparationKeys('owner').confirmed);
+  await expect(
+    confirmPreparedLoginRecoveryCodes(transaction, 'owner', credentials[1].code),
+  ).rejects.toBeInstanceOf(RecoveryPreparationError);
+  expect(active[1].consumedAt).toBeUndefined();
+  expect(settings.get(getLoginRecoveryPreparationKeys('owner').confirmed)).toBe(receipt);
+});
+
+test('a prepared replacement requires its own proof rather than a code from the issued batch', async () => {
+  await persistLoginRecoveryCodes(transaction, 'owner', credentials);
+  const replacement = generateLoginRecoveryCodes();
+  await prepareLoginRecoveryCodes(transaction, 'owner', replacement);
+  await expect(
+    confirmPreparedLoginRecoveryCodes(transaction, 'owner', credentials[0].code),
+  ).rejects.toBeInstanceOf(RecoveryPreparationError);
+  expect(active.every(credential => !credential.consumedAt)).toBe(true);
+  expect(settings.has(getLoginRecoveryPreparationKeys('owner').confirmed)).toBe(false);
 });
 
 test('a password transition requires a fresh pending batch rather than an earlier confirmation receipt', async () => {
