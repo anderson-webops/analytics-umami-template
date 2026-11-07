@@ -3,6 +3,51 @@ import { login } from './helpers/auth';
 import { createUser, deleteUser } from './helpers/entities';
 
 test.describe('Auth', () => {
+  test('GET /api/auth/recovery-codes returns only a full-session remaining count', async ({
+    admin,
+    api,
+    apiKey,
+  }) => {
+    const path = '/api/auth/recovery-codes';
+    const response = await admin.get(path);
+    const anonymous = await api.get(path);
+    const viaApiKey = await apiKey.get(path);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ remaining: expect.any(Number) });
+    expect(Number.isSafeInteger(response.body.remaining)).toBe(true);
+    expect(response.body.remaining).toBeGreaterThanOrEqual(0);
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(anonymous.status).toBe(401);
+    expect(viaApiKey.status).toBe(401);
+  });
+
+  test('POST /api/auth/recovery-codes preserves codes on invalid or unauthorized preparation', async ({
+    admin,
+    api,
+    apiKey,
+  }) => {
+    const path = '/api/auth/recovery-codes';
+    const before = await admin.get(path);
+    const invalid = await admin.post(path, {});
+    const anonymous = await api.post(path, {
+      action: 'prepare',
+      password: 'fixture-invalid-password',
+    });
+    const viaApiKey = await apiKey.post(path, {
+      action: 'prepare',
+      password: 'fixture-invalid-password',
+    });
+    const after = await admin.get(path);
+
+    expect(before.status).toBe(200);
+    expect(invalid.status).toBe(400);
+    expect(anonymous.status).toBe(401);
+    expect(viaApiKey.status).toBe(401);
+    expect(after.status).toBe(200);
+    expect(after.body).toEqual(before.body);
+  });
+
   test('POST /api/auth/login returns a token and the user', async ({ api, seed }) => {
     const response = await api.post('/api/auth/login', {
       username: seed.admin.username,

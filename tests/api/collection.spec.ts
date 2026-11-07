@@ -54,6 +54,21 @@ function pageview(website: string, extra: Record<string, unknown> = {}) {
 test.describe('Collection', () => {
   test.describe.configure({ mode: 'serial' });
 
+  test('POST /api/revenue/movements preserves the disabled intake boundary', async ({
+    api,
+    admin,
+  }) => {
+    const path = '/api/revenue/movements';
+    const anonymous = await api.post(path, {});
+    const authenticated = await admin.post(path, {});
+
+    for (const response of [anonymous, authenticated]) {
+      expect(response.status).toBe(403);
+      expect(response.headers['cache-control']).toBe('no-store');
+      expect(response.body.error.message).toBe('Attested revenue intake is not enabled.');
+    }
+  });
+
   test('POST /api/send records a pageview and returns a cache token', async ({ api, seed }) => {
     const response = await api.post('/api/send', pageview(seed.website.id));
 

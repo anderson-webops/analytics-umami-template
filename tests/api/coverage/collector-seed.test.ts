@@ -16,6 +16,14 @@ describe('collector seed identity', () => {
       const identities = dataset.batch.filter(event => event.type === 'identify');
 
       expect(identities).toHaveLength(dataset.distinctIds.length);
+      const signupDays = identities.map(identity =>
+        Math.floor(
+          Date.parse(String((identity.payload.data as Record<string, unknown>).signedUpAt)) /
+            86_400_000,
+        ),
+      );
+      const today = Math.floor(Date.parse(instant) / 86_400_000);
+      expect(new Set(signupDays)).toEqual(new Set([today - 3, today - 2, today - 1]));
       for (const identity of identities) {
         const activity = dataset.batch.find(
           event =>

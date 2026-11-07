@@ -282,7 +282,7 @@ export function buildDataset(now = Date.now()): Dataset {
               plan: 'pro',
               seats: 5 + index,
               tags: ['early-adopter', 'newsletter'],
-              signedUpAt: new Date(afterPages * 1000).toISOString(),
+              signedUpAt: new Date((afterPages + (index - 1) * DAY) * 1000).toISOString(),
               active: true,
             },
             timestamp: afterPages + 90,

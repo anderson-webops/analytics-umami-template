@@ -345,9 +345,16 @@ test.describe('Analytics', () => {
     const denied = await viewer.get(path);
 
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({ visitors: expect.any(Number) });
+    expect(response.body).toEqual({
+      visitors: expect.any(Number),
+      trafficProvenance: 'may_include_unverified_public_observations',
+    });
     expect(response.body.visitors).toBeGreaterThanOrEqual(0);
     expect(shared.status).toBe(200);
+    expect(shared.body).toEqual({
+      visitors: expect.any(Number),
+      trafficProvenance: 'may_include_unverified_public_observations',
+    });
     expect(denied.status).toBe(401);
   });
 
@@ -549,7 +556,8 @@ test.describe('Analytics', () => {
     const invalidUnit = await admin.get(`${path}/series`, { params: { unit: 'bogus' } });
 
     expect(totals.status).toBe(200);
-    expect(Object.keys(totals.body)).toEqual(['totals']);
+    expect(Object.keys(totals.body).sort()).toEqual(['totals', 'trafficProvenance']);
+    expect(totals.body.trafficProvenance).toBe('may_include_unverified_public_observations');
     expect(totals.body.totals).toEqual({
       views: expect.any(Number),
       visitors: expect.any(Number),
@@ -557,13 +565,16 @@ test.describe('Analytics', () => {
       countries: expect.any(Number),
     });
     expect(series.status).toBe(200);
-    expect(Object.keys(series.body)).toEqual(['series']);
+    expect(Object.keys(series.body).sort()).toEqual(['series', 'trafficProvenance']);
+    expect(series.body.trafficProvenance).toBe('may_include_unverified_public_observations');
     expect(series.body.series).toEqual({
       views: expect.any(Array),
       visitors: expect.any(Array),
     });
     expect(sharedTotals.status).toBe(200);
     expect(sharedSeries.status).toBe(200);
+    expect(sharedTotals.body.trafficProvenance).toBe('may_include_unverified_public_observations');
+    expect(sharedSeries.body.trafficProvenance).toBe('may_include_unverified_public_observations');
     expect(deniedTotals.status).toBe(401);
     expect(deniedSeries.status).toBe(401);
     expect(invalidUnit.status).toBe(400);
