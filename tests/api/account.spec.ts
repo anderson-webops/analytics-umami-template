@@ -238,12 +238,31 @@ test.describe('Account', () => {
       expect((await apiKey.post('/api/me/password', body)).status).toBe(401);
     });
 
+    test('POST /api/me/password requires saved-copy recovery confirmation', async ({ api }) => {
+      const response = await api.bearer(token).post('/api/me/password', {
+        currentPassword: password,
+        newPassword,
+      });
+      expect(response.status).toBe(400);
+      expect(response.body.error.code).toBe('recovery-confirmation-required');
+      expect((await api.bearer(token).get('/api/me')).status).toBe(200);
+    });
+
     test('POST /api/me/password changes the password and invalidates the session', async ({
       api,
     }) => {
-      const response = await api
-        .bearer(token)
-        .post('/api/me/password', { currentPassword: password, newPassword });
+      const prepared = await api.bearer(token).post('/api/auth/recovery-codes', {
+        action: 'prepare',
+        password,
+      });
+      expect(prepared.status).toBe(200);
+      expect(prepared.body.recoveryCodes).toHaveLength(8);
+      const response = await api.bearer(token).post('/api/me/password', {
+        currentPassword: password,
+        newPassword,
+        recoveryCode: prepared.body.recoveryCodes[0],
+        saved: true,
+      });
 
       expect(response.status).toBe(200);
       expect(response.body).toMatchObject({ id: userId, username, role: 'user' });

@@ -138,6 +138,7 @@ export async function confirmPreparedLoginRecoveryCodes(
   transaction: Prisma.TransactionClient,
   userIdInput: string,
   code: string,
+  options: { requirePending?: boolean } = {},
 ) {
   const userId = userIdInput.toLowerCase();
   const digest = digestLoginRecoveryCode(code);
@@ -156,6 +157,7 @@ export async function confirmPreparedLoginRecoveryCodes(
   `;
   const pending = pendingRows[0];
   if (!pending) {
+    if (options.requirePending) throw new RecoveryPreparationError();
     const confirmed = await transaction.appSetting.findUnique({ where: { key: keys.confirmed } });
     let receipt;
     try {

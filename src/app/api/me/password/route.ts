@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import { saveAuth } from '@/lib/auth';
 import { hash, secret } from '@/lib/crypto';
+import { isEnvEnabled } from '@/lib/env';
 import { createSecureToken } from '@/lib/jwt';
+import { RecoveryPreparationError } from '@/lib/login-recovery';
 import { checkPassword, hashPassword } from '@/lib/password';
 import { reservePasswordVerificationAttempt } from '@/lib/password-verification-rate-limit';
 import redis from '@/lib/redis';
@@ -16,12 +18,22 @@ import {
 import { loginPasswordParam, passwordParam } from '@/lib/schema';
 import { getAuthSessionTtlSeconds } from '@/lib/security';
 import { setSessionCookie } from '@/lib/session';
-import { getUser, replacePasswordIfCurrent } from '@/queries/prisma/user';
+import { SessionRevokedError } from '@/queries/prisma/authorization';
+import {
+  getUser,
+  replacePasswordIfCurrent,
+  replacePasswordWithRecoveryIfCurrent,
+} from '@/queries/prisma/user';
 
 export async function POST(request: Request) {
   const schema = z.object({
     currentPassword: loginPasswordParam,
     newPassword: passwordParam,
+    recoveryCode: z
+      .string()
+      .regex(/^UR-[0-9a-f]{64}$/i)
+      .optional(),
+    saved: z.literal(true).optional(),
   });
 
   const { auth, body, error } = await parseRequest(request, schema);
@@ -30,8 +42,16 @@ export async function POST(request: Request) {
     return error();
   }
 
+  const cloudMode = isEnvEnabled('CLOUD_MODE');
+  if (
+    !cloudMode &&
+    (auth.authType !== 'session' || auth.enrollmentOnly || !auth.passwordFingerprint)
+  ) {
+    return unauthorized();
+  }
+
   const userId = auth.user.id;
-  const { currentPassword, newPassword } = body;
+  const { currentPassword, newPassword, recoveryCode, saved } = body;
 
   const user = await getUser(userId, { includePassword: true });
 
@@ -55,6 +75,13 @@ export async function POST(request: Request) {
     return badRequest({ message: 'Current password is incorrect' });
   }
 
+  if (!cloudMode && (!recoveryCode || saved !== true)) {
+    return badRequest({
+      code: 'recovery-confirmation-required',
+      message: 'Save replacement recovery codes and confirm one before changing your password.',
+    });
+  }
+
   if (await checkPassword(newPassword, user.password)) {
     return badRequest({ message: 'New password must differ from the current password' });
   }
@@ -63,14 +90,20 @@ export async function POST(request: Request) {
   let updated;
 
   try {
-    updated = await replacePasswordIfCurrent(
-      userId,
-      user.password,
-      password,
-      auth.sessionGeneration,
-    );
+    updated = cloudMode
+      ? await replacePasswordIfCurrent(userId, user.password, password, auth.sessionGeneration)
+      : await replacePasswordWithRecoveryIfCurrent(auth, user.password, password, recoveryCode);
   } catch (error: any) {
-    if (error?.message === 'USER_CREDENTIALS_CHANGED') {
+    if (error instanceof RecoveryPreparationError) {
+      return badRequest({
+        code: 'recovery-preparation-invalid',
+        message: 'Prepare replacement recovery codes and confirm an unused code from that set.',
+      });
+    }
+    if (
+      error instanceof SessionRevokedError ||
+      ['USER_CREDENTIALS_CHANGED', 'ENTITY_ACTOR_NOT_AUTHORIZED'].includes(error?.message)
+    ) {
       return unauthorized({
         message:
           'Your credentials changed while this request was in progress. Please sign in again.',

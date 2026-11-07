@@ -12,7 +12,7 @@ const operation1 = defineOperation({
     operationId: 'getSessionDataDateSeries',
     summary: 'Get the distribution of session date values',
     description:
-      'Counts distinct sessions by dates stored in the specified custom property, using the selected date range and filters.',
+      'Counts distinct sessions by calendar day of the specified custom date property, using the selected date range and filters.',
     tags: ['Websites'],
     parameters: [
       {

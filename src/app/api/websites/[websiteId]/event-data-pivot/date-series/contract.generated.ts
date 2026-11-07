@@ -12,7 +12,7 @@ const operation1 = defineOperation({
     operationId: 'getEventDataDateSeries',
     summary: 'Get the distribution of event date values',
     description:
-      "Counts occurrences of dates stored in the specified event property, grouping by the property's date value within the selected event date range.",
+      'Counts occurrences of dates stored in the specified event property, grouping by calendar day within the selected event date range.',
     tags: ['Websites'],
     parameters: [
       {

@@ -104,6 +104,19 @@ test('lost confirmation response is safely repeatable without reactivating or re
   expect(transaction.loginRecoveryCredential.deleteMany).toHaveBeenCalledOnce();
 });
 
+test('a password transition requires a fresh pending batch rather than an earlier confirmation receipt', async () => {
+  await prepareLoginRecoveryCodes(transaction, 'owner', credentials);
+  await confirmPreparedLoginRecoveryCodes(transaction, 'owner', credentials[0].code);
+  active = [];
+  await expect(
+    confirmPreparedLoginRecoveryCodes(transaction, 'owner', credentials[0].code, {
+      requirePending: true,
+    }),
+  ).rejects.toBeInstanceOf(RecoveryPreparationError);
+  expect(active).toHaveLength(0);
+  expect(transaction.loginRecoveryCredential.deleteMany).toHaveBeenCalledOnce();
+});
+
 test.each(['password', 'key', 'expiry', 'wrong-code', 'wrong-owner', 'malformed-record'])(
   '%s cannot activate pending codes',
   async change => {

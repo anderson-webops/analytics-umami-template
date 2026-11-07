@@ -5270,7 +5270,7 @@ export abstract class GeneratedUmamiClient {
 
   /**
    * Change my password
-   * Verifies the current password and replaces it with the supplied new password. Password verification shares a five-attempt, 15-minute account limit with optional 2FA disable.
+   * Verifies the current password and replaces it with the supplied new password. Self-hosted changes require a current full session, saved: true and an unused code from a freshly prepared recovery batch. Confirmation and password replacement atomically activate the unused replacement codes and revoke old sessions and API keys while preserving verified MFA. Cloud keeps its existing password-only contract. Password verification shares a five-attempt, 15-minute account limit with other sensitive account changes.
    * `POST /api/me/password`
    */
   updateMyPassword(

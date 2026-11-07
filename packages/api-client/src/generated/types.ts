@@ -742,7 +742,7 @@ export interface paths {
     put?: never;
     /**
      * Change my password
-     * @description Verifies the current password and replaces it with the supplied new password. Password verification shares a five-attempt, 15-minute account limit with optional 2FA disable.
+     * @description Verifies the current password and replaces it with the supplied new password. Self-hosted changes require a current full session, saved: true and an unused code from a freshly prepared recovery batch. Confirmation and password replacement atomically activate the unused replacement codes and revoke old sessions and API keys while preserving verified MFA. Cloud keeps its existing password-only contract. Password verification shares a five-attempt, 15-minute account limit with other sensitive account changes.
      */
     post: operations['updateMyPassword'];
     delete?: never;
@@ -7981,6 +7981,9 @@ export interface operations {
           currentPassword: unknown;
           /** @description New password to set for the account. */
           newPassword: unknown;
+          recoveryCode?: unknown;
+          /** @constant */
+          saved?: true;
         };
       };
     };

@@ -3,7 +3,10 @@ import { ROLES } from '@/lib/constants';
 import { hash, isUuid } from '@/lib/crypto';
 import { isEnvEnabled } from '@/lib/env';
 import { getRandomChars } from '@/lib/generate';
-import { rebindLoginRecoveryPreparation } from '@/lib/login-recovery';
+import {
+  confirmPreparedLoginRecoveryCodes,
+  rebindLoginRecoveryPreparation,
+} from '@/lib/login-recovery';
 import prisma from '@/lib/prisma';
 import redis from '@/lib/redis';
 import { hasCurrentSessionGeneration } from '@/lib/session-generation';
@@ -14,8 +17,10 @@ import { deleteClickhouseCollectionSources } from '@/queries/sql/deleteCollectio
 import {
   assertActorIsAdministrator,
   assertCurrentActorAuth,
+  runActiveSessionMutation,
   runCredentialRevocationMutation,
   runSerializedUserMutation,
+  SessionRevokedError,
 } from './authorization';
 import { lockCollectionSources } from './collection';
 import { recordDeletedWebsiteCollectionGenerations } from './collection-generation';
@@ -280,12 +285,13 @@ async function writePasswordIfCurrent(
   nextPassword: string,
   expectedSessionGeneration: number,
   rotateCredentials: boolean,
+  currentTransaction?: Prisma.TransactionClient,
 ) {
   const runMutation = rotateCredentials
     ? runCredentialRevocationMutation
     : runSerializedUserMutation;
 
-  return runMutation(async transaction => {
+  const operation = async (transaction: Prisma.TransactionClient) => {
     const updated = await transaction.$queryRaw<Array<{ sessionGeneration: number }>>`
       UPDATE "user"
       SET "password" = ${nextPassword},
@@ -327,6 +333,40 @@ async function writePasswordIfCurrent(
         sessionGeneration: true,
       },
     });
+  };
+
+  return currentTransaction ? operation(currentTransaction) : runMutation(operation);
+}
+
+export function replacePasswordWithRecoveryIfCurrent(
+  auth: Auth,
+  expectedPassword: string,
+  nextPassword: string,
+  recoveryCode: string,
+) {
+  const userId = auth.user?.id;
+  const sessionGeneration = auth.sessionGeneration;
+  if (!userId || typeof sessionGeneration !== 'number') throw new SessionRevokedError();
+
+  return runActiveSessionMutation(auth, async transaction => {
+    await assertCurrentActorAuth(transaction, userId, auth);
+    await confirmPreparedLoginRecoveryCodes(transaction, userId, recoveryCode, {
+      requirePending: true,
+    });
+    const updated = await writePasswordIfCurrent(
+      userId,
+      expectedPassword,
+      nextPassword,
+      sessionGeneration,
+      true,
+      transaction,
+    );
+    await transaction.loginRecoveryCredential.updateMany({
+      where: { userId, passwordFingerprint: hash(expectedPassword), consumedAt: null },
+      data: { passwordFingerprint: hash(nextPassword) },
+    });
+    await rebindLoginRecoveryPreparation(transaction, userId, expectedPassword, nextPassword);
+    return updated;
   });
 }
 

@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { Client } from 'pg';
 import { POST as login } from '@/app/api/auth/login/route';
-import { POST as issueRecoveryCodes } from '@/app/api/auth/recovery-codes/route';
+import {
+  POST as issueRecoveryCodes,
+  GET as recoveryCodeStatus,
+} from '@/app/api/auth/recovery-codes/route';
+import { POST as changePassword } from '@/app/api/me/password/route';
 import { hash, secret } from '@/lib/crypto';
 import { createSecureToken } from '@/lib/jwt';
 import {
@@ -20,11 +24,18 @@ import {
   lookupLoginRecoveryCode,
   persistLoginRecoveryCodes,
   prepareLoginRecoveryCodes,
+  RecoveryPreparationError,
 } from '@/lib/login-recovery';
 import { hashPassword } from '@/lib/password';
 import prisma from '@/lib/prisma';
-import { runCredentialRevocationMutation } from '@/queries/prisma/authorization';
-import { rehashPasswordIfCurrent } from '@/queries/prisma/user';
+import {
+  runCredentialRevocationMutation,
+  SessionRevokedError,
+} from '@/queries/prisma/authorization';
+import {
+  rehashPasswordIfCurrent,
+  replacePasswordWithRecoveryIfCurrent,
+} from '@/queries/prisma/user';
 
 assert.equal(process.env.ALLOW_DESTRUCTIVE_MIGRATION_TEST, '1');
 const databaseUrl = new URL(process.env.DATABASE_URL ?? '');
@@ -191,6 +202,126 @@ try {
     if (consumed === ownerId) assert.equal(afterRace, null);
     else assert.ok(afterRace);
   }
+  const transitionBatch = generateLoginRecoveryCodes();
+  const transitionAuth = {
+    authType: 'session' as const,
+    user: { id: ownerId, username: 'alice', role: 'user', isAdmin: false },
+    passwordFingerprint: hash('rehash-hash'),
+    sessionGeneration: 1,
+  };
+  await runCredentialRevocationMutation(transaction =>
+    prepareLoginRecoveryCodes(transaction, ownerId, transitionBatch),
+  );
+  await prisma.client.user.update({ where: { id: ownerId }, data: { twoFactorRequired: true } });
+  await assert.rejects(
+    replacePasswordWithRecoveryIfCurrent(
+      transitionAuth,
+      'rehash-hash',
+      'policy-race-hash',
+      transitionBatch[0].code,
+    ),
+    /ENTITY_ACTOR_NOT_AUTHORIZED/,
+  );
+  assert.equal(
+    (await prisma.client.user.findUniqueOrThrow({ where: { id: ownerId } })).password,
+    'rehash-hash',
+  );
+  assert.ok(await lookupLoginRecoveryCode('alice', transitionBatch[0].code));
+  await prisma.client.user.update({ where: { id: ownerId }, data: { twoFactorRequired: false } });
+  await assert.rejects(
+    replacePasswordWithRecoveryIfCurrent(
+      transitionAuth,
+      'stale-hash',
+      'transition-hash',
+      transitionBatch[0].code,
+    ),
+    /USER_CREDENTIALS_CHANGED/,
+  );
+  assert.ok(await lookupLoginRecoveryCode('alice', transitionBatch[0].code));
+  assert.equal(
+    (await prisma.client.user.findUniqueOrThrow({ where: { id: ownerId } })).password,
+    'rehash-hash',
+  );
+  const rotated = await replacePasswordWithRecoveryIfCurrent(
+    transitionAuth,
+    'rehash-hash',
+    'transition-hash',
+    transitionBatch[0].code,
+  );
+  assert.equal(rotated?.sessionGeneration, 2);
+  assert.equal(await lookupLoginRecoveryCode('alice', transitionBatch[0].code), null);
+  assert.deepEqual(await lookupLoginRecoveryCode('alice', transitionBatch[1].code), {
+    userId: ownerId,
+    passwordHash: 'transition-hash',
+  });
+  assert.equal(
+    JSON.parse(
+      (
+        await prisma.client.appSetting.findUniqueOrThrow({
+          where: { key: preparationKeys.confirmed },
+        })
+      ).value,
+    ).passwordFingerprint,
+    hash('transition-hash'),
+  );
+  await assert.rejects(
+    replacePasswordWithRecoveryIfCurrent(
+      transitionAuth,
+      'rehash-hash',
+      'stale-transition',
+      transitionBatch[1].code,
+    ),
+    SessionRevokedError,
+  );
+  const currentTransitionAuth = {
+    ...transitionAuth,
+    passwordFingerprint: hash('transition-hash'),
+    sessionGeneration: 2,
+  };
+  await assert.rejects(
+    replacePasswordWithRecoveryIfCurrent(
+      currentTransitionAuth,
+      'transition-hash',
+      'receipt-replay',
+      transitionBatch[0].code,
+    ),
+    RecoveryPreparationError,
+  );
+  let transitionPassword = 'transition-hash';
+  let transitionGeneration = 2;
+  for (let race = 0; race < 4; race += 1) {
+    const batch = generateLoginRecoveryCodes();
+    await runCredentialRevocationMutation(transaction =>
+      prepareLoginRecoveryCodes(transaction, ownerId, batch),
+    );
+    const match = await lookupLoginRecoveryCode('alice', batch[1].code);
+    assert.ok(match);
+    const nextPassword = `transition-race-${race}`;
+    const [consumed, changed] = await Promise.all([
+      consumeLoginRecoveryCode('alice', batch[1].code, match),
+      replacePasswordWithRecoveryIfCurrent(
+        {
+          ...transitionAuth,
+          passwordFingerprint: hash(transitionPassword),
+          sessionGeneration: transitionGeneration,
+        },
+        transitionPassword,
+        nextPassword,
+        batch[0].code,
+      ),
+    ]);
+    transitionGeneration += 1;
+    assert.equal(changed?.sessionGeneration, transitionGeneration);
+    assert.equal(await lookupLoginRecoveryCode('alice', batch[0].code), null);
+    const afterRace = await lookupLoginRecoveryCode('alice', batch[1].code);
+    if (consumed === ownerId) assert.equal(afterRace, null);
+    else assert.deepEqual(afterRace, { userId: ownerId, passwordHash: nextPassword });
+    transitionPassword = nextPassword;
+  }
+  await client.query('UPDATE "user" SET password = $2, session_generation = 1 WHERE user_id = $1', [
+    ownerId,
+    'rehash-hash',
+  ]);
   const abandoned = generateLoginRecoveryCodes();
   await runCredentialRevocationMutation(transaction =>
     prepareLoginRecoveryCodes(transaction, ownerId, abandoned),
@@ -418,8 +549,60 @@ try {
     null,
   );
 
+  const passwordChangePreparation = await recoveryRequest(targetToken, targetPassword, otherId);
+  assert.equal(passwordChangePreparation.status, 200);
+  const passwordChangeCodes = (await passwordChangePreparation.json()).recoveryCodes as string[];
+  const passwordChangeKeyId = randomUUID();
+  await prisma.client.apiKey.create({
+    data: {
+      id: passwordChangeKeyId,
+      userId: otherId,
+      name: 'synthetic password-change key',
+      keyHash: 'b'.repeat(128),
+      keyPrefix: 'umami_synthetic',
+    },
+  });
+  const nextTargetPassword = 'Changed-target-password-2026-A9!';
+  const passwordChangeResponse = await changePassword(
+    new Request(`${siteOrigin}/api/me/password`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${targetToken}`,
+        'content-type': 'application/json',
+        origin: siteOrigin,
+      },
+      body: JSON.stringify({
+        currentPassword: targetPassword,
+        newPassword: nextTargetPassword,
+        recoveryCode: passwordChangeCodes[0],
+        saved: true,
+      }),
+    }),
+  );
+  assert.equal(passwordChangeResponse.status, 200);
+  assert.ok(passwordChangeResponse.headers.get('Set-Cookie')?.includes('analytics-session='));
+  const replacementSession = (await passwordChangeResponse.json()).token as string;
+  const statusRequest = (token: string) =>
+    new Request(`${siteOrigin}/api/auth/recovery-codes`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+  assert.equal((await recoveryCodeStatus(statusRequest(targetToken))).status, 401);
+  const replacementStatus = await recoveryCodeStatus(statusRequest(replacementSession));
+  assert.equal(replacementStatus.status, 200);
+  assert.equal((await replacementStatus.json()).remaining, 7);
+  assert.equal(await prisma.client.apiKey.findUnique({ where: { id: passwordChangeKeyId } }), null);
+  assert.equal(await lookupLoginRecoveryCode('bob', recoveryCodes[3]), null);
+  assert.equal(await lookupLoginRecoveryCode('bob', passwordChangeCodes[0]), null);
+  assert.equal((await loginRequest('bob', nextTargetPassword)).status, 401);
+  for (let attempt = 0; attempt < 11; attempt += 1) {
+    await getLoginLimit(sourceRequest, 'bob');
+  }
+  assert.equal((await loginRequest('bob', nextTargetPassword)).status, 429);
+  assert.equal((await loginRequest('bob', nextTargetPassword, passwordChangeCodes[1])).status, 200);
+  assert.equal(await lookupLoginRecoveryCode('bob', passwordChangeCodes[1]), null);
+
   console.log(
-    'Disposable PostgreSQL login recovery, targeted lockout, and administrator route passed.',
+    'Disposable PostgreSQL login recovery, password-transition rollback/concurrency, targeted lockout, and administrator route passed.',
   );
 } finally {
   await prisma.client.$disconnect();
