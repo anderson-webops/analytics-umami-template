@@ -209,7 +209,7 @@ test('fixture startup and API clients share a provisioned, nondefault synthetic 
   const client = readFileSync(path.join(root, 'tests/api/helpers/constants.ts'), 'utf8');
   assert.equal(administrator.username, 'admin');
   assert.ok(administrator.password.length >= 12 && administrator.password.length <= 72);
-  assert.notEqual(administrator.password, 'umami');
+  assert.match(administrator.password, /synthetic|fixture|test-only|disposable/i);
   assert.notEqual(administrator.password, fixtureEnvironment.APP_SECRET);
   assert.match(launcher, /scripts\/change-password\.js/);
   assert.match(launcher, /UMAMI_PASSWORD: fixtureAdmin\.password/);
