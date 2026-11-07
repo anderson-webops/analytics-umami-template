@@ -5,3 +5,5 @@ secret:
       match: 281a94510feb4d0e2c7391dd461db16f8683c8b324f97129b6d3831c8f488d85
     - name: Mocked seeded-password rejection after CAPTCHA in login route tests
       match: a58a4d9e0116e63f36b8a5be0295067deca4e43bd72e92be2473945cf5f90fd8
+    - name: Approved public credential confined to the isolated API fixture
+      match: c4066fccb80dc1e6e52c976b2f2497ab65f2151127fd83f02a542103d562be7e

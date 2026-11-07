@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { once } from 'node:events';
 import { existsSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -215,4 +216,33 @@ test('fixture startup and API clients share a provisioned, nondefault synthetic 
   assert.match(launcher, /UMAMI_PASSWORD: fixtureAdmin\.password/);
   assert.match(launcher, /check-db\.js', '--verify-only'/);
   assert.match(client, /API_TEST_ADMIN_PASSWORD \|\| fixtureAdmin\.password/);
+});
+
+test('the approved public fixture exception preserves exact credentials and every other secret check', () => {
+  const administrator = JSON.parse(
+    readFileSync(path.join(root, 'tests/api/docker/fixture-admin.json'), 'utf8'),
+  );
+  assert.equal(
+    createHash('sha256')
+      .update(
+        JSON.stringify({ username: administrator.username, password: administrator.password }),
+      )
+      .digest('hex'),
+    'e6b762a43c61387f8cd9929320775afbd99b8a097ae6bbab4416c859476df112',
+  );
+  const policy = readFileSync(path.join(root, '.gitguardian.yaml'), 'utf8').trimEnd().split('\n');
+  assert.deepEqual(policy.slice(0, 3), ['version: 2', 'secret:', '  ignored_matches:']);
+  assert.equal(policy.length, 9);
+  for (let index = 3; index < policy.length; index += 2) {
+    assert.match(policy[index], /^ {4}- name: [A-Za-z0-9 ._-]+$/);
+    assert.match(policy[index + 1], /^ {6}match: [a-f0-9]{64}$/);
+  }
+  assert.deepEqual(
+    policy.filter(line => line.startsWith('      match: ')).map(line => line.trim().slice(7)),
+    [
+      '281a94510feb4d0e2c7391dd461db16f8683c8b324f97129b6d3831c8f488d85',
+      'a58a4d9e0116e63f36b8a5be0295067deca4e43bd72e92be2473945cf5f90fd8',
+      'c4066fccb80dc1e6e52c976b2f2497ab65f2151127fd83f02a542103d562be7e',
+    ],
+  );
 });
