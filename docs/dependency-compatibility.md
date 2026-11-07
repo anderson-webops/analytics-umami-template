@@ -35,6 +35,20 @@ their public exports. Full peer, generation/parity, declaration, build, audit an
 project checks remain required. The proposal's separate helper-library changes
 do not apply because that library is absent from this dependency graph.
 
+## Zen icons
+
+The exact `@umami/react-zen@0.255.0>lucide-react` selection uses Lucide 1.70.0,
+matching the application's direct dependency. Zen's published dependency still
+names 0.555.0. Its sixteen consumed icon names remain available on the current
+major; the removed brand icons are neither consumed nor publicly re-exported.
+
+`test:component-dependencies` checks both published module formats, every Lucide
+namespace use, the unchanged 316 public exports and declarations, all consumed
+SVGs, accessibility, wrapper sizes, browser refs and click handling. Negative
+cases reject dynamic namespace access, namespace escape and public re-export.
+The selection is limited to the reviewed parent version. Review or remove it
+when updating Zen; keep strict peer, audit, complete source and build checks.
+
 ## Avatars
 
 DiceBear's collection, Lorelei style and initials packages remain on their
