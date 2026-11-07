@@ -16,14 +16,24 @@ Application, tracker and maintained workspace type checks use TypeScript 7.0.2
 through `scripts/typecheck.mjs`. Its regression includes a valid compilation and
 a real type error that must fail.
 
-The separate `typescript` 5.9.3 dependency supplies the JavaScript compiler API
-used by source analysis, OpenAPI generation, Next's build integration and
-declaration bundlers. TypeScript 7's main export does not provide
-`createSourceFile`, `createProgram` or `transpileModule`, and
-`openapi-typescript` 7.13.0 explicitly requires a TypeScript 5 peer. Retaining
-that API implementation does not replace the native TypeScript 7 source checks.
-Migrate those consumers when they support the new stable API; retain strict peer
-verification rather than overriding an incompatible requirement.
+The separate `typescript` 6.0.3 dependency supplies the JavaScript compiler API
+used by source analysis, OpenAPI generation, Rollup, tsup and declaration
+bundlers. Next.js resolves the same compatible compiler installation during its
+build checks. The native TypeScript 7 checks remain unchanged.
+
+The exact `openapi-typescript@7.13.0>typescript:peer` override backports the
+`^5.x || ^6.x` range from upstream proposal
+[2774](https://github.com/openapi-ts/openapi-typescript/pull/2774), reviewed at
+`6a805ba5293b8f9ce390a3546d82ad9ec5996743`. Its published peer declaration still
+names TypeScript 5; this locally qualified compatibility backport leaves all
+other peer checks active. Remove it when a verified successor declares support.
+
+Compiler-entrypoint tests verify consumer-local resolution, positive and negative
+diagnostics for both compilers, tracker warning rejection, OpenAPI AST/printing
+with nullable and union responses, and built workspace declarations through
+their public exports. Full peer, generation/parity, declaration, build, audit and
+project checks remain required. The proposal's separate helper-library changes
+do not apply because that library is absent from this dependency graph.
 
 ## Avatars
 
