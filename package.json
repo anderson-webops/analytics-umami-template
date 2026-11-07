@@ -175,7 +175,7 @@
     "jszip": "^3.10.2",
     "kafkajs": "^2.2.4",
     "lightningcss": "1.33.0",
-    "lucide-react": "^1.69.0",
+    "lucide-react": "^1.70.0",
     "maxmind": "^5.0.8",
     "motion": "^14.9.1",
     "next": "16.4.5",
