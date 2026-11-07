@@ -135,7 +135,7 @@
     "test:selector-parser": "node --test scripts/test-selector-parser-compat.mjs",
     "test:source-map": "node --test scripts/test-source-map-js-compat.mjs",
     "test:typescript-entrypoints": "node --test scripts/test-typescript-entrypoints.mjs scripts/test-typecheck.mjs",
-    "test:component-dependencies": "node --test scripts/test-component-dependencies.mjs scripts/test-zen-icons.mjs",
+    "test:component-dependencies": "node --test scripts/test-component-dependencies.mjs scripts/test-zen-icons.mjs scripts/test-zen-motion.mjs",
     "test:development-launcher": "node --test scripts/test-development-launcher.mjs"
   },
   "cacheDirectories": [

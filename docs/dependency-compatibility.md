@@ -35,6 +35,26 @@ their public exports. Full peer, generation/parity, declaration, build, audit an
 project checks remain required. The proposal's separate helper-library changes
 do not apply because that library is absent from this dependency graph.
 
+## Zen motion and primitives
+
+The exact `@umami/react-zen@0.255.0>@react-spring/web` selection uses React
+Spring 10.1.2. Its published parent still names 9.7.5, whose declared peers
+exclude React 19. [React Spring 10](https://github.com/pmndrs/react-spring/releases/tag/v10.0.0)
+supports React 19 directly, so the five older React peer overrides are removed.
+The complete animation family stays on 10.1.2. Zen consumes `animated` and
+`useTransition` for its theme control and notifications.
+
+Base UI 1.9.0 is selected through Zen's existing supported `^1.8.0` range,
+without an additional override. The root workspace lock also refreshes compatible
+transitive packages through the existing declared ranges and supply-chain policy.
+Independent build-tool locks and the selected Node/npm/pnpm pins remain separate.
+
+Component regressions check parent-local resolution, native React 19 peers,
+the animation family, both module formats and server-rendered controls. Keep
+real-browser theme/notification lifecycles, accessible primitive interactions,
+strict peers, complete audits and project checks in the upgrade acceptance.
+Review the version-bound selection when updating Zen.
+
 ## Zen icons
 
 The exact `@umami/react-zen@0.255.0>lucide-react` selection uses Lucide 1.70.0,

@@ -16,13 +16,9 @@ supportedArchitectures:
     - musl
 overrides:
   "@umami/react-zen@0.255.0>lucide-react": 1.70.0
+  "@umami/react-zen@0.255.0>@react-spring/web": 10.1.2
   "openapi-typescript@7.13.0>typescript:peer": ^5.x || ^6.x
-  "@redocly/openapi-core@1.34.19>minimatch": file:vendor/minimatch-call-compat
-  "@react-spring/animated@9.7.5>react": ^19.0.0
-  "@react-spring/core@9.7.5>react": ^19.0.0
-  "@react-spring/shared@9.7.5>react": ^19.0.0
-  "@react-spring/web@9.7.5>react": ^19.0.0
-  "@react-spring/web@9.7.5>react-dom": ^19.0.0
+  "@redocly/openapi-core@1.34.24>minimatch": file:vendor/minimatch-call-compat
   "@babel/core@<7.29.6": 7.29.7
   "@babel/core": 7.29.7
   "brace-expansion@<1.1.21": 1.1.21
