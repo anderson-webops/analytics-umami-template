@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { once } from 'node:events';
 import { existsSync, readFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import path from 'node:path';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
@@ -15,6 +17,74 @@ const fixtureEnvironment = {
   KAFKA_HISTORY_ATTESTED_CLEAN: 'true',
   CLICKHOUSE_HISTORY_ATTESTED_CLEAN: 'true',
 };
+
+async function withRequestFixture(context, cookiePath, verify) {
+  const server = createServer((incoming, outgoing) => {
+    const url = new URL(incoming.url, 'http://127.0.0.1');
+    outgoing.setHeader('Content-Type', 'application/json');
+    if (url.pathname === '/cookie') {
+      outgoing.setHeader(
+        'Set-Cookie',
+        `fixture_session=synthetic; Path=${cookiePath}; HttpOnly; SameSite=Strict`,
+      );
+    }
+    outgoing.end(
+      JSON.stringify({
+        cookie: incoming.headers.cookie ?? null,
+        retained: url.searchParams.get('retained'),
+        repeated: url.searchParams.getAll('repeated'),
+      }),
+    );
+  });
+  const listening = once(server, 'listening');
+  server.listen(0, '127.0.0.1');
+  await listening;
+  context.after(() => {
+    server.closeAllConnections();
+    return new Promise((resolve, reject) => {
+      server.close(error => (error ? reject(error) : resolve()));
+    });
+  });
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+  const { request } = await import('@playwright/test');
+  const client = await request.newContext({
+    baseURL: `http://127.0.0.1:${address.port}`,
+    timeout: 3_000,
+  });
+  context.after(() => client.dispose());
+  await verify(client);
+}
+
+for (const cookiePath of ['/api', '/api/']) {
+  test(`request cookies honor the ${cookiePath} path boundary`, {
+    timeout: 10_000,
+  }, async context => {
+    await withRequestFixture(context, cookiePath, async client => {
+      await client.get('/cookie');
+      assert.equal(
+        (await (await client.get('/api/current')).json()).cookie,
+        'fixture_session=synthetic',
+      );
+      assert.equal((await (await client.get('/apiv2')).json()).cookie, null);
+      assert.equal(
+        (await (await client.get('/api')).json()).cookie,
+        cookiePath === '/api' ? 'fixture_session=synthetic' : null,
+      );
+    });
+  });
+}
+
+test('request parameters retain existing URL query entries', { timeout: 10_000 }, async context => {
+  await withRequestFixture(context, '/api', async client => {
+    const response = await client.get('/echo?retained=yes&repeated=first', {
+      params: new URLSearchParams({ repeated: 'second' }),
+    });
+    const result = await response.json();
+    assert.equal(result.retained, 'yes');
+    assert.deepEqual(result.repeated, ['first', 'second']);
+  });
+});
 
 test('the disposable fixture accepts only its exact database and application identity', () => {
   verifyFixtureEnvironment(fixtureEnvironment);

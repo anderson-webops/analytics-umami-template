@@ -9,7 +9,8 @@ const rootRequire = createRequire(import.meta.url);
 
 function installedBraces(plugin) {
   const pluginRequire = createRequire(rootRequire.resolve(plugin));
-  const globbyRequire = createRequire(pluginRequire.resolve('globby'));
+  const deletionRequire = createRequire(pluginRequire.resolve('del'));
+  const globbyRequire = createRequire(deletionRequire.resolve('globby'));
   const globRequire = createRequire(globbyRequire.resolve('fast-glob'));
   const micromatchRequire = createRequire(globRequire.resolve('micromatch'));
   const packagePath = micromatchRequire.resolve('braces/package.json');
