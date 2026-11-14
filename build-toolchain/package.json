@@ -13,8 +13,8 @@
     "minipass-pipeline": "file:vendor/minipass-pipeline-3.0.1-webops.1.tgz"
   },
   "overrides": {
-    "glob": "14.0.4",
-    "minimatch": "11.0.5",
+    "glob": "14.0.6",
+    "minimatch": "11.0.8",
     "@npmcli/query": "6.0.0",
     "balanced-match": "5.0.0",
     "chalk": "6.0.1",
