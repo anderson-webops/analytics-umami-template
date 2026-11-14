@@ -19,6 +19,7 @@ integrationTest(
     const verifiedEventId = '4a147eee-7e6d-4d73-b4a0-f50d06a57002';
     const unverifiedEventId = '4a147eee-7e6d-4d73-b4a0-f50d06a57003';
     const missingEventId = '4a147eee-7e6d-4d73-b4a0-f50d06a57004';
+    const visitId = '4a147eee-7e6d-4d73-b4a0-f50d06a57005';
     const createdAt = '2026-10-15 12:00:00';
     let databaseCreated = false;
     let websiteEventCreated = false;
@@ -43,7 +44,7 @@ integrationTest(
       databaseCreated = true;
       await client.command({
         query: `CREATE TABLE website_event (
-        website_id UUID, session_id UUID, event_id UUID, event_name String,
+        website_id UUID, session_id UUID, visit_id UUID, event_id UUID, event_name String,
         event_type UInt32, trust_tier UInt8 DEFAULT 0, is_bot UInt8,
         created_at DateTime('UTC'), hostname String DEFAULT 'example.test',
         url_path String DEFAULT '/', url_query String DEFAULT '',
@@ -90,6 +91,7 @@ integrationTest(
           {
             website_id: websiteId,
             session_id: sessionId,
+            visit_id: visitId,
             event_id: verifiedEventId,
             event_name: 'purchase',
             url_path: '/purchase',
@@ -101,6 +103,7 @@ integrationTest(
           {
             website_id: websiteId,
             session_id: sessionId,
+            visit_id: visitId,
             event_id: verifiedEventId,
             event_name: 'purchase',
             url_path: '/purchase',
@@ -112,6 +115,7 @@ integrationTest(
           {
             website_id: websiteId,
             session_id: sessionId,
+            visit_id: visitId,
             event_id: unverifiedEventId,
             event_name: 'purchase',
             url_path: '/purchase',
@@ -123,6 +127,7 @@ integrationTest(
           {
             website_id: websiteId,
             session_id: sessionId,
+            visit_id: visitId,
             event_id: verifiedEventId,
             event_name: 'forged',
             url_path: '/purchase',
@@ -247,6 +252,10 @@ integrationTest(
         endDate: new Date('2026-10-16T00:00:00Z'),
       });
       expect(Number(history.count)).toBe(4);
+      expect(history.data).toHaveLength(4);
+      for (const row of history.data) {
+        expect(row).toMatchObject({ visitId });
+      }
       expect(
         history.data.filter(row => row.eventName === 'purchase' && Number(row.trustTier) === 1),
       ).toHaveLength(2);
@@ -266,6 +275,7 @@ integrationTest(
           {
             website_id: websiteId,
             session_id: sessionId,
+            visit_id: visitId,
             event_id: pathOrphanEventId,
             event_name: 'orphan',
             url_path: '/purchase',

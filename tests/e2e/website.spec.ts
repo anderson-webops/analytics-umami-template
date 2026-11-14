@@ -49,6 +49,7 @@ test.describe('Website tests', () => {
     await page.getByTestId('button-submit').click();
     await expect(page.getByText(/Saved/i).first()).toBeVisible();
 
+    await page.reload();
     await expect(page.getByTestId('input-name').locator('input')).toHaveValue(updatedName);
     await expect(page.getByTestId('input-domain').locator('input')).toHaveValue(
       `updatedwebsite-${suffix}.com`,

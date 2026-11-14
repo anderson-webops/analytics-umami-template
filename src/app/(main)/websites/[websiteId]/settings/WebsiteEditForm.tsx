@@ -7,16 +7,18 @@ export function WebsiteEditForm({ websiteId, onSave }: { websiteId: string; onSa
   const { t, labels, messages, getErrorMessage } = useMessages();
   const { mutateAsync, error, touch, toast } = useUpdateQuery(`/websites/${websiteId}`);
 
-  const handleSubmit = async (data: any) => {
-    const { shareId, ...updateData } = data;
-    await mutateAsync(updateData, {
-      onSuccess: async () => {
-        toast(t(messages.saved));
-        touch('websites');
-        touch(`website:${website.id}`);
-        onSave?.();
+  const handleSubmit = async ({ name, domain }: { name: string; domain: string }) => {
+    await mutateAsync(
+      { name, domain },
+      {
+        onSuccess: async () => {
+          toast(t(messages.saved));
+          touch('websites');
+          touch(`website:${website.id}`);
+          onSave?.();
+        },
       },
-    });
+    );
   };
 
   return (
