@@ -4,7 +4,6 @@ import {
   chmodSync,
   constants,
   copyFileSync,
-  existsSync,
   mkdirSync,
   readFileSync,
   realpathSync,
@@ -19,6 +18,7 @@ import {
   selectToolchainCache,
   verifyReusableToolchain,
 } from './build-toolchain-cache.mjs';
+import { selectNpmSeed } from './build-toolchain-seed.mjs';
 import {
   sha256,
   toolchainInputNames,
@@ -105,20 +105,7 @@ function run(executable, args, cwd, env, quiet = true) {
   });
 }
 
-const pairedSeedCli = path.resolve(
-  path.dirname(process.execPath),
-  '../node_modules/npm/bin/npm-cli.js',
-);
-const seedCli = process.env.npm_execpath
-  ? realpathSync(process.env.npm_execpath)
-  : existsSync(pairedSeedCli)
-    ? realpathSync(pairedSeedCli)
-    : realpathSync(
-        path.join(
-          path.dirname(process.execPath),
-          process.platform === 'win32' ? 'node_modules/npm/bin/npm-cli.js' : 'npm',
-        ),
-      );
+const seedCli = selectNpmSeed();
 const seedEnvironment = { ...process.env, PYTHONDONTWRITEBYTECODE: '1' };
 delete seedEnvironment.NODE_OPTIONS;
 delete seedEnvironment.NODE_PATH;

@@ -363,6 +363,7 @@ test('a clean source-only bootstrap installs the application through its isolate
       'build-toolchain.mjs',
       'build-toolchain-state.mjs',
       'build-toolchain-cache.mjs',
+      'build-toolchain-seed.mjs',
     ])
       cpSync(path.join(root, 'scripts', name), path.join(directory, 'scripts', name));
     const manifest = {
@@ -387,6 +388,8 @@ test('a clean source-only bootstrap installs the application through its isolate
       path.join(directory, 'observe-install.cjs'),
       'require("node:fs").writeFileSync("observed.json", JSON.stringify({cli:process.env.npm_execpath, cwd:process.cwd(), ignored:process.env.npm_config_ignore_scripts}))\n',
     );
+    const nativePnpm = path.join(directory, 'native-pnpm');
+    writeFileSync(nativePnpm, Buffer.from([0x7f, 0x45, 0x4c, 0x46]));
     context.diagnostic('Preparing, auditing and installing the independent cold profile');
     const output = execFileSync(
       process.execPath,
@@ -406,6 +409,7 @@ test('a clean source-only bootstrap installs the application through its isolate
         env: {
           ...process.env,
           NPM_CONFIG_CACHE: path.join(directory, 'cache'),
+          npm_execpath: nativePnpm,
         },
       },
     );
@@ -435,6 +439,7 @@ test('a clean source-only bootstrap installs the application through its isolate
         env: {
           ...process.env,
           NPM_CONFIG_CACHE: path.join(directory, 'cache'),
+          npm_execpath: nativePnpm,
         },
       },
     ).trim();
