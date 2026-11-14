@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { startOfDay, startOfMonth, startOfWeek } from 'date-fns';
 import { v4, v5, v7, validate } from 'uuid';
 import { isEnvEnabled } from '@/lib/env';
+import { getAppSecret } from './app-secret';
 
 const ALGORITHM = 'aes-256-gcm';
 const V2_PREFIX = 'v2.';
@@ -78,13 +79,7 @@ export function md5(...args: string[]) {
 }
 
 export function secret() {
-  const value = process.env.APP_SECRET?.trim();
-
-  if (!value || Buffer.byteLength(value, 'utf8') < 32) {
-    throw new Error('APP_SECRET must contain at least 32 UTF-8 bytes.');
-  }
-
-  return hash(value);
+  return hash(getAppSecret());
 }
 
 export function uuid(...args: any) {
@@ -103,10 +98,33 @@ export function createAuthKey() {
   return crypto.randomBytes(16).toString('hex');
 }
 
-export function getSalt(saltRotation: string, createdAt: Date): string {
-  return hash(
-    (saltRotation === 'day' ? startOfDay : saltRotation === 'week' ? startOfWeek : startOfMonth)(
-      createdAt,
-    ).toUTCString(),
-  );
+const SALT_ROTATION_PERIODS: Record<string, (date: Date) => Date> = {
+  day: startOfDay,
+  daily: startOfDay,
+  week: startOfWeek,
+  weekly: startOfWeek,
+  month: startOfMonth,
+  monthly: startOfMonth,
+};
+
+/**
+ * Session salt, controlled by SALT_ROTATION:
+ * - unset/empty: rotates monthly (default)
+ * - day/daily, week/weekly, month/monthly: rotates on that period
+ * - any other string: a fixed salt derived from that string (no rotation)
+ */
+export function getSalt(saltRotation: string | undefined, createdAt: Date): string {
+  const value = saltRotation?.trim();
+
+  if (!value) {
+    return hash(startOfMonth(createdAt).toUTCString());
+  }
+
+  const startOfPeriod = SALT_ROTATION_PERIODS[value.toLowerCase()];
+
+  if (startOfPeriod) {
+    return hash(startOfPeriod(createdAt).toUTCString());
+  }
+
+  return hash(value);
 }

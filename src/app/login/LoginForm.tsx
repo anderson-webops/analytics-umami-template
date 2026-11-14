@@ -136,7 +136,7 @@ export function LoginForm({ captchaSiteKey }: { captchaSiteKey?: string }) {
           name="username"
           rules={{ required: t(labels.required) }}
         >
-          <TextField autoComplete="username" />
+          <TextField autoComplete="username" autoFocus />
         </FormField>
 
         <FormField

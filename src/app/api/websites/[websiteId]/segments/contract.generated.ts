@@ -43,6 +43,36 @@ const operation1 = defineOperation({
         },
         description: 'Search text used to filter results.',
       },
+      {
+        name: 'page',
+        in: 'query',
+        required: false,
+        schema: {
+          type: 'integer',
+          minimum: 1,
+        },
+        description: 'Page number, starting at 1.',
+      },
+      {
+        name: 'pageSize',
+        in: 'query',
+        required: false,
+        schema: {
+          type: 'integer',
+          minimum: 1,
+        },
+        description: 'Number of results per page.',
+      },
+      {
+        name: 'maxResults',
+        in: 'query',
+        required: false,
+        schema: {
+          type: 'integer',
+          minimum: 1,
+        },
+        description: 'Maximum number of results to include.',
+      },
     ],
     responses: {
       '200': {

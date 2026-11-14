@@ -7,7 +7,7 @@ const operation1 = defineOperation({
   method: 'get',
   path: '/api/teams/{teamId}/websites',
   audience: 'public',
-  auth: 'bearer-or-share',
+  auth: 'bearer',
   operation: {
     operationId: 'getTeamWebsites',
     summary: "List a team's websites",

@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { createClient } from '@clickhouse/client';
 import { expect, test } from 'vitest';
-import { getWebsiteSession } from './getWebsiteSession';
 
 const integrationTest = process.env.CLICKHOUSE_TEST_URL ? test : test.skip;
 
 integrationTest('session summary does not project caller-supplied identity labels', async () => {
+  const { getWebsiteSession } = await import('./getWebsiteSession');
   const url = process.env.CLICKHOUSE_TEST_URL;
   expect(process.env.CLICKHOUSE_URL).toBe(url);
 
@@ -21,6 +21,9 @@ integrationTest('session summary does not project caller-supplied identity label
         session_id UUID,
         visit_id UUID,
         distinct_id String,
+        event_id UUID DEFAULT generateUUIDv4(),
+        referrer_domain String DEFAULT '',
+        hostname String DEFAULT '',
         browser String,
         os String,
         device String,

@@ -8,7 +8,7 @@ export type Auth = {
 
 export const umamiUser = {
   username: process.env.UMAMI_USER ?? 'admin',
-  password: process.env.UMAMI_PASSWORD ?? 'umami',
+  password: process.env.UMAMI_PASSWORD ?? 'umami-e2e-password',
   id: process.env.UMAMI_USER_ID ?? '41e2b680-648e-4b09-bcd7-3e2b10c06264',
 };
 

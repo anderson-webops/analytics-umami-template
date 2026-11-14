@@ -4,6 +4,11 @@ import { POST } from './route';
 const mocks = vi.hoisted(() => ({
   parseRequest: vi.fn(),
   getAllUserTeams: vi.fn(),
+  addTeamBillingStatus: vi.fn(),
+}));
+
+vi.mock('@/lib/load', () => ({
+  addTeamBillingStatus: mocks.addTeamBillingStatus,
 }));
 
 vi.mock('@/lib/request', () => ({
@@ -16,6 +21,7 @@ vi.mock('@/queries/prisma', () => ({
 
 beforeEach(() => {
   mocks.parseRequest.mockReset();
+  mocks.addTeamBillingStatus.mockReset().mockImplementation(async teams => teams);
   mocks.getAllUserTeams.mockReset();
   mocks.getAllUserTeams.mockResolvedValue([{ id: 'private-team', name: 'Private team' }]);
 });
@@ -46,4 +52,33 @@ test('POST with a verified session retains its normal team memberships', async (
     teams: [{ id: 'private-team', name: 'Private team' }],
   });
   expect(mocks.getAllUserTeams).toHaveBeenCalledWith('user-1');
+});
+
+test('POST preserves the seeded-password prompt after restoring a session', async () => {
+  mocks.parseRequest.mockResolvedValue({
+    auth: { user: { id: 'admin-1', username: 'admin' }, passwordChangeRequired: true },
+    error: undefined,
+  });
+
+  const response = await POST(new Request('http://localhost/api/auth/verify', { method: 'POST' }));
+  await expect(response.json()).resolves.toMatchObject({
+    id: 'admin-1',
+    passwordChangeRequired: true,
+  });
+});
+
+test('POST includes current billing metadata only after full authorization', async () => {
+  mocks.parseRequest.mockResolvedValue({
+    auth: { user: { id: 'user-1', username: 'alice' }, enrollmentOnly: false },
+    error: undefined,
+  });
+  mocks.addTeamBillingStatus.mockResolvedValue([{ id: 'private-team', billingStatus: 'active' }]);
+
+  const response = await POST(new Request('http://localhost/api/auth/verify', { method: 'POST' }));
+  await expect(response.json()).resolves.toMatchObject({
+    teams: [{ id: 'private-team', billingStatus: 'active' }],
+  });
+  expect(mocks.addTeamBillingStatus).toHaveBeenCalledWith([
+    { id: 'private-team', name: 'Private team' },
+  ]);
 });

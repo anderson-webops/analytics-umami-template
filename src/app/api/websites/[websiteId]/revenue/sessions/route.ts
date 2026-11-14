@@ -4,7 +4,7 @@ import { getQueryFilters, parseRequest } from '@/lib/request';
 import { json, unauthorized } from '@/lib/response';
 import { filterParams, pagingParams, searchParams, withDateRange } from '@/lib/schema';
 import { getPagedShareWorkMultiplier } from '@/lib/share-query-budget';
-import { canViewWebsiteSection } from '@/permissions';
+import { canViewWebsiteSectionRows } from '@/permissions';
 import { getRevenueSessions } from '@/queries/sql/revenue/getRevenueSessions';
 
 export async function GET(
@@ -29,7 +29,7 @@ export async function GET(
 
   const { websiteId } = await params;
 
-  if (!(await canViewWebsiteSection(auth, websiteId, 'revenue'))) {
+  if (!(await canViewWebsiteSectionRows(auth, websiteId, 'revenue'))) {
     return unauthorized();
   }
 
@@ -40,6 +40,6 @@ export async function GET(
 
   return json(
     { ...data, revenueProvenance: REVENUE_PROVENANCE },
-    { headers: REVENUE_RESPONSE_HEADERS },
+    { headers: { ...REVENUE_RESPONSE_HEADERS, 'Cache-Control': 'no-store' } },
   );
 }

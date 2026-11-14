@@ -11,6 +11,69 @@ const read = (relativePath: string) =>
   fs.readFileSync(path.join(repositoryRoot, relativePath), 'utf8');
 
 describe('direct production startup', () => {
+  test('script execution rejects stale dependencies before installing or running application code', () => {
+    expect(read('pnpm-workspace.yaml')).toMatch(/^verifyDepsBeforeRun: error$/m);
+    const runsDirectory = path.join(repositoryRoot, '.ai-work', 'runs');
+    fs.mkdirSync(runsDirectory, { recursive: true });
+    const fixture = fs.mkdtempSync(path.join(runsDirectory, 'dependency-run-policy-'));
+    const environment: NodeJS.ProcessEnv = {
+      PATH: process.env.PATH,
+      HOME: fixture,
+      NODE_ENV: 'test',
+      PNPM_HOME: path.join(fixture, 'pnpm-home'),
+      PYTHONDONTWRITEBYTECODE: '1',
+    };
+    const manifest = {
+      name: 'dependency-run-policy-fixture',
+      version: '1.0.0',
+      private: true,
+      scripts: { probe: 'node -e "process.stdout.write(\'fixture-script-executed\')"' },
+      dependencies: {},
+    };
+    try {
+      fs.writeFileSync(path.join(fixture, 'package.json'), JSON.stringify(manifest));
+      fs.writeFileSync(
+        path.join(fixture, 'pnpm-workspace.yaml'),
+        'packages:\n  - "."\nverifyDepsBeforeRun: error\n',
+      );
+      for (const argumentsList of [
+        ['install', '--lockfile-only', '--offline', '--ignore-scripts'],
+        ['install', '--frozen-lockfile', '--offline', '--ignore-scripts'],
+      ]) {
+        const result = spawnSync('pnpm', argumentsList, {
+          cwd: fixture,
+          encoding: 'utf8',
+          env: environment,
+          timeout: 4_000,
+        });
+        expect(result.error).toBeUndefined();
+        expect(result.status, result.stderr).toBe(0);
+      }
+      fs.mkdirSync(path.join(fixture, 'library'));
+      fs.writeFileSync(
+        path.join(fixture, 'library/package.json'),
+        JSON.stringify({ name: 'fixture-lib', version: '1.0.0' }),
+      );
+      manifest.dependencies = { 'fixture-lib': 'file:library' };
+      fs.writeFileSync(path.join(fixture, 'package.json'), JSON.stringify(manifest));
+      const lock = fs.readFileSync(path.join(fixture, 'pnpm-lock.yaml'));
+      const result = spawnSync('pnpm', ['run', 'probe'], {
+        cwd: fixture,
+        encoding: 'utf8',
+        env: environment,
+        timeout: 4_000,
+      });
+      expect(result.error).toBeUndefined();
+      expect(result.status).toBe(1);
+      expect(`${result.stdout}${result.stderr}`).toMatch(/ERR_PNPM_VERIFY_DEPS_BEFORE_RUN/);
+      expect(result.stdout).not.toContain('fixture-script-executed');
+      expect(fs.existsSync(path.join(fixture, 'node_modules/fixture-lib'))).toBe(false);
+      expect(fs.readFileSync(path.join(fixture, 'pnpm-lock.yaml'))).toEqual(lock);
+    } finally {
+      fs.rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
   test.each(['source', 'artifact', 'dotenv'])(
     '%s launcher enforces production gates even when launched from development',
     launcherKind => {
@@ -168,6 +231,7 @@ describe('direct production startup', () => {
         fs.rmSync(fixtureRoot, { recursive: true, force: true });
       }
     },
+    20_000,
   );
 
   test('artifact acceptance handles signal-based shutdown after launcher replacement', async () => {
@@ -604,7 +668,7 @@ describe('direct production startup', () => {
     expect(databaseCheckSource).toContain('pg_get_constraintdef');
     expect(read('scripts/start-runtime.mjs')).toContain('timeout: 120_000');
     expect(systemdUnit).toContain(
-      'ExecStart=/opt/node-26.13.0/bin/node .next/standalone/runtime-scripts/start-production.mjs',
+      'ExecStart=/opt/node-26.13.1/bin/node .next/standalone/runtime-scripts/start-production.mjs',
     );
     expect(systemdUnit).toContain('Environment=NODE_OPTIONS=--max-old-space-size=384');
     expect(systemdUnit).toContain('MemoryHigh=512M');

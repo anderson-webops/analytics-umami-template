@@ -8,6 +8,8 @@ import {
 } from '@/queries/prisma';
 import { POST } from './route';
 
+vi.mock('@/lib/prisma', () => ({ default: { client: {} } }));
+
 vi.mock('@/lib/collection-rate-limit', () => ({
   getCollectionIpLimit: vi.fn(async () => ({ blocked: false, retryAfter: 60 })),
 }));

@@ -630,6 +630,7 @@ export async function runAuthorizedAdministratorMutation<T>(
 export async function assertEntityIdAvailable(
   transaction: Prisma.TransactionClient,
   entityId: string,
+  options: { personalDashboardUserId?: string } = {},
 ) {
   const entities = [
     await transaction.website.findUnique({ where: { id: entityId }, select: { id: true } }),
@@ -637,8 +638,15 @@ export async function assertEntityIdAvailable(
     await transaction.pixel.findUnique({ where: { id: entityId }, select: { id: true } }),
     await transaction.board.findUnique({ where: { id: entityId }, select: { id: true } }),
   ];
+  const user = await transaction.user.findUnique({
+    where: { id: entityId },
+    select: { id: true },
+  });
 
-  if (entities.some(Boolean)) {
+  if (
+    entities.some(Boolean) ||
+    (user && (user.id !== entityId || options.personalDashboardUserId !== entityId))
+  ) {
     throw new Error('ENTITY_ID_CONFLICT');
   }
 }

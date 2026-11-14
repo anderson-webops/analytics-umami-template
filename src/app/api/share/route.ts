@@ -92,5 +92,5 @@ export async function POST(request: Request) {
     throw error;
   }
 
-  return json(share);
+  return json(share, { headers: { 'Cache-Control': 'no-store' } });
 }

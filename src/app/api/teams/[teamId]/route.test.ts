@@ -1,8 +1,8 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { parseRequest } from '@/lib/request';
-import { canViewTeam } from '@/permissions';
-import { getTeam, getTeamAccessCodeForActor } from '@/queries/prisma';
-import { GET } from './route';
+import { canUpdateTeam, canViewTeam } from '@/permissions';
+import { getTeam, getTeamAccessCodeForActor, updateTeam } from '@/queries/prisma';
+import { GET, POST } from './route';
 
 vi.mock('@/lib/request', () => ({ parseRequest: vi.fn() }));
 vi.mock('@/permissions', () => ({
@@ -46,6 +46,8 @@ async function readTeam(authType: 'session' | 'api-key') {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(canUpdateTeam).mockResolvedValue(true);
+  vi.mocked(updateTeam).mockResolvedValue(team as never);
   canViewTeamMock.mockResolvedValue(true);
   getTeamMock.mockResolvedValue(team as any);
   getTeamAccessCodeForActorMock.mockResolvedValue(undefined);
@@ -96,4 +98,42 @@ test('non-members cannot view the team or its access code', async () => {
   expect(response.status).toBe(401);
   expect(getTeamMock).not.toHaveBeenCalled();
   expect(getTeamAccessCodeForActorMock).not.toHaveBeenCalled();
+});
+
+test('API-key updates omit the invitation code from the returned team', async () => {
+  parseRequestMock.mockResolvedValue({
+    auth: { authType: 'api-key', user: { id: 'user-1' } },
+    body: { name: 'Updated team' },
+  });
+  getTeamAccessCodeForActorMock.mockResolvedValue(team.accessCode);
+
+  const response = await POST(
+    new Request('http://localhost/api/teams/team-1', { method: 'POST' }),
+    {
+      params: Promise.resolve({ teamId: 'team-1' }),
+    },
+  );
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).not.toHaveProperty('accessCode');
+  expect(getTeamAccessCodeForActorMock).not.toHaveBeenCalled();
+});
+
+test('session updates return an invitation code only after the current manager check', async () => {
+  parseRequestMock.mockResolvedValue({
+    auth: { authType: 'session', user: { id: 'user-1' } },
+    body: { name: 'Updated team' },
+  });
+  getTeamAccessCodeForActorMock.mockResolvedValue(team.accessCode);
+
+  const response = await POST(
+    new Request('http://localhost/api/teams/team-1', { method: 'POST' }),
+    {
+      params: Promise.resolve({ teamId: 'team-1' }),
+    },
+  );
+
+  expect(response.status).toBe(200);
+  expect(await response.json()).toHaveProperty('accessCode', team.accessCode);
+  expect(getTeamAccessCodeForActorMock).toHaveBeenCalledWith('team-1', 'user-1');
 });

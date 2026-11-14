@@ -153,7 +153,7 @@ const operation2 = defineOperation({
   method: 'post',
   path: '/api/dashboard',
   audience: 'internal',
-  auth: 'bearer-or-share',
+  auth: 'bearer',
   operation: {
     operationId: 'postDashboard',
     summary: 'Save my dashboard',
@@ -168,7 +168,8 @@ const operation2 = defineOperation({
             type: 'object',
             properties: {
               name: {
-                maximum: 100,
+                type: 'string',
+                maxLength: 100,
                 description: 'Display name of the dashboard.',
               },
               description: {

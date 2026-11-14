@@ -1,5 +1,5 @@
 import { LoadingPanel } from '@/components/common/LoadingPanel';
-import { useDateRange, useMessages } from '@/components/hooks';
+import { useDateRange, useMessages, useTimezone } from '@/components/hooks';
 import { useTrafficStatsQuery } from '@/components/hooks/queries/useTrafficStatsQuery';
 import { MetricCard } from '@/components/metrics/MetricCard';
 import { MetricsBar } from '@/components/metrics/MetricsBar';
@@ -13,7 +13,8 @@ export function PixelMetricsBar({
   showChange?: boolean;
   compareMode?: boolean;
 }) {
-  const { isAllTime } = useDateRange();
+  const { timezone } = useTimezone();
+  const { isAllTime, hasComparison } = useDateRange({ timezone });
   const { t, labels } = useMessages();
   const { data, isLoading, isFetching, error } = useTrafficStatsQuery(pixelId);
 
@@ -62,7 +63,7 @@ export function PixelMetricsBar({
               change={change}
               formatValue={formatValue}
               reverseColors={reverseColors}
-              showChange={!isAllTime}
+              showChange={!isAllTime && hasComparison}
             />
           );
         })}

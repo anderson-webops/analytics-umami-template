@@ -13,6 +13,7 @@ import {
   tooManyRequests,
   unauthorized,
 } from '@/lib/response';
+import { withPeriodDateRange } from '@/lib/schema';
 import {
   getAuthenticatedQueryCost,
   getShareQueryCost,
@@ -34,7 +35,7 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ websiteId: string; sessionId: string }> },
 ) {
-  const schema = z.object({
+  const schema = withPeriodDateRange({
     startAt: z.coerce.number().int(),
     endAt: z.coerce.number().int(),
     distinctId: z.string().max(FIELD_LENGTH.distinctId).optional(),
@@ -205,5 +206,5 @@ export async function GET(
 
   const data = (await getSessionActivity(websiteId, sessionIds, filters)) as SessionActivity[];
 
-  return json(data);
+  return json(data, { headers: { 'Cache-Control': 'no-store' } });
 }

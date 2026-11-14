@@ -132,7 +132,7 @@
     "os": "linux",
     "arch": "arm64",
     "libc": "glibc",
-    "node": "26.13.0",
+    "node": "26.13.1",
     "packageManager": "pnpm@12.18.0"
   },
   "deployment": {

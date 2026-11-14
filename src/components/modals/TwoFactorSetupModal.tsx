@@ -99,6 +99,7 @@ export function TwoFactorSetupModal({ required, onClose }: TwoFactorSetupModalPr
       passwordRef.current = null;
       setBackupCodes(data.backupCodes);
     } catch (err: any) {
+      setOtpValue('');
       setError(getErrorMessage(err) || t(messages.error));
     }
   };
@@ -231,7 +232,7 @@ export function TwoFactorSetupModal({ required, onClose }: TwoFactorSetupModalPr
                           if (error) setError(null);
                         }}
                         onComplete={handleConfirm}
-                        disabled={isConfirming}
+                        readOnly={isConfirming}
                       />
                     </Column>
                   </Step>

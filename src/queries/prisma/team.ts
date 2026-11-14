@@ -1,5 +1,5 @@
 import { Prisma, type Team } from '@/generated/prisma/client';
-import { ROLES, TEAM_ROLE_RANK } from '@/lib/constants';
+import { PERMISSIONS, ROLE_PERMISSIONS, ROLES, TEAM_ROLE_RANK } from '@/lib/constants';
 import { isUuid, uuid } from '@/lib/crypto';
 import { isEnvEnabled } from '@/lib/env';
 import prisma from '@/lib/prisma';
@@ -111,7 +111,7 @@ export async function getTeams(
 }
 
 export async function getUserTeams(userId: string, filters: QueryFilters = {}) {
-  return getTeams(
+  const teams = await getTeams(
     {
       where: {
         deletedAt: null,
@@ -146,6 +146,23 @@ export async function getUserTeams(userId: string, filters: QueryFilters = {}) {
     },
     filters,
   );
+
+  // The access code lets anyone join the team as a member, so only roles that can edit the
+  // team (owners and managers) receive it.
+  return {
+    ...teams,
+    data: teams.data.map((team): Omit<Team, 'accessCode'> & { accessCode?: Team['accessCode'] } => {
+      const role = (team as any).members?.find(member => member.userId === userId)?.role;
+
+      if (ROLE_PERMISSIONS[role]?.includes(PERMISSIONS.teamUpdate)) {
+        return team;
+      }
+
+      const { accessCode: _accessCode, ...rest } = { ...team, accessCode: undefined };
+
+      return rest;
+    }),
+  };
 }
 
 export async function getAllUserTeams(userId: string) {
@@ -402,6 +419,15 @@ export async function deleteTeam(teamId: string, actorUserId: string, auth: Auth
         where: { websiteId: { in: sourceIds } },
       });
       await transaction.attestedRevenueMovement.deleteMany({
+        where: { websiteId: { in: websiteIds } },
+      });
+      await transaction.errorEvent.deleteMany({
+        where: { websiteId: { in: websiteIds } },
+      });
+      await transaction.errorIssue.deleteMany({
+        where: { websiteId: { in: websiteIds } },
+      });
+      await transaction.errorRateLimit.deleteMany({
         where: { websiteId: { in: websiteIds } },
       });
       await transaction.eventData.deleteMany({

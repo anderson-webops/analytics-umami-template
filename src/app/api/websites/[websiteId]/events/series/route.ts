@@ -1,7 +1,13 @@
 import { z } from 'zod';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import { badRequest, json, unauthorized } from '@/lib/response';
-import { filterParams, queryLimitParam, timezoneParam, unitParam } from '@/lib/schema';
+import {
+  filterParams,
+  queryLimitParam,
+  timezoneParam,
+  unitParam,
+  withPeriodDateRange,
+} from '@/lib/schema';
 import { getEventSeriesShareWorkMultiplier } from '@/lib/share-query-budget';
 import { canViewWebsiteSection } from '@/permissions';
 import { getEventSeriesLimit, getEventStats, isEventSeriesWithinBudget } from '@/queries/sql';
@@ -10,7 +16,7 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ websiteId: string }> },
 ) {
-  const schema = z.object({
+  const schema = withPeriodDateRange({
     startAt: z.coerce.number().int(),
     endAt: z.coerce.number().int(),
     unit: unitParam.optional(),

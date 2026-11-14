@@ -7,7 +7,7 @@ const operation1 = defineOperation({
   method: 'get',
   path: '/api/websites/{websiteId}/replays/saved/{replayId}',
   audience: 'public',
-  auth: 'bearer-or-share',
+  auth: 'bearer',
   operation: {
     operationId: 'getWebsiteReplaySaved',
     summary: 'Check whether a replay is saved',

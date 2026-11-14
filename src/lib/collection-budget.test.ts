@@ -69,6 +69,15 @@ test('property-rich events consume rows and bytes proportional to persisted work
   expect(rich.requests).toBe(1);
 });
 
+test('error collection charges its session, issue, event and complete encoded payload', () => {
+  const payload = { id: undefined, stack: 'x'.repeat(16000), tags: { section: 'checkout' } };
+  const body = { type: 'error' as const, payload };
+  const cost = getCollectionCost(body);
+  expect(cost.rows).toBe(3);
+  expect(cost.bytes).toBe(Buffer.byteLength(JSON.stringify(body), 'utf8') + 3 * 512);
+  expect(cost.requests).toBe(1);
+});
+
 test('client keys separate sources and IPs while sharing an owner across sources', () => {
   const sourceA = getCollectionClientKeys(
     'website',

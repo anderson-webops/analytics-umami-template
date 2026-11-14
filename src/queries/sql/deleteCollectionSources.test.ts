@@ -39,6 +39,7 @@ describe('deleteClickhouseCollectionSources', () => {
 
     expect(rawQuery).toHaveBeenCalledTimes(2);
     expect(CLICKHOUSE_COLLECTION_TABLES).toContain('session_link');
+    expect(CLICKHOUSE_COLLECTION_TABLES).toContain('error_event');
     expect(CLICKHOUSE_COLLECTION_TABLES).toContain('event_data_pivot_verified');
     expect(command).toHaveBeenCalledTimes(CLICKHOUSE_COLLECTION_TABLES.length);
 

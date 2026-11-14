@@ -9,6 +9,7 @@ import { useMessages, useSubscription, useWebsite } from '@/components/hooks';
 import { Video } from '@/components/icons';
 import { openNewTab } from '@/lib/open-new-tab';
 import { getItem, setItem } from '@/lib/storage';
+import type { ReplaySource } from '@/store/replays';
 import { ReplayModal } from './ReplayModal';
 import { ReplaysDataTable } from './ReplaysDataTable';
 import { SavedReplaysDataTable } from './SavedReplaysDataTable';
@@ -16,14 +17,17 @@ import { SavedReplaysDataTable } from './SavedReplaysDataTable';
 const KEY_NAME = 'umami.replays.tab';
 
 export function ReplaysPage({ websiteId }: { websiteId: string }) {
-  const [tab, setTab] = useState(getItem(KEY_NAME) || 'replays');
+  const [tab, setTab] = useState<ReplaySource>(() =>
+    getItem(KEY_NAME) === 'saved' ? 'saved' : 'replays',
+  );
   const website = useWebsite();
   const { t, labels, messages } = useMessages();
   const { hasFeature, cloudMode, isLoading } = useSubscription(website?.teamId);
 
   const handleSelect = (value: Key) => {
-    setItem(KEY_NAME, value);
-    setTab(value);
+    const source: ReplaySource = value === 'saved' ? 'saved' : 'replays';
+    setItem(KEY_NAME, source);
+    setTab(source);
   };
 
   if (isLoading) {
@@ -69,7 +73,7 @@ export function ReplaysPage({ websiteId }: { websiteId: string }) {
         </Tabs>
       </Panel>
       <SessionModal websiteId={websiteId} />
-      <ReplayModal websiteId={websiteId} />
+      <ReplayModal websiteId={websiteId} replaySource={tab} />
     </Column>
   );
 }

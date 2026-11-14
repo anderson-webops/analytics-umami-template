@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "packages": [
+    {
+      "name": "env-paths",
+      "version": "4.0.0",
+      "integrity": "sha512-pxP8eL2SwwaTRi/KHYwLYXinDs7gL3jxFcBYmEdYfZmZXbaVDvdppd0XBU8qVz03rDfKZMXg1omHCbsJjZrMsw==",
+      "exports": {
+        "types": "./index.d.ts",
+        "default": "./index.js"
+      },
+      "module": "./index.js",
+      "license": "MIT",
+      "licenseFile": "license"
+    },
+    {
+      "name": "minipass-flush",
+      "version": "2.0.1",
+      "integrity": "sha512-ZscKuP79dpdQL+/m2Cx9KMQ3VnUI51ChMPqCKTz6Qi2F2Jqu5Mu23CV7oSkMoXJr3w5SusKE4wLVGODQ8IesJA==",
+      "exports": {
+        "./package.json": "./package.json",
+        ".": {
+          "import": {
+            "types": "./dist/esm/index.d.ts",
+            "default": "./dist/esm/index.js"
+          },
+          "require": {
+            "types": "./dist/commonjs/index.d.ts",
+            "default": "./dist/commonjs/index.js"
+          }
+        }
+      },
+      "module": "./dist/commonjs/index.js",
+      "license": "BlueOak-1.0.0",
+      "licenseFile": "LICENSE.md"
+    },
+    {
+      "name": "minipass-pipeline",
+      "version": "3.0.1",
+      "integrity": "sha512-1n4i5pPdhNBvfGfbHprvo0yT/oinXguDUJP0jPgygYL9LEsuvpDFipQ5yk7jyPkjJ7tJAz9/Zwi3fXjzN46f+g==",
+      "exports": {
+        ".": {
+          "import": {
+            "types": "./dist/esm/index.d.ts",
+            "default": "./dist/esm/index.js"
+          },
+          "require": {
+            "types": "./dist/commonjs/index.d.ts",
+            "default": "./dist/commonjs/index.js"
+          }
+        },
+        "./package.json": "./package.json"
+      },
+      "module": "./dist/commonjs/index.js",
+      "license": "BlueOak-1.0.0",
+      "licenseFile": "LICENSE.md"
+    }
+  ]
+}

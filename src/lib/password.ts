@@ -1,4 +1,8 @@
 import bcrypt from 'bcryptjs';
+import { isEnvEnabled } from '@/lib/env';
+
+const SYSTEM_USER_ID = '41e2b680-648e-4b09-bcd7-3e2b10c06264';
+const SYSTEM_USER_PASSWORD_HASH = '$2b$10$BUli0c.muyCW1ErNJc3jL.vFRFtFJWrT8/GcR4A.sUdCznaXiqFXa';
 
 const SALT_ROUNDS = 12;
 const MIN_PASSWORD_LENGTH = 12;
@@ -41,5 +45,13 @@ export function isStrongPassword(password: string): boolean {
     Buffer.byteLength(password, 'utf8') <= MAX_PASSWORD_BYTES &&
     !COMMON_PASSWORDS.has(normalized) &&
     !/^(.)\1+$/u.test(normalized)
+  );
+}
+
+export function hasDefaultPassword(user: { id: string; password: string } | null | undefined) {
+  return (
+    !isEnvEnabled('CLOUD_MODE') &&
+    user?.id === SYSTEM_USER_ID &&
+    user.password === SYSTEM_USER_PASSWORD_HASH
   );
 }

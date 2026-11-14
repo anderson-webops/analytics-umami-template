@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { toolchainInputNames } from '../../scripts/build-toolchain-state.mjs';
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 
@@ -69,6 +70,51 @@ test('Linux builder context admits only the reviewed toolchain inputs', () => {
     '**/.env*',
   ])
     assert.ok(source.split('\n').includes(pattern), `Missing closed context rule: ${pattern}`);
+  const files = [
+    ...toolchainInputNames.map(name => `build-toolchain/${name}`),
+    'scripts/build-toolchain-state.mjs',
+    'scripts/build-toolchain-cache.mjs',
+    'deploy/mac-build/Dockerfile',
+    'deploy/mac-build/Dockerfile.dockerignore',
+    'deploy/mac-build/verify-toolchain.mjs',
+    'deploy/mac-build/pnpm-toolchain/package.json',
+    'deploy/mac-build/pnpm-toolchain/.npmrc',
+    'deploy/mac-build/pnpm-toolchain/package-lock.json',
+  ];
+  const admittedFiles = source
+    .split('\n')
+    .filter(line => line.startsWith('!') && !line.endsWith('/'))
+    .map(line => line.slice(1));
+  assert.deepEqual(admittedFiles.sort(), files.sort());
+  for (const filename of files) {
+    assert.ok(fs.statSync(path.join(directory, '../..', filename)).isFile(), filename);
+  }
+});
+
+test('installed builder retains full and production audits for the compatibility-input graph', () => {
+  const source = fs.readFileSync(path.join(directory, 'verify-toolchain.mjs'), 'utf8');
+  assert.match(source, /path\.join\(npmPrefix, 'compat'\)/);
+  assert.match(source, /for \(const argumentsList of \[\[\], \['--omit=dev'\]\]\)/);
+  assert.match(source, /'--audit-level=low'/);
+  assert.doesNotMatch(source, /--audit-level=(?:high|critical)|--no-audit/);
+});
+
+test('release qualification uses fresh dependency inputs rather than restoring package-manager caches', () => {
+  const source = fs.readFileSync(path.join(directory, '../../.github/workflows/cd.yml'), 'utf8');
+  assert.match(source, /package-manager-cache: false/);
+  assert.doesNotMatch(source, /^\s*cache:\s*pnpm\s*$/m);
+  assert.doesNotMatch(source, /uses:\s*actions\/cache(?:\/restore)?@/);
+  assert.match(source, /pnpm install --frozen-lockfile/);
+  assert.match(source, /pnpm run audit:all/);
+  assert.match(source, /pnpm run audit:prod/);
+});
+
+test('isolated acceptance generates an ephemeral administrator password for each build', () => {
+  const source = fs.readFileSync(path.join(directory, 'container-phase.sh'), 'utf8');
+  assert.match(source, /randomBytes\(24\)\.toString\('hex'\)/);
+  assert.match(source, /UMAMI_PASSWORD="\$fixture_admin_password"/);
+  assert.match(source, /unset fixture_admin_password/);
+  assert.doesNotMatch(source, /UMAMI_PASSWORD=[a-zA-Z0-9_-]/);
 });
 
 for (const script of ['release.sh', 'publish.sh']) {

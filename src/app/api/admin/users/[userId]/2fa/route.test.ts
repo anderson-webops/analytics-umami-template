@@ -57,7 +57,25 @@ const parseRequestMock = vi.mocked(parseRequest);
 const canEnforceTwoFactorAuthForUserMock = vi.mocked(canEnforceTwoFactorAuthForUser);
 const isTwoFactorConfiguredMock = vi.mocked(isTwoFactorConfigured);
 const updateUserMock = vi.mocked(updateUser);
-const prismaMock = prisma as any;
+const prismaMock = prisma as unknown as {
+  client: {
+    $queryRaw: ReturnType<typeof vi.fn>;
+    user: {
+      findFirst: ReturnType<typeof vi.fn>;
+      findUnique: ReturnType<typeof vi.fn>;
+      updateMany: ReturnType<typeof vi.fn>;
+    };
+    twoFactorAuth: {
+      findUnique: ReturnType<typeof vi.fn>;
+      deleteMany: ReturnType<typeof vi.fn>;
+    };
+    twoFactorBackupCode: { deleteMany: ReturnType<typeof vi.fn> };
+    twoFactorOtpUsed: { deleteMany: ReturnType<typeof vi.fn> };
+    twoFactorRateLimit: { deleteMany: ReturnType<typeof vi.fn> };
+    apiKey: { deleteMany: ReturnType<typeof vi.fn> };
+  };
+  transaction: ReturnType<typeof vi.fn>;
+};
 const adminAuth = {
   authType: 'session' as const,
   user: { id: 'admin-1', username: 'admin', role: 'admin', isAdmin: true },

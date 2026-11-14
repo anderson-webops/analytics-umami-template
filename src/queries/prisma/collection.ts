@@ -118,7 +118,7 @@ export async function reserveActiveCollectionBudget(
   sourceType: CollectionSourceType,
   sourceId: string,
   body: {
-    type: 'event' | 'identify' | 'performance';
+    type: 'event' | 'identify' | 'performance' | 'error';
     payload: { data?: Record<string, unknown>; id?: string };
   },
   clientIp: string,

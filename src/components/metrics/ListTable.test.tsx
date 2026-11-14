@@ -20,10 +20,6 @@ vi.mock('react-window', () => ({
   ),
 }));
 
-vi.mock('@/components/common/AnimatedDiv', () => ({
-  AnimatedDiv: ({ title, children }) => <span title={title}>{children.get()}</span>,
-}));
-
 test('virtual rows retain their identity and editable state when data refreshes', () => {
   const renderLabel = row => <input aria-label="row label" defaultValue={row.label} />;
   const { rerender } = render(

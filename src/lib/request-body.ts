@@ -1,3 +1,9 @@
+const requestBodySizes = new WeakMap<Request, number>();
+
+export function getRequestBodySize(request: Request): number | undefined {
+  return requestBodySizes.get(request);
+}
+
 const DEFAULT_MAX_API_BODY_BYTES = 1024 * 1024;
 const MIN_API_BODY_BYTES = 16 * 1024;
 const MAX_API_BODY_BYTES = 10 * 1024 * 1024;
@@ -28,6 +34,7 @@ export async function readRequestBodyBytes(request: Request, maxBodyBytes?: numb
   }
 
   if (!request.body) {
+    requestBodySizes.set(request, 0);
     return new Uint8Array();
   }
 
@@ -69,6 +76,7 @@ export async function readRequestBodyBytes(request: Request, maxBodyBytes?: numb
     offset += chunk.byteLength;
   }
 
+  requestBodySizes.set(request, totalBytes);
   return body;
 }
 

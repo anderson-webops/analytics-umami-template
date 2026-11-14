@@ -22,6 +22,7 @@ vi.hoisted(() => {
 });
 
 vi.mock('@/lib/request', () => ({ parseRequest: vi.fn(), getQueryFilters: vi.fn() }));
+vi.mock('@/queries/sql', () => ({}));
 vi.mock('@/permissions', () => ({
   canViewSavedWebsiteSegments: vi.fn(),
   canUpdateWebsite: vi.fn(),

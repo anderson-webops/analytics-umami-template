@@ -24,7 +24,7 @@ export GIT_CONFIG_VALUE_0="$source_root"
 
 cd "$source_root"
 test "$(uname -m)" = aarch64
-test "$(node --version)" = v26.13.0
+test "$(node --version)" = v26.13.1
 test "$(npm --version)" = 12.2.2
 test "$(pnpm --version)" = 12.18.0
 test "$(pnpm config get virtual-store-dir-max-length)" = 60
@@ -96,8 +96,10 @@ if [[ "$phase" = build ]]; then
   pnpm run db:migrate
   ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm run test:migration-bridge
   ALLOW_DESTRUCTIVE_MIGRATION_TEST=1 pnpm run test:migration-attempts
-  UMAMI_USERNAME=admin UMAMI_PASSWORD=synthetic-admin-only-000000000000 \
+  fixture_admin_password="$(node -p "require('node:crypto').randomBytes(24).toString('hex')")"
+  UMAMI_USERNAME=admin UMAMI_PASSWORD="$fixture_admin_password" \
     pnpm run change-password
+  unset fixture_admin_password
   pnpm run test:postgres17-restore
   env -u CLASSROOM_MODE -u CLIENT_IP_HEADER -u DISABLE_TELEMETRY \
     -u MCP_ENABLED -u NEXT_TELEMETRY_DISABLED -u PRIVATE_MODE -u PUBLIC_URL \

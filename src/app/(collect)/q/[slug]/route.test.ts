@@ -17,7 +17,7 @@ const context = { params: Promise.resolve({ slug }) };
 const originalLink = { id: 'link-1', slug, url: 'https://old.example/' };
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.resetAllMocks();
   vi.mocked(POST).mockResolvedValue(new Response(null, { status: 200 }) as never);
   vi.mocked(getCollectionIpLimit).mockResolvedValue({ blocked: false, retryAfter: 60 });
 });
@@ -95,4 +95,97 @@ test('does not ingest an event for a deleted link', async () => {
 
   expect((await GET(request, context)).status).toBe(404);
   expect(POST).not.toHaveBeenCalled();
+});
+
+test.each([
+  'foo',
+  '/relative',
+  'javascript:alert(1)',
+  'data:text/html,synthetic',
+  'https://user:password@example.com',
+])('rejects the stored destination %s before recording a click', async url => {
+  vi.mocked(findLink).mockResolvedValue({ ...originalLink, url } as never);
+
+  const response = await GET(request, context);
+
+  expect(response.status).toBe(404);
+  expect(POST).not.toHaveBeenCalled();
+});
+
+test('a malformed slug is rejected before admission or database work', async () => {
+  const response = await GET(request, { params: Promise.resolve({ slug: '../invalid' }) });
+
+  expect(response.status).toBe(404);
+  expect(getCollectionIpLimit).not.toHaveBeenCalled();
+  expect(findLink).not.toHaveBeenCalled();
+});
+
+test('normalizes an admitted legacy HTTP destination before setting the redirect header', async () => {
+  vi.mocked(findLink).mockResolvedValue({
+    ...originalLink,
+    url: ' https://Example.com/docs ',
+  } as never);
+
+  const response = await GET(request, context);
+
+  expect(response.status).toBe(307);
+  expect(response.headers.get('location')).toBe('https://example.com/docs');
+  expect(response.headers.get('cache-control')).toBe('no-store');
+});
+
+test('ingestion failure still requires the current live link before redirecting', async () => {
+  vi.mocked(findLink).mockResolvedValue(originalLink as never);
+  vi.mocked(POST).mockRejectedValueOnce(new Error('Synthetic telemetry failure'));
+
+  const response = await GET(request, context);
+
+  expect(response.status).toBe(307);
+  expect(findLink).toHaveBeenCalledTimes(2);
+});
+
+test('an ingestion exception cannot revive a link removed before the final authority read', async () => {
+  vi.mocked(findLink)
+    .mockResolvedValueOnce(originalLink as never)
+    .mockResolvedValueOnce(null);
+  vi.mocked(POST).mockRejectedValueOnce(new Error('Synthetic telemetry failure'));
+
+  expect((await GET(request, context)).status).toBe(404);
+});
+
+test('an unsafe replacement destination fails closed after ingestion', async () => {
+  vi.mocked(findLink)
+    .mockResolvedValueOnce(originalLink as never)
+    .mockResolvedValueOnce({
+      ...originalLink,
+      url: 'javascript:alert(1)',
+    } as never);
+
+  expect((await GET(request, context)).status).toBe(404);
+});
+
+test('internal click ingestion excludes browser credentials while retaining provenance', async () => {
+  vi.mocked(findLink).mockResolvedValue(originalLink as never);
+  const browserRequest = new Request(request.url, {
+    headers: {
+      authorization: 'Bearer synthetic-browser-token',
+      cookie: 'analytics-session=synthetic-session',
+      'content-length': '999',
+      'x-umami-cache': 'synthetic-cache',
+      origin: 'https://analytics.example',
+      referer: 'https://referrer.example',
+    },
+  });
+
+  await GET(browserRequest, context);
+  const internal = vi.mocked(POST).mock.calls[0][0];
+
+  for (const name of ['authorization', 'cookie', 'content-length', 'x-umami-cache']) {
+    expect(internal.headers.has(name)).toBe(false);
+  }
+  expect(internal.headers.get('origin')).toBe('https://analytics.example');
+  expect(internal.headers.get('content-type')).toBe('application/json');
+  expect(await internal.json()).toMatchObject({
+    type: 'event',
+    payload: { link: originalLink.id, url: request.url, referrer: 'https://referrer.example' },
+  });
 });

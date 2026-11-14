@@ -20,6 +20,7 @@ afterEach(() => {
 });
 
 vi.mock('@/components/hooks', () => ({
+  useBarDrillDown: () => vi.fn(),
   useDateRange: () => ({
     dateRange: {
       startDate: new Date('2026-10-07T00:00:00.000Z'),

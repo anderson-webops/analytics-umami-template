@@ -111,6 +111,12 @@ export async function createLink(
   });
 }
 
+async function removeLinkFromCache(...slugs: (string | undefined)[]) {
+  if (!redis.enabled) return;
+  const uniqueSlugs = [...new Set(slugs.filter((slug): slug is string => !!slug))];
+  await Promise.all(uniqueSlugs.map(slug => redis.client.del(`link:${slug}`)));
+}
+
 export async function updateLink(
   linkId: string,
   data: Prisma.LinkUncheckedUpdateInput,
@@ -141,12 +147,7 @@ export async function updateLink(
     };
   });
 
-  if (redis.enabled) {
-    await Promise.all([
-      ...(previousSlug ? [redis.client.del(`link:${previousSlug}`)] : []),
-      redis.client.del(`link:${link.slug}`),
-    ]);
-  }
+  await removeLinkFromCache(previousSlug, link.slug);
 
   return link;
 }
@@ -192,9 +193,7 @@ export async function deleteLink(linkId: string, actorUserId: string, auth: Auth
     },
   );
 
-  if (redis.enabled && result.slug) {
-    await redis.client.del(`link:${result.slug}`);
-  }
+  await removeLinkFromCache(result.slug);
 
   return result;
 }

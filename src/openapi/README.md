@@ -2,7 +2,8 @@
 
 Umami generates `public/openapi.json` for every App Router API handler. It statically infers a
 baseline contract from route source and replaces that baseline with a colocated, Zod-backed
-contract wherever one exists.
+contract wherever one exists. Paths listed in `UNPUBLISHED_PATHS` (`src/openapi/document.ts`) keep
+their contracts but are left out of the published document and the generated API client.
 
 `public/openapi.json` is an ignored build artifact and must not be committed. Generate it locally
 with `pnpm openapi:generate` before running checks or generating the API client.
@@ -12,6 +13,9 @@ with `pnpm openapi:generate` before running checks or generating the API client.
 - `pnpm openapi:generate` regenerates the public OpenAPI document.
 - `pnpm openapi:contracts` refreshes source-controlled contracts for routes without a curated
   `contract.ts` module.
+- Contract refresh validates and formats every candidate before replacing generated files.
+  A failed write restores the original files. If restoration fails, exact backups and a
+  manifest remain under `.ai-work/runs/openapi-contracts-*` for recovery review.
 - `pnpm openapi:check` validates contract alignment and checks that the generated file is current.
 - `pnpm openapi:check --explicit` also fails while any non-OPTIONS API route lacks a hand-authored
   contract.

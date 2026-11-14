@@ -20,7 +20,7 @@ import { isEnvEnabled } from '@/lib/env';
 import { HeatmapBudgetExceededError, reserveHeatmapBudget } from '@/lib/heatmap-budget';
 import { getHeatmapUrlPath } from '@/lib/heatmap-url';
 import { getIpAddress } from '@/lib/ip';
-import { fetchAccount, fetchTeam } from '@/lib/load';
+import { fetchAccount, fetchTeam, isWebsiteCollectionBlocked } from '@/lib/load';
 import { getRecorderConfig } from '@/lib/recorder';
 import {
   getReplayEventCount,
@@ -265,6 +265,10 @@ export async function POST(request: Request) {
 
     if (!website.recorderEnabled) {
       return withCorsHeaders(json({ ok: false, reason: 'recorder_disabled' }));
+    }
+
+    if (isEnvEnabled('CLOUD_MODE') && (await isWebsiteCollectionBlocked(website))) {
+      return withCorsHeaders(forbidden({ message: 'Collection blocked.' }));
     }
 
     if (isEnvEnabled('CLOUD_MODE')) {

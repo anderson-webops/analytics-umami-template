@@ -29,7 +29,7 @@ import {
   getTwoFactorConfigurationError,
   isTwoFactorConfigured,
 } from '@/lib/two-factor/crypto';
-import { reserveTwoFactorAttempt, resetRateLimit } from '@/lib/two-factor/rate-limit';
+import { reserveTwoFactorAttempt } from '@/lib/two-factor/rate-limit';
 import { consumeOtp } from '@/lib/two-factor/replay-prevention';
 import { verifyTotp } from '@/lib/two-factor/totp';
 import { runActiveSessionMutation, SessionRevokedError } from '@/queries/prisma/authorization';
@@ -176,6 +176,7 @@ export async function POST(request: Request) {
       });
       await tx.apiKey.deleteMany({ where: { userId } });
       await tx.appSetting.deleteMany({ where: { key: getPasswordVerificationBudgetKey(userId) } });
+      await tx.twoFactorRateLimit.deleteMany({ where: { userId } });
     });
   } catch (error) {
     if (error instanceof CredentialsChangedError || error instanceof SessionRevokedError) {
@@ -195,8 +196,6 @@ export async function POST(request: Request) {
 
     throw error;
   }
-
-  await resetRateLimit(userId);
 
   const user = await getUser(userId, {
     includePassword: true,
@@ -231,7 +230,7 @@ export async function POST(request: Request) {
       auth.accountAttemptKeyVersion === 2 ? undefined : userId,
     ).catch(() => undefined);
   }
-  await clearFailedLogins(request, user.username);
+  await clearFailedLogins(request, user.username).catch(() => undefined);
 
   return setSessionCookie(json({ backupCodes: plaintext }), sessionToken, sessionTtl);
 }

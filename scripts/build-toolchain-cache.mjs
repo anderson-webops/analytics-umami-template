@@ -20,12 +20,18 @@ import path from 'node:path';
 import process from 'node:process';
 import {
   sha256,
+  toolchainInputNames,
   toolchainMetadata,
   toolchainSource,
   verifyBuildToolchain,
 } from './build-toolchain-state.mjs';
 
 export const maximumCachedProfiles = 3;
+
+export function pairedCommandScript(name) {
+  assert.ok(['npm', 'npx'].includes(name), 'Unexpected paired command name');
+  return `#!/bin/sh\nexport PYTHONDONTWRITEBYTECODE=1\nexec "\${0%/*}/node" "\${0%/*}/../node_modules/npm/bin/${name}-cli.js" "$@"\n`;
+}
 
 function readCacheRecord(filename) {
   const descriptor = openSync(
@@ -167,21 +173,25 @@ export function nodeIdentity(nodeExecutable = process.execPath) {
   if (process.platform === 'darwin') {
     const name = `libnode.${process.versions.modules}.dylib`;
     const library = path.resolve(path.dirname(filename), '../lib', name);
-    if (existsSync(library)) libraries.push({ name, ...digestRegularFile(realpathSync(library)) });
+    if (existsSync(library)) {
+      libraries.push({
+        name,
+        ...digestRegularFile(realpathSync(library)),
+      });
+    }
   }
-  return { ...digestRegularFile(filename), libraries };
+  return {
+    ...digestRegularFile(filename),
+    libraries,
+  };
 }
 
 export function cacheIdentity(nodeExecutable = process.execPath) {
   const node = nodeIdentity(nodeExecutable);
-  const inputs = [
-    'package.json',
-    'package-lock.json',
-    '.npmrc',
-    'UPSTREAM.json',
-    'PAYLOAD.json',
-    toolchainMetadata.archive,
-  ].map(name => [name, sha256(readFileSync(path.join(toolchainSource, name)))]);
+  const inputs = toolchainInputNames.map(name => [
+    name,
+    sha256(readFileSync(path.join(toolchainSource, name))),
+  ]);
   const code = [
     'build-toolchain.mjs',
     'build-toolchain-state.mjs',
@@ -216,8 +226,10 @@ export function verifyReusableToolchain(prefix, expectedNode) {
   );
   const node = path.join(bin, 'node');
   assert.deepEqual(readdirSync(bin).sort(), ['node', 'npm', 'npx'], 'Unexpected paired command');
-  assert.ok(lstatSync(node).isFile(), 'Cached Node differs from the selected executable');
-  assert.ok(!lstatSync(node).isSymbolicLink(), 'Cached Node differs from the selected executable');
+  assert.ok(
+    lstatSync(node).isFile() && !lstatSync(node).isSymbolicLink(),
+    'Cached Node must be regular',
+  );
   const libraries = path.join(prefix, 'lib');
   if (expectedNode.libraries.length > 0) {
     privateDirectory(libraries);
@@ -226,14 +238,8 @@ export function verifyReusableToolchain(prefix, expectedNode) {
       expectedNode.libraries.map(library => library.name).sort(),
     );
     for (const library of expectedNode.libraries) {
-      assert.ok(
-        lstatSync(path.join(libraries, library.name)).isFile(),
-        'Shared Node library must be regular',
-      );
-      assert.ok(
-        !lstatSync(path.join(libraries, library.name)).isSymbolicLink(),
-        'Shared Node library must be regular',
-      );
+      const state = lstatSync(path.join(libraries, library.name));
+      assert.ok(state.isFile() && !state.isSymbolicLink(), 'Shared Node library must be regular');
     }
   } else {
     assert.equal(existsSync(libraries), false, 'Unexpected paired Node libraries');
@@ -244,11 +250,22 @@ export function verifyReusableToolchain(prefix, expectedNode) {
     'Cached Node differs from the selected executable',
   );
   for (const name of ['npm', 'npx']) {
+    const filename = path.join(bin, name);
+    const command = pairedCommandScript(name);
+    const metadata = lstatSync(filename);
     assert.ok(
-      lstatSync(path.join(bin, name)).isSymbolicLink(),
-      `Cached ${name} must be the paired command link`,
+      metadata.isFile() && !metadata.isSymbolicLink(),
+      `Cached ${name} must be the exact paired command`,
     );
-    assert.equal(readlinkSync(path.join(bin, name)), `../node_modules/npm/bin/${name}-cli.js`);
+    assert.deepEqual(
+      digestRegularFile(filename, 4096),
+      {
+        sha256: sha256(command),
+        bytes: Buffer.byteLength(command),
+        executable: true,
+      },
+      `Cached ${name} differs from the reviewed command`,
+    );
   }
   const receipt = verifyBuildToolchain(path.join(prefix, 'node_modules/npm/bin/npm-cli.js'));
   const expected = JSON.parse(readFileSync(path.join(toolchainSource, 'PAYLOAD.json'), 'utf8'));

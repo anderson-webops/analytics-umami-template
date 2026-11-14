@@ -3,7 +3,8 @@ import type { Annotation } from '@/generated/prisma/client';
 import { uuid } from '@/lib/crypto';
 import { parseRequest } from '@/lib/request';
 import { json, unauthorized } from '@/lib/response';
-import { annotationSchema, pagingParams, searchParams } from '@/lib/schema';
+import { annotationSchema, pagingParams, searchParams, withPeriodDateRange } from '@/lib/schema';
+import { getPagedShareWorkMultiplier } from '@/lib/share-query-budget';
 import { canUpdateWebsite, canViewWebsiteAnnotations } from '@/permissions';
 import { createAnnotation, getWebsiteAnnotations } from '@/queries/prisma';
 
@@ -11,14 +12,20 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ websiteId: string }> },
 ) {
-  const schema = z.object({
-    startAt: z.coerce.number().optional(),
-    endAt: z.coerce.number().optional(),
-    ...searchParams,
-    ...pagingParams,
-  });
+  const schema = withPeriodDateRange(
+    {
+      startAt: z.coerce.number().optional(),
+      endAt: z.coerce.number().optional(),
+      ...searchParams,
+      ...pagingParams,
+    },
+    false,
+  );
 
-  const { auth, query, error } = await parseRequest(request, schema);
+  const { auth, query, error } = await parseRequest(request, schema, {
+    budgetShareQuery: true,
+    shareQueryWorkMultiplier: query => getPagedShareWorkMultiplier(query.page, query.pageSize),
+  });
 
   if (error) {
     return error();

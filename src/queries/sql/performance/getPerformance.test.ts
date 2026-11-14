@@ -68,6 +68,15 @@ describe.each(['prisma', 'clickhouse'])('%s performance datasets', backend => {
     expect(result).toMatchObject({ chart: [], summary: { count: 0 } });
   });
 
+  test('counts only rows carrying the selected validated performance metric', async () => {
+    await getPerformanceMetrics('website', parameters, {}, 'country');
+    expect(mocks.rawQuery).toHaveBeenCalledTimes(1);
+    const sql = mocks.rawQuery.mock.calls[0][0];
+    expect(sql).toContain('count(inp) as count');
+    expect(sql).not.toContain('count(*) as count');
+    expect(sql).not.toContain('count() as count');
+  });
+
   test('rejects an untrusted metric at both SQL interpolation sinks', async () => {
     const unsafeParameters = { ...parameters, metric: 'lcp) FROM users --' };
 

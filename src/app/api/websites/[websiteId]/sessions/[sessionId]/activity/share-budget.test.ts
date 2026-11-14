@@ -16,6 +16,10 @@ import {
 } from '@/queries/sql';
 import { GET } from './route';
 
+vi.mock('@/queries/sql/sessions/getVerifiedIdentityFilterSessions', () => ({
+  getVerifiedIdentityFilterSessions: vi.fn(),
+}));
+
 const reserveShareQueryCost = (shareId: string, cost: number, requestCount: 0 | 1 = 1) =>
   reserveShareQueryCostForRequest(
     shareId,

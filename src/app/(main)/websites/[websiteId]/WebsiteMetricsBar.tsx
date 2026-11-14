@@ -1,10 +1,19 @@
 import { LoadingPanel } from '@/components/common/LoadingPanel';
-import { useDateRange, useMessages } from '@/components/hooks';
+import { useDateRange, useMessages, useTimezone } from '@/components/hooks';
 import { useWebsiteStatsQuery } from '@/components/hooks/queries/useWebsiteStatsQuery';
 import { MetricCard } from '@/components/metrics/MetricCard';
 import { MetricsBar } from '@/components/metrics/MetricsBar';
 import { TrafficProvenanceNotice } from '@/components/metrics/TrafficProvenanceNotice';
 import { formatLongNumber, formatShortTime } from '@/lib/format';
+
+interface WebsiteMetric {
+  label: string;
+  value: number;
+  prev?: number;
+  change: number;
+  formatValue: (n: number) => string;
+  reverseColors?: boolean;
+}
 
 export function WebsiteMetricsBar({
   websiteId,
@@ -14,7 +23,8 @@ export function WebsiteMetricsBar({
   showChange?: boolean;
   compareMode?: boolean;
 }) {
-  const { isAllTime, dateCompare } = useDateRange();
+  const { timezone } = useTimezone();
+  const { isAllTime, dateCompare, hasComparison } = useDateRange({ timezone });
   const { t, labels, getErrorMessage } = useMessages();
   const { data, isLoading, isFetching, error } = useWebsiteStatsQuery({
     websiteId,
@@ -23,7 +33,7 @@ export function WebsiteMetricsBar({
 
   const { pageviews, visitors, visits, bounces, totaltime, comparison } = data || {};
 
-  const metrics = data
+  const metrics: WebsiteMetric[] | null = data
     ? [
         {
           value: visitors,
@@ -84,7 +94,7 @@ export function WebsiteMetricsBar({
               change={change}
               formatValue={formatValue}
               reverseColors={reverseColors}
-              showChange={!isAllTime}
+              showChange={!isAllTime && hasComparison}
             />
           );
         })}

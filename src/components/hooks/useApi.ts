@@ -2,7 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useCallback } from 'react';
 import { getApiUrl } from '@/lib/api-url';
 import { SHARE_CONTEXT_HEADER, SHARE_TOKEN_HEADER } from '@/lib/constants';
-import { type FetchResponse, httpDelete, httpGet, httpPost, httpPut } from '@/lib/fetch';
+import { type FetchResponse, httpDelete, httpGet, httpPatch, httpPost, httpPut } from '@/lib/fetch';
 import { useApp } from '@/store/app';
 
 async function handleResponse(res: FetchResponse): Promise<any> {
@@ -18,45 +18,49 @@ export function useApi() {
   const shareId = useApp(state => state.share?.shareId);
   const shareToken = useApp(state => state.shareToken?.token);
 
-  const shareHeaders =
-    shareId && shareToken ? { [SHARE_TOKEN_HEADER]: shareToken, [SHARE_CONTEXT_HEADER]: '1' } : {};
-
-  const defaultHeaders = { ...shareHeaders };
-  const getUrl = (url: string) => {
-    return getApiUrl(url);
-  };
-
-  const getHeaders = (headers: any = {}) => {
-    return { ...defaultHeaders, ...headers };
-  };
+  const getHeaders = useCallback(
+    (headers: object = {}) => ({
+      ...(shareId && shareToken
+        ? { [SHARE_TOKEN_HEADER]: shareToken, [SHARE_CONTEXT_HEADER]: '1' }
+        : {}),
+      ...headers,
+    }),
+    [shareId, shareToken],
+  );
 
   return {
     get: useCallback(
       async (url: string, params: object = {}, headers: object = {}) => {
-        return httpGet(getUrl(url), params, getHeaders(headers)).then(handleResponse);
+        return httpGet(getApiUrl(url), params, getHeaders(headers)).then(handleResponse);
       },
-      [httpGet],
+      [getHeaders],
     ),
 
     post: useCallback(
       async (url: string, params: object = {}, headers: object = {}) => {
-        return httpPost(getUrl(url), params, getHeaders(headers)).then(handleResponse);
+        return httpPost(getApiUrl(url), params, getHeaders(headers)).then(handleResponse);
       },
-      [httpPost],
+      [getHeaders],
     ),
 
     put: useCallback(
       async (url: string, params: object = {}, headers: object = {}) => {
-        return httpPut(getUrl(url), params, getHeaders(headers)).then(handleResponse);
+        return httpPut(getApiUrl(url), params, getHeaders(headers)).then(handleResponse);
       },
-      [httpPut],
+      [getHeaders],
     ),
 
+    patch: useCallback(
+      async (url: string, params: object = {}, headers: object = {}) => {
+        return httpPatch(getApiUrl(url), params, getHeaders(headers)).then(handleResponse);
+      },
+      [getHeaders],
+    ),
     del: useCallback(
       async (url: string, params: object = {}, headers: object = {}) => {
-        return httpDelete(getUrl(url), params, getHeaders(headers)).then(handleResponse);
+        return httpDelete(getApiUrl(url), params, getHeaders(headers)).then(handleResponse);
       },
-      [httpDelete],
+      [getHeaders],
     ),
     useQuery,
     useMutation,

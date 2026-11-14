@@ -197,19 +197,20 @@ function mapFilter(
   const table = SESSION_COLUMNS.includes(name) ? 'session' : 'website_event';
   const field = column.includes('.') ? column : `${table}.${column}`;
 
+  // Negative operators read NULL as '' to match ClickHouse, which stores missing values as ''.
   switch (operator) {
     case OPERATORS.equals:
       return `${field} = ANY(${value})`;
     case OPERATORS.notEquals:
-      return `${field} != ALL(${value})`;
+      return `coalesce(${field}, '') != ALL(${value})`;
     case OPERATORS.contains:
       return `${field} ilike ${value}`;
     case OPERATORS.doesNotContain:
-      return `${field} not ilike ${value}`;
+      return `coalesce(${field}, '') not ilike ${value}`;
     case OPERATORS.regex:
       return `${field} ~* ${value}`;
     case OPERATORS.notRegex:
-      return `${field} !~* ${value}`;
+      return `coalesce(${field}, '') !~* ${value}`;
     default:
       return '';
   }
@@ -867,30 +868,31 @@ async function pagedQuery<T>(
   const size = +pageSize || DEFAULT_PAGE_SIZE;
   const queryClient = options.usePrimary && '$primary' in client ? client.$primary() : client;
 
-  const data = await queryClient[model].findMany({
-    ...criteria,
-    ...{
-      ...(size > 0 && { take: +size, skip: +size * (+page - 1) }),
-      ...(orderBy && {
-        orderBy: [
-          {
-            [orderBy]: sortDescending ? 'desc' : 'asc',
-          },
-        ],
-      }),
-    },
-  });
-
   const { maxResults } = filters || {};
-  const count = maxResults
-    ? (
-        await queryClient[model].findMany({
-          where: (criteria as any).where,
-          select: { id: true },
-          take: maxResults,
-        })
-      ).length
-    : await queryClient[model].count({ where: (criteria as any).where });
+  const [data, count] = await Promise.all([
+    queryClient[model].findMany({
+      ...criteria,
+      ...{
+        ...(size > 0 && { take: +size, skip: +size * (+page - 1) }),
+        ...(orderBy && {
+          orderBy: [
+            {
+              [orderBy]: sortDescending ? 'desc' : 'asc',
+            },
+          ],
+        }),
+      },
+    }),
+    maxResults
+      ? queryClient[model]
+          .findMany({
+            where: (criteria as any).where,
+            select: { id: true },
+            take: maxResults,
+          })
+          .then(rows => rows.length)
+      : queryClient[model].count({ where: (criteria as any).where }),
+  ]);
 
   return {
     data,
@@ -927,8 +929,12 @@ async function pagedRawQuery(
     ? `select count(*) as num from (select 1 from (${query}) t limit ${+maxResults}) t2`
     : `select count(*) as num from (${query}) t`;
 
-  const count = await rawQuery(countQuery, queryParams).then(res => Number(res[0].num));
-  const data = await rawQuery(`${query}${statements}`, queryParams, name);
+  // The count and page queries are independent; on large tables each can be
+  // an expensive aggregation, so running them concurrently halves wall time.
+  const [count, data] = await Promise.all([
+    rawQuery(countQuery, queryParams).then(res => Number(res[0].num)),
+    rawQuery(`${query}${statements}`, queryParams, name),
+  ]);
 
   return {
     data,

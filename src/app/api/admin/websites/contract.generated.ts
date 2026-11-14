@@ -7,7 +7,7 @@ const operation1 = defineOperation({
   method: 'get',
   path: '/api/admin/websites',
   audience: 'internal',
-  auth: 'bearer-or-share',
+  auth: 'bearer',
   operation: {
     operationId: 'getAdminWebsites',
     summary: 'List all websites',

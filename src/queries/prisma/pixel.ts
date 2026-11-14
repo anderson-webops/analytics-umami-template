@@ -106,6 +106,12 @@ export async function createPixel(
   });
 }
 
+async function removePixelFromCache(...slugs: (string | undefined)[]) {
+  if (!redis.enabled) return;
+  const uniqueSlugs = [...new Set(slugs.filter((slug): slug is string => !!slug))];
+  await Promise.all(uniqueSlugs.map(slug => redis.client.del(`pixel:${slug}`)));
+}
+
 export async function updatePixel(
   pixelId: string,
   data: Prisma.PixelUncheckedUpdateInput,
@@ -136,12 +142,7 @@ export async function updatePixel(
     };
   });
 
-  if (redis.enabled) {
-    await Promise.all([
-      ...(previousSlug ? [redis.client.del(`pixel:${previousSlug}`)] : []),
-      redis.client.del(`pixel:${pixel.slug}`),
-    ]);
-  }
+  await removePixelFromCache(previousSlug, pixel.slug);
 
   return pixel;
 }
@@ -187,9 +188,7 @@ export async function deletePixel(pixelId: string, actorUserId: string, auth: Au
     },
   );
 
-  if (redis.enabled && result.slug) {
-    await redis.client.del(`pixel:${result.slug}`);
-  }
+  await removePixelFromCache(result.slug);
 
   return result;
 }

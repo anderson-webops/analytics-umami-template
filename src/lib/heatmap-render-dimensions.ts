@@ -27,3 +27,35 @@ export function isPointWithinHeatmapRender(
     point.pageY <= height
   );
 }
+
+export function getHeatmapPageHeight(
+  points: readonly { pageH: number; pageY: number; count: number }[],
+) {
+  const counts = new Map<number, number>();
+  let maxClickY = 0;
+  let commonHeight = 0;
+  let commonCount = 0;
+
+  for (const point of points) {
+    if (
+      !Number.isFinite(point.pageH) ||
+      point.pageH <= 0 ||
+      !Number.isFinite(point.pageY) ||
+      point.pageY < 0 ||
+      !Number.isFinite(point.count) ||
+      point.count <= 0
+    )
+      continue;
+    maxClickY = Math.max(maxClickY, point.pageY);
+    counts.set(point.pageH, (counts.get(point.pageH) ?? 0) + point.count);
+  }
+
+  for (const [height, count] of counts) {
+    if (count > commonCount || (count === commonCount && height > commonHeight)) {
+      commonHeight = height;
+      commonCount = count;
+    }
+  }
+
+  return Math.max(commonHeight, Math.ceil(maxClickY));
+}

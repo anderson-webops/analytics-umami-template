@@ -1,10 +1,15 @@
 import { hasPermission } from '@/lib/auth';
 import { PERMISSIONS } from '@/lib/constants';
+import { getBillingAccess, getTeamBillingScope } from '@/lib/load';
 import type { Auth } from '@/lib/types';
 import { getTeam, getTeamUser } from '@/queries/prisma';
 import { canMutateResource } from './mutation';
 
-export async function canViewTeam({ user }: Auth, teamId: string) {
+async function hasTeamBillingAccess(teamId: string) {
+  return !(await getBillingAccess(await getTeamBillingScope(teamId))).isPastDue;
+}
+
+export async function canViewTeamSubscription({ user }: Auth, teamId: string) {
   if (!user) {
     return false;
   }
@@ -13,7 +18,15 @@ export async function canViewTeam({ user }: Auth, teamId: string) {
     return !!(await getTeam(teamId));
   }
 
-  return getTeamUser(teamId, user.id);
+  return !!(await getTeamUser(teamId, user.id));
+}
+
+export async function canViewTeam(auth: Auth, teamId: string) {
+  if (!(await canViewTeamSubscription(auth, teamId))) {
+    return false;
+  }
+
+  return hasTeamBillingAccess(teamId);
 }
 
 export async function canCreateTeam({ user }: Auth) {
@@ -25,7 +38,10 @@ export async function canCreateTeam({ user }: Auth) {
     return true;
   }
 
-  return hasPermission(user.role, PERMISSIONS.teamCreate);
+  return (
+    !(await getBillingAccess({ accountId: user.id }, user.id)).isPastDue &&
+    hasPermission(user.role, PERMISSIONS.teamCreate)
+  );
 }
 
 export async function canUpdateTeam({ user }: Auth, teamId: string) {
@@ -39,7 +55,11 @@ export async function canUpdateTeam({ user }: Auth, teamId: string) {
 
   const teamUser = await getTeamUser(teamId, user.id);
 
-  return teamUser && hasPermission(teamUser.role, PERMISSIONS.teamUpdate);
+  return (
+    !!teamUser &&
+    (await hasTeamBillingAccess(teamId)) &&
+    hasPermission(teamUser.role, PERMISSIONS.teamUpdate)
+  );
 }
 
 export async function canDeleteTeam({ user }: Auth, teamId: string) {
@@ -53,7 +73,11 @@ export async function canDeleteTeam({ user }: Auth, teamId: string) {
 
   const teamUser = await getTeamUser(teamId, user.id);
 
-  return teamUser && hasPermission(teamUser.role, PERMISSIONS.teamDelete);
+  return (
+    !!teamUser &&
+    (await hasTeamBillingAccess(teamId)) &&
+    hasPermission(teamUser.role, PERMISSIONS.teamDelete)
+  );
 }
 
 export async function canDeleteTeamUser({ user }: Auth, teamId: string, removeUserId: string) {
@@ -66,12 +90,16 @@ export async function canDeleteTeamUser({ user }: Auth, teamId: string, removeUs
   }
 
   if (removeUserId === user.id) {
-    return true;
+    return hasTeamBillingAccess(teamId);
   }
 
   const teamUser = await getTeamUser(teamId, user.id);
 
-  return teamUser && hasPermission(teamUser.role, PERMISSIONS.teamUpdate);
+  return (
+    !!teamUser &&
+    (await hasTeamBillingAccess(teamId)) &&
+    hasPermission(teamUser.role, PERMISSIONS.teamUpdate)
+  );
 }
 
 export async function canTransferTeamOwnership({ user }: Auth, teamId: string) {
@@ -97,9 +125,19 @@ export async function canCreateTeamWebsite({ user }: Auth, teamId: string) {
     return !!(await getTeam(teamId));
   }
 
+  // A team role never overrides a globally view-only user. Only the global role is
+  // checked here, not personal billing; team billing applies to team resources.
+  if (!hasPermission(user.role, PERMISSIONS.websiteCreate)) {
+    return false;
+  }
+
   const teamUser = await getTeamUser(teamId, user.id);
 
-  return teamUser && hasPermission(teamUser.role, PERMISSIONS.websiteCreate);
+  return (
+    !!teamUser &&
+    (await hasTeamBillingAccess(teamId)) &&
+    hasPermission(teamUser.role, PERMISSIONS.websiteCreate)
+  );
 }
 
 export async function canUpdateTeamWebsites({ user }: Auth, teamId: string) {

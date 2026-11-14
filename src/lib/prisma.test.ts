@@ -424,6 +424,34 @@ describe('getDateStringSQL timezone formatting', () => {
   });
 });
 
+describe('getFilterQuery null handling', () => {
+  test.each([
+    ['not equals', 'neq.US', "coalesce(session.country, '') != ALL({{country}})"],
+    ['does not contain', 'dnc.US', "coalesce(session.country, '') not ilike {{country}}"],
+    ['does not match regex', 'nre..+', "coalesce(session.country, '') !~* {{country}}"],
+  ])('treats a missing value as an empty string for %s', (_label, value, clause) => {
+    expect(prisma.getFilterQuery({ country: value })).toContain(`and ${clause}`);
+  });
+
+  test.each(['neq.user-1', 'dnc.user', 'nre..+'])(
+    'requires a trusted current identity link before a negative identity filter: %s',
+    value => {
+      const query = prisma.getFilterQuery({ distinctId: value });
+      expect(query).toContain('and (exists (select 1 from session_link verified_link');
+      expect(query).toContain('and not exists');
+      expect(query).toContain('verified_link.website_id = website_event.website_id');
+      expect(query).toContain('verified_link.trust_tier = 1');
+      expect(query).not.toContain('session.distinct_id');
+    },
+  );
+
+  test('keeps positive filters on the bare column so they can use indexes', () => {
+    expect(prisma.getFilterQuery({ country: 'US' })).toContain(
+      'and session.country = ANY({{country}})',
+    );
+  });
+});
+
 describe('getDateWeeklySQL timezone formatting', () => {
   test('falls back to UTC instead of producing invalid SQL when no timezone is given', () => {
     // Regression test: this used to interpolate `undefined` straight into `at time zone`.
@@ -515,5 +543,62 @@ describe('pagedRawQuery default ordering', () => {
     expect(queryRaw.mock.calls[0][0]).toContain('limit 10000');
     expect(queryRaw.mock.calls[1][0]).toContain('limit 20 offset 0');
     expect(result.isCapped).toBe(true);
+  });
+});
+
+describe('paged query concurrency', () => {
+  test('pagedRawQuery issues the page query while the count query is still pending', async () => {
+    const queryRaw = vi.mocked((prisma.client as any).$queryRawUnsafe);
+    queryRaw.mockClear();
+
+    let releaseCount!: (rows: unknown) => void;
+    const countGate = new Promise(resolve => {
+      releaseCount = resolve;
+    });
+
+    queryRaw.mockImplementation((sql: string) =>
+      sql.includes('count(*) as num') ? countGate : Promise.resolve([{ id: 1 }]),
+    );
+
+    const pending = prisma.pagedRawQuery('select * from thing', {}, { page: 1, pageSize: 2 });
+
+    // With sequential awaits the page query cannot be issued until the count
+    // resolves, so this times out; with concurrent execution both queries are
+    // in flight immediately.
+    await vi.waitFor(() => expect(queryRaw).toHaveBeenCalledTimes(2));
+
+    releaseCount([{ num: '3' }]);
+
+    const result = await pending;
+
+    expect(result.count).toBe(3);
+    expect(result.data).toEqual([{ id: 1 }]);
+  });
+
+  test('pagedQuery issues the count while findMany is still pending', async () => {
+    let releaseData!: (rows: unknown[]) => void;
+    const dataGate = new Promise<unknown[]>(resolve => {
+      releaseData = resolve;
+    });
+
+    const findMany = vi.fn(() => dataGate);
+    const count = vi.fn(async () => 7);
+
+    (prisma.client as any).thing = { findMany, count };
+
+    try {
+      const pending = prisma.pagedQuery('thing', { where: {} }, { page: 1, pageSize: 2 });
+
+      await vi.waitFor(() => expect(count).toHaveBeenCalledTimes(1));
+
+      releaseData([{ id: 1 }]);
+
+      const result = await pending;
+
+      expect(result.data).toEqual([{ id: 1 }]);
+      expect(result.count).toBe(7);
+    } finally {
+      delete (prisma.client as any).thing;
+    }
   });
 });

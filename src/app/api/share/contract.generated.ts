@@ -30,8 +30,9 @@ const operation1 = defineOperation({
                 description: 'Type of resource made available by the share.',
               },
               name: {
-                minimum: 1,
-                maximum: 200,
+                type: 'string',
+                minLength: 1,
+                maxLength: 200,
                 description: 'Display name of the resource.',
               },
               parameters: {

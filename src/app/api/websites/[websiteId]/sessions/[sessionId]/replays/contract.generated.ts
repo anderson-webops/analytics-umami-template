@@ -7,7 +7,7 @@ const operation1 = defineOperation({
   method: 'get',
   path: '/api/websites/{websiteId}/sessions/{sessionId}/replays',
   audience: 'public',
-  auth: 'bearer-or-share',
+  auth: 'bearer',
   operation: {
     operationId: 'getWebsiteSessionReplays',
     summary: "List a visitor's session replays",

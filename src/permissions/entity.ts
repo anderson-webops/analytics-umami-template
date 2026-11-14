@@ -1,9 +1,14 @@
 import { hasPermission } from '@/lib/auth';
 import { PERMISSIONS } from '@/lib/constants';
 import { getEntity } from '@/lib/entity';
+import { getBillingAccess, getEntityBillingScope } from '@/lib/load';
 import type { Auth } from '@/lib/types';
 import { getTeamUser } from '@/queries/prisma';
 import { canMutateResource } from './mutation';
+
+async function hasEntityBillingAccess(entity: Awaited<ReturnType<typeof getEntity>>) {
+  return !!entity && !(await getBillingAccess(await getEntityBillingScope(entity))).isPastDue;
+}
 
 export async function canViewEntity({ user }: Auth, entityId: string) {
   if (!user) {
@@ -21,13 +26,13 @@ export async function canViewEntity({ user }: Auth, entityId: string) {
   }
 
   if (entity.userId) {
-    return user.id === entity.userId;
+    return user.id === entity.userId && (await hasEntityBillingAccess(entity));
   }
 
   if (entity.teamId) {
     const teamUser = await getTeamUser(entity.teamId, user.id);
 
-    return !!teamUser;
+    return !!teamUser && (await hasEntityBillingAccess(entity));
   }
 
   return false;
@@ -49,13 +54,17 @@ export async function canUpdateEntity({ user }: Auth, entityId: string) {
   }
 
   if (entity.userId) {
-    return user.id === entity.userId;
+    return user.id === entity.userId && (await hasEntityBillingAccess(entity));
   }
 
   if (entity.teamId) {
     const teamUser = await getTeamUser(entity.teamId, user.id);
 
-    return teamUser && hasPermission(teamUser.role, PERMISSIONS.websiteUpdate);
+    return (
+      !!teamUser &&
+      (await hasEntityBillingAccess(entity)) &&
+      hasPermission(teamUser.role, PERMISSIONS.websiteUpdate)
+    );
   }
 
   return false;
@@ -77,13 +86,17 @@ export async function canDeleteEntity({ user }: Auth, entityId: string) {
   }
 
   if (entity.userId) {
-    return user.id === entity.userId;
+    return user.id === entity.userId && (await hasEntityBillingAccess(entity));
   }
 
   if (entity.teamId) {
     const teamUser = await getTeamUser(entity.teamId, user.id);
 
-    return teamUser && hasPermission(teamUser.role, PERMISSIONS.websiteDelete);
+    return (
+      !!teamUser &&
+      (await hasEntityBillingAccess(entity)) &&
+      hasPermission(teamUser.role, PERMISSIONS.websiteDelete)
+    );
   }
 
   return false;

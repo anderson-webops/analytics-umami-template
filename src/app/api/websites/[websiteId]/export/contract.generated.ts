@@ -7,7 +7,7 @@ const operation1 = defineOperation({
   method: 'get',
   path: '/api/websites/{websiteId}/export',
   audience: 'public',
-  auth: 'bearer-or-share',
+  auth: 'bearer',
   operation: {
     operationId: 'exportWebsite',
     summary: 'Export website analytics',

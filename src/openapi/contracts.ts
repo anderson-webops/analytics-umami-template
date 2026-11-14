@@ -7,10 +7,17 @@ interface ContractModule {
   operations?: readonly ApiOperationContract[];
 }
 
+export interface ContractLoadOptions {
+  includeGenerated?: boolean;
+}
+
 export async function loadApiContracts(
   projectRoot = process.cwd(),
+  options: ContractLoadOptions = {},
 ): Promise<LoadedApiOperationContract[]> {
-  const contractFiles = await discoverContractFiles(projectRoot);
+  const contractFiles = (await discoverContractFiles(projectRoot)).filter(
+    file => options.includeGenerated !== false || path.basename(file) !== 'contract.generated.ts',
+  );
   const contracts: LoadedApiOperationContract[] = [];
 
   for (const contractFile of contractFiles) {

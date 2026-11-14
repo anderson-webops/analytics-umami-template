@@ -35,6 +35,10 @@ export async function GET(
     return unauthorized();
   }
 
+  if (type === 'distinctId' && !(await canViewWebsiteSection(auth, websiteId, 'sessions'))) {
+    return unauthorized();
+  }
+
   if (!SESSION_COLUMNS.includes(type) && !EVENT_COLUMNS.includes(type)) {
     return badRequest();
   }
@@ -43,7 +47,9 @@ export async function GET(
   try {
     const values = await getValues(websiteId, FILTER_COLUMNS[type], filters);
 
-    return json(values.filter(n => n?.value != null).sort());
+    return json(values.filter(n => n?.value != null).sort(), {
+      headers: { 'Cache-Control': 'no-store' },
+    });
   } catch (error) {
     if (error instanceof IdentitySearchTooBroadError) {
       return badRequest({ message: 'Identity search is too broad.' });

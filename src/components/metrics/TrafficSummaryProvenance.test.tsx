@@ -5,6 +5,7 @@ import { LinkMetricsBar } from '@/app/(main)/links/[linkId]/LinkMetricsBar';
 import { PixelMetricsBar } from '@/app/(main)/pixels/[pixelId]/PixelMetricsBar';
 
 vi.mock('@/components/hooks', () => ({
+  useTimezone: () => ({ timezone: 'UTC' }),
   useDateRange: () => ({ isAllTime: false }),
   useMessages: () => ({
     t: (value: string) => value,

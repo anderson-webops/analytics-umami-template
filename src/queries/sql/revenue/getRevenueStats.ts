@@ -4,6 +4,7 @@ import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
 import prisma from '@/lib/prisma';
 import type { QueryFilters } from '@/lib/types';
 import type { RevenuParameters } from './getRevenueChart';
+import { isImportedRevenue } from './importedRevenue';
 
 export interface RevenueStatsResult {
   sum: number;
@@ -62,7 +63,7 @@ async function relationalQuery(
       )
     select
       sum(filtered_revenue.revenue) as sum,
-      count(distinct filtered_revenue.event_id) as count,
+      count(distinct case when filtered_revenue.revenue > 0 then filtered_revenue.event_id end) as count,
       count(distinct filtered_revenue.session_id) as unique_count
     from filtered_revenue
     `,
@@ -98,28 +99,29 @@ async function clickhouseQuery(
     `
     with
       filtered_sessions as (
-        select website_id, session_id
+        select
+          session_id,
+          countIf(not ${isImportedRevenue('event_name')}) as tracked_events
         from website_event
         ${cohortQuery}
         where website_id = {websiteId:UUID}
           and event_type != ${EVENT_TYPE.performance}
         ${dateQuery}
         ${filterQuery}
-        group by website_id, session_id
+        group by session_id
       ),
       filtered_revenue as (
-        select website_revenue.website_id, website_revenue.session_id, website_revenue.event_id, website_revenue.revenue
+        select event_id, session_id, revenue
         from website_revenue
-        inner join filtered_sessions
-          on filtered_sessions.website_id = website_revenue.website_id
-         and filtered_sessions.session_id = website_revenue.session_id
-        where website_revenue.website_id = {websiteId:UUID}
-          and website_revenue.created_at between {startDate:DateTime64} and {endDate:DateTime64}
-          and upper(website_revenue.currency) = {currency:String}
+        where website_id = {websiteId:UUID}
+          and created_at between {startDate:DateTime64} and {endDate:DateTime64}
+          and upper(currency) = {currency:String}
+          and (${isImportedRevenue('event_name')}
+            or session_id in (select session_id from filtered_sessions))
       )
     select
       sum(filtered_revenue.revenue) as sum,
-      uniqExact(filtered_revenue.event_id) as count,
+      uniqExactIf(filtered_revenue.event_id, filtered_revenue.revenue > 0) as count,
       uniqExact(filtered_revenue.session_id) as unique_count
     from filtered_revenue
     `,

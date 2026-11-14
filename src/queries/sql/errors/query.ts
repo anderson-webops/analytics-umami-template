@@ -1,0 +1,227 @@
+import clickhouse from '@/lib/clickhouse';
+import { ErrorQueryLimitError, MAX_ERROR_STATUS_ISSUES } from '@/lib/errors/query-limits';
+import type { ErrorQuery, ErrorValuesQuery } from '@/lib/errors/schema';
+import prisma from '@/lib/prisma';
+
+export interface ErrorScope {
+  websiteId: string;
+  resetAt?: Date | null;
+}
+
+type ErrorFilters = Omit<ErrorQuery, 'page' | 'pageSize'>;
+
+async function queryContext(scope: ErrorScope, filters?: ErrorFilters, issueId?: string) {
+  const ch = clickhouse.enabled;
+  const params: Record<string, any> = {
+    websiteId: scope.websiteId,
+    resetAt: scope.resetAt || new Date(0),
+  };
+  const param = (name: string, type = 'String') =>
+    ch ? `{${name}:${type}}` : `{{${name}${type === 'UUID' ? '::uuid' : ''}}}`;
+  const conditions = [
+    `website_id = ${param('websiteId', 'UUID')}`,
+    `created_at > ${param('resetAt', 'DateTime64(3)')}`,
+  ];
+  if (filters) {
+    params.startAt = new Date(filters.startAt);
+    params.endAt = new Date(filters.endAt);
+    conditions.push(
+      `created_at between ${param('startAt', 'DateTime64(3)')} and ${param('endAt', 'DateTime64(3)')}`,
+    );
+    for (const [key, column] of [
+      ['release', 'release'],
+      ['environment', 'environment'],
+      ['browser', 'browser'],
+      ['urlPath', 'url_path'],
+    ]) {
+      if (filters[key]) {
+        params[key] = filters[key];
+        conditions.push(`${column} = ${param(key)}`);
+      }
+    }
+    if (filters.search) {
+      params.search = filters.search.toLowerCase();
+      conditions.push(
+        ch
+          ? `positionCaseInsensitive(concat(name, ': ', message), ${param('search')}) > 0`
+          : `position(${param('search')} in lower(name || ': ' || message)) > 0`,
+      );
+    }
+  }
+  if (issueId) {
+    params.issueId = issueId;
+    conditions.push(`issue_id = ${param('issueId', 'UUID')}`);
+  }
+  const fromClause = () =>
+    `from error_event${ch ? ' final' : ''} where ${conditions.join(' and ')}`;
+  const run = async (sql: string, extra: Record<string, any> = {}): Promise<any[]> => {
+    const values = { ...params, ...extra };
+    if (ch) {
+      for (const key of Object.keys(values))
+        if (values[key] instanceof Date)
+          values[key] = values[key].toISOString().replace('T', ' ').replace('Z', '');
+      return clickhouse.rawQuery<any[]>(sql, values);
+    }
+    return prisma.rawQuery(sql, values);
+  };
+  if (filters?.status) {
+    if (!ch) {
+      params.status = filters.status;
+      conditions.push(
+        `issue_id in (select issue_id from error_issue where website_id = ${param('websiteId', 'UUID')} and status = ${param('status')})`,
+      );
+    } else {
+      const candidates = await run(
+        `select distinct issue_id as "id" ${fromClause()} limit ${MAX_ERROR_STATUS_ISSUES + 1}`,
+      );
+      if (candidates.length > MAX_ERROR_STATUS_ISSUES) throw new ErrorQueryLimitError();
+      const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
+      const issues = candidates.length
+        ? await client.errorIssue.findMany({
+            where: {
+              websiteId: scope.websiteId,
+              status: filters.status,
+              id: { in: candidates.map(row => row.id) },
+            },
+            select: { id: true },
+            take: MAX_ERROR_STATUS_ISSUES,
+          })
+        : [];
+      params.issueIds = issues.map(issue => issue.id);
+      conditions.push(`has(${param('issueIds', 'Array(UUID)')}, issue_id)`);
+    }
+  }
+  return { ch, from: fromClause(), run, param };
+}
+
+export async function getErrorIssues(scope: ErrorScope, filters: ErrorQuery) {
+  const { from, run, ch } = await queryContext(scope, filters);
+  const grouping = `select issue_id as "id", count(*) as "occurrences",
+    count(distinct visit_id) as "visits", min(created_at) as "firstSeen", max(created_at) as "lastSeen"
+    ${from} group by issue_id`;
+  const [rows, totals] = await Promise.all([
+    run(
+      `${grouping} order by "lastSeen" desc, "id" limit ${filters.pageSize} offset ${(filters.page - 1) * filters.pageSize}`,
+    ),
+    run(`select count(*) as "count" from (${grouping}) ${ch ? '' : 'issues'}`),
+  ]);
+  const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
+  const issues = await client.errorIssue.findMany({
+    where: { websiteId: scope.websiteId, id: { in: rows.map(r => r.id) } },
+  });
+  const byId = new Map(issues.map(issue => [issue.id, issue]));
+  return {
+    data: rows
+      .filter(row => byId.has(row.id))
+      .map(row => ({
+        ...byId.get(row.id),
+        ...row,
+        occurrences: Number(row.occurrences),
+        visits: Number(row.visits),
+      })),
+    count: Number(totals[0]?.count || 0),
+    page: filters.page,
+    pageSize: filters.pageSize,
+  };
+}
+
+export async function getErrorStats(scope: ErrorScope, filters: ErrorQuery, issueId?: string) {
+  const { from, run, ch } = await queryContext(scope, filters, issueId);
+  const day = ch
+    ? "formatDateTime(created_at, '%Y-%m-%d', 'UTC')"
+    : "to_char(created_at at time zone 'UTC', 'YYYY-MM-DD')";
+  const [totals, series] = await Promise.all([
+    run(`select count(*) as "occurrences", count(distinct visit_id) as "visits", count(distinct issue_id) as "issues",
+      min(created_at) as "firstSeen", max(created_at) as "lastSeen" ${from}`),
+    run(
+      `select ${day} as "date", count(*) as "occurrences" ${from} group by ${day} order by ${day}`,
+    ),
+  ]);
+  const total = totals[0];
+  return {
+    ...total,
+    firstSeen: Number(total.occurrences) ? total.firstSeen : null,
+    lastSeen: Number(total.occurrences) ? total.lastSeen : null,
+    occurrences: Number(total.occurrences),
+    visits: Number(total.visits),
+    issues: Number(total.issues),
+    series: series.map(row => ({ date: row.date, occurrences: Number(row.occurrences) })),
+  };
+}
+
+const VALUE_COLUMNS = {
+  release: 'release',
+  environment: 'environment',
+  browser: 'browser',
+  urlPath: 'url_path',
+} as const;
+
+export async function getErrorValues(
+  scope: ErrorScope,
+  { type, value, ...filters }: ErrorValuesQuery,
+  issueId?: string,
+) {
+  // Exclude the field's own filter so every value remains selectable.
+  const { from, run, param, ch } = await queryContext(
+    scope,
+    { ...filters, [type]: undefined },
+    issueId,
+  );
+  const column = VALUE_COLUMNS[type];
+  const search = value
+    ? ` and ${
+        ch
+          ? `positionCaseInsensitive(${column}, ${param('value')}) > 0`
+          : `position(${param('value')} in lower(${column})) > 0`
+      }`
+    : '';
+  const rows = await run(
+    `select ${column} as "value", count(*) as "count" ${from} and ${column} != ''${search}
+    group by ${column} order by "count" desc, ${column} limit 100`,
+    value ? { value: value.toLowerCase() } : {},
+  );
+  return rows.map(row => ({ value: row.value, count: Number(row.count) }));
+}
+
+export async function getErrorEvents(scope: ErrorScope, issueId: string, filters: ErrorQuery) {
+  const { from, run } = await queryContext(scope, filters, issueId);
+  const [rows, totals] = await Promise.all([
+    run(`select event_id as "id", created_at as "createdAt", name, message, handled, release, environment,
+      browser, os, device, url_path as "urlPath", session_id as "sessionId", visit_id as "visitId"
+      ${from} order by created_at desc, event_id limit ${filters.pageSize} offset ${(filters.page - 1) * filters.pageSize}`),
+    run(`select count(*) as "count" ${from}`),
+  ]);
+  return {
+    data: rows,
+    count: Number(totals[0]?.count || 0),
+    page: filters.page,
+    pageSize: filters.pageSize,
+  };
+}
+
+export async function getErrorEvent(scope: ErrorScope, issueId: string, eventId: string) {
+  const { from, run, param, ch } = await queryContext(scope, undefined, issueId);
+  const rows = await run(
+    `select event_id as "id", created_at as "createdAt", name, message, stack, frames, tags,
+    handled, release, environment, browser, os, device, url_path as "urlPath",
+    session_id as "sessionId", visit_id as "visitId" ${from} and event_id = ${param('eventId', 'UUID')} limit 1`,
+    { eventId },
+  );
+  if (!rows.length) return null;
+  const event = rows[0];
+  const replays = await run(
+    `select visit_id from session_replay
+    where website_id = ${param('websiteId', 'UUID')} and session_id = ${param('sessionId', 'UUID')}
+    and visit_id = ${param('visitId', 'UUID')}
+    and created_at > ${param('resetAt', 'DateTime64(3)')}
+    and ${ch ? "(retention_policy = 0 or ingested_at + INTERVAL 30 DAY > now('UTC'))" : '(retention_expires_at is null or retention_expires_at > CURRENT_TIMESTAMP)'}
+    and started_at <= ${param('time', 'DateTime64(3)')} and ended_at >= ${param('time', 'DateTime64(3)')} limit 1`,
+    { sessionId: event.sessionId, visitId: event.visitId, time: new Date(event.createdAt) },
+  );
+  return {
+    ...event,
+    frames: ch ? JSON.parse(event.frames) : event.frames,
+    tags: ch ? JSON.parse(event.tags) : event.tags,
+    replayId: replays.length ? event.visitId : null,
+  };
+}

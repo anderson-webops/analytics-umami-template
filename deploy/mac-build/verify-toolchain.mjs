@@ -52,4 +52,19 @@ for (const prefix of [npmPrefix, pnpmPrefix]) {
     });
   }
 }
+for (const argumentsList of [[], ['--omit=dev']]) {
+  execFileSync(
+    process.execPath,
+    [
+      npmCli,
+      '--prefix',
+      path.join(npmPrefix, 'compat'),
+      '--workspaces=false',
+      'audit',
+      '--audit-level=low',
+      ...argumentsList,
+    ],
+    { stdio: 'inherit', timeout: 300_000 },
+  );
+}
 console.log('Pinned npm and pnpm builder graphs, payload integrity and registry trust passed.');

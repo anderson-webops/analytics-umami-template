@@ -10,7 +10,8 @@ import {
 } from './authorization';
 
 async function findSegment(criteria: Prisma.SegmentFindUniqueArgs) {
-  return prisma.client.segment.findUnique(criteria);
+  const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
+  return client.segment.findUnique(criteria);
 }
 
 export async function getSegment(segmentId: string) {
@@ -25,7 +26,10 @@ export async function getSegment(segmentId: string) {
   });
 }
 
-export async function getSegments(criteria: Prisma.SegmentFindManyArgs, filters: QueryFilters) {
+export async function getSegments(
+  criteria: Prisma.SegmentFindManyArgs,
+  filters: QueryFilters = {},
+) {
   const { search } = filters;
   const { getSearchParameters, pagedQuery } = prisma;
 
@@ -38,7 +42,7 @@ export async function getSegments(criteria: Prisma.SegmentFindManyArgs, filters:
     ]),
   };
 
-  return pagedQuery('segment', { ...criteria, where }, filters);
+  return pagedQuery('segment', { ...criteria, where }, filters, { usePrimary: true });
 }
 
 export async function getWebsiteSegment(websiteId: string, segmentId: string) {
@@ -46,7 +50,8 @@ export async function getWebsiteSegment(websiteId: string, segmentId: string) {
     return null;
   }
 
-  return prisma.client.segment.findFirst({
+  const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
+  return client.segment.findFirst({
     where: { id: segmentId, websiteId },
   });
 }

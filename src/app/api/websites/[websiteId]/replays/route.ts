@@ -8,8 +8,9 @@ import {
   searchParams,
   withDateRange,
 } from '@/lib/schema';
+import { getPagedShareWorkMultiplier } from '@/lib/share-query-budget';
 import { canViewAuthenticatedWebsite } from '@/permissions';
-import { getSessionReplays } from '@/queries/sql';
+import { getReplayDistinctIds, getSessionReplays } from '@/queries/sql';
 
 export async function GET(
   request: Request,
@@ -22,7 +23,12 @@ export async function GET(
     ...searchParams,
   });
 
-  const { auth, query, error } = await parseRequest(request, schema);
+  const { auth, query, error } = await parseRequest(request, schema, {
+    shareQueryWorkMultiplier: query => {
+      const work = getPagedShareWorkMultiplier(query.page, query.pageSize);
+      return work === null ? null : work * 2;
+    },
+  });
 
   if (error) {
     return error();
@@ -37,9 +43,15 @@ export async function GET(
   const filters = await getQueryFilters(query, websiteId);
 
   let data: Awaited<ReturnType<typeof getSessionReplays>>;
+  let distinctIds: Record<string, string[]>;
 
   try {
     data = await getSessionReplays(websiteId, filters);
+    distinctIds = await getReplayDistinctIds(
+      websiteId,
+      data.data.map(({ id }) => id),
+      filters,
+    );
   } catch (error) {
     if (error instanceof IdentitySearchTooBroadError) {
       return badRequest({ message: 'Identity search is too broad.' });
@@ -47,5 +59,11 @@ export async function GET(
     throw error;
   }
 
-  return json(data);
+  return json(
+    {
+      ...data,
+      data: data.data.map(row => ({ ...row, distinctIds: distinctIds[row.id] ?? [] })),
+    },
+    { headers: { 'Cache-Control': 'no-store' } },
+  );
 }

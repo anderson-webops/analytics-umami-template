@@ -91,6 +91,17 @@ export async function createBoard(
   options: { auth: Auth; isPersonalDashboard?: boolean },
 ) {
   return runSerializable(async transaction => {
+    const isPersonalDashboard =
+      options.isPersonalDashboard === true &&
+      data.id === actorUserId &&
+      data.userId === actorUserId &&
+      !data.teamId &&
+      data.type === BOARD_TYPES.dashboard;
+
+    if (options.isPersonalDashboard && !isPersonalDashboard) {
+      throw new Error('ENTITY_ACTOR_NOT_AUTHORIZED');
+    }
+
     if (data.teamId) {
       await assertActorCanCreateOwnedEntity(
         transaction,
@@ -107,14 +118,16 @@ export async function createBoard(
         },
         {
           auth: options.auth,
-          requireGlobalCreatePermission: !options.isPersonalDashboard,
+          requireGlobalCreatePermission: !isPersonalDashboard,
         },
       );
     } else {
       throw new Error('ENTITY_OWNER_NOT_FOUND');
     }
 
-    await assertEntityIdAvailable(transaction, data.id);
+    await assertEntityIdAvailable(transaction, data.id, {
+      personalDashboardUserId: isPersonalDashboard ? actorUserId : undefined,
+    });
 
     const references = getBoardEntityReferences(data.type, data.parameters as BoardParameters);
     await lockCollectionSources(

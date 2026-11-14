@@ -3,6 +3,7 @@ import { Badge } from '@/components/common/Badge';
 import { LoadingPanel } from '@/components/common/LoadingPanel';
 import { useEventDataQuery } from '@/components/hooks';
 import { COLLECTION_TRUST_TIER } from '@/lib/constants';
+import { getDisplayValue } from '@/lib/data';
 
 export function EventData({ websiteId, eventId }: { websiteId: string; eventId: string }) {
   const { data, isLoading, error } = useEventDataQuery(websiteId, eventId);
@@ -10,19 +11,19 @@ export function EventData({ websiteId, eventId }: { websiteId: string; eventId: 
   return (
     <LoadingPanel isLoading={isLoading} error={error}>
       <Grid columns="1fr 1fr" gap="5">
-        {data?.map(({ dataKey, stringValue, trustTier }) => {
+        {data?.map(row => {
           return (
-            <Column key={dataKey}>
-              <Label>{dataKey}</Label>
+            <Column key={row.dataKey}>
+              <Label>{row.dataKey}</Label>
               <Row alignItems="center" gap>
-                <Text>{stringValue}</Text>
+                <Text>{getDisplayValue(row)}</Text>
                 <Badge
                   variant={
-                    trustTier === COLLECTION_TRUST_TIER.backendAuthorized ? 'good' : 'warning'
+                    row.trustTier === COLLECTION_TRUST_TIER.backendAuthorized ? 'good' : 'warning'
                   }
                   dot={false}
                 >
-                  {trustTier === COLLECTION_TRUST_TIER.backendAuthorized
+                  {row.trustTier === COLLECTION_TRUST_TIER.backendAuthorized
                     ? 'Website backend authorized'
                     : 'Unverified'}
                 </Badge>

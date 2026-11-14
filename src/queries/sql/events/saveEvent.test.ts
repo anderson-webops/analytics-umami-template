@@ -233,3 +233,40 @@ describe('provenance guard', () => {
     expect(sendMessageMock).not.toHaveBeenCalled();
   });
 });
+
+test.each([
+  { revenue: '19.99', currency: ' USD ' },
+  { revenue: 0, currency: 'USD' },
+  { revenue: -19.99, currency: 'USD' },
+  { revenue: 'not-a-number', currency: 'USD' },
+  { revenue: 19.99, currency: true },
+  { revenue: 19.99, currency: '   ' },
+])('public event properties never materialize financial data: %o', async eventData => {
+  const createEvent = vi.fn();
+  const createData = vi.fn();
+  const transaction = {
+    websiteEvent: { create: createEvent },
+    eventData: { createMany: createData },
+  };
+  await expect(
+    saveEvent(
+      {
+        ...customEvent,
+        eventName: 'purchase',
+        eventData,
+      },
+      transaction as never,
+    ),
+  ).rejects.toThrow('Verified revenue collection is not enabled.');
+  await expect(
+    saveEvent({
+      ...customEvent,
+      eventName: 'purchase',
+      eventData,
+    }),
+  ).rejects.toThrow('Verified revenue collection is not enabled.');
+  expect(createEvent).not.toHaveBeenCalled();
+  expect(createData).not.toHaveBeenCalled();
+  expect(insertMock).not.toHaveBeenCalled();
+  expect(sendMessageMock).not.toHaveBeenCalled();
+});

@@ -2,7 +2,8 @@ import { z } from 'zod';
 import { uuid } from '@/lib/crypto';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import { json, unauthorized } from '@/lib/response';
-import { savedSegmentSchema, searchParams, segmentTypeParam } from '@/lib/schema';
+import { pagingParams, savedSegmentSchema, searchParams, segmentTypeParam } from '@/lib/schema';
+import { getPagedShareWorkMultiplier } from '@/lib/share-query-budget';
 import { canUpdateWebsite, canViewSavedWebsiteSegments } from '@/permissions';
 import { createSegment, getWebsiteSegments } from '@/queries/prisma';
 
@@ -13,9 +14,13 @@ export async function GET(
   const schema = z.object({
     type: segmentTypeParam,
     ...searchParams,
+    ...pagingParams,
   });
 
-  const { auth, query, error } = await parseRequest(request, schema);
+  const { auth, query, error } = await parseRequest(request, schema, {
+    budgetShareQuery: true,
+    shareQueryWorkMultiplier: query => getPagedShareWorkMultiplier(query.page, query.pageSize),
+  });
 
   if (error) {
     return error();

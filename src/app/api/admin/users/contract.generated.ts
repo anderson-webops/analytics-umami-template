@@ -7,7 +7,7 @@ const operation1 = defineOperation({
   method: 'get',
   path: '/api/admin/users',
   audience: 'internal',
-  auth: 'bearer-or-share',
+  auth: 'bearer',
   operation: {
     operationId: 'getAdminUsers',
     summary: 'List all users',

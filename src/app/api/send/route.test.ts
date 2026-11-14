@@ -28,6 +28,7 @@ import {
   saveEvent,
   saveSessionData,
   saveSessionLink,
+  tryClaimAnonymousSession,
   updateSession,
 } from '@/queries/sql';
 import { OPTIONS, POST } from './route';
@@ -47,6 +48,7 @@ vi.mock('@/lib/detect', () => ({
 
 vi.mock('@/lib/load', () => ({
   fetchWebsite: vi.fn(),
+  isWebsiteCollectionBlocked: vi.fn(async () => false),
 }));
 
 vi.mock('@/lib/request', () => ({
@@ -73,6 +75,7 @@ vi.mock('@/queries/sql', () => ({
   saveEvent: vi.fn(),
   saveSessionData: vi.fn(),
   saveSessionLink: vi.fn(),
+  tryClaimAnonymousSession: vi.fn(),
   updateSession: vi.fn(),
 }));
 
@@ -81,6 +84,7 @@ const getClientInfoMock = vi.mocked(getClientInfo);
 const hasBlockedIpMock = vi.mocked(hasBlockedIp);
 const fetchWebsiteMock = vi.mocked(fetchWebsite);
 const createSessionMock = vi.mocked(createSession);
+const tryClaimAnonymousSessionMock = vi.mocked(tryClaimAnonymousSession);
 const saveEventMock = vi.mocked(saveEvent);
 const saveSessionDataMock = vi.mocked(saveSessionData);
 const saveSessionLinkMock = vi.mocked(saveSessionLink);
@@ -197,6 +201,7 @@ beforeEach(() => {
   (clickhouse as any).enabled = false;
   delete process.env.REMOVE_TRAILING_SLASH;
   delete process.env.SALT_ROTATION;
+  delete process.env.ENABLE_CLIENT_SALT;
 
   hasBlockedIpMock.mockReturnValue(false);
   fetchWebsiteMock.mockResolvedValue({
@@ -206,6 +211,7 @@ beforeEach(() => {
   } as any);
   getClientInfoMock.mockResolvedValue({ ...defaultClientInfo } as any);
   createSessionMock.mockResolvedValue(undefined as any);
+  tryClaimAnonymousSessionMock.mockResolvedValue(true);
   saveEventMock.mockResolvedValue(undefined as any);
   saveSessionDataMock.mockResolvedValue(undefined as any);
   saveSessionLinkMock.mockResolvedValue(true);
@@ -314,6 +320,7 @@ describe('parseRequest error handling', () => {
     expect(parseRequestMock.mock.calls[0][2]).toEqual({
       skipAuth: true,
       maxBodyBytes: 128 * 1024,
+      bodyPreflight: expect.any(Function),
     });
   });
 });
@@ -1848,17 +1855,27 @@ describe('anonymous authoritative collection boundary', () => {
     expect.soft(saveEventMock).not.toHaveBeenCalled();
   });
 
-  test('a backend credential cannot submit revenue before durable order deduplication exists', async () => {
+  test.each([
+    { currency: 'USD', revenue: 500 },
+    { currency: 'USD', revenue: 1e14 },
+    { order: { currency: 'USD', revenue: 500 } },
+    { order: { currency: 'USD', revenue: 1e14 } },
+  ])('a backend credential cannot materialize unverified revenue: %j', async data => {
+    const payload = {
+      website: WEBSITE_ID,
+      hostname: 'example.com',
+      url: '/checkout',
+      name: 'purchase',
+      data,
+    };
     const response = await callPOST({
       type: 'event',
-      payload: {
-        website: WEBSITE_ID,
-        url: '/checkout',
-        name: 'purchase',
-        data: { order: { currency: 'USD', revenue: 500 } },
-      },
+      payload,
     });
 
+    expect(parseRequestMock.mock.calls[0][1].safeParse({ type: 'event', payload }).success).toBe(
+      true,
+    );
     expect(response.status).toBe(403);
     expect(saveEventMock).not.toHaveBeenCalled();
   });
@@ -2302,5 +2319,79 @@ describe('error handling', () => {
       error: { code: 'server-error', status: 500 },
     });
     consoleLog.mockRestore();
+  });
+});
+
+describe('client salt', () => {
+  test('the schema accepts bounded salts while retaining required tracking fields', async () => {
+    await callPOST({ type: 'event', payload: { website: WEBSITE_ID, url: '/' } });
+    const schema = parseRequestMock.mock.calls[0][1];
+    const body = (salt: string) => ({
+      type: 'event',
+      payload: { website: WEBSITE_ID, hostname: 'example.com', salt },
+    });
+    expect(schema.safeParse(body('2026-10-30')).success).toBe(true);
+    expect(schema.safeParse(body('x'.repeat(101))).success).toBe(false);
+    expect(
+      schema.safeParse({ type: 'event', payload: { website: WEBSITE_ID, salt: 'ok' } }).success,
+    ).toBe(false);
+  });
+
+  test.each(['false', '0', 'off', 'no', ''])(
+    'ignores client salts when the flag is %s',
+    async flag => {
+      process.env.ENABLE_CLIENT_SALT = flag;
+      const payload = { website: WEBSITE_ID, url: '/', sessionSeed: SESSION_SEED };
+      const first = await readCache(await callPOST({ type: 'event', payload }));
+      const second = await readCache(
+        await callPOST({ type: 'event', payload: { ...payload, salt: '2026-10-30' } }),
+      );
+      expect(second.sessionId).toBe(first.sessionId);
+      expect(second.sessionSalt).toBe(first.sessionSalt);
+    },
+  );
+
+  test('mixes enabled client salts into server rotation without exposing session identifiers', async () => {
+    process.env.ENABLE_CLIENT_SALT = '1';
+    const payload = {
+      website: WEBSITE_ID,
+      url: '/',
+      sessionSeed: SESSION_SEED,
+      salt: '2026-10-30',
+    };
+    const first = await readCache(await callPOST({ type: 'event', payload }));
+    const repeated = await readCache(await callPOST({ type: 'event', payload }));
+    const other = await readCache(
+      await callPOST({ type: 'event', payload: { ...payload, salt: '2026-10-31' } }),
+    );
+    expect(repeated.sessionId).toBe(first.sessionId);
+    expect(other.sessionId).not.toBe(first.sessionId);
+    expect(first.sessionSalt).toBe(
+      hash(getSalt(process.env.SALT_ROTATION || 'month', new Date()), payload.salt),
+    );
+  });
+
+  test('keeps verified identity sessions separate from a salted browser session', async () => {
+    process.env.ENABLE_CLIENT_SALT = '1';
+    const salt = '2026-10-30';
+    const anon = await callPOST({
+      type: 'event',
+      payload: { website: WEBSITE_ID, url: '/', salt, sessionSeed: SESSION_SEED },
+    });
+    const anonBody = await anon.json();
+    const anonCache = parseCacheToken(anonBody.cache, secret());
+    const response = await callPOST(
+      {
+        type: 'identify',
+        payload: { website: WEBSITE_ID, id: 'user-42', salt, sessionSeed: SESSION_SEED },
+      },
+      { headers: { 'x-umami-cache': anonBody.cache } },
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ cache: null });
+    expect(saveSessionLinkMock.mock.calls[0][0].sessionId).not.toBe(anonCache.sessionId);
+    expect(saveSessionLinkMock.mock.calls[0][0].sessionId).toBe(
+      createSessionMock.mock.calls[1][0].id,
+    );
   });
 });

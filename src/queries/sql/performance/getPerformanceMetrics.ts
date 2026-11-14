@@ -51,7 +51,7 @@ async function relationalQuery(
       percentile_cont(0.5) within group (order by ${metricColumn}) as p50,
       percentile_cont(0.75) within group (order by ${metricColumn}) as p75,
       percentile_cont(0.95) within group (order by ${metricColumn}) as p95,
-      count(*) as count
+      count(${metricColumn}) as count
     from website_event
     ${cohortQuery}
     ${joinSessionQuery}
@@ -86,7 +86,7 @@ async function clickhouseQuery(
       quantile(0.5)(${metricColumn}) as p50,
       quantile(0.75)(${metricColumn}) as p75,
       quantile(0.95)(${metricColumn}) as p95,
-      count() as count
+      count(${metricColumn}) as count
     from website_event
     ${cohortQuery}
     where website_event.website_id = {websiteId:UUID}

@@ -68,7 +68,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ tea
     }
   }
 
-  return json(team);
+  return json({
+    ...team,
+    accessCode:
+      auth.authType === 'session'
+        ? await getTeamAccessCodeForActor(teamId, auth.user.id)
+        : undefined,
+  });
 }
 
 export async function DELETE(

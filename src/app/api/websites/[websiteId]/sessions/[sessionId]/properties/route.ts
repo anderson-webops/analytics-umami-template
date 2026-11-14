@@ -46,5 +46,5 @@ export async function GET(
     return badRequest({ message: 'Public-share session is too large.' });
   }
 
-  return json(data);
+  return json(data, { headers: { 'Cache-Control': 'no-store' } });
 }

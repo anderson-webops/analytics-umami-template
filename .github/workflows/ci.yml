@@ -46,7 +46,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 26.13.0
+          node-version: 26.13.1
           cache: pnpm
 
       - name: Install locked dependencies
@@ -60,6 +60,9 @@ jobs:
 
       - name: Audit production dependencies
         run: pnpm run audit:prod
+
+      - name: Validate translations
+        run: pnpm run lint:i18n
 
       - name: Validate source, peers, and native package coverage
         run: pnpm run validate
@@ -118,7 +121,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 26.13.0
+          node-version: 26.13.1
           cache: pnpm
 
       - name: Install locked dependencies
@@ -166,7 +169,7 @@ jobs:
     timeout-minutes: 20
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:17-alpine@sha256:d3244e8ce3f165ee3c93d9c4a4b1d0fe48b3a89e2287b717fdcbbde92d405065
         env:
           POSTGRES_DB: umami_event_series_test
           POSTGRES_USER: umami
@@ -179,7 +182,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
       clickhouse:
-        image: clickhouse/clickhouse-server:25.8
+        image: clickhouse/clickhouse-server:25.8@sha256:0152dd511befe6a2c2ef53e930726179669b08116da78500b37c51c96ff5ee77
         env:
           CLICKHOUSE_DB: umami_event_series_test
           CLICKHOUSE_USER: umami
@@ -212,7 +215,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 26.13.0
+          node-version: 26.13.1
           cache: pnpm
 
       - name: Exercise bounded event-series queries
@@ -246,7 +249,7 @@ jobs:
     timeout-minutes: 20
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:17-alpine@sha256:d3244e8ce3f165ee3c93d9c4a4b1d0fe48b3a89e2287b717fdcbbde92d405065
         env:
           POSTGRES_DB: umami_event_series_test
           POSTGRES_USER: umami
@@ -279,7 +282,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 26.13.0
+          node-version: 26.13.1
           cache: pnpm
 
       - name: Exercise bounded event-series queries

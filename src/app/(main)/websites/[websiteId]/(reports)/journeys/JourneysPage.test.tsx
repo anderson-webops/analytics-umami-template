@@ -60,6 +60,7 @@ vi.mock('@/components/hooks', () => ({
   useDateRange: () => ({
     dateRange: mockDateRange,
   }),
+  useTimezone: () => ({ timezone: 'UTC', toUtc: (date: Date) => date }),
   useMessages: () => ({
     t: (value: string) => value,
     labels: {

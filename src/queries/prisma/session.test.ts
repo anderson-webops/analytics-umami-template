@@ -45,6 +45,7 @@ function transactionClient() {
     sessionReplaySaved: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
     eventData: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
     heatmapEvent: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    errorEvent: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
     revenue: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
     sessionData: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
     sessionLink: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
@@ -159,6 +160,24 @@ test('deletes a session only after checking the actor inside a serializable tran
     client.user.findFirst.mock.invocationCallOrder[0],
   );
   expect(client.session.delete).toHaveBeenCalledWith({ where: { id: sessionId } });
+});
+
+test('session erasure removes only that website/session error occurrences before the session row', async () => {
+  const client = authorizedTransactionClient();
+  await deleteSession(websiteId, sessionId, actorUserId, actorAuth);
+  expect(client.errorEvent.deleteMany).toHaveBeenCalledWith({ where: { websiteId, sessionId } });
+  expect(client.errorEvent.deleteMany.mock.invocationCallOrder[0]).toBeLessThan(
+    client.session.delete.mock.invocationCallOrder[0],
+  );
+});
+
+test('a failed error-occurrence erasure prevents deletion of the session', async () => {
+  const client = authorizedTransactionClient();
+  client.errorEvent.deleteMany.mockRejectedValue(new Error('Synthetic error-erasure failure'));
+  await expect(deleteSession(websiteId, sessionId, actorUserId, actorAuth)).rejects.toThrow(
+    'Synthetic error-erasure failure',
+  );
+  expect(client.session.delete).not.toHaveBeenCalled();
 });
 
 test('preserves session deletion for a team member with website-delete permission', async () => {

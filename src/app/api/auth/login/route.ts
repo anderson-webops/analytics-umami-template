@@ -4,6 +4,7 @@ import { ENROLLMENT_AUTH_TOKEN_TYPE, PARTIAL_AUTH_TOKEN_TYPE, ROLES } from '@/li
 import { hash, secret } from '@/lib/crypto';
 import { isEnvEnabled } from '@/lib/env';
 import { createSecureToken } from '@/lib/jwt';
+import { addTeamBillingStatus } from '@/lib/load';
 import { isLoginCaptchaEnabled, verifyLoginCaptcha } from '@/lib/login-captcha';
 import {
   clearFailedLogins,
@@ -17,7 +18,12 @@ import {
   reserveLoginPasswordWork,
 } from '@/lib/login-rate-limit';
 import { consumeLoginRecoveryCode, lookupLoginRecoveryCode } from '@/lib/login-recovery';
-import { checkPassword, hashPassword, passwordNeedsRehash } from '@/lib/password';
+import {
+  checkPassword,
+  hasDefaultPassword,
+  hashPassword,
+  passwordNeedsRehash,
+} from '@/lib/password';
 import prisma from '@/lib/prisma';
 import redis from '@/lib/redis';
 import { parseRequest } from '@/lib/request';
@@ -207,12 +213,13 @@ export async function POST(request: Request) {
   }
 
   const { id, role, createdAt, sessionGeneration } = user;
+  const passwordChangeRequired = hasDefaultPassword(user);
   const authClient = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
   const twoFactor = await authClient.twoFactorAuth.findUnique({ where: { userId: id } });
 
   let passwordHash = user.password;
 
-  if (passwordNeedsRehash(passwordHash)) {
+  if (!passwordChangeRequired && passwordNeedsRehash(passwordHash)) {
     const nextPasswordHash = await hashPassword(password);
 
     try {
@@ -284,7 +291,7 @@ export async function POST(request: Request) {
     : await createSecureToken(sessionData, secret(), {
         expiresIn: sessionTtl,
       });
-  const teams = enrollmentRequired ? [] : await getAllUserTeams(id);
+  const teams = enrollmentRequired ? [] : await addTeamBillingStatus(await getAllUserTeams(id));
 
   if (!enrollmentRequired) {
     await clearFailedLogins(request, username);
@@ -293,7 +300,15 @@ export async function POST(request: Request) {
   return setSessionCookie(
     json({
       token,
-      user: { id, username, role, createdAt, isAdmin: role === ROLES.admin, teams },
+      user: {
+        id,
+        username,
+        role,
+        createdAt,
+        isAdmin: role === ROLES.admin,
+        passwordChangeRequired,
+        teams,
+      },
     }),
     token,
     sessionTtl,

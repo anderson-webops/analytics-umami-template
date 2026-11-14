@@ -27,6 +27,25 @@ assert.equal(
   0,
   'The selected build toolchain must have a complete zero-finding audit',
 );
+const compatibilityResult = spawnSync(
+  process.execPath,
+  [
+    cli,
+    'audit',
+    '--prefix',
+    path.join(prefix, 'compat'),
+    '--workspaces=false',
+    '--audit-level=low',
+    ...argumentsList,
+  ],
+  { stdio: 'inherit', timeout: 300_000 },
+);
+if (compatibilityResult.error) throw compatibilityResult.error;
+assert.equal(
+  compatibilityResult.status,
+  0,
+  'The original compatibility-input graph must have a complete zero-finding audit',
+);
 const pnpmPrefix = path.resolve(import.meta.dirname, '../deploy/mac-build/pnpm-toolchain');
 const pnpmResult = spawnSync(
   process.execPath,

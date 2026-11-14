@@ -1,11 +1,17 @@
+import type { Website } from '@/generated/prisma/client';
 import { redactWebsiteShareId } from '@/lib/api-key';
 import { hasPermission } from '@/lib/auth';
 import { ENTITY_TYPE, PERMISSIONS } from '@/lib/constants';
 import { getEntity } from '@/lib/entity';
+import { getBillingAccess, getTeamBillingScope, getWebsiteBillingScope } from '@/lib/load';
 import prisma from '@/lib/prisma';
 import type { Auth } from '@/lib/types';
 import { getTeamUser, getWebsite } from '@/queries/prisma';
 import { canMutateResource } from './mutation';
+
+async function hasWebsiteBillingAccess(website: Pick<Website, 'userId' | 'teamId'>) {
+  return !(await getBillingAccess(await getWebsiteBillingScope(website))).isPastDue;
+}
 
 export async function canViewWebsite({ user, shareToken }: Auth, websiteId: string) {
   if (shareToken?.shareType === ENTITY_TYPE.website && shareToken.websiteId === websiteId) {
@@ -27,13 +33,13 @@ export async function canViewWebsite({ user, shareToken }: Auth, websiteId: stri
   }
 
   if (entity.userId) {
-    return user.id === entity.userId;
+    return user.id === entity.userId && (await hasWebsiteBillingAccess(entity));
   }
 
   if (entity.teamId) {
     const teamUser = await getTeamUser(entity.teamId, user.id);
 
-    return !!teamUser;
+    return !!teamUser && (await hasWebsiteBillingAccess(entity));
   }
 
   return false;
@@ -103,9 +109,19 @@ export async function canViewBatchWebsites({ user, shareToken }: Auth, websiteId
       .map(website => website.id),
   );
 
-  return requestedIds.filter(
+  const allowedIds = requestedIds.filter(
     id => shareAllowedIds.has(id) || ownedIds.has(id) || teamOwnedIds.has(id),
   );
+
+  const blockedIds = new Set(
+    await Promise.all(
+      websites
+        .filter(website => allowedIds.includes(website.id) && !shareAllowedIds.has(website.id))
+        .map(async website => ((await hasWebsiteBillingAccess(website)) ? null : website.id)),
+    ).then(ids => ids.filter((id): id is string => !!id)),
+  );
+
+  return allowedIds.filter(id => !blockedIds.has(id));
 }
 
 export async function canViewAllWebsites({ user }: Auth) {
@@ -189,7 +205,10 @@ export async function canCreateWebsite({ user }: Auth) {
     return true;
   }
 
-  return hasPermission(user.role, PERMISSIONS.websiteCreate);
+  return (
+    !(await getBillingAccess({ accountId: user.id }, user.id)).isPastDue &&
+    hasPermission(user.role, PERMISSIONS.websiteCreate)
+  );
 }
 
 export async function canUpdateWebsite({ user }: Auth, websiteId: string) {
@@ -208,13 +227,17 @@ export async function canUpdateWebsite({ user }: Auth, websiteId: string) {
   }
 
   if (website.userId) {
-    return user.id === website.userId;
+    return user.id === website.userId && (await hasWebsiteBillingAccess(website));
   }
 
   if (website.teamId) {
     const teamUser = await getTeamUser(website.teamId, user.id);
 
-    return teamUser && hasPermission(teamUser.role, PERMISSIONS.websiteUpdate);
+    return (
+      !!teamUser &&
+      (await hasWebsiteBillingAccess(website)) &&
+      hasPermission(teamUser.role, PERMISSIONS.websiteUpdate)
+    );
   }
 
   return false;
@@ -236,13 +259,17 @@ export async function canDeleteWebsite({ user }: Auth, websiteId: string) {
   }
 
   if (website.userId) {
-    return user.id === website.userId;
+    return user.id === website.userId && (await hasWebsiteBillingAccess(website));
   }
 
   if (website.teamId) {
     const teamUser = await getTeamUser(website.teamId, user.id);
 
-    return teamUser && hasPermission(teamUser.role, PERMISSIONS.websiteDelete);
+    return (
+      !!teamUser &&
+      (await hasWebsiteBillingAccess(website)) &&
+      hasPermission(teamUser.role, PERMISSIONS.websiteDelete)
+    );
   }
 
   return false;
@@ -266,7 +293,11 @@ export async function canTransferWebsiteToUser({ user }: Auth, websiteId: string
   if (website.teamId && user.id === userId) {
     const teamUser = await getTeamUser(website.teamId, userId);
 
-    return teamUser && hasPermission(teamUser.role, PERMISSIONS.websiteTransferToUser);
+    return (
+      !!teamUser &&
+      (await hasWebsiteBillingAccess(website)) &&
+      hasPermission(teamUser.role, PERMISSIONS.websiteTransferToUser)
+    );
   }
 
   return false;
@@ -290,7 +321,12 @@ export async function canTransferWebsiteToTeam({ user }: Auth, websiteId: string
   if (website.userId && website.userId === user.id) {
     const teamUser = await getTeamUser(teamId, user.id);
 
-    return teamUser && hasPermission(teamUser.role, PERMISSIONS.websiteTransferToTeam);
+    return (
+      !!teamUser &&
+      (await hasWebsiteBillingAccess(website)) &&
+      !(await getBillingAccess(await getTeamBillingScope(teamId))).isPastDue &&
+      hasPermission(teamUser.role, PERMISSIONS.websiteTransferToTeam)
+    );
   }
 
   return false;

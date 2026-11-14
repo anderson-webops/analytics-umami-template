@@ -1,4 +1,5 @@
 import { uuid } from '@/lib/crypto';
+import { isEntityIdInUse } from '@/lib/entity';
 import { isEnvEnabled } from '@/lib/env';
 import { fetchAccount, fetchTeam } from '@/lib/load';
 import { getQueryFilters, parseRequest } from '@/lib/request';
@@ -65,8 +66,16 @@ export async function POST(request: Request) {
     activeOwnerWebsiteLimit = websiteLimit ?? undefined;
   }
 
-  if ((teamId && !(await canCreateTeamWebsite(auth, teamId))) || !(await canCreateWebsite(auth))) {
+  const canCreate = teamId
+    ? await canCreateTeamWebsite(auth, teamId)
+    : await canCreateWebsite(auth);
+
+  if (!canCreate) {
     return unauthorized();
+  }
+
+  if (id && (await isEntityIdInUse(id))) {
+    return badRequest({ message: 'ID already in use.' });
   }
 
   const websiteId = id ?? uuid();

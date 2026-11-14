@@ -3,7 +3,7 @@ import { parsePropertyFilters } from '@/lib/params';
 import { getPropertySeriesValueLimit } from '@/lib/property-series-budget';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import { badRequest, json, unauthorized } from '@/lib/response';
-import { filterParams, timezoneParam, unitParam } from '@/lib/schema';
+import { filterParams, timezoneParam, unitParam, withPeriodDateRange } from '@/lib/schema';
 import { canViewWebsiteSection } from '@/permissions';
 import { getSessionDataArraySeries } from '@/queries/sql';
 
@@ -11,7 +11,7 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ websiteId: string }> },
 ) {
-  const schema = z.object({
+  const schema = withPeriodDateRange({
     startAt: z.coerce.number().int(),
     endAt: z.coerce.number().int(),
     propertyName: z.string(),

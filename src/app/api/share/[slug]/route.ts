@@ -16,7 +16,8 @@ async function getAccountId(entity: ShareEntity): Promise<string | null> {
   }
 
   if (entity.teamId) {
-    const teamOwner = await prisma.client.teamUser.findFirst({
+    const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
+    const teamOwner = await client.teamUser.findFirst({
       where: {
         teamId: entity.teamId,
         role: ROLES.teamOwner,
@@ -39,7 +40,12 @@ async function getWhiteLabel(accountId: string): Promise<WhiteLabel | null> {
     return null;
   }
 
-  const data = await redis.client.get(`white-label:${accountId}`);
+  let data: unknown;
+  try {
+    data = await redis.client.get(`white-label:${accountId}`);
+  } catch {
+    return null;
+  }
   const result = whiteLabelParam.safeParse(data);
 
   return result.success ? (result.data as WhiteLabel) : null;
@@ -83,5 +89,5 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
     }
   }
 
-  return json(data);
+  return json(data, { headers: { 'Cache-Control': 'no-store' } });
 }

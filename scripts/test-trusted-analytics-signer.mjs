@@ -148,7 +148,7 @@ function fixture(site = 'analytics.np-servicerequest.org') {
       os: 'linux',
       architecture: 'arm64',
       libc: 'glibc',
-      node: '26.13.0',
+      node: '26.13.1',
       npm: '12.2.2',
       package_manager: 'pnpm@12.18.0',
     },

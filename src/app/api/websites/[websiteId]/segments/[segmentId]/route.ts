@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { parseRequest } from '@/lib/request';
 import { json, notFound, ok, unauthorized } from '@/lib/response';
 import { savedSegmentSchema } from '@/lib/schema';
@@ -8,7 +9,9 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ websiteId: string; segmentId: string }> },
 ) {
-  const { auth, error } = await parseRequest(request);
+  const { auth, error } = await parseRequest(request, z.strictObject({}), {
+    budgetShareQuery: true,
+  });
 
   if (error) {
     return error();

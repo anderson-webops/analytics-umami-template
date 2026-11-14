@@ -2,6 +2,7 @@ import clickhouse from '@/lib/clickhouse';
 import { COLLECTION_TRUST_TIER, EVENT_TYPE } from '@/lib/constants';
 import { CLICKHOUSE, PRISMA, runQuery } from '@/lib/db';
 import prisma from '@/lib/prisma';
+import { getWildcardMatch } from '@/lib/search';
 import type { QueryFilters } from '@/lib/types';
 
 export interface FunnelStepFilter {
@@ -124,13 +125,7 @@ async function relationalQuery(
         const column = isURL ? 'url_path' : 'event_name';
         const eventType = isURL ? EVENT_TYPE.pageView : EVENT_TYPE.customEvent;
 
-        let operator = '=';
-        let paramValue = cv.value;
-
-        if (cv.value.startsWith('*') || cv.value.endsWith('*')) {
-          operator = 'like';
-          paramValue = cv.value.replace(/^\*|\*$/g, '%');
-        }
+        const { operator, value: paramValue } = getWildcardMatch(cv.value);
 
         const existsClause =
           !isURL && cv.filters?.length
@@ -172,6 +167,7 @@ async function relationalQuery(
                 and we.event_type = ${eventType}
                 ${isURL ? '' : `and we.trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}`}
                 and we.${column} ${operator} {{${i}}}
+                and we.created_at >= {{startDate}}
                 and we.created_at <= {{endDate}}
                 ${existsClause}
           )`;
@@ -287,13 +283,7 @@ async function clickhouseQuery(
           ? ''
           : ` and trust_tier = ${COLLECTION_TRUST_TIER.backendAuthorized}`;
 
-        let operator = '=';
-        let paramValue = cv.value;
-
-        if (cv.value.startsWith('*') || cv.value.endsWith('*')) {
-          operator = 'like';
-          paramValue = cv.value.replace(/^\*|\*$/g, '%');
-        }
+        const { operator, value: paramValue } = getWildcardMatch(cv.value);
 
         const eventAlias = levelNumber === 1 ? 'level0' : 'y';
         const eventDataClause =

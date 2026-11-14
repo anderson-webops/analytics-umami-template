@@ -82,12 +82,12 @@ const operation2 = defineOperation({
   method: 'get',
   path: '/api/teams/{teamId}',
   audience: 'public',
-  auth: 'bearer-or-share',
+  auth: 'bearer',
   operation: {
     operationId: 'getTeam',
     summary: 'Get a team',
     description:
-      "Returns the specified team's details, including its members. Only current team managers and owners with an editable account, or administrators, receive the access code.",
+      "Returns the specified team's details, including its members. Current team managers, owners and administrators receive the invitation code through an interactive session.",
     tags: ['Teams'],
     parameters: [
       {
@@ -111,24 +111,24 @@ const operation2 = defineOperation({
                 accessCode: {
                   type: ['string', 'null'],
                   description:
-                    'Code used to join the team, returned only to authorized managers, owners, and administrators.',
+                    'Invitation code returned only to current authorized interactive managers, owners, and administrators.',
                 },
                 id: {
                   type: 'string',
                   description: 'Unique identifier of the resource.',
                 },
                 createdAt: {
-                  type: 'string',
+                  type: ['string', 'null'],
                   format: 'date-time',
                   description: 'Date and time the record was created.',
                 },
                 updatedAt: {
-                  type: 'string',
+                  type: ['string', 'null'],
                   format: 'date-time',
                   description: 'Date and time the record was last updated.',
                 },
                 logoUrl: {
-                  type: 'string',
+                  type: ['string', 'null'],
                   description: 'URL of the logo image.',
                 },
                 twoFactorRequired: {
@@ -136,7 +136,7 @@ const operation2 = defineOperation({
                   description: 'Whether two-factor authentication is required.',
                 },
                 deletedAt: {
-                  type: 'string',
+                  type: ['string', 'null'],
                   format: 'date-time',
                   description: 'Date and time the record was deleted, if applicable.',
                 },
@@ -225,11 +225,14 @@ const operation3 = defineOperation({
             type: 'object',
             properties: {
               name: {
-                minimum: 1,
-                maximum: 50,
+                type: 'string',
+                minLength: 1,
+                maxLength: 50,
                 description: 'Display name of the resource.',
               },
               accessCode: {
+                type: 'string',
+                pattern: '^team_[A-Za-z0-9]{16}$',
                 description: 'Code used to join the team.',
               },
             },
@@ -240,10 +243,35 @@ const operation3 = defineOperation({
     responses: {
       '200': {
         description:
-          'Successful response. The response shape is inferred as free-form because the handler does not expose a reusable response schema.',
+          'Team details with an invitation code only for an authorized interactive session.',
         content: {
           'application/json': {
-            schema: {},
+            schema: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                name: { type: 'string' },
+                createdAt: { type: ['string', 'null'], format: 'date-time' },
+                updatedAt: { type: ['string', 'null'], format: 'date-time' },
+                logoUrl: { type: ['string', 'null'] },
+                twoFactorRequired: { type: 'boolean' },
+                deletedAt: { type: ['string', 'null'], format: 'date-time' },
+                accessCode: {
+                  type: ['string', 'null'],
+                  description:
+                    'Invitation code returned only to an authorized interactive manager, owner or administrator.',
+                },
+              },
+              required: [
+                'id',
+                'name',
+                'createdAt',
+                'updatedAt',
+                'logoUrl',
+                'twoFactorRequired',
+                'deletedAt',
+              ],
+            },
           },
         },
       },

@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   findUser: vi.fn(),
   findTeamUsers: vi.fn(),
   findTeams: vi.fn(),
+  primary: vi.fn(),
+  replicaFactor: vi.fn(),
 }));
 
 vi.mock('@/lib/request', () => ({
@@ -18,8 +20,9 @@ vi.mock('@/lib/request', () => ({
 vi.mock('@/lib/prisma', () => ({
   default: {
     client: {
+      $primary: mocks.primary,
       twoFactorAuth: {
-        findUnique: mocks.findTwoFactorAuth,
+        findUnique: mocks.replicaFactor,
       },
       appSetting: {
         findUnique: mocks.findAppSetting,
@@ -47,6 +50,14 @@ beforeEach(() => {
   mocks.findUser.mockReset();
   mocks.findTeamUsers.mockReset();
   mocks.findTeams.mockReset();
+  mocks.replicaFactor.mockReset();
+  mocks.primary.mockReset().mockReturnValue({
+    twoFactorAuth: { findUnique: mocks.findTwoFactorAuth },
+    appSetting: { findUnique: mocks.findAppSetting },
+    user: { findUnique: mocks.findUser },
+    teamUser: { findMany: mocks.findTeamUsers },
+    team: { findMany: mocks.findTeams },
+  });
 
   parseRequestMock.mockResolvedValue({
     auth: {
@@ -79,6 +90,7 @@ test('GET requires 2FA when it is globally enabled', async () => {
     requiredReason: 'global',
   });
   expect(response.status).toBe(200);
+  expect(mocks.replicaFactor).not.toHaveBeenCalled();
 });
 
 test('GET does not require 2FA when the encryption key is missing', async () => {
@@ -116,4 +128,17 @@ test('GET reports user and team requirements from the shared policy', async () =
     isRequired: true,
     requiredReason: 'team',
   });
+});
+
+test('GET rejects share-only access before reading factor state or policy', async () => {
+  parseRequestMock.mockResolvedValue({
+    auth: { authType: 'share', shareToken: { shareId: 'share-1' } },
+  });
+
+  const response = await GET(new Request('http://localhost/api/2fa/status'));
+
+  expect(response.status).toBe(401);
+  expect(mocks.primary).not.toHaveBeenCalled();
+  expect(mocks.findTwoFactorAuth).not.toHaveBeenCalled();
+  expect(mocks.findAppSetting).not.toHaveBeenCalled();
 });

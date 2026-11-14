@@ -89,7 +89,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ use
     data.password = await hashPassword(password);
   }
 
-  // Only admin can change these fields
   if (role && auth.user.isAdmin) {
     data.role = role;
   }

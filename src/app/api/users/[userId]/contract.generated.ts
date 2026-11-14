@@ -85,7 +85,7 @@ const operation2 = defineOperation({
   method: 'get',
   path: '/api/users/{userId}',
   audience: 'public',
-  auth: 'bearer-or-share',
+  auth: 'bearer',
   operation: {
     operationId: 'getUser',
     summary: 'Get a user',
@@ -205,8 +205,9 @@ const operation3 = defineOperation({
             type: 'object',
             properties: {
               username: {
-                minimum: 1,
-                maximum: 255,
+                type: 'string',
+                minLength: 1,
+                maxLength: 255,
                 description: 'Username of the account.',
               },
               password: {

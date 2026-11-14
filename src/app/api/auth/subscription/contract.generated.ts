@@ -7,7 +7,7 @@ const operation1 = defineOperation({
   method: 'get',
   path: '/api/auth/subscription',
   audience: 'public',
-  auth: 'bearer-or-share',
+  auth: 'bearer',
   operation: {
     operationId: 'getSubscription',
     summary: 'Get subscription details',
@@ -81,6 +81,41 @@ const operation1 = defineOperation({
                     'isNoBilling',
                     'hasSubscription',
                     'unlimitedWebsites',
+                  ],
+                },
+                {
+                  type: 'object',
+                  properties: {
+                    isOwner: {
+                      type: 'boolean',
+                    },
+                    isPro: {
+                      type: 'boolean',
+                    },
+                    isBusiness: {
+                      type: 'boolean',
+                    },
+                    isNoBilling: {
+                      type: 'boolean',
+                    },
+                    hasSubscription: {
+                      type: 'boolean',
+                    },
+                    unlimitedWebsites: {
+                      type: 'boolean',
+                    },
+                    billingStatus: {
+                      type: 'string',
+                    },
+                  },
+                  required: [
+                    'isOwner',
+                    'isPro',
+                    'isBusiness',
+                    'isNoBilling',
+                    'hasSubscription',
+                    'unlimitedWebsites',
+                    'billingStatus',
                   ],
                 },
               ],

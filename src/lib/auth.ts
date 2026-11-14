@@ -20,6 +20,7 @@ import {
 import { createAuthKey, hash, secret } from '@/lib/crypto';
 import { isEnvEnabled } from '@/lib/env';
 import { createSecureToken, parseSecureToken, parseToken } from '@/lib/jwt';
+import { hasDefaultPassword } from '@/lib/password';
 import prisma from '@/lib/prisma';
 import redis from '@/lib/redis';
 import { getAuthSessionTtlSeconds, publicSharesDisabled } from '@/lib/security';
@@ -29,8 +30,8 @@ import { resolveShareAccess } from '@/lib/share-access';
 import { isSharedEntityApiRequestAllowed } from '@/lib/share-api-access';
 import { getTwoFactorRequirement } from '@/lib/two-factor/requirement';
 import { ensureArray } from '@/lib/utils';
-import { getShare } from '@/queries/prisma';
 import { getApiKeyByHash, updateApiKeyLastUsed } from '@/queries/prisma/apiKey';
+import { getShare } from '@/queries/prisma/share';
 import { getUser } from '@/queries/prisma/user';
 
 const log = debug('umami:auth');
@@ -143,6 +144,8 @@ export async function checkAuth(request: Request) {
   let accountAttemptKeyVersion: number | undefined;
   let sessionGeneration: unknown;
   let passwordFingerprint: string | undefined;
+  let passwordChangeRequired = false;
+  let redisWindow: { ttl: number; expiresAt: number } | undefined;
   const { userId, authKey } = payload || {};
 
   if (userId) {
@@ -173,6 +176,16 @@ export async function checkAuth(request: Request) {
     }
   } else if (redis.enabled && authKey) {
     const key = await redis.client.get(authKey);
+
+    if (
+      Number.isSafeInteger(key?.ttl) &&
+      key.ttl > 0 &&
+      key.ttl <= getAuthSessionTtlSeconds() &&
+      Number.isSafeInteger(key.expiresAt) &&
+      key.expiresAt === payload.exp
+    ) {
+      redisWindow = { ttl: key.ttl, expiresAt: key.expiresAt };
+    }
 
     if (key?.userId) {
       mfaVerified = key.mfa === true;
@@ -284,6 +297,18 @@ export async function checkAuth(request: Request) {
 
     sessionGeneration = currentUser.sessionGeneration;
     passwordFingerprint = currentPasswordFingerprint;
+    passwordChangeRequired = hasDefaultPassword(currentUser);
+
+    if (redisWindow) {
+      const remaining = redisWindow.expiresAt - Math.floor(Date.now() / 1000);
+      if (remaining <= 0) {
+        return null;
+      }
+      await redis.client
+        .expire(authKey, Math.min(redisWindow.ttl, remaining))
+        .catch(error => log(error));
+    }
+
     delete user.password;
     delete user.sessionGeneration;
     user.isAdmin = user.role === ROLES.admin;
@@ -300,6 +325,8 @@ export async function checkAuth(request: Request) {
     mfaVerified,
     mfaId: mfaVerified ? mfaId : undefined,
     enrollmentOnly,
+    twoFactorSetupPending: enrollmentOnly,
+    passwordChangeRequired,
     accountAttemptId: enrollmentOnly ? accountAttemptId : undefined,
     accountAttemptExpiresAt: enrollmentOnly ? accountAttemptExpiresAt : undefined,
     accountAttemptKeyVersion: enrollmentOnly ? accountAttemptKeyVersion : undefined,
@@ -329,12 +356,10 @@ export async function saveAuth(
   const authKey = `auth:${createAuthKey()}`;
 
   if (redis.enabled) {
-    await redis.client.set(authKey, data, ttl);
+    await redis.client.set(authKey, { ...data, ttl, expiresAt }, ttl);
   }
 
-  return absoluteExpiresAt === undefined
-    ? createSecureToken({ authKey }, secret(), { expiresIn: ttl })
-    : createSecureToken({ authKey, exp: expiresAt }, secret());
+  return createSecureToken({ authKey, exp: expiresAt }, secret());
 }
 
 export async function hasPermission(role: string, permission: string | string[]) {
@@ -355,7 +380,14 @@ export async function parseShareToken(request: Request) {
 
     const share = await getShare(token.shareId);
 
-    if (!share || share.shareType !== token.shareType) {
+    const entityId = token.boardId ?? token.websiteId;
+
+    if (
+      !share ||
+      share.shareType !== token.shareType ||
+      typeof entityId !== 'string' ||
+      share.entityId !== entityId
+    ) {
       return null;
     }
 

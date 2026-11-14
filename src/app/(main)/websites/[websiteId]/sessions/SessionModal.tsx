@@ -2,7 +2,7 @@
 import { Column, Dialog, Modal, type ModalProps } from '@umami/react-zen';
 import { SessionProfile } from '@/app/(main)/websites/[websiteId]/sessions/SessionProfile';
 import { ControlledDialog } from '@/components/common/ControlledDialog';
-import { useMobile, useNavigation, useShare } from '@/components/hooks';
+import { useMessages, useMobile, useNavigation, useShare } from '@/components/hooks';
 import { canViewShareSection } from '@/lib/share';
 import styles from './SessionModal.module.css';
 
@@ -18,6 +18,7 @@ export function SessionModal({ websiteId, className, ...props }: SessionModalPro
     updateParams,
   } = useNavigation();
   const { isMobile } = useMobile();
+  const { t, labels } = useMessages();
   const share = useShare();
   const isSharePage = pathname.includes('/share/');
   const canOpenSession = canViewShareSection(share?.parameters, 'sessions');
@@ -31,14 +32,20 @@ export function SessionModal({ websiteId, className, ...props }: SessionModalPro
     <ControlledDialog>
       <Modal
         className={[styles.modal, className].filter(Boolean).join(' ')}
-        isOpen={!!session && canOpenSession}
         onOpenChange={handleOpenChange}
         {...props}
+        isOpen={!!session && canOpenSession}
       >
         <Column height="100%">
-          <Dialog className="h-full rounded-lg">
+          <Dialog aria-label={t(labels.session)} className="h-full rounded-lg">
             {({ close }) => (
-              <Column padding={isMobile ? '6' : '10'} minWidth="0" width="100%">
+              <Column
+                paddingX={isMobile ? '6' : '10'}
+                paddingTop="6"
+                paddingBottom={isMobile ? '6' : '10'}
+                minWidth="0"
+                width="100%"
+              >
                 <SessionProfile
                   websiteId={websiteId}
                   sessionId={session}

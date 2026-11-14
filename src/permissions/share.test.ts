@@ -7,6 +7,7 @@ import {
   canViewSharedWebsite,
   canViewSharedWebsiteFilters,
   canViewWebsiteSection,
+  canViewWebsiteSectionRows,
 } from './share';
 import { canViewWebsite } from './website';
 
@@ -361,4 +362,95 @@ test('canViewWebsiteSection allows validated link shares for the shared entity i
       'overview',
     ),
   ).resolves.toBe(true);
+});
+
+test('board sections retain aggregate access while excluding visitor sessions', async () => {
+  const auth = {
+    shareToken: {
+      shareType: ENTITY_TYPE.board,
+      websiteIds: ['website-1'],
+      scopedApiAccess: true,
+      parameters: {},
+    },
+  };
+  await expect(canViewWebsiteSection(auth, 'website-1', 'sessions')).resolves.toBe(false);
+  await expect(canViewWebsiteSection(auth, 'website-1', 'events')).resolves.toBe(true);
+  await expect(canViewWebsiteSection(auth, 'website-1', ['overview', 'sessions'])).resolves.toBe(
+    true,
+  );
+});
+
+test.each([ENTITY_TYPE.board, ENTITY_TYPE.link, ENTITY_TYPE.pixel])(
+  'aggregate share type %s cannot read individual visitor rows',
+  async shareType => {
+    await expect(
+      canViewWebsiteSectionRows(
+        {
+          shareToken: {
+            shareType,
+            websiteId: 'website-1',
+            websiteIds: ['website-1'],
+            scopedApiAccess: true,
+            parameters: { events: true },
+          },
+        },
+        'website-1',
+        'events',
+      ),
+    ).resolves.toBe(false);
+  },
+);
+
+test('website row access respects the current share section', async () => {
+  await expect(
+    canViewWebsiteSectionRows(
+      {
+        shareToken: {
+          shareType: ENTITY_TYPE.website,
+          websiteId: 'website-1',
+          parameters: { events: true },
+        },
+      },
+      'website-1',
+      'events',
+    ),
+  ).resolves.toBe(true);
+  await expect(
+    canViewWebsiteSectionRows(
+      {
+        shareToken: {
+          shareType: ENTITY_TYPE.website,
+          websiteId: 'website-1',
+          parameters: { events: false },
+        },
+      },
+      'website-1',
+      'events',
+    ),
+  ).resolves.toBe(false);
+});
+
+test('an unrelated session cannot upgrade the section rights of a website share', async () => {
+  vi.mocked(canViewWebsite).mockImplementation(async auth => !!auth.shareToken?.websiteId);
+  await expect(
+    canViewWebsiteSectionRows(
+      {
+        user: unrelatedUser,
+        shareToken: {
+          shareType: ENTITY_TYPE.website,
+          websiteId: 'website-1',
+          parameters: { events: false },
+        },
+      },
+      'website-1',
+      'events',
+    ),
+  ).resolves.toBe(false);
+});
+
+test('verified independent website access permits row requests without share authority', async () => {
+  await expect(
+    canViewWebsiteSectionRows({ user: unrelatedUser }, 'website-1', 'events'),
+  ).resolves.toBe(true);
+  expect(canViewWebsite).toHaveBeenCalledWith({ user: unrelatedUser }, 'website-1');
 });

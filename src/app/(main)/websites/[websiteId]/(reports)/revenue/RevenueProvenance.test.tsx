@@ -5,6 +5,7 @@ import { RevenueTrustNotice } from './RevenueTrustNotice';
 
 vi.mock('@/components/hooks', () => ({
   useDateRange: () => ({ isAllTime: true }),
+  useTimezone: () => ({ timezone: 'UTC' }),
 }));
 
 test('labels historical revenue as unverified without calling sessions users or events orders', () => {

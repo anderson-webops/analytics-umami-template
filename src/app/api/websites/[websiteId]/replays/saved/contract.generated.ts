@@ -7,7 +7,7 @@ const operation1 = defineOperation({
   method: 'get',
   path: '/api/websites/{websiteId}/replays/saved',
   audience: 'public',
-  auth: 'bearer-or-share',
+  auth: 'bearer',
   operation: {
     operationId: 'getWebsiteSavedReplays',
     summary: 'List saved session replays',
@@ -71,12 +71,12 @@ const operation1 = defineOperation({
             schema: {
               type: 'object',
               properties: {
+                data: {
+                  description: 'Data returned by the operation.',
+                },
                 isCapped: {
                   type: 'boolean',
                   description: 'Whether the results were truncated by the maximum result limit.',
-                },
-                data: {
-                  description: 'Data returned by the operation.',
                 },
                 count: {
                   description: 'Number of matching records.',
@@ -98,7 +98,7 @@ const operation1 = defineOperation({
                   description: 'Search text used to filter results.',
                 },
               },
-              required: ['isCapped', 'data', 'count', 'page', 'pageSize', 'orderBy', 'search'],
+              required: ['data', 'isCapped', 'count', 'page', 'pageSize', 'orderBy', 'search'],
             },
           },
         },

@@ -7,7 +7,7 @@ const operation1 = defineOperation({
   method: 'post',
   path: '/api/boards/{boardId}/clone',
   audience: 'public',
-  auth: 'bearer-or-share',
+  auth: 'bearer',
   operation: {
     operationId: 'cloneBoard',
     summary: 'Clone a board',

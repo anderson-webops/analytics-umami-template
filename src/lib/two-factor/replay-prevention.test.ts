@@ -1,5 +1,5 @@
 import { beforeEach, expect, test, vi } from 'vitest';
-import { consumeOtp } from './replay-prevention';
+import { claimOtp, consumeOtp } from './replay-prevention';
 
 const queryRaw = vi.hoisted(() => vi.fn());
 
@@ -37,4 +37,15 @@ test('uses an existing transaction when the OTP protects another state change', 
   ).resolves.toBe(true);
   expect(transactionQuery).toHaveBeenCalledOnce();
   expect(queryRaw).not.toHaveBeenCalled();
+});
+
+test('upstream claim entrypoint retains transaction-safe consumption', () => {
+  expect(claimOtp).toBe(consumeOtp);
+});
+
+test('propagates unrelated database errors instead of accepting a claim', async () => {
+  queryRaw.mockRejectedValue(new Error('Synthetic unavailable primary'));
+  await expect(claimOtp('00000000-0000-4000-8000-000000000001', '123456')).rejects.toThrow(
+    'Synthetic unavailable primary',
+  );
 });

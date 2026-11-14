@@ -26,8 +26,9 @@ const operation1 = defineOperation({
                 description: 'Unique identifier of the resource.',
               },
               username: {
-                minimum: 1,
-                maximum: 255,
+                type: 'string',
+                minLength: 1,
+                maxLength: 255,
                 description: 'Username of the account.',
               },
               password: {

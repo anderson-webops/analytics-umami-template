@@ -20,6 +20,7 @@ import test from 'node:test';
 import {
   selectedNpmCli,
   stableVersionAtLeast,
+  toolchainInputNames,
   toolchainMetadata,
   toolchainSource,
   verifyBuildToolchain,
@@ -79,14 +80,10 @@ test('changed locks, substituted CLI bytes and symlinked CLI files cannot qualif
       copyFileSync(path.join(npmRoot, relative), destination);
     }
     mkdirSync(path.join(directory, 'vendor'));
-    for (const name of [
-      'package.json',
-      'package-lock.json',
-      '.npmrc',
-      'UPSTREAM.json',
-      toolchainMetadata.archive,
-    ])
+    for (const name of toolchainInputNames) {
+      mkdirSync(path.dirname(path.join(directory, name)), { recursive: true });
       copyFileSync(path.join(profile, name), path.join(directory, name));
+    }
     const copiedCli = path.join(copiedNpm, 'bin/npm-cli.js');
     const rejectInputWithBoundedHeap = () => {
       const output = execFileSync(
@@ -214,14 +211,10 @@ test('descriptor-bound verification preserves checked bytes across file substitu
           mode: constants.COPYFILE_FICLONE,
         });
         mkdirSync(path.join(directory, 'vendor'));
-        for (const name of [
-          'package.json',
-          'package-lock.json',
-          '.npmrc',
-          'UPSTREAM.json',
-          toolchainMetadata.archive,
-        ])
+        for (const name of toolchainInputNames) {
+          mkdirSync(path.dirname(path.join(directory, name)), { recursive: true });
           copyFileSync(path.join(profile, name), path.join(directory, name));
+        }
         const output = execFileSync(
           process.execPath,
           [

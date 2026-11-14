@@ -23,7 +23,8 @@ describe('getMetricShareSections', () => {
 
 describe('getValueShareSections', () => {
   test('requires the requested dimension section even when filtering is enabled', () => {
-    expect(getValueShareSections('distinctId', true)).toEqual(['compare', 'sessions']);
+    expect(getValueShareSections('distinctId', true)).toEqual(['sessions']);
+    expect(getMetricShareSections('distinctId')).toEqual(['compare', 'sessions']);
     expect(getValueShareSections('event', true)).toEqual([
       'compare',
       'events',

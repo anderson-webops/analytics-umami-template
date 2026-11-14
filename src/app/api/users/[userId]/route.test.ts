@@ -104,3 +104,21 @@ test('an administrator can still reset another account password', async () => {
     expect.objectContaining({ user: expect.objectContaining({ id: adminId }) }),
   );
 });
+
+test('an ordinary user must use the current-password flow rather than the management endpoint', async () => {
+  mocks.parseRequest.mockResolvedValue({
+    auth: { user: { id: otherId, isAdmin: false } },
+    body: { password: 'Replacement-password-123!' },
+  });
+
+  const response = await POST(
+    new Request(`http://localhost/api/users/${otherId}`, { method: 'POST' }),
+    {
+      params: Promise.resolve({ userId: otherId }),
+    },
+  );
+
+  expect(response.status).toBe(403);
+  expect(mocks.hashPassword).not.toHaveBeenCalled();
+  expect(mocks.updateUser).not.toHaveBeenCalled();
+});

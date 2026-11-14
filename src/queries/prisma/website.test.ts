@@ -3,6 +3,7 @@ import { ENTITY_TYPE } from '@/lib/constants';
 import {
   createWebsite,
   deleteWebsite,
+  getAllUserWebsitesIncludingTeamAccess,
   resetWebsite,
   transferWebsiteByActor,
   updateWebsite,
@@ -13,21 +14,43 @@ const actorAuth = {
   user: { id: 'actor-1', username: 'actor', role: 'user', isAdmin: false },
 };
 
-const { transactionMock, redisDelMock, redisSetMock } = vi.hoisted(() => ({
+const {
+  transactionMock,
+  websiteUpdateMock,
+  redisDelMock,
+  redisSetMock,
+  redisState,
+  getSearchParametersMock,
+  pagedQueryMock,
+} = vi.hoisted(() => ({
   transactionMock: vi.fn(),
+  websiteUpdateMock: vi.fn(),
   redisDelMock: vi.fn(),
   redisSetMock: vi.fn(),
+  redisState: { enabled: false },
+  getSearchParametersMock: vi.fn(),
+  pagedQueryMock: vi.fn(),
 }));
 
 vi.mock('@/lib/prisma', () => ({
   default: {
+    client: {
+      website: {
+        update: websiteUpdateMock,
+      },
+    },
     transaction: transactionMock,
+    getSearchParameters: getSearchParametersMock,
+    pagedQuery: pagedQueryMock,
   },
   getSchema: () => new URL(process.env.DATABASE_URL || '').searchParams.get('schema'),
 }));
 
 vi.mock('@/lib/redis', () => ({
   default: {
+    get enabled() {
+      return redisState.enabled;
+    },
     client: {
       del: redisDelMock,
       set: redisSetMock,
@@ -152,6 +175,26 @@ test('clearing a site permit endpoint removes it from merged recorder settings',
   expect(result.website.replayConfig).not.toHaveProperty('permitEndpoint');
 });
 
+test('team membership includes active team websites using the primary paginated reader', async () => {
+  getSearchParametersMock.mockReturnValue({});
+  pagedQueryMock.mockResolvedValue({ data: [] });
+  await getAllUserWebsitesIncludingTeamAccess('team-user');
+  expect(pagedQueryMock).toHaveBeenCalledWith(
+    'website',
+    expect.objectContaining({
+      where: {
+        OR: [
+          { userId: 'team-user' },
+          { team: { deletedAt: null, members: { some: { userId: 'team-user' } } } },
+        ],
+        deletedAt: null,
+      },
+    }),
+    expect.any(Object),
+    { usePrimary: true },
+  );
+});
+
 function createDeleteTx(calls: string[]) {
   return {
     $queryRaw: vi.fn().mockResolvedValue([]),
@@ -184,6 +227,21 @@ function createDeleteTx(calls: string[]) {
     attestedRevenueMovement: {
       deleteMany: vi.fn(async () => {
         calls.push('attestedRevenueMovement');
+      }),
+    },
+    errorEvent: {
+      deleteMany: vi.fn(async () => {
+        calls.push('errorEvent');
+      }),
+    },
+    errorIssue: {
+      deleteMany: vi.fn(async () => {
+        calls.push('errorIssue');
+      }),
+    },
+    errorRateLimit: {
+      deleteMany: vi.fn(async () => {
+        calls.push('errorRateLimit');
       }),
     },
     eventData: {
@@ -323,6 +381,9 @@ describe('website delete dependencies', () => {
       'heatmapEvent',
       'revenue',
       'attestedRevenueMovement',
+      'errorEvent',
+      'errorIssue',
+      'errorRateLimit',
       'eventData',
       'rawSql',
       'rawSql',
@@ -376,6 +437,9 @@ describe('website delete dependencies', () => {
       'heatmapEvent',
       'revenue',
       'attestedRevenueMovement',
+      'errorEvent',
+      'errorIssue',
+      'errorRateLimit',
       'eventData',
       'rawSql',
       'rawSql',
@@ -414,6 +478,7 @@ describe('website transfer authorization after role changes', () => {
           update,
         },
         share: { deleteMany: deleteShares },
+        board: { findMany: vi.fn().mockResolvedValue([]) },
         teamUser: { findFirst: vi.fn().mockResolvedValue({ role: 'team-owner' }) },
       }),
     );
@@ -453,6 +518,7 @@ describe('website transfer authorization after role changes', () => {
           update,
         },
         share: { deleteMany: deleteShares },
+        board: { findMany: vi.fn().mockResolvedValue([]) },
         teamUser: { findFirst: vi.fn().mockResolvedValue({ role: 'team-owner' }) },
       }),
     );
@@ -489,6 +555,7 @@ describe('website transfer authorization after role changes', () => {
         team: { findFirst: vi.fn().mockResolvedValue({ id: 'team-2' }) },
         teamUser: { findFirst: vi.fn().mockResolvedValue({ role: 'team-manager' }) },
         share: { deleteMany: deleteShares },
+        board: { findMany: vi.fn().mockResolvedValue([]) },
       }),
     );
 

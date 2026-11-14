@@ -7,6 +7,7 @@ node_modules
 .pnpm-store
 package-lock.json
 !/build-toolchain/package-lock.json
+!/build-toolchain/compat/package-lock.json
 !/deploy/mac-build/pnpm-toolchain/package-lock.json
 
 # testing
@@ -59,3 +60,6 @@ yarn-error.log*
 
 # api integration test runtime state
 /tests/api/.runtime
+
+# local PR review worktrees
+/.review-pr-*/

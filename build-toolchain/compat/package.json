@@ -1,0 +1,11 @@
+{
+  "name": "webops-npm-compat-upstream",
+  "version": "1.0.0",
+  "private": true,
+  "engines": { "node": ">=26.13.0 <27", "npm": "12.2.2" },
+  "dependencies": {
+    "env-paths": "4.0.0",
+    "minipass-flush": "2.0.1",
+    "minipass-pipeline": "3.0.1"
+  }
+}

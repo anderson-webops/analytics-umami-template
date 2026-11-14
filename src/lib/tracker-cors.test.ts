@@ -39,10 +39,20 @@ describe('tracker cross-origin requests', () => {
       throw new Error('Expected collector header configuration.');
     }
 
-    for (const route of routes.filter(({ source }) =>
+    const collectors = routes.filter(({ source }) =>
       ['/api/send', '/api/batch', '/api/record'].includes(source),
-    )) {
+    );
+    expect(collectors.map(({ source }) => source).sort()).toEqual([
+      '/api/batch',
+      '/api/record',
+      '/api/send',
+    ]);
+
+    for (const route of collectors) {
       expect(route.headers.map(({ key }) => key)).not.toContain('Access-Control-Allow-Origin');
+      expect(route.headers.find(({ key }) => key === 'Access-Control-Allow-Methods')?.value).toBe(
+        'POST, OPTIONS',
+      );
     }
   });
 

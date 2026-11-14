@@ -1,10 +1,10 @@
 import { z } from 'zod';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import { badRequest, json, unauthorized } from '@/lib/response';
-import { filterParams, pagingParams } from '@/lib/schema';
+import { filterParams, pagingParams, withPeriodDateRange } from '@/lib/schema';
 import { getPagedShareWorkMultiplier } from '@/lib/share-query-budget';
 import type { PageResult } from '@/lib/types';
-import { canViewWebsiteSection } from '@/permissions';
+import { canViewWebsiteSectionRows } from '@/permissions';
 import { EventDataPageTooBroadError, getEventData } from '@/queries/sql/events/getEventData';
 
 interface EventDataRow {
@@ -30,7 +30,7 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ websiteId: string }> },
 ) {
-  const schema = z.object({
+  const schema = withPeriodDateRange({
     startAt: z.coerce.number().int(),
     endAt: z.coerce.number().int(),
     ...filterParams,
@@ -48,7 +48,7 @@ export async function GET(
 
   const { websiteId } = await params;
 
-  if (!(await canViewWebsiteSection(auth, websiteId, 'events'))) {
+  if (!(await canViewWebsiteSectionRows(auth, websiteId, 'events'))) {
     return unauthorized();
   }
 
@@ -82,5 +82,8 @@ export async function GET(
     entry.eventProperties.push(props);
   }
 
-  return json({ data: [...eventMap.values()], count, page, pageSize });
+  return json(
+    { data: [...eventMap.values()], count, page, pageSize },
+    { headers: { 'Cache-Control': 'no-store' } },
+  );
 }

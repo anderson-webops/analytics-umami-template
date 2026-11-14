@@ -1,12 +1,11 @@
 {
   "profile": "webops-locked-npm-v1",
-  "node": "26.13.0",
+  "node": "26.13.1",
   "npm": "12.2.2",
   "upstreamIntegrity": "sha512-KglgbZyacf7jH+FHuNRqVuCzQi8VhI2a7J87Ix43FsPTuZoGWmIXXGdZtBUOA79vwL+IJREqURVzupA7PsQTcA==",
   "archive": "vendor/npm-12.2.2-webops.1.tgz",
   "changes": "Remove bundled dependency copies and their packaging declarations. Preserve every CLI code, documentation and license byte, then resolve production dependencies through the independently locked root overrides.",
   "archiveSha256": "937f92496a66d6a89955961eb2c70a8e873e4b407b1d4c09e77a0ddec0fafe4d",
-  "lockSha256": "bd9366e4e37579a4f85c69a0ca906983d23a6a6ab7795666a97f8903bee66cf3",
   "files": [
     {
       "path": "package/LICENSE",
@@ -2093,5 +2092,6 @@
       "upstreamSha256": "021d7be9d47b80afe8644d634990c01d30f914610a7061f729d82713ad26e84a",
       "sha256": "021d7be9d47b80afe8644d634990c01d30f914610a7061f729d82713ad26e84a"
     }
-  ]
+  ],
+  "lockSha256": "b4cdaf3d1212191a53a331a44da4c8c3356656b99ac441e0f3dda7b5db7c6b6c"
 }

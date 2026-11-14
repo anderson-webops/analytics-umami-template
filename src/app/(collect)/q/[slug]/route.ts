@@ -7,6 +7,11 @@ import { notFound, tooManyRequests } from '@/lib/response';
 import { httpUrlParam, routeSlugParam } from '@/lib/schema';
 import { findLink } from '@/queries/prisma';
 
+function getRedirectUrl(value: unknown): string | null {
+  const result = httpUrlParam.safeParse(value);
+  return result.success ? new URL(result.data).toString() : null;
+}
+
 export async function GET(request: Request, { params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
 
@@ -22,7 +27,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
 
   const link = await findLink({ where: { slug, deletedAt: null } });
 
-  if (!link || !httpUrlParam.safeParse(link.url).success) {
+  if (!link || !getRedirectUrl(link.url)) {
     return notFound();
   }
 
@@ -49,19 +54,16 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
   });
 
   transferCollectionIpLimit(request, req);
-  await POST(req);
+  await POST(req).catch(() => undefined);
 
   const currentLink = await findLink({ where: { slug, deletedAt: null } });
+  const redirectUrl = getRedirectUrl(currentLink?.url);
 
-  if (
-    !currentLink ||
-    currentLink.id !== link.id ||
-    !httpUrlParam.safeParse(currentLink.url).success
-  ) {
+  if (!currentLink || currentLink.id !== link.id || !redirectUrl) {
     return notFound();
   }
 
-  const response = NextResponse.redirect(currentLink.url);
+  const response = NextResponse.redirect(redirectUrl);
   response.headers.set('Cache-Control', 'no-store');
 
   return response;

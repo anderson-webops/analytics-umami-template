@@ -133,11 +133,13 @@ test.describe('Shares', () => {
     const response = await admin.get(`/api/share/id/${shareId}`);
     const denied = await viewer.get(`/api/share/id/${shareId}`);
     const anonymous = await api.get(`/api/share/id/${shareId}`);
+    const unknown = await admin.get(`/api/share/id/${UNKNOWN_UUID}`);
 
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({ id: shareId, entityId: websiteId, slug });
     expect(denied.status).toBe(401);
     expect(anonymous.status).toBe(401);
+    expect(unknown.status).toBe(404);
   });
 
   test('POST /api/share/id/{shareId} edits and rotates a share', async ({ admin, api, viewer }) => {
@@ -403,10 +405,12 @@ test.describe('Shares', () => {
 
   test('DELETE /api/share/id/{shareId} deletes a share', async ({ admin, viewer, api }) => {
     const denied = await viewer.del(`/api/share/id/${shareId}`);
+    const unknown = await admin.del(`/api/share/id/${UNKNOWN_UUID}`);
     const response = await admin.del(`/api/share/id/${shareId}`);
     const gone = await api.get(`/api/share/${slug}`);
 
     expect(denied.status).toBe(401);
+    expect(unknown.status).toBe(404);
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ ok: true });
     expect(gone.status).toBe(404);

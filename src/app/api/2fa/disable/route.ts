@@ -29,11 +29,13 @@ import { reserveTwoFactorAttempt } from '@/lib/two-factor/rate-limit';
 import { consumeOtp } from '@/lib/two-factor/replay-prevention';
 import { getTwoFactorRequirement } from '@/lib/two-factor/requirement';
 import { verifyTotp } from '@/lib/two-factor/totp';
+import { runActiveSessionMutation, SessionRevokedError } from '@/queries/prisma/authorization';
 import { getUser } from '@/queries/prisma/user';
 
 class CredentialsChangedError extends Error {}
 class FactorChangedError extends Error {}
 class CodeAlreadyUsedError extends Error {}
+class TwoFactorRequiredError extends Error {}
 
 export async function POST(request: Request) {
   if (isEnvEnabled('CLOUD_MODE')) {
@@ -135,7 +137,11 @@ export async function POST(request: Request) {
   let updatedUser;
 
   try {
-    updatedUser = await prisma.transaction(async tx => {
+    updatedUser = await runActiveSessionMutation(auth, async tx => {
+      if ((await getTwoFactorRequirement(userId, tx)).reason !== null) {
+        throw new TwoFactorRequiredError();
+      }
+
       const updatedUsers = await tx.$queryRaw<Array<{ sessionGeneration: number }>>`
         UPDATE "user"
         SET "session_generation" = "session_generation" + 1,
@@ -195,7 +201,14 @@ export async function POST(request: Request) {
       return conflict({ message: '2FA enrollment changed; try again' });
     }
 
-    if (error instanceof CredentialsChangedError) {
+    if (error instanceof TwoFactorRequiredError) {
+      return forbidden({
+        code: 'two-factor-error-disable-not-allowed',
+        message: '2FA is required and cannot be disabled',
+      });
+    }
+
+    if (error instanceof CredentialsChangedError || error instanceof SessionRevokedError) {
       return unauthorized({ message: 'Your credentials changed. Please sign in again.' });
     }
 

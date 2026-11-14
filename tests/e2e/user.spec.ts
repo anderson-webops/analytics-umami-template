@@ -10,8 +10,6 @@ test.describe('User tests', () => {
   });
 
   test('adds a user', async ({ page }) => {
-    await expect(page.getByText(/Create user/i)).toBeVisible();
-
     await page.getByTestId('button-create-user').click();
     await page.getByLabel(/^Username$/i).fill('Test-user');
     await page.getByLabel(/^Password$/i).fill('testPasswordPlaywright');
@@ -30,6 +28,7 @@ test.describe('User tests', () => {
     await page.getByRole('combobox', { name: /^Role$/i }).click();
     await page.getByRole('option', { name: /^View only$/i }).click();
     await page.getByTestId('button-submit').click();
+    await expect(page.getByText(/Saved/i).first()).toBeVisible();
 
     await page.goto('/admin/users');
     await expect(page.getByRole('row').filter({ hasText: /Test-user/i })).toContainText(

@@ -24,10 +24,11 @@ import {
   inspectToolchainPayload,
   maximumCachedProfiles,
   nodeIdentity,
+  pairedCommandScript,
   selectToolchainCache,
   verifyReusableToolchain,
 } from './build-toolchain-cache.mjs';
-import { selectedNpmCli, toolchainSource } from './build-toolchain-state.mjs';
+import { selectedNpmCli, toolchainInputNames, toolchainSource } from './build-toolchain-state.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 const scratch = path.join(root, '.ai-work/runs/toolchain-cache-fixtures');
@@ -42,7 +43,27 @@ test('the complete payload matches a source-pinned digest rather than a mutable 
   const expected = JSON.parse(readFileSync(path.join(toolchainSource, 'PAYLOAD.json'), 'utf8'));
   assert.deepEqual(inspectToolchainPayload(profile), expected);
   assert.ok(expected.files > 3000);
-  assert.equal(verifyReusableToolchain(profile, nodeIdentity()).node, process.versions.node);
+  assert.equal(
+    verifyReusableToolchain(profile, nodeIdentity(path.join(profile, 'bin/node'))).node,
+    process.versions.node,
+  );
+});
+
+test('direct Node qualification finds the original paired CLI without an npm lifecycle environment', () => {
+  const environment = { ...process.env };
+  delete environment.npm_execpath;
+  delete environment.npm_node_execpath;
+  const output = execFileSync(
+    path.join(profile, 'bin/node'),
+    [path.join(root, 'scripts/check-build-toolchain.mjs')],
+    {
+      cwd: root,
+      env: environment,
+      encoding: 'utf8',
+      timeout: 30_000,
+    },
+  );
+  assert.deepEqual(JSON.parse(output), verifyReusableToolchain(profile, nodeIdentity()));
 });
 
 test('unreviewed dependency bytes, extra code, missing code, command links and Node substitutions fail closed', () => {
@@ -59,11 +80,13 @@ test('unreviewed dependency bytes, extra code, missing code, command links and N
         recursive: true,
         mode: constants.COPYFILE_FICLONE,
       });
-    for (const name of ['package.json', 'package-lock.json', '.npmrc', 'UPSTREAM.json'])
+    for (const name of toolchainInputNames) {
+      mkdirSync(path.dirname(path.join(directory, name)), { recursive: true });
       copyFileSync(path.join(profile, name), path.join(directory, name));
-    const expectedNode = nodeIdentity();
+    }
+    const expectedNode = nodeIdentity(path.join(profile, 'bin/node'));
     verifyReusableToolchain(directory, expectedNode);
-    const shadowLibrary = path.join(directory, 'bin', 'libnode.shadow.dylib');
+    const shadowLibrary = path.join(directory, 'bin/libnode.shadow.dylib');
     writeFileSync(shadowLibrary, 'unreviewed runtime lookup');
     assert.throws(
       () => verifyReusableToolchain(directory, expectedNode),
@@ -109,15 +132,61 @@ test('unreviewed dependency bytes, extra code, missing code, command links and N
     symlinkSync('../node_modules/npm/bin/npm-cli.js', command);
     assert.throws(() => verifyReusableToolchain(directory, expectedNode));
     rmSync(command);
-    symlinkSync('../node_modules/npm/bin/npx-cli.js', command);
-    const substitute = path.join(directory, 'other-node');
-    copyFileSync(process.execPath, substitute);
-    rmSync(path.join(directory, 'bin/node'));
-    symlinkSync(substitute, path.join(directory, 'bin/node'));
-    assert.throws(() => verifyReusableToolchain(directory, expectedNode), /Cached Node differs/u);
-    rmSync(path.join(directory, 'bin/node'));
+    writeFileSync(command, pairedCommandScript('npm'), { mode: 0o755 });
+    assert.throws(
+      () => verifyReusableToolchain(directory, expectedNode),
+      /differs from the reviewed command/u,
+    );
+    writeFileSync(command, pairedCommandScript('npx'));
     writeFileSync(path.join(directory, 'bin/node'), 'unreviewed executable');
     assert.throws(() => verifyReusableToolchain(directory, expectedNode), /Cached Node differs/u);
+  } finally {
+    rmSync(directory, { recursive: true });
+  }
+});
+
+test('paired npm and npx keep native Python imports out of the complete immutable SDK payload', {
+  timeout: 120_000,
+}, () => {
+  const directory = fixture();
+  const expected = inspectToolchainPayload(profile);
+  const environment = {
+    ...process.env,
+    PATH: `${path.join(profile, 'bin')}${path.delimiter}${process.env.PATH || ''}`,
+    NPM_CONFIG_WORKSPACES: 'false',
+    npm_config_workspaces: 'false',
+  };
+  delete environment.PYTHONDONTWRITEBYTECODE;
+  delete environment.npm_execpath;
+  const python = `import sys; assert sys.dont_write_bytecode; sys.path.insert(0, ${JSON.stringify(path.join(profile, 'node_modules/node-gyp/gyp/pylib'))}); import gyp; import gyp.generator.ninja; import gyp.generator.make; import gyp.generator.xcode; print('native Python imports remained read-only')`;
+  try {
+    writeFileSync(
+      path.join(directory, 'package.json'),
+      JSON.stringify({
+        name: 'readonly-native-import-fixture',
+        private: true,
+        scripts: { verify: 'node verify.mjs' },
+      }),
+    );
+    writeFileSync(
+      path.join(directory, 'verify.mjs'),
+      `import assert from 'node:assert/strict'; import {spawnSync} from 'node:child_process'; assert.equal(process.env.PYTHONDONTWRITEBYTECODE,'1'); const result=spawnSync('python3',['-c',${JSON.stringify(python)}],{encoding:'utf8'}); assert.equal(result.status,0,result.stderr); process.stdout.write(result.stdout);`,
+    );
+    for (const [name, arguments_] of [
+      ['npm', ['run', 'verify']],
+      ['npx', ['--offline', '--no', '--call', 'node verify.mjs']],
+    ]) {
+      const output = execFileSync(path.join(profile, 'bin', name), arguments_, {
+        cwd: directory,
+        env: environment,
+        encoding: 'utf8',
+        timeout: 60000,
+        maxBuffer: 2 * 1024 * 1024,
+      });
+      assert.match(output, /native Python imports remained read-only/);
+      assert.deepEqual(inspectToolchainPayload(profile), expected);
+    }
+    assert.throws(() => pairedCommandScript('unexpected'), /Unexpected paired command name/u);
   } finally {
     rmSync(directory, { recursive: true });
   }
@@ -136,6 +205,29 @@ test('cache identity is bound to the actual Node bytes as well as source, indepe
       key: first.key,
       node: { ...first.node, executable: false },
     });
+  } finally {
+    rmSync(directory, { recursive: true });
+  }
+});
+
+test('dynamically linked Node cache identity includes its shared runtime bytes', {
+  skip: process.platform !== 'darwin',
+}, () => {
+  const directory = fixture();
+  try {
+    mkdirSync(path.join(directory, 'bin'));
+    mkdirSync(path.join(directory, 'lib'));
+    const node = path.join(directory, 'bin/node');
+    const library = path.join(directory, 'lib', `libnode.${process.versions.modules}.dylib`);
+    writeFileSync(node, 'controlled Node fixture');
+    writeFileSync(library, 'original shared runtime');
+    const original = cacheIdentity(node);
+    writeFileSync(library, 'changed shared runtime');
+    const changed = cacheIdentity(node);
+    assert.notEqual(changed.key, original.key);
+    assert.equal(original.node.libraries.length, 1);
+    assert.equal(original.node.libraries[0].name, path.basename(library));
+    assert.notEqual(changed.node.libraries[0].sha256, original.node.libraries[0].sha256);
   } finally {
     rmSync(directory, { recursive: true });
   }

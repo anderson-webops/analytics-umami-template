@@ -24,3 +24,5 @@ export async function consumeOtp(userId: string, otp: string, tx?: TxClient): Pr
 
   return rows.length === 1;
 }
+
+export const claimOtp = consumeOtp;

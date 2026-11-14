@@ -8,6 +8,7 @@ import {
   getAllowedUnits,
   getCompareDate,
   getMinimumUnit,
+  getPeriodDateRange,
   maxDate,
   parseDateRange,
 } from '@/lib/date';
@@ -30,7 +31,7 @@ import {
   tooManyRequests,
   unauthorized,
 } from '@/lib/response';
-import { savedSegmentSchema } from '@/lib/schema';
+import { periodParam, savedSegmentSchema } from '@/lib/schema';
 import type { ShareSection } from '@/lib/share';
 import { hasShareFilterParams } from '@/lib/share-filter';
 import {
@@ -162,6 +163,7 @@ export async function parseRequest(
   schema?: any,
   options?: {
     skipAuth?: boolean;
+    allowTwoFactorSetup?: boolean;
     maxBodyBytes?: number;
     bodyPreflight?: (body: unknown) => boolean;
     budgetShareQuery?: boolean;
@@ -201,6 +203,17 @@ export async function parseRequest(
 
     if (!auth) {
       error = () => unauthorized();
+    } else if (
+      auth.twoFactorSetupPending &&
+      !auth.enrollmentOnly &&
+      !options?.allowTwoFactorSetup
+    ) {
+      // Users who must enroll in 2FA can only reach the routes needed to complete setup.
+      error = () =>
+        forbidden({
+          code: 'two-factor-error-setup-required',
+          message: 'Two-factor authentication setup is required',
+        });
     }
   }
 
@@ -275,6 +288,16 @@ export async function parseRequest(
           }
 
           query[key] = rawQuery[key];
+        }
+      }
+
+      if (!error && query.period !== undefined) {
+        try {
+          const period = periodParam.parse(query.period);
+          query = resolvePeriodDateRange({ ...query, period });
+          delete query.period;
+        } catch {
+          error = () => badRequest({ message: 'Invalid analytics period or timezone.' });
         }
       }
 
@@ -514,6 +537,21 @@ export function getRequestDateRange(query: Record<string, string>) {
   };
 }
 
+export function resolvePeriodDateRange(params: Record<string, any>, now = new Date()) {
+  if (!params.period) {
+    return params;
+  }
+
+  const { startDate, endDate } = getPeriodDateRange(params.period, params.timezone || 'UTC', now);
+
+  return {
+    ...params,
+    startAt: +startDate,
+    endAt: +endDate,
+    timezone: params.timezone || 'UTC',
+  };
+}
+
 export function getRequestFilters(query: Record<string, any>) {
   const result: Record<string, any> = {};
 
@@ -570,18 +608,19 @@ export async function getQueryFilters(
   params: Record<string, any>,
   websiteId?: string,
 ): Promise<QueryFilters> {
-  const dateRange = getRequestDateRange(params);
-  const filters = getRequestFilters(params);
-  const eventPropertyFilters = parseUniversalEventPropertyFilters(params);
-  const sessionPropertyFilters = parseSessionPropertyFilters(params);
+  const resolvedParams = resolvePeriodDateRange(params);
+  const dateRange = getRequestDateRange(resolvedParams);
+  const filters = getRequestFilters(resolvedParams);
+  const eventPropertyFilters = parseUniversalEventPropertyFilters(resolvedParams);
+  const sessionPropertyFilters = parseSessionPropertyFilters(resolvedParams);
 
-  let match = params?.match;
+  let match = resolvedParams?.match;
 
   if (websiteId) {
     await setWebsiteDate(websiteId, dateRange);
 
-    if (params.segment) {
-      const segment = await getWebsiteSegment(websiteId, params.segment);
+    if (resolvedParams.segment) {
+      const segment = await getWebsiteSegment(websiteId, resolvedParams.segment);
       const parsedSegment = savedSegmentSchema.safeParse(segment);
 
       if (!parsedSegment.success || parsedSegment.data.type !== 'segment') {
@@ -599,7 +638,7 @@ export async function getQueryFilters(
         throw new Error('INVALID_SAVED_SEGMENT');
       }
 
-      Object.assign(filters, filtersArrayToObject(segmentParams.filters ?? []));
+      Object.assign(filters, getRequestFilters(filtersArrayToObject(segmentParams.filters ?? [])));
       sessionPropertyFilters.push(
         ...((segmentParams.sessionPropertyFilters ?? []) as SessionPropertyFilter[]),
       );
@@ -609,12 +648,12 @@ export async function getQueryFilters(
       }
     }
 
-    if (params.cohort) {
-      const snapshot = Reflect.get(params, SAVED_COHORT_SNAPSHOT);
+    if (resolvedParams.cohort) {
+      const snapshot = Reflect.get(resolvedParams, SAVED_COHORT_SNAPSHOT);
       const cohort =
-        snapshot?.websiteId === websiteId && snapshot.cohortId === params.cohort
+        snapshot?.websiteId === websiteId && snapshot.cohortId === resolvedParams.cohort
           ? snapshot.cohort
-          : await getWebsiteSegment(websiteId, params.cohort);
+          : await getWebsiteSegment(websiteId, resolvedParams.cohort);
       const parsedCohort = savedSegmentSchema.safeParse(cohort);
 
       if (!parsedCohort.success || parsedCohort.data.type !== 'cohort') {
@@ -636,6 +675,9 @@ export async function getQueryFilters(
         name: `cohort_${name}`,
       }));
 
+      if (!['path', 'event'].includes(cohortParams.action.type)) {
+        throw new Error('This cohort uses a retired action and must be updated.');
+      }
       cohortFilters.push({
         name: `cohort_${cohortParams.action.type}`,
         operator: OPERATORS.equals,
@@ -653,7 +695,7 @@ export async function getQueryFilters(
       });
     }
 
-    if (params.excludeBounce) {
+    if (resolvedParams.excludeBounce) {
       Object.assign(filters, { excludeBounce: true });
     }
   }
@@ -662,16 +704,16 @@ export async function getQueryFilters(
     ...dateRange,
     ...filters,
     match,
-    minDuration: params?.minDuration,
+    minDuration: resolvedParams?.minDuration,
     eventPropertyFilters,
     sessionPropertyFilters,
-    page: params?.page,
-    pageSize: params?.pageSize ? params?.pageSize || DEFAULT_PAGE_SIZE : undefined,
-    orderBy: params?.orderBy,
-    sortDescending: params?.sortDescending,
-    search: params?.search,
-    compare: params?.compare,
-    trafficType: params?.trafficType,
-    maxResults: params?.maxResults,
+    page: resolvedParams?.page,
+    pageSize: resolvedParams?.pageSize ? resolvedParams?.pageSize || DEFAULT_PAGE_SIZE : undefined,
+    orderBy: resolvedParams?.orderBy,
+    sortDescending: resolvedParams?.sortDescending,
+    search: resolvedParams?.search,
+    compare: resolvedParams?.compare,
+    trafficType: resolvedParams?.trafficType,
+    maxResults: resolvedParams?.maxResults,
   };
 }

@@ -50,15 +50,124 @@ function resolveIp(ip?: string | null): string | undefined {
   return normalizeIp(stripPort(value));
 }
 
-function resolveHeaderIp(name: string, value: string | null): string | undefined {
-  if (!value) {
-    return undefined;
+type IpRange = [ipaddr.IPv4 | ipaddr.IPv6, number];
+
+// Shorthands accepted in TRUSTED_PROXIES
+const TRUSTED_PROXY_PRESETS: Record<string, string[]> = {
+  loopback: ['127.0.0.0/8', '::1/128'],
+  linklocal: ['169.254.0.0/16', 'fe80::/10'],
+  private: ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', 'fc00::/7'],
+};
+
+let trustedProxyCache: { value: string; ranges: IpRange[] } | undefined;
+
+/**
+ * Parse TRUSTED_PROXIES: a comma-separated list of IPs, CIDR ranges and/or
+ * presets (loopback, linklocal, private) belonging to proxies/load balancers
+ * in front of Umami. Invalid entries are ignored.
+ */
+function getTrustedProxies() {
+  const value = process.env.TRUSTED_PROXIES ?? '';
+
+  if (trustedProxyCache?.value !== value) {
+    const ranges = value
+      .split(',')
+      .map(entry => entry.trim())
+      .filter(Boolean)
+      .flatMap(entry => TRUSTED_PROXY_PRESETS[entry.toLowerCase()] ?? [entry])
+      .flatMap((entry): IpRange[] => {
+        try {
+          if (entry.includes('/')) {
+            return [ipaddr.parseCIDR(entry)];
+          }
+
+          const addr = ipaddr.process(entry);
+
+          return [[addr, addr.kind() === 'ipv4' ? 32 : 128]];
+        } catch {
+          return [];
+        }
+      });
+
+    trustedProxyCache = { value, ranges };
   }
 
-  if (name.toLowerCase() === 'forwarded') {
-    const match = value.match(/(?:^|[;,]\s*)for=(?:"?\[?)([0-9a-fA-F:.]+)(?:\]?"?)(?=[:;,]|$)/i);
+  return trustedProxyCache.ranges;
+}
 
-    return match ? resolveIp(match[1]) : undefined;
+function isTrustedProxy(ip?: string | null) {
+  const ranges = getTrustedProxies();
+
+  if (!ip || !ranges.length || !ipaddr.isValid(ip)) {
+    return false;
+  }
+
+  const addr = ipaddr.process(ip);
+
+  return ranges.some(range => addr.kind() === range[0].kind() && addr.match(range));
+}
+
+/**
+ * Extract the `for=` node of each element of an RFC 7239 Forwarded header, e.g.
+ * `for=192.0.2.43, for="[2001:db8:cafe::17]:4711";proto=https`.
+ * Elements without `for=` are dropped. `unknown` and obfuscated (`_xyz`) nodes
+ * become null: they are real hops, but carry no address.
+ */
+function parseForwarded(value: string) {
+  return value.split(',').flatMap(element => {
+    const pair = element
+      .split(';')
+      .map(param => param.trim())
+      .find(param => param.toLowerCase().startsWith('for='));
+
+    if (!pair) {
+      return [];
+    }
+
+    const node = pair
+      .slice(4)
+      .trim()
+      .replace(/^"(.*)"$/, '$1');
+
+    return [!node || node.toLowerCase() === 'unknown' || node.startsWith('_') ? null : node];
+  });
+}
+
+/**
+ * Pick the client address from a proxy chain (ordered client -> nearest proxy).
+ *
+ * Without TRUSTED_PROXIES the leftmost entry is used. With TRUSTED_PROXIES the
+ * chain is walked right to left, skipping trusted proxies, and the first
+ * untrusted hop is returned. Entries left of that hop are client-supplied and
+ * can't be trusted.
+ */
+function pickFromChain(chain: (string | null)[]) {
+  const ips = chain.map(resolveIp);
+
+  if (getTrustedProxies().length) {
+    for (let position = ips.length - 1; position >= 0; position--) {
+      if (!isTrustedProxy(ips[position])) {
+        return ips[position];
+      }
+    }
+  }
+
+  // No trusted proxies configured, or every hop is a trusted proxy
+  return ips.find(Boolean);
+}
+
+function parseHeaderValue(header: string, value: string) {
+  if (header === 'x-forwarded-for') {
+    return pickFromChain(
+      value
+        .split(',')
+        .map(ip => ip.trim())
+        .filter(Boolean),
+    );
+  }
+
+  if (header === 'forwarded') {
+    return pickFromChain(parseForwarded(value));
   }
 
   return resolveIp(value.split(',')[0]?.trim());
@@ -68,19 +177,31 @@ export function getIpAddress(headers: Headers) {
   const customHeader = process.env.CLIENT_IP_HEADER?.trim();
 
   if (customHeader) {
-    return resolveHeaderIp(customHeader, headers.get(customHeader));
+    const value = headers.get(customHeader);
+    return value ? parseHeaderValue(customHeader.toLowerCase(), value) : undefined;
   }
 
-  // Production must explicitly identify the one header that a trusted edge or
-  // reverse proxy overwrites. Falling through to arbitrary forwarding headers
-  // lets direct clients choose their own rate-limit and session identity.
   if (process.env.NODE_ENV === 'production') {
     return undefined;
   }
 
-  const header = IP_ADDRESS_HEADERS.find(name => headers.get(name));
+  let fallback: string | undefined;
+  for (const name of IP_ADDRESS_HEADERS) {
+    const value = headers.get(name);
+    if (!value) {
+      continue;
+    }
 
-  return header ? resolveHeaderIp(header, headers.get(header)) : undefined;
+    const address = parseHeaderValue(name, value);
+    if (isTrustedProxy(address)) {
+      fallback ??= address;
+      continue;
+    }
+
+    return address;
+  }
+
+  return fallback;
 }
 
 export function stripPort(ip?: string | null): string | undefined {

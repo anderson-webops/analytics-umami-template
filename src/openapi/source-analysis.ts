@@ -235,6 +235,7 @@ const knownSchemas: Record<string, () => InferredSchema> = {
     required({ type: 'string', enum: ['team-member', 'team-view-only', 'team-manager'] }),
   anyObjectParam: () => required({ type: 'object', additionalProperties: true }),
   urlOrPathParam: () => required(stringSchema()),
+  unixTimestampParam: () => required({ type: 'integer', minimum: 0, maximum: 2147483647 }),
   fieldsParam: () => required(stringSchema()),
   reportTypeParam: () => required(stringSchema()),
   operatorParam: () => required(stringSchema()),
@@ -517,6 +518,49 @@ function inferCallExpression(
     return required(schema);
   }
 
+  if (method === 'withPeriodDateRange') {
+    const schema = expression.arguments[0]
+      ? inferExpression(expression.arguments[0], source, declarations, seen).schema
+      : objectSchema({}, []);
+    if (!schema.properties) {
+      schema.properties = {};
+    }
+    const properties = schema.properties;
+    const requiredProperties = new Set(
+      (schema.required ?? []).filter(name => name !== 'startAt' && name !== 'endAt'),
+    );
+
+    properties.startAt = { type: 'integer' };
+    properties.endAt = { type: 'integer' };
+    properties.period = {
+      type: 'string',
+      enum: [
+        'today',
+        '24h',
+        '7d',
+        '30d',
+        '0day',
+        '24hour',
+        '0week',
+        '7day',
+        '0month',
+        '30day',
+        '90day',
+        '0year',
+        '6month',
+        '12month',
+      ],
+    };
+
+    if (requiredProperties.size) {
+      schema.required = [...requiredProperties];
+    } else {
+      delete schema.required;
+    }
+
+    return required(schema);
+  }
+
   if (['optional', 'nullish', 'default', 'catch'].includes(method) && base) {
     const inferred = inferExpression(base, source, declarations, seen);
 
@@ -556,6 +600,7 @@ function inferCallExpression(
       'meta',
       'brand',
       'readonly',
+      'trim',
     ].includes(method) &&
     base
   ) {
@@ -738,6 +783,13 @@ function inferExpression(
     return inferCallExpression(expression, source, declarations, seen);
   }
 
+  if (
+    ts.isPrefixUnaryExpression(expression) &&
+    expression.operator === ts.SyntaxKind.ExclamationToken
+  ) {
+    return required(booleanSchema());
+  }
+
   const literal = getLiteralValue(expression);
 
   if (literal !== undefined) {
@@ -793,6 +845,44 @@ function getNumericStatus(options: ts.Expression | undefined, source: ts.SourceF
 
   const value = getLiteralValue(status.initializer);
   return typeof value === 'string' ? Number(value) : typeof value === 'number' ? value : null;
+}
+
+const SHARE_AWARE_PERMISSIONS = new Set([
+  'canViewWebsite',
+  'canViewWebsiteSection',
+  'canViewWebsiteSectionRows',
+  'canViewSharedWebsite',
+  'canViewSharedWebsiteFilters',
+  'canViewWebsiteAnnotations',
+  'canViewSavedWebsiteSegments',
+  'canViewBatchWebsites',
+  'canViewReport',
+  'canViewBoard',
+  'canViewLink',
+  'canViewPixel',
+]);
+
+function hasSharePermissionArgument(name: string, argument: ts.Expression | undefined) {
+  if (!SHARE_AWARE_PERMISSIONS.has(name) || !argument) return false;
+  if (!ts.isObjectLiteralExpression(argument)) return true;
+  let includesShare = false;
+  for (const property of argument.properties) {
+    if (ts.isSpreadAssignment(property)) {
+      includesShare = true;
+      continue;
+    }
+    if (
+      !property.name ||
+      (!ts.isIdentifier(property.name) && !ts.isStringLiteral(property.name)) ||
+      property.name.text !== 'shareToken'
+    )
+      continue;
+    includesShare =
+      !ts.isPropertyAssignment(property) ||
+      (property.initializer.kind !== ts.SyntaxKind.NullKeyword &&
+        !(ts.isIdentifier(property.initializer) && property.initializer.text === 'undefined'));
+  }
+  return includesShare;
 }
 
 export function analyzeSourceOperation(
@@ -861,7 +951,7 @@ export function analyzeSourceOperation(
         parseRequestCall = node;
       }
 
-      if (/^canView/.test(name)) {
+      if (hasSharePermissionArgument(name, node.arguments[0])) {
         hasShareAwarePermission = true;
       }
 

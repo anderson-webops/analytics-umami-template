@@ -109,6 +109,7 @@ export function Revenue({ websiteId, startDate, endDate, unit }: RevenueProps) {
                 minDate={startDate}
                 maxDate={endDate}
                 currency={currency}
+                allowBarDrill={true}
               />
             </Panel>
             <Grid gap="3">

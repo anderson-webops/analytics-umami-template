@@ -1,6 +1,6 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { getQueryFilters, parseRequest } from '@/lib/request';
-import { canViewWebsiteSection } from '@/permissions';
+import { canViewWebsiteSectionRows } from '@/permissions';
 import { getEventData } from '@/queries/sql/events/getEventData';
 import { GET } from './route';
 
@@ -10,7 +10,7 @@ vi.mock('@/lib/request', () => ({
 }));
 
 vi.mock('@/permissions', () => ({
-  canViewWebsiteSection: vi.fn(),
+  canViewWebsiteSectionRows: vi.fn(),
 }));
 
 vi.mock('@/queries/sql/events/getEventData', () => ({
@@ -20,13 +20,13 @@ vi.mock('@/queries/sql/events/getEventData', () => ({
 
 const parseRequestMock = vi.mocked(parseRequest);
 const getQueryFiltersMock = vi.mocked(getQueryFilters);
-const canViewWebsiteSectionMock = vi.mocked(canViewWebsiteSection);
+const canViewWebsiteSectionRowsMock = vi.mocked(canViewWebsiteSectionRows);
 const getEventDataMock = vi.mocked(getEventData);
 
 beforeEach(() => {
   parseRequestMock.mockReset().mockResolvedValue({ auth: {}, query: {}, error: undefined } as any);
   getQueryFiltersMock.mockReset().mockResolvedValue({} as any);
-  canViewWebsiteSectionMock.mockReset().mockResolvedValue(true);
+  canViewWebsiteSectionRowsMock.mockReset().mockResolvedValue(true);
   getEventDataMock.mockReset();
 });
 

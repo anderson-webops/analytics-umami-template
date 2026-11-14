@@ -41,7 +41,7 @@ export function PixelPage({
             <PixelControls pixelId={pixelId} />
             <PixelMetricsBar pixelId={pixelId} showChange={true} />
             <Panel>
-              <WebsiteChart websiteId={pixelId} />
+              <WebsiteChart websiteId={pixelId} allowBarDrill={true} />
             </Panel>
             <PixelPanels pixelId={pixelId} />
           </PageBody>

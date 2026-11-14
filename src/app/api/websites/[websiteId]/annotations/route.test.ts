@@ -6,6 +6,7 @@ import { GET, POST } from './route';
 
 vi.mock('@/lib/request', () => ({
   parseRequest: vi.fn(),
+  resolvePeriodDateRange: (params: any) => params,
 }));
 
 vi.mock('@/permissions', () => ({
@@ -142,4 +143,33 @@ test('GET passes the date window through to the query only when both bounds are 
     page: 1,
     pageSize: undefined,
   });
+});
+
+test('annotation period validation and paging work are declared before shared metadata reads', async () => {
+  parseRequestMock.mockResolvedValue({ auth: { user: { id: 'user-1' } }, query: {} });
+  canViewWebsiteAnnotationsMock.mockResolvedValue(true);
+  getWebsiteAnnotationsMock.mockResolvedValue({ data: [], count: 0 } as never);
+
+  await GET(new Request('http://localhost/api/websites/website-1/annotations'), { params });
+  const [, schema, options] = parseRequestMock.mock.calls[0];
+
+  expect(schema?.safeParse({ period: '7day', timezone: 'UTC' }).success).toBe(true);
+  expect(schema?.safeParse({ startAt: 1000 }).success).toBe(false);
+  expect(schema?.safeParse({ period: '7day', startAt: 1000, endAt: 2000 }).success).toBe(false);
+  expect(options?.budgetShareQuery).toBe(true);
+  const multiplier = options?.shareQueryWorkMultiplier;
+  if (typeof multiplier !== 'function') throw new Error('Missing annotation paging budget');
+  expect(multiplier({ page: 10, pageSize: 500 }, undefined)).toBeGreaterThan(1);
+});
+
+test('annotation visibility refusal happens before any note query', async () => {
+  parseRequestMock.mockResolvedValue({ auth: { shareToken: {} }, query: {} });
+  canViewWebsiteAnnotationsMock.mockResolvedValue(false);
+
+  const response = await GET(new Request('http://localhost/api/websites/website-1/annotations'), {
+    params,
+  });
+
+  expect(response.status).toBe(401);
+  expect(getWebsiteAnnotationsMock).not.toHaveBeenCalled();
 });

@@ -13,6 +13,7 @@ import {
   canViewSharedWebsite,
   canViewWebsite,
   canViewWebsiteSection,
+  canViewWebsiteSectionRows,
 } from '@/permissions';
 import { canViewBatchWebsites } from '@/permissions/website';
 import { getLink, getPixel, getWebsite } from '@/queries/prisma';
@@ -121,6 +122,7 @@ vi.mock('@/permissions', () => ({
   canViewSharedWebsite: vi.fn(),
   canViewWebsite: vi.fn(),
   canViewWebsiteSection: vi.fn(),
+  canViewWebsiteSectionRows: vi.fn(),
 }));
 vi.mock('@/permissions/website', () => ({ canViewBatchWebsites: vi.fn() }));
 vi.mock('@/queries/sql', () => ({
@@ -231,6 +233,14 @@ beforeEach(() => {
   canViewWebsiteMock.mockReset();
   canViewWebsiteMock.mockResolvedValue(true);
   canViewWebsiteSectionMock.mockReset();
+  vi.mocked(canViewWebsiteSectionRows).mockReset();
+  vi.mocked(canViewWebsiteSectionRows).mockImplementation(async (auth, websiteId, section) => {
+    if (auth?.user && (await canViewWebsiteMock(auth, websiteId))) return true;
+    return (
+      auth?.shareToken?.shareType === ENTITY_TYPE.website &&
+      canViewWebsiteSectionMock(auth, websiteId, section)
+    );
+  });
   canViewBatchWebsitesMock.mockReset();
   getActiveVisitorsMock.mockReset();
   getCompatBreakdownMock.mockReset();
@@ -319,7 +329,12 @@ beforeEach(() => {
 test('public stats shares reserve both maximum-range scans before concurrent execution', async () => {
   const shareId = `stats-budget-${crypto.randomUUID()}`;
   checkAuthMock.mockResolvedValue({
-    shareToken: { shareId, websiteId: WEBSITE_ID, parameters: { overview: true, compare: true } },
+    shareToken: {
+      shareType: ENTITY_TYPE.website,
+      shareId,
+      websiteId: WEBSITE_ID,
+      parameters: { overview: true, compare: true },
+    },
   } as any);
   canViewWebsiteSectionMock.mockResolvedValue(true);
   getWebsiteStatsMock.mockResolvedValue({ pageviews: 0 } as any);
@@ -626,6 +641,7 @@ test('website list charts do not expose overview data through an events-only sha
   const shareId = `restricted-charts-${crypto.randomUUID()}`;
   checkAuthMock.mockResolvedValue({
     shareToken: {
+      shareType: ENTITY_TYPE.website,
       shareId,
       websiteId: WEBSITE_ID,
       parameters: { events: true, overview: false, compare: false },
@@ -654,6 +670,7 @@ test.each([
   const shareId = `compare-only-charts-${crypto.randomUUID()}`;
   checkAuthMock.mockResolvedValue({
     shareToken: {
+      shareType: ENTITY_TYPE.website,
       shareId,
       websiteId: WEBSITE_ID,
       parameters: { overview: false, compare: true },
@@ -690,6 +707,7 @@ test.each([
   const shareId = `overview-charts-${crypto.randomUUID()}`;
   checkAuthMock.mockResolvedValue({
     shareToken: {
+      shareType: ENTITY_TYPE.website,
       shareId,
       websiteId: WEBSITE_ID,
       parameters: { overview: true, compare: false },
@@ -738,7 +756,9 @@ test.each([
   },
 ])('$name rejects an exhausted public share before querying analytics', async ({ path, run }) => {
   const shareId = `aggregate-budget-${crypto.randomUUID()}`;
-  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  checkAuthMock.mockResolvedValue({
+    shareToken: { shareType: ENTITY_TYPE.website, shareId, websiteId: WEBSITE_ID },
+  } as any);
   expect((await reserveShareQueryCost(shareId, 600)).blocked).toBe(false);
 
   const response = await run(new Request(`https://analytics.example${path}`));
@@ -757,7 +777,9 @@ test.each([
 
 test('a public share within budget retains access to authorized analytics', async () => {
   const shareId = `allowed-budget-${crypto.randomUUID()}`;
-  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  checkAuthMock.mockResolvedValue({
+    shareToken: { shareType: ENTITY_TYPE.website, shareId, websiteId: WEBSITE_ID },
+  } as any);
   canViewWebsiteSectionMock.mockResolvedValue(true);
   getActiveVisitorsMock.mockResolvedValue({
     visitors: 2,
@@ -781,7 +803,9 @@ test('an exhausted share viewer does not block an independent viewer through the
   vi.stubEnv('CLIENT_IP_HEADER', 'x-real-ip');
   try {
     const shareId = `viewer-route-${crypto.randomUUID()}`;
-    checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+    checkAuthMock.mockResolvedValue({
+      shareToken: { shareType: ENTITY_TYPE.website, shareId, websiteId: WEBSITE_ID },
+    } as any);
     canViewWebsiteSectionMock.mockResolvedValue(true);
     getActiveVisitorsMock.mockResolvedValue({
       visitors: 2,
@@ -833,6 +857,7 @@ test.each([
     const shareId = `restricted-charts-${crypto.randomUUID()}`;
     checkAuthMock.mockResolvedValue({
       shareToken: {
+        shareType: ENTITY_TYPE.website,
         shareId,
         websiteId: WEBSITE_ID,
         parameters: { events: true, overview: false, compare: false },
@@ -863,7 +888,9 @@ test.each([
   { name: 'event-data', run: getEventDataRoute, query: getEventDataMock },
 ])('$name share prices count and paged rows before database access', async route => {
   const shareId = `paged-work-${crypto.randomUUID()}`;
-  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  checkAuthMock.mockResolvedValue({
+    shareToken: { shareType: ENTITY_TYPE.website, shareId, websiteId: WEBSITE_ID },
+  } as any);
   canViewWebsiteSectionMock.mockResolvedValue(true);
   expect((await reserveShareQueryCost(shareId, 597)).blocked).toBe(false);
   const request = (page: number, pageSize: number) =>
@@ -892,7 +919,9 @@ test('public event detail spends its share budget before reading event propertie
       `https://analytics.example/api/websites/${WEBSITE_ID}/event-data/${eventId}?startAt=1&endAt=2`,
     );
 
-  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  checkAuthMock.mockResolvedValue({
+    shareToken: { shareType: ENTITY_TYPE.website, shareId, websiteId: WEBSITE_ID },
+  } as any);
   canViewWebsiteSectionMock.mockResolvedValue(true);
   expect((await reserveShareQueryCost(shareId, 597)).blocked).toBe(false);
 
@@ -911,7 +940,9 @@ test('public event detail rejects oversized historical property sets', async () 
   const shareId = `event-detail-large-${crypto.randomUUID()}`;
   const eventId = SESSION_ID;
   const context = { params: Promise.resolve({ websiteId: WEBSITE_ID, eventId }) };
-  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  checkAuthMock.mockResolvedValue({
+    shareToken: { shareType: ENTITY_TYPE.website, shareId, websiteId: WEBSITE_ID },
+  } as any);
   canViewWebsiteSectionMock.mockResolvedValue(true);
   getEventDataByIdMock.mockResolvedValue(Array(501).fill({}) as any);
 
@@ -929,7 +960,9 @@ test('public event detail preserves authorized properties and rejects disabled f
   const eventId = SESSION_ID;
   const context = { params: Promise.resolve({ websiteId: WEBSITE_ID, eventId }) };
   const data = [{ dataKey: 'plan', stringValue: 'basic' }];
-  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  checkAuthMock.mockResolvedValue({
+    shareToken: { shareType: ENTITY_TYPE.website, shareId, websiteId: WEBSITE_ID },
+  } as any);
   canViewWebsiteSectionMock.mockResolvedValue(true);
   getEventDataByIdMock.mockResolvedValue(data as any);
 
@@ -946,6 +979,7 @@ test('public event detail preserves authorized properties and rejects disabled f
   getEventDataByIdMock.mockClear();
   checkAuthMock.mockResolvedValue({
     shareToken: {
+      shareType: ENTITY_TYPE.website,
       shareId: crypto.randomUUID(),
       websiteId: WEBSITE_ID,
       parameters: { allowFilter: false },
@@ -969,7 +1003,7 @@ test('public event detail uses owner authority when a session also carries a sha
     new Request(`https://analytics.example/api/websites/${WEBSITE_ID}/event-data/${eventId}`);
   checkAuthMock.mockResolvedValue({
     user: { id: 'website-owner' },
-    shareToken: { shareId, websiteId: WEBSITE_ID },
+    shareToken: { shareType: ENTITY_TYPE.website, shareId, websiteId: WEBSITE_ID },
   } as any);
   canViewWebsiteSectionMock.mockResolvedValue(true);
   expect((await reserveShareQueryCost(shareId, 597)).blocked).toBe(false);
@@ -1006,7 +1040,9 @@ test.each([
   },
 ])('$name rejects underpriced deep pages before querying', async route => {
   const shareId = `pivot-page-${crypto.randomUUID()}`;
-  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  checkAuthMock.mockResolvedValue({
+    shareToken: { shareType: ENTITY_TYPE.website, shareId, websiteId: WEBSITE_ID },
+  } as any);
   canViewWebsiteSectionMock.mockResolvedValue(true);
   expect((await reserveShareQueryCost(shareId, 597)).blocked).toBe(false);
 
@@ -1023,7 +1059,9 @@ test.each([
 
 test('event-series shares pay for requested cardinality and time buckets', async () => {
   const shareId = `event-series-${crypto.randomUUID()}`;
-  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  checkAuthMock.mockResolvedValue({
+    shareToken: { shareType: ENTITY_TYPE.website, shareId, websiteId: WEBSITE_ID },
+  } as any);
   canViewWebsiteSectionMock.mockResolvedValue(true);
   expect((await reserveShareQueryCost(shareId, 580)).blocked).toBe(false);
 
@@ -1043,7 +1081,9 @@ test('event-series shares pay for requested cardinality and time buckets', async
 test('metric shares price offsets but do not charge ignored channel paging', async () => {
   canViewWebsiteSectionMock.mockResolvedValue(true);
   const shareId = `metric-offset-${crypto.randomUUID()}`;
-  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  checkAuthMock.mockResolvedValue({
+    shareToken: { shareType: ENTITY_TYPE.website, shareId, websiteId: WEBSITE_ID },
+  } as any);
   expect((await reserveShareQueryCost(shareId, 579)).blocked).toBe(false);
 
   const metric = await getMetricsRoute(
@@ -1067,7 +1107,9 @@ test('metric shares price offsets but do not charge ignored channel paging', asy
 
 test('journey shares price step depth before database access', async () => {
   const shareId = `journey-work-${crypto.randomUUID()}`;
-  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  checkAuthMock.mockResolvedValue({
+    shareToken: { shareType: ENTITY_TYPE.website, shareId, websiteId: WEBSITE_ID },
+  } as any);
   canViewWebsiteSectionMock.mockResolvedValue(true);
   expect((await reserveShareQueryCost(shareId, 587)).blocked).toBe(false);
   const request = () =>
@@ -1142,7 +1184,9 @@ test.each([
   },
 ])('$name charges public-share work before querying', async ({ charge, query, run }) => {
   const shareId = `report-work-${crypto.randomUUID()}`;
-  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  checkAuthMock.mockResolvedValue({
+    shareToken: { shareType: ENTITY_TYPE.website, shareId, websiteId: WEBSITE_ID },
+  } as any);
   canViewWebsiteSectionMock.mockResolvedValue(true);
   expect((await reserveShareQueryCost(shareId, 601 - charge)).blocked).toBe(false);
 
@@ -1158,7 +1202,9 @@ test.each([
 
 test('realtime shares reserve all three analytics scans before querying', async () => {
   const shareId = `realtime-work-${crypto.randomUUID()}`;
-  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  checkAuthMock.mockResolvedValue({
+    shareToken: { shareType: ENTITY_TYPE.website, shareId, websiteId: WEBSITE_ID },
+  } as any);
   canViewWebsiteSectionMock.mockResolvedValue(true);
   expect((await reserveShareQueryCost(shareId, 598)).blocked).toBe(false);
   const request = () =>
@@ -1272,7 +1318,9 @@ test.each([
   },
 ])('compatibility $name charges public-share work before querying', async report => {
   const shareId = `compat-work-${crypto.randomUUID()}`;
-  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  checkAuthMock.mockResolvedValue({
+    shareToken: { shareType: ENTITY_TYPE.website, shareId, websiteId: WEBSITE_ID },
+  } as any);
   canViewWebsiteSectionMock.mockResolvedValue(true);
   expect((await reserveShareQueryCost(shareId, 601 - report.charge)).blocked).toBe(false);
   const request = () =>
@@ -1303,7 +1351,11 @@ test.each([
 
 test('compatibility journey shares reject fractional steps before querying', async () => {
   checkAuthMock.mockResolvedValue({
-    shareToken: { shareId: crypto.randomUUID(), websiteId: WEBSITE_ID },
+    shareToken: {
+      shareType: ENTITY_TYPE.website,
+      shareId: crypto.randomUUID(),
+      websiteId: WEBSITE_ID,
+    },
   } as any);
   canViewWebsiteSectionMock.mockResolvedValue(true);
 
@@ -1348,13 +1400,23 @@ test('compatibility journey event type is authorized and priced before querying'
     });
 
   checkAuthMock.mockResolvedValue({
-    shareToken: { shareId, websiteId: WEBSITE_ID, parameters: { allowFilter: false } },
+    shareToken: {
+      shareType: ENTITY_TYPE.website,
+      shareId,
+      websiteId: WEBSITE_ID,
+      parameters: { allowFilter: false },
+    },
   } as any);
   expect((await getJourneyReport(request())).status).toBe(403);
   expect(getCompatJourneyMock).not.toHaveBeenCalled();
 
   checkAuthMock.mockResolvedValue({
-    shareToken: { shareId, websiteId: WEBSITE_ID, parameters: { allowFilter: true } },
+    shareToken: {
+      shareType: ENTITY_TYPE.website,
+      shareId,
+      websiteId: WEBSITE_ID,
+      parameters: { allowFilter: true },
+    },
   } as any);
   expect((await reserveShareQueryCost(shareId, 580)).blocked).toBe(false);
   expect((await getJourneyReport(request())).status).toBe(429);
@@ -1437,7 +1499,12 @@ test.each(compatibilityReports)(
   async report => {
     const shareId = `compat-budget-${crypto.randomUUID()}`;
     checkAuthMock.mockResolvedValue({
-      shareToken: { shareId, websiteId: WEBSITE_ID, parameters: { allowFilter: true } },
+      shareToken: {
+        shareType: ENTITY_TYPE.website,
+        shareId,
+        websiteId: WEBSITE_ID,
+        parameters: { allowFilter: true },
+      },
     } as any);
     canViewWebsiteSectionMock.mockResolvedValue(true);
     expect((await reserveShareQueryCost(shareId, 600 - report.multiplier)).blocked).toBe(false);
@@ -1484,7 +1551,7 @@ test('parallel authenticated reports reserve their SQL fan-out before dispatch',
 test('denied report sections do not dispatch analytics', async () => {
   const shareId = `denied-report-${crypto.randomUUID()}`;
   checkAuthMock.mockResolvedValue({
-    shareToken: { shareId, websiteId: WEBSITE_ID },
+    shareToken: { shareType: ENTITY_TYPE.website, shareId, websiteId: WEBSITE_ID },
   } as any);
   canViewWebsiteSectionMock.mockImplementation(
     async (_auth, _websiteId, section) => section !== 'revenue',
@@ -1506,7 +1573,9 @@ test('denied report sections do not dispatch analytics', async () => {
 
 test('historical attribution shares reject work above the complete window allowance', async () => {
   const shareId = `historical-attribution-${crypto.randomUUID()}`;
-  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  checkAuthMock.mockResolvedValue({
+    shareToken: { shareType: ENTITY_TYPE.website, shareId, websiteId: WEBSITE_ID },
+  } as any);
   canViewWebsiteSectionMock.mockResolvedValue(true);
   const report = compatibilityReports[3];
   const dates = {
@@ -1540,7 +1609,9 @@ test.each([
   },
 ])('$name GET share reserves every query before dispatch', async route => {
   const shareId = `get-budget-${crypto.randomUUID()}`;
-  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  checkAuthMock.mockResolvedValue({
+    shareToken: { shareType: ENTITY_TYPE.website, shareId, websiteId: WEBSITE_ID },
+  } as any);
   canViewWebsiteSectionMock.mockResolvedValue(true);
   expect((await reserveShareQueryCost(shareId, 600 - route.multiplier)).blocked).toBe(false);
   const url = `https://analytics.example/api/websites/${WEBSITE_ID}/${route.name}?startAt=${new Date(reportStartDate).getTime()}&endAt=${new Date(reportEndDate).getTime()}${route.extra}`;
@@ -1556,7 +1627,9 @@ test.each([
 
 test('a board revenue table receives only its displayed total', async () => {
   const shareId = `revenue-total-${crypto.randomUUID()}`;
-  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  checkAuthMock.mockResolvedValue({
+    shareToken: { shareType: ENTITY_TYPE.website, shareId, websiteId: WEBSITE_ID },
+  } as any);
   canViewWebsiteSectionMock.mockResolvedValue(true);
   getRevenueStatsMock.mockResolvedValueOnce({
     sum: 125,
@@ -1584,7 +1657,9 @@ test('a board revenue table receives only its displayed total', async () => {
 
 test('a revenue chart labels its historical claims for typed callers', async () => {
   const shareId = `revenue-chart-${crypto.randomUUID()}`;
-  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  checkAuthMock.mockResolvedValue({
+    shareToken: { shareType: ENTITY_TYPE.website, shareId, websiteId: WEBSITE_ID },
+  } as any);
   canViewWebsiteSectionMock.mockResolvedValue(true);
   getRevenueChartMock.mockResolvedValueOnce({
     chart: [{ x: 'purchase', t: '2025-01-01', y: 25, count: 1 }],
@@ -1607,7 +1682,9 @@ test('a revenue chart labels its historical claims for typed callers', async () 
 
 test('a revenue bar cannot report ARPU from unverified claims', async () => {
   const shareId = `revenue-stats-${crypto.randomUUID()}`;
-  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  checkAuthMock.mockResolvedValue({
+    shareToken: { shareType: ENTITY_TYPE.website, shareId, websiteId: WEBSITE_ID },
+  } as any);
   canViewWebsiteSectionMock.mockResolvedValue(true);
   const stats = { sum: 125, count: 4, average: 31.25, unique_count: 3, arpu: 12.5 };
   const comparison = { sum: 90, count: 3, average: 30, unique_count: 2, arpu: 10 };
@@ -1678,7 +1755,9 @@ test('all historical revenue response shapes expose unverified provenance', asyn
 
 test('public session activity charges a linked historical range before querying events', async () => {
   const shareId = `session-activity-${crypto.randomUUID()}`;
-  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  checkAuthMock.mockResolvedValue({
+    shareToken: { shareType: ENTITY_TYPE.website, shareId, websiteId: WEBSITE_ID },
+  } as any);
   canViewWebsiteSectionMock.mockResolvedValue(true);
   getLinkedSessionIdsMock.mockResolvedValue([
     {
@@ -1701,7 +1780,9 @@ test('public session activity charges a linked historical range before querying 
 });
 
 test('public session activity refuses an oversized linked-session set', async () => {
-  checkAuthMock.mockResolvedValue({ shareToken: { shareId: crypto.randomUUID() } } as any);
+  checkAuthMock.mockResolvedValue({
+    shareToken: { shareType: ENTITY_TYPE.website, shareId: crypto.randomUUID() },
+  } as any);
   canViewWebsiteSectionMock.mockResolvedValue(true);
   getLinkedSessionIdsMock.mockResolvedValue(
     Array(501).fill({ sessionId: SESSION_ID, createdAt: '2025-12-29T00:00:00.000Z' }),
@@ -1720,7 +1801,9 @@ test('public session activity refuses an oversized linked-session set', async ()
 
 test('a normal public activity share can read linked history within its budget', async () => {
   const shareId = `session-activity-control-${crypto.randomUUID()}`;
-  checkAuthMock.mockResolvedValue({ shareToken: { shareId, websiteId: WEBSITE_ID } } as any);
+  checkAuthMock.mockResolvedValue({
+    shareToken: { shareType: ENTITY_TYPE.website, shareId, websiteId: WEBSITE_ID },
+  } as any);
   canViewWebsiteSectionMock.mockResolvedValue(true);
   getLinkedSessionIdsMock.mockResolvedValue([
     {

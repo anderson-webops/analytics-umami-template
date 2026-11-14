@@ -51,3 +51,5 @@ export async function resetRateLimit(userId: string): Promise<void> {
   const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
   await client.twoFactorRateLimit.deleteMany({ where: { userId } });
 }
+
+export const reserveAttempt = reserveTwoFactorAttempt;

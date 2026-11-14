@@ -1,5 +1,7 @@
-import { beforeEach, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { ENTITY_TYPE } from '@/lib/constants';
+import { getBillingAccess, getWebsiteBillingScope } from '@/lib/load';
+import { getWebsite } from '@/queries/prisma';
 import { canDeleteReport, canUpdateReport, canViewReport, getReportSection } from './report';
 import { canViewWebsiteSection } from './share';
 import { canDeleteWebsite, canUpdateWebsite, canViewWebsite } from './website';
@@ -14,7 +16,25 @@ vi.mock('./website', () => ({
   canViewWebsite: vi.fn(),
 }));
 
+vi.mock('@/lib/load', () => ({
+  getBillingAccess: vi.fn(),
+  getWebsiteBillingScope: vi.fn(),
+}));
+vi.mock('@/queries/prisma', () => ({ getWebsite: vi.fn() }));
+
+afterEach(() => vi.unstubAllEnvs());
+
 beforeEach(() => {
+  vi.unstubAllEnvs();
+  vi.mocked(getBillingAccess)
+    .mockReset()
+    .mockResolvedValue({ isPastDue: false } as any);
+  vi.mocked(getWebsiteBillingScope)
+    .mockReset()
+    .mockResolvedValue('scope-1' as any);
+  vi.mocked(getWebsite)
+    .mockReset()
+    .mockResolvedValue({ id: 'website-1' } as any);
   vi.mocked(canViewWebsiteSection).mockReset();
   vi.mocked(canDeleteWebsite).mockReset();
   vi.mocked(canUpdateWebsite).mockReset();
@@ -246,4 +266,49 @@ test('canViewReport does not upgrade a share into authenticated report access', 
     ),
   ).resolves.toBe(false);
   expect(canViewWebsite).toHaveBeenCalledWith({ user }, 'website-1');
+});
+
+test.each(['read', 'update', 'delete'])(
+  'report authors retain current permissions and billing checks for %s',
+  async operation => {
+    vi.stubEnv('CLOUD_MODE', '1');
+    vi.mocked(getBillingAccess).mockResolvedValue({ isPastDue: true } as any);
+    vi.mocked(canViewWebsiteSection).mockResolvedValue(true);
+    vi.mocked(canViewWebsite).mockResolvedValue(true);
+    vi.mocked(canDeleteWebsite).mockResolvedValue(true);
+    const auth = { user: { id: 'author-1', username: 'author', role: 'user', isAdmin: false } };
+    const report = {
+      id: 'report-1',
+      userId: 'author-1',
+      websiteId: 'website-1',
+      type: 'goal',
+    } as any;
+    const permission =
+      operation === 'read'
+        ? canViewReport
+        : operation === 'update'
+          ? canUpdateReport
+          : canDeleteReport;
+    await expect(permission(auth, report)).resolves.toBe(false);
+    vi.mocked(getBillingAccess).mockResolvedValue({ isPastDue: false } as any);
+    await expect(permission(auth, report)).resolves.toBe(true);
+  },
+);
+
+test('a paid account cannot recover revoked website access through report authorship', async () => {
+  vi.stubEnv('CLOUD_MODE', '1');
+  vi.mocked(canViewWebsiteSection).mockResolvedValue(false);
+  vi.mocked(canViewWebsite).mockResolvedValue(false);
+  vi.mocked(canDeleteWebsite).mockResolvedValue(false);
+  const auth = { user: { id: 'author-1', username: 'author', role: 'user', isAdmin: false } };
+  const report = {
+    id: 'report-1',
+    userId: 'author-1',
+    websiteId: 'website-1',
+    type: 'goal',
+  } as any;
+  await expect(canViewReport(auth, report)).resolves.toBe(false);
+  await expect(canUpdateReport(auth, report)).resolves.toBe(false);
+  await expect(canDeleteReport(auth, report)).resolves.toBe(false);
+  expect(getBillingAccess).not.toHaveBeenCalled();
 });

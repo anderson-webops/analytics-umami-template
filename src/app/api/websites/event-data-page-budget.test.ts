@@ -1,11 +1,11 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { getQueryFilters, parseRequest } from '@/lib/request';
-import { canViewWebsiteSection } from '@/permissions';
+import { canViewWebsiteSectionRows } from '@/permissions';
 import { EventDataPageTooBroadError, getEventData } from '@/queries/sql/events/getEventData';
 import { GET } from './[websiteId]/event-data/route';
 
 vi.mock('@/lib/request', () => ({ getQueryFilters: vi.fn(), parseRequest: vi.fn() }));
-vi.mock('@/permissions', () => ({ canViewWebsiteSection: vi.fn() }));
+vi.mock('@/permissions', () => ({ canViewWebsiteSectionRows: vi.fn() }));
 vi.mock('@/queries/sql/events/getEventData', () => ({
   EventDataPageTooBroadError: class EventDataPageTooBroadError extends Error {
     constructor() {
@@ -22,7 +22,7 @@ beforeEach(() => {
     error: undefined,
   } as any);
   vi.mocked(getQueryFilters).mockResolvedValue({} as any);
-  vi.mocked(canViewWebsiteSection).mockResolvedValue(true);
+  vi.mocked(canViewWebsiteSectionRows).mockResolvedValue(true);
   vi.mocked(getEventData).mockReset();
 });
 

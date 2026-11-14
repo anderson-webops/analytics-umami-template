@@ -2,16 +2,22 @@ import { z } from 'zod';
 import { parseEventPropertyFilters } from '@/lib/params';
 import { getQueryFilters, parseRequest } from '@/lib/request';
 import { json, unauthorized } from '@/lib/response';
-import { filterParams, pagingParams, timezoneParam, unitParam } from '@/lib/schema';
+import {
+  filterParams,
+  pagingParams,
+  timezoneParam,
+  unitParam,
+  withPeriodDateRange,
+} from '@/lib/schema';
 import { getPagedShareWorkMultiplier } from '@/lib/share-query-budget';
-import { canViewWebsiteSection } from '@/permissions';
+import { canViewWebsiteSectionRows } from '@/permissions';
 import { getEventDataPivot } from '@/queries/sql/events/getEventDataPivot';
 
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ websiteId: string }> },
 ) {
-  const schema = z.object({
+  const schema = withPeriodDateRange({
     startAt: z.coerce.number().int(),
     endAt: z.coerce.number().int(),
     eventName: z.string(),
@@ -32,7 +38,7 @@ export async function GET(
 
   const { websiteId } = await params;
 
-  if (!(await canViewWebsiteSection(auth, websiteId, 'events'))) {
+  if (!(await canViewWebsiteSectionRows(auth, websiteId, 'events'))) {
     return unauthorized();
   }
 
@@ -41,5 +47,5 @@ export async function GET(
   const eventFilters = parseEventPropertyFilters(query);
   const result = await getEventDataPivot(websiteId, eventName, filters, eventFilters);
 
-  return json(result);
+  return json(result, { headers: { 'Cache-Control': 'no-store' } });
 }

@@ -62,7 +62,7 @@ services:
     # Pinned to an LTS release. 26.7+ rejects db/clickhouse/schema.sql because
     # website_event_stats_hourly has dimension columns outside the sorting key
     # (see allow_dimensions_outside_sorting_key).
-    image: clickhouse/clickhouse-server:25.8
+    image: clickhouse/clickhouse-server:25.8@sha256:0152dd511befe6a2c2ef53e930726179669b08116da78500b37c51c96ff5ee77
     profiles: [clickhouse]
     environment:
       CLICKHOUSE_DB: umami

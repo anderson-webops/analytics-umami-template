@@ -1,4 +1,4 @@
-import { Column, Heading, Row, SearchField, Text } from '@umami/react-zen';
+import { Box, Column, Heading, Row, SearchField, StatusLight, Text } from '@umami/react-zen';
 import { type ReactNode, useMemo, useState } from 'react';
 import { List, type RowComponentProps } from 'react-window';
 import { SessionModal } from '@/app/(main)/websites/[websiteId]/sessions/SessionModal';
@@ -20,7 +20,7 @@ import { useFormat } from '@/components/hooks/useFormat';
 import { Eye, User } from '@/components/icons';
 import { FilterButtons } from '@/components/input/FilterButtons';
 import { Lightning } from '@/components/svg';
-import { BROWSERS, OS_NAMES } from '@/lib/constants';
+import { OS_NAMES } from '@/lib/constants';
 import { canViewShareSection } from '@/lib/share';
 
 const TYPE_ALL = 'all';
@@ -29,6 +29,7 @@ const TYPE_SESSION = 'session';
 const TYPE_EVENT = 'event';
 const MAX_LIST_HEIGHT = 500;
 const ROW_HEIGHT = 50;
+const ACTIVE_THRESHOLD_MINUTES = 5;
 
 const icons = {
   [TYPE_PAGEVIEW]: <Eye />,
@@ -49,6 +50,44 @@ export function RealtimeLog({ data }: { data: any }) {
   const share = useShare();
   const showSessionLinks = canViewShareSection(share?.parameters, 'sessions');
   const { isPhone } = useMobile();
+
+  const activeSessions = useMemo(() => {
+    const active = new Set<string>();
+
+    if (!data?.events) {
+      return active;
+    }
+
+    const now = data.timestamp;
+    const threshold = ACTIVE_THRESHOLD_MINUTES * 60 * 1000;
+    const latestBySession = new Map<string, number>();
+
+    for (const event of data.events) {
+      if (!event?.sessionId || !event?.createdAt) {
+        continue;
+      }
+
+      const time = new Date(event.createdAt).getTime();
+
+      if (Number.isNaN(time)) {
+        continue;
+      }
+
+      const prev = latestBySession.get(event.sessionId);
+
+      if (prev === undefined || time > prev) {
+        latestBySession.set(event.sessionId, time);
+      }
+    }
+
+    for (const [sessionId, time] of latestBySession) {
+      if (now - time <= threshold) {
+        active.add(sessionId);
+      }
+    }
+
+    return active;
+  }, [data]);
 
   const buttons = [
     {
@@ -119,9 +158,9 @@ export function RealtimeLog({ data }: { data: any }) {
     if (__type === TYPE_SESSION) {
       return t.rich(messages.visitorLog, {
         country: countryNames[country] || t(labels.unknown),
-        browser: BROWSERS[browser],
+        browser: formatValue(browser, 'browser'),
         os: OS_NAMES[os] || os,
-        device: t(labels[device] || labels.unknown),
+        device: formatValue(device, 'device'),
         b: chunks => <b>{chunks}</b>,
       });
     }
@@ -198,6 +237,8 @@ export function RealtimeLog({ data }: { data: any }) {
             rowHeight={ROW_HEIGHT}
             rowProps={{
               logs,
+              activeSessions,
+              onlineLabel: t(labels.online),
               showSessionLinks,
               getSessionHref: (sessionId: string) => updateParams({ session: sessionId }),
               getTime,
@@ -218,6 +259,8 @@ function RealtimeTableRow({
   index,
   style,
   logs,
+  activeSessions,
+  onlineLabel,
   showSessionLinks,
   getSessionHref,
   getTime,
@@ -225,6 +268,8 @@ function RealtimeTableRow({
   getDetail,
 }: RowComponentProps<{
   logs: any[];
+  activeSessions: Set<string>;
+  onlineLabel: string;
   showSessionLinks: boolean;
   getSessionHref: (sessionId: string) => string;
   getTime: (row: any) => string;
@@ -232,16 +277,30 @@ function RealtimeTableRow({
   getDetail: (row: any) => ReactNode;
 }>) {
   const row = logs[index];
+  const avatar = (
+    <Row position="relative">
+      <Avatar seed={row.sessionId} size={32} />
+      {activeSessions.has(row.sessionId) && (
+        <Box
+          position="absolute"
+          right="-2px"
+          bottom="-2px"
+          borderRadius="full"
+          backgroundColor="surface"
+          role="img"
+          title={onlineLabel}
+          aria-label={onlineLabel}
+          data-testid="realtime-active-indicator"
+        >
+          <StatusLight variant="success" />
+        </Box>
+      )}
+    </Row>
+  );
   return (
     <Row alignItems="center" style={{ ...style, minWidth: 0 }} gap>
       <Row minWidth="30px">
-        {showSessionLinks ? (
-          <Link href={getSessionHref(row.sessionId)}>
-            <Avatar seed={row.sessionId} size={32} />
-          </Link>
-        ) : (
-          <Avatar seed={row.sessionId} size={32} />
-        )}
+        {showSessionLinks ? <Link href={getSessionHref(row.sessionId)}>{avatar}</Link> : avatar}
       </Row>
       <Row minWidth="100px">
         <Text wrap="nowrap">{getTime(row)}</Text>

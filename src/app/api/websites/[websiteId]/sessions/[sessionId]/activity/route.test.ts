@@ -10,9 +10,14 @@ import {
 } from '@/queries/sql';
 import { GET } from './route';
 
+vi.mock('@/queries/sql/sessions/getVerifiedIdentityFilterSessions', () => ({
+  getVerifiedIdentityFilterSessions: vi.fn(),
+}));
+
 vi.mock('@/lib/request', () => ({
   getQueryFilters: vi.fn(),
   parseRequest: vi.fn(),
+  resolvePeriodDateRange: (params: any) => params,
 }));
 
 vi.mock('@/permissions', () => ({
@@ -256,5 +261,23 @@ test('does not query session data when the sessions section is denied', async ()
   expect(response.status).toBe(401);
   expect(canViewWebsiteSectionMock).toHaveBeenCalledWith({}, WEBSITE_ID, 'sessions');
   expect(getWebsiteSessionMock).not.toHaveBeenCalled();
+  expect(getSessionActivityMock).not.toHaveBeenCalled();
+});
+
+// GHSA-55xw-prrf-hh7r / GHSA-9w7r-jhfw-vjw7
+test('requires the sessions share section', async () => {
+  const auth = { shareToken: { websiteId: WEBSITE_ID, parameters: { events: true } } };
+  parseRequestMock.mockResolvedValue({ auth, query: {}, error: undefined } as any);
+  canViewWebsiteSectionMock.mockResolvedValue(false);
+
+  const response = await GET(
+    new Request(`http://localhost/api/websites/${WEBSITE_ID}/sessions/${SESSION_ID}/activity`),
+    {
+      params: Promise.resolve({ websiteId: WEBSITE_ID, sessionId: SESSION_ID }),
+    },
+  );
+
+  expect(response.status).toBe(401);
+  expect(canViewWebsiteSectionMock).toHaveBeenCalledWith(auth, WEBSITE_ID, 'sessions');
   expect(getSessionActivityMock).not.toHaveBeenCalled();
 });

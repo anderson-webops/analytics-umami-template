@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import {
   boundHeatmapRenderHeight,
   boundHeatmapRenderWidth,
+  getHeatmapPageHeight,
   isPointWithinHeatmapRender,
 } from './heatmap-render-dimensions';
 
@@ -41,4 +42,29 @@ describe('heatmap render dimensions', () => {
       false,
     );
   });
+});
+
+test('click canvas ignores uncommon taller page sizes but preserves deeper clicks', () => {
+  const points = [
+    { pageH: 900, pageY: 865, count: 3 },
+    { pageH: 900, pageY: 450, count: 1 },
+    { pageH: 2239, pageY: 449, count: 1 },
+  ];
+  expect(getHeatmapPageHeight(points)).toBe(900);
+  expect(getHeatmapPageHeight([...points, { pageH: 900, pageY: 1500.4, count: 1 }])).toBe(1501);
+});
+
+test('page-height weighting handles ties, empty input and invalid stored values', () => {
+  expect(getHeatmapPageHeight([])).toBe(0);
+  expect(
+    getHeatmapPageHeight([
+      { pageH: 900, pageY: 100, count: 2 },
+      { pageH: 1200, pageY: 100, count: 2 },
+      { pageH: NaN, pageY: 100, count: 10 },
+      { pageH: 1000000, pageY: NaN, count: 10 },
+    ]),
+  ).toBe(1200);
+  expect(
+    boundHeatmapRenderHeight(getHeatmapPageHeight([{ pageH: 1000000, pageY: 999999, count: 1 }])),
+  ).toBe(8192);
 });

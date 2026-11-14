@@ -9,7 +9,8 @@ import {
 } from './authorization';
 
 export async function getAnnotation(annotationId: string) {
-  return prisma.client.annotation.findUnique({
+  const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
+  return client.annotation.findUnique({
     where: {
       id: annotationId,
     },
@@ -17,7 +18,8 @@ export async function getAnnotation(annotationId: string) {
 }
 
 export async function getWebsiteAnnotation(websiteId: string, annotationId: string) {
-  return prisma.client.annotation.findFirst({
+  const client = '$primary' in prisma.client ? prisma.client.$primary() : prisma.client;
+  return client.annotation.findFirst({
     where: { id: annotationId, websiteId },
   });
 }
@@ -54,6 +56,7 @@ export async function getWebsiteAnnotations(
       },
     },
     filters,
+    { usePrimary: true },
   );
 }
 

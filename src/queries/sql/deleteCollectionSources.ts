@@ -9,6 +9,7 @@ export const CLICKHOUSE_COLLECTION_TABLES = [
   'session_data_pivot',
   'session_replay',
   'heatmap_event',
+  'error_event',
   'session_link',
   'event_data',
   'session_data',

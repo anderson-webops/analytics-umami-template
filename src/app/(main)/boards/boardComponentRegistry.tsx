@@ -314,7 +314,6 @@ const componentDefinitions: ComponentDefinition[] = [
     ],
   },
 
-  // Tables
   {
     type: 'MetricsTable',
     name: 'Metrics table',

@@ -24,7 +24,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ shar
     return unauthorized();
   }
 
-  return json(share);
+  return json(share, { headers: { 'Cache-Control': 'no-store' } });
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ shareId: string }> }) {
@@ -99,7 +99,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ sha
     throw error;
   }
 
-  return json(result);
+  return json(result, { headers: { 'Cache-Control': 'no-store' } });
 }
 
 export async function DELETE(

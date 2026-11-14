@@ -55,7 +55,7 @@ export class CollectionBudgetExceededError extends Error {
 }
 
 interface CollectionBody {
-  type: 'event' | 'identify' | 'performance';
+  type: 'event' | 'identify' | 'performance' | 'error';
   payload: {
     data?: Record<string, unknown>;
     id?: string;
@@ -119,7 +119,7 @@ function getClientBudgetSubjects(
 export function getCollectionCost(body: CollectionBody): CollectionCost {
   const dataRows = body.payload.data ? flattenJSON(body.payload.data).length : 0;
   const rows =
-    2 +
+    (body.type === 'error' ? 3 : 2) +
     dataRows +
     (body.type === 'identify' ? 2 : body.type === 'event' && body.payload.data?.revenue ? 1 : 0);
 

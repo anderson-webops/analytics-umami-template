@@ -27,7 +27,6 @@ export async function GET(
   if (!isUuid(websiteId) || !isUuid(sessionId)) {
     return badRequest({ message: 'Invalid session identifier.' });
   }
-
   if (!(await canViewWebsiteSection(auth, websiteId, 'sessions'))) {
     return unauthorized();
   }

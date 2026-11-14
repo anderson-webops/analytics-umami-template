@@ -6,7 +6,7 @@ import type { PageResult, QueryFilters, WebsiteSession } from '@/lib/types';
 import { getVerifiedIdentitySearchSessions } from './getVerifiedIdentitySearchSessions';
 
 const FUNCTION_NAME = 'getWebsiteSessions';
-const QUALIFIED_FILTER_COLUMNS = Object.fromEntries(
+export const QUALIFIED_FILTER_COLUMNS = Object.fromEntries(
   Object.entries(FILTER_COLUMNS).map(([key, value]) => [key, `website_event.${value}`]),
 );
 

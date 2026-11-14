@@ -76,48 +76,61 @@ const operation1 = defineOperation({
                 data: {
                   type: 'array',
                   items: {
-                    type: 'object',
-                    properties: {
-                      id: {
-                        type: 'string',
-                        description: 'Unique identifier of the resource.',
+                    allOf: [
+                      {
+                        type: 'object',
+                        properties: {
+                          id: {
+                            type: 'string',
+                            description: 'Unique identifier of the resource.',
+                          },
+                          createdAt: {
+                            type: 'string',
+                            format: 'date-time',
+                            description: 'Date and time the record was created.',
+                          },
+                          updatedAt: {
+                            type: 'string',
+                            format: 'date-time',
+                            description: 'Date and time the record was last updated.',
+                          },
+                          name: {
+                            type: 'string',
+                            description: 'Display name of the resource.',
+                          },
+                          logoUrl: {
+                            type: 'string',
+                            description: 'URL of the logo image.',
+                          },
+                          twoFactorRequired: {
+                            type: 'boolean',
+                            description: 'Whether two-factor authentication is required.',
+                          },
+                          deletedAt: {
+                            type: 'string',
+                            format: 'date-time',
+                            description: 'Date and time the record was deleted, if applicable.',
+                          },
+                        },
+                        required: [
+                          'id',
+                          'createdAt',
+                          'updatedAt',
+                          'name',
+                          'logoUrl',
+                          'twoFactorRequired',
+                          'deletedAt',
+                        ],
                       },
-                      createdAt: {
-                        type: 'string',
-                        format: 'date-time',
-                        description: 'Date and time the record was created.',
+                      {
+                        type: 'object',
+                        properties: {
+                          accessCode: {
+                            type: 'string',
+                            description: 'Code used to join the team.',
+                          },
+                        },
                       },
-                      updatedAt: {
-                        type: 'string',
-                        format: 'date-time',
-                        description: 'Date and time the record was last updated.',
-                      },
-                      name: {
-                        type: 'string',
-                        description: 'Display name of the resource.',
-                      },
-                      logoUrl: {
-                        type: 'string',
-                        description: 'URL of the logo image.',
-                      },
-                      twoFactorRequired: {
-                        type: 'boolean',
-                        description: 'Whether two-factor authentication is required.',
-                      },
-                      deletedAt: {
-                        type: 'string',
-                        format: 'date-time',
-                        description: 'Date and time the record was deleted, if applicable.',
-                      },
-                    },
-                    required: [
-                      'id',
-                      'createdAt',
-                      'updatedAt',
-                      'name',
-                      'logoUrl',
-                      'twoFactorRequired',
-                      'deletedAt',
                     ],
                   },
                   description: 'Data returned by the operation.',
@@ -213,8 +226,9 @@ const operation2 = defineOperation({
             type: 'object',
             properties: {
               name: {
-                minimum: 1,
-                maximum: 50,
+                type: 'string',
+                minLength: 1,
+                maxLength: 50,
                 description: 'Display name of the resource.',
               },
               ownerId: {

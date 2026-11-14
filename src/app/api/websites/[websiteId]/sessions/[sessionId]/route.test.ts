@@ -6,6 +6,11 @@ import { deleteSession } from '@/queries/prisma';
 import { getLinkedDistinctIds, getLinkedSessionIds, getWebsiteSession } from '@/queries/sql';
 import { DELETE, GET } from './route';
 
+vi.hoisted(() => {
+  process.env.DATABASE_URL = 'postgresql://synthetic:synthetic@127.0.0.1:5432/synthetic';
+  delete process.env.DATABASE_REPLICA_URL;
+});
+
 vi.mock('@/lib/db', () => ({
   isSessionDeletionAvailable: vi.fn(),
 }));
@@ -102,6 +107,32 @@ test('GET includes canDelete when relational storage and delete permission are a
     canDelete: true,
     distinctIds: ['distinct-1'],
     stitchedSessionCount: 2,
+  });
+});
+
+test('GET returns the session referrer', async () => {
+  parseRequestMock.mockResolvedValue({ auth: {}, error: undefined });
+  canViewWebsiteSectionMock.mockResolvedValue(true);
+  isSessionDeletionAvailableMock.mockReturnValue(true);
+  canDeleteWebsiteMock.mockResolvedValue(false);
+  getWebsiteSessionMock.mockResolvedValue({
+    id: SESSION_ID,
+    distinctId: 'distinct-1',
+    referrerDomain: 'google.com',
+  });
+  getLinkedDistinctIdsMock.mockResolvedValue(['distinct-1']);
+  getLinkedSessionIdsMock.mockResolvedValue([]);
+
+  const response = await GET(
+    new Request(`http://localhost/api/websites/${WEBSITE_ID}/sessions/${SESSION_ID}`),
+    {
+      params: Promise.resolve({ websiteId: WEBSITE_ID, sessionId: SESSION_ID }),
+    },
+  );
+
+  expect(response.status).toBe(200);
+  await expect(response.json()).resolves.toMatchObject({
+    referrerDomain: 'google.com',
   });
 });
 
@@ -305,4 +336,34 @@ test('DELETE returns not found if the website disappears before the transaction'
   );
 
   expect(response.status).toBe(404);
+});
+
+// GHSA-55xw-prrf-hh7r / GHSA-9w7r-jhfw-vjw7: per-session detail is visitor PII and
+// must require the `sessions` share section, not any of events/realtime/revenue.
+test('GET requires the sessions share section', async () => {
+  const auth = { shareToken: { websiteId: WEBSITE_ID, parameters: { events: true } } };
+  parseRequestMock.mockResolvedValue({ auth, error: undefined } as any);
+  canViewWebsiteSectionMock.mockResolvedValue(false);
+
+  const response = await GET(
+    new Request(`http://localhost/api/websites/${WEBSITE_ID}/sessions/${SESSION_ID}`),
+    {
+      params: Promise.resolve({ websiteId: WEBSITE_ID, sessionId: SESSION_ID }),
+    },
+  );
+
+  expect(response.status).toBe(401);
+  expect(canViewWebsiteSectionMock).toHaveBeenCalledWith(auth, WEBSITE_ID, 'sessions');
+  expect(getWebsiteSessionMock).not.toHaveBeenCalled();
+});
+
+test('GET rejects malformed session identifiers before permission checks or data reads', async () => {
+  parseRequestMock.mockResolvedValue({ auth: {}, error: undefined });
+  const response = await GET(
+    new Request('http://localhost/api/websites/invalid/sessions/invalid'),
+    { params: Promise.resolve({ websiteId: 'invalid', sessionId: 'invalid' }) },
+  );
+  expect(response.status).toBe(400);
+  expect(canViewWebsiteSectionMock).not.toHaveBeenCalled();
+  expect(getWebsiteSessionMock).not.toHaveBeenCalled();
 });

@@ -92,3 +92,31 @@ test.each(['click', 'scroll'] as const)(
     ).toBeTruthy();
   },
 );
+
+test('click canvas uses the common page height while displaying every retained click', () => {
+  const points = [
+    { pageH: 900, pageY: 865, count: 3 },
+    { pageH: 900, pageY: 450, count: 1 },
+    { pageH: 2239, pageY: 449, count: 1 },
+  ].map(point => ({
+    ...point,
+    x: 100,
+    y: point.pageY,
+    pageX: 100,
+    pageW: 1440,
+    viewportW: 1440,
+    viewportH: 900,
+  }));
+  useHeatmapQuery.mockImplementation(({ urlPath }: { urlPath?: string }) => ({
+    data: urlPath ? { points } : { pages: [{ urlPath: '/', count: 5, sessions: 3 }] },
+    isLoading: false,
+    isFetching: false,
+  }));
+  const { container } = render(
+    <Heatmap websiteId="website-1" urlPath="/" onUrlPathChange={vi.fn()} mode="click" search="" />,
+  );
+  expect(container.querySelector('iframe')).toBeNull();
+  expect(container.querySelector('[style*="height: 900px"]')).toBeTruthy();
+  expect(container.querySelector('[style*="height: 2239px"]')).toBeNull();
+  expect(container.querySelectorAll('[title$="click"],[title$="clicks"]')).toHaveLength(3);
+});

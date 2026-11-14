@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import redis from '@/lib/redis';
 
+vi.mock('@/lib/load', () => ({
+  addTeamBillingStatus: vi.fn(async teams => teams),
+}));
+
 const mocks = vi.hoisted(() => ({
   getBearerToken: vi.fn(),
   saveAuth: vi.fn(),
@@ -463,4 +467,55 @@ test('POST returns a configuration error when the encryption key is missing', as
     },
   });
   expect(response.status).toBe(503);
+});
+
+test('POST rejects a valid code another request already claimed, without minting a session', async () => {
+  // Two concurrent submissions of the same code both pass verifyTotp; only the one that wins
+  // the atomic claim may receive a session, otherwise one code mints multiple sessions.
+  mocks.consumeOtp.mockResolvedValue(false);
+
+  const response = await POST(
+    new Request('http://localhost/api/2fa/verify', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer partial-token',
+      },
+      body: JSON.stringify({ token: '123456' }),
+    }),
+  );
+
+  await expect(response.json()).resolves.toMatchObject({
+    error: { code: 'two-factor-error-code-used' },
+  });
+  expect(response.status).toBe(400);
+  expect(mocks.createSecureToken).not.toHaveBeenCalled();
+  expect(mocks.saveAuth).not.toHaveBeenCalled();
+  expect(mocks.resetRateLimit).not.toHaveBeenCalled();
+});
+
+test('POST does not check the code when no attempt can be reserved', async () => {
+  // Concurrent guesses must each reserve an attempt first; once the limit is hit, further
+  // guesses are rejected before verification so a burst cannot test more than the limit.
+  const lockedUntil = new Date(Date.now() + 60_000);
+  mocks.reserveTwoFactorAttempt.mockResolvedValue({ allowed: false, lockedUntil });
+
+  const response = await POST(
+    new Request('http://localhost/api/2fa/verify', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer partial-token',
+      },
+      body: JSON.stringify({ token: '123456' }),
+    }),
+  );
+
+  expect(response.status).toBe(429);
+  await expect(response.json()).resolves.toMatchObject({
+    error: { code: 'two-factor-error-too-many-attempts' },
+  });
+  expect(mocks.verifyTotp).not.toHaveBeenCalled();
+  expect(mocks.verifyBackupCode).not.toHaveBeenCalled();
+  expect(mocks.createSecureToken).not.toHaveBeenCalled();
 });

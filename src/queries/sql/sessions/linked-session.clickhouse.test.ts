@@ -1,13 +1,13 @@
 import { createClient } from '@clickhouse/client';
 import { expect, test } from 'vitest';
-import clickhouse from '@/lib/clickhouse';
-import { getLegacyLinkedSessionIds } from './getLinkedSessionIds';
 
 const integrationTest = process.env.CLICKHOUSE_TEST_URL ? test : test.skip;
 
 integrationTest(
   'legacy ClickHouse links remain bounded admission evidence, not identity reads',
   async () => {
+    const { default: clickhouse } = await import('@/lib/clickhouse');
+    const { getLegacyLinkedSessionIds } = await import('./getLinkedSessionIds');
     const url = process.env.CLICKHOUSE_TEST_URL;
     expect(process.env.CLICKHOUSE_URL).toBe(url);
 

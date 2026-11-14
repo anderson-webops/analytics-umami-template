@@ -1,6 +1,3 @@
-import { randomUUID } from 'node:crypto';
-import { startOfHour } from 'date-fns';
-import { z } from 'zod';
 import type { Prisma } from '@/generated/prisma/client';
 import {
   type CacheToken,
@@ -16,6 +13,7 @@ import {
   getBackendCollectionRequest,
 } from '@/lib/collection-proof';
 import { getCollectionIpLimit, getCollectionSourceStatus } from '@/lib/collection-rate-limit';
+import { resolveCollectionSession } from '@/lib/collection-session';
 import {
   CACHE_TOKEN_TYPE,
   COLLECTION_TRUST_TIER,
@@ -24,25 +22,27 @@ import {
   FIELD_LENGTH,
 } from '@/lib/constants';
 import { corsPreflight, withTrackingOrigin } from '@/lib/cors';
-import { getSalt, hash, secret, uuid } from '@/lib/crypto';
-import { isUnsafeSpreadsheetValue } from '@/lib/csv';
+import { hash, secret } from '@/lib/crypto';
 import { getClientInfo, hasBlockedIp } from '@/lib/detect';
 import { isEnvEnabled } from '@/lib/env';
+import { collectError } from '@/lib/errors/collect';
+import { type ErrorIngestionOutcome, recordErrorIngestion } from '@/lib/errors/metrics';
 import { truncateString } from '@/lib/format';
 import { getIpAddress } from '@/lib/ip';
-import { fetchWebsite } from '@/lib/load';
+import { fetchWebsite, isWebsiteCollectionBlocked } from '@/lib/load';
 import { parseRequest } from '@/lib/request';
+import { getRequestBodySize } from '@/lib/request-body';
 import {
   badRequest,
   conflict,
   forbidden,
   json,
+  payloadTooLarge,
   serverError,
   serviceUnavailable,
   tooManyRequests,
 } from '@/lib/response';
 import { hasRevenueField, isFinancialEventName } from '@/lib/revenue-provenance';
-import { analyticsDataParam, domainParam, urlOrPathParam } from '@/lib/schema';
 import { getCacheTokenTtlSeconds, isAllowedTrackingHostname } from '@/lib/security';
 import { getAllowedTrackingOrigin } from '@/lib/tracking-origin';
 import { safeDecodeURI, safeDecodeURIComponent } from '@/lib/url';
@@ -62,6 +62,7 @@ import {
   updateSession,
 } from '@/queries/sql';
 import { sanitizeTrackingUrl } from '@/tracker/url-privacy';
+import { collectionSchema } from './request-schema';
 
 const MAX_ATTRIBUTION_VALUE_LENGTH = 255;
 function logSessionLinkError(error: unknown) {
@@ -74,156 +75,6 @@ function logSessionLinkError(error: unknown) {
 }
 const truncateAttributionValue = (value?: string | null) =>
   value?.slice(0, MAX_ATTRIBUTION_VALUE_LENGTH);
-const safeStringParam = (maxLength: number) =>
-  z
-    .string()
-    .max(maxLength)
-    .refine((value: string): boolean => !isUnsafeSpreadsheetValue(value), {
-      message: 'Value must not start with a spreadsheet formula or control character',
-    });
-
-const timestampParam = z.coerce
-  .number()
-  .int()
-  .refine(
-    value => {
-      const now = Math.floor(Date.now() / 1000);
-
-      return value >= now - 30 * 24 * 60 * 60 && value <= now + 5 * 60;
-    },
-    { message: 'Timestamp is outside the accepted collection window.' },
-  );
-
-const schema = z
-  .object({
-    type: z.enum(['event', 'identify', 'performance']),
-    payload: z
-      .object({
-        website: z
-          .uuid()
-          .transform(value => value.toLowerCase())
-          .optional(),
-        link: z
-          .uuid()
-          .transform(value => value.toLowerCase())
-          .optional(),
-        pixel: z
-          .uuid()
-          .transform(value => value.toLowerCase())
-          .optional(),
-        data: analyticsDataParam.optional(),
-        hostname: domainParam.refine(value => value.length <= 253).optional(),
-        language: z.string().max(35).optional(),
-        referrer: urlOrPathParam.optional(),
-        screen: z.string().max(11).optional(),
-        title: z.string().max(500).optional(),
-        url: urlOrPathParam.optional(),
-        name: safeStringParam(50)
-          .refine(value => /[\p{L}\p{N}\p{P}\p{S}]/u.test(value), {
-            message: 'Event name must contain a visible character.',
-          })
-          .optional(),
-        tag: safeStringParam(50).optional(),
-        ip: z.string().max(64).optional(),
-        userAgent: z.string().max(512).optional(),
-        timestamp: timestampParam.optional(),
-        id: z.string().max(50).optional(),
-        sessionSeed: z.uuid().optional(),
-        browser: z.string().max(20).optional(),
-        os: z.string().max(20).optional(),
-        device: z.string().max(20).optional(),
-        lcp: z.number().nonnegative().max(60000).optional(),
-        inp: z.number().nonnegative().max(60000).optional(),
-        cls: z.number().nonnegative().max(100).optional(),
-        fcp: z.number().nonnegative().max(60000).optional(),
-        ttfb: z.number().nonnegative().max(60000).optional(),
-      })
-      .strict()
-      .refine(
-        data => {
-          const keys = [data.website, data.link, data.pixel];
-          const count = keys.filter(Boolean).length;
-          return count === 1;
-        },
-        {
-          message: 'Exactly one of website, link, or pixel must be provided',
-          path: ['website'],
-        },
-      ),
-  })
-  .strict()
-  .refine(data => data.type === 'event' || !!data.payload.website, {
-    message: 'Identify and performance events require a website.',
-    path: ['payload', 'website'],
-  })
-  .superRefine((data, ctx) => {
-    if (data.payload.website && !data.payload.hostname) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Website events require a hostname.',
-        path: ['payload', 'hostname'],
-      });
-    }
-
-    if (data.type === COLLECTION_TYPE.event && data.payload.data && !data.payload.name) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Event properties require a named custom event.',
-        path: ['payload', 'name'],
-      });
-    }
-
-    if (
-      data.type === COLLECTION_TYPE.event &&
-      !data.payload.name &&
-      data.payload.id !== undefined
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Pageviews cannot carry an identity; use identify instead.',
-        path: ['payload', 'id'],
-      });
-    }
-
-    if (
-      (data.type === COLLECTION_TYPE.performance &&
-        (data.payload.id !== undefined ||
-          data.payload.name !== undefined ||
-          data.payload.data !== undefined)) ||
-      (data.type === COLLECTION_TYPE.identify && data.payload.name !== undefined)
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'This collection type does not accept unrelated tracking fields.',
-        path: ['payload'],
-      });
-    }
-
-    const { currency, revenue } = data.payload.data || {};
-
-    if (currency !== undefined || revenue !== undefined) {
-      if (!data.payload.name) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: 'Revenue data requires a named custom event.',
-          path: ['payload', 'name'],
-        });
-      }
-
-      if (
-        typeof currency !== 'string' ||
-        !/^[A-Za-z]{3}$/.test(currency) ||
-        typeof revenue !== 'number' ||
-        revenue <= 0
-      ) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: 'Revenue data requires a positive amount and a three-letter currency code.',
-          path: ['payload', 'data'],
-        });
-      }
-    }
-  });
 
 export function OPTIONS() {
   return corsPreflight({
@@ -234,6 +85,36 @@ export function OPTIONS() {
 }
 
 export async function POST(request: Request) {
+  const ingestion: { error: boolean; outcome?: ErrorIngestionOutcome; origin?: string | null } = {
+    error: false,
+  };
+  const response = await collectRequest(request, ingestion);
+
+  if (ingestion.error) {
+    const outcomes: Record<number, ErrorIngestionOutcome> = {
+      200: 'accepted',
+      400: 'invalid',
+      403: 'blocked',
+      409: 'invalid',
+      413: 'oversized',
+      429: 'throttled',
+    };
+    recordErrorIngestion(ingestion.outcome || outcomes[response.status] || 'failed');
+    response.headers.set('Access-Control-Expose-Headers', 'Retry-After');
+    response.headers.set('Cache-Control', 'no-store');
+    if (ingestion.origin && !response.headers.has('Access-Control-Allow-Origin')) {
+      response.headers.set('Access-Control-Allow-Origin', ingestion.origin);
+      response.headers.append('Vary', 'Origin');
+    }
+  }
+
+  return response;
+}
+
+async function collectRequest(
+  request: Request,
+  ingestion: { error: boolean; outcome?: ErrorIngestionOutcome; origin?: string | null },
+) {
   try {
     const collectionLimit = await getCollectionIpLimit(request);
 
@@ -241,9 +122,14 @@ export async function POST(request: Request) {
       return tooManyRequests(collectionLimit.retryAfter);
     }
 
-    const { body, error } = await parseRequest(request, schema, {
+    const { body, error } = await parseRequest(request, collectionSchema, {
       skipAuth: true,
       maxBodyBytes: 128 * 1024,
+      bodyPreflight: body => {
+        ingestion.error =
+          !!body && typeof body === 'object' && 'type' in body && body.type === 'error';
+        return true;
+      },
     });
 
     if (error) {
@@ -251,12 +137,19 @@ export async function POST(request: Request) {
     }
 
     const { type, payload } = body;
+    ingestion.error = type === 'error';
+
+    if (ingestion.error) {
+      const bodySize = getRequestBodySize(request);
+      if (bodySize === undefined) return badRequest();
+      if (bodySize > 48000) return payloadTooLarge({ maxBytes: 48000 });
+    }
 
     const {
       website: websiteId,
       pixel: pixelId,
       link: linkId,
-      hostname,
+      hostname: payloadHostname,
       screen,
       language,
       url,
@@ -265,9 +158,10 @@ export async function POST(request: Request) {
       data,
       title,
       tag,
-      timestamp,
+      timestamp: payloadTimestamp,
       id,
       sessionSeed,
+      salt,
       lcp,
       inp,
       cls,
@@ -275,6 +169,13 @@ export async function POST(request: Request) {
       ttfb,
     } = payload;
 
+    const timestamp = type === 'error' ? undefined : payloadTimestamp;
+    let hostname = payloadHostname;
+    if (type === 'error' && !hostname) {
+      try {
+        hostname = new URL(request.headers.get('origin') || '').hostname;
+      } catch {}
+    }
     const sourceId = websiteId || pixelId || linkId;
     const sourceType = websiteId ? 'website' : linkId ? 'link' : 'pixel';
     const sourceStatus = await getCollectionSourceStatus(sourceId);
@@ -340,6 +241,10 @@ export async function POST(request: Request) {
         return badRequest({ message: 'Tracking source not found.' });
       }
 
+      if (await isWebsiteCollectionBlocked(websiteId)) {
+        return forbidden({ message: 'Website collection is blocked.' });
+      }
+
       const requestOrigin = request.headers.get('origin');
 
       if (requestOrigin) {
@@ -348,6 +253,7 @@ export async function POST(request: Request) {
         if (!allowedOrigin) {
           return badRequest({ message: 'Tracking source not found.' });
         }
+        if (type === 'error') ingestion.origin = allowedOrigin;
       }
     } else if (linkId) {
       const link = await getLink(linkId);
@@ -380,6 +286,11 @@ export async function POST(request: Request) {
       botName,
       botCategory,
     } = await getClientInfo(request, payload);
+
+    if (type === 'error' && !isEnvEnabled('DISABLE_BOT_CHECK') && isBot) {
+      ingestion.outcome = 'blocked';
+      return withTrackingOrigin(json({ ok: false, reason: 'bot' }), allowedOrigin);
+    }
 
     // IP block
     if (hasBlockedIp(ip)) {
@@ -435,59 +346,32 @@ export async function POST(request: Request) {
       throw error;
     }
 
-    const createdAt = timestamp ? new Date(timestamp * 1000) : new Date();
-    const now = Math.floor(Date.now() / 1000);
+    const createdAt =
+      type === 'error'
+        ? new Date(payloadTimestamp)
+        : timestamp
+          ? new Date(timestamp * 1000)
+          : new Date();
+    const { sessionId, visitId, iat, sessionSalt, identityHash, sessionDrift } =
+      resolveCollectionSession({
+        sourceId,
+        websiteId,
+        ip,
+        userAgent,
+        distinctId: truncateString(id, FIELD_LENGTH.distinctId),
+        sessionSeed,
+        salt,
+        createdAt,
+        cache,
+        collectionGeneration,
+        backendRequest,
+        historical: timestamp !== undefined,
+      });
     const distinctId = truncateString(id, FIELD_LENGTH.distinctId);
-
-    const saltRotation = process.env.SALT_ROTATION || 'month';
-    const sessionSalt = getSalt(saltRotation, createdAt);
-    const visitSalt = hash(startOfHour(createdAt).toUTCString());
-
-    const identityHash = hash(distinctId ?? '');
-    const sessionSourceId =
-      websiteId && collectionGeneration
-        ? `${sourceId}:generation:${collectionGeneration}`
-        : sourceId;
-    const sessionId = backendKeyDigest
-      ? sessionSeed || distinctId
-        ? uuid(
-            'verified-collection-v2',
-            sessionSourceId,
-            sessionSeed ?? '',
-            distinctId ?? '',
-            sessionSalt,
-          )
-        : randomUUID()
-      : !websiteId
-        ? uuid(sourceId, ip, userAgent, sessionSalt, distinctId ?? '')
-        : sessionSeed
-          ? uuid(sessionSourceId, sessionSeed, sessionSalt, distinctId ?? '')
-          : cache?.identityHash === identityHash && cache.sessionSalt === sessionSalt
-            ? cache.sessionId
-            : randomUUID();
-    const sessionDrift = !!websiteId && !!cache?.sessionId && cache.sessionId !== sessionId;
     const shouldEnsureSession = !clickhouse.enabled && sessionDrift;
+    if (sessionDrift) sessionLinkId = undefined;
 
-    if (sessionDrift) {
-      sessionLinkId = undefined;
-    }
-
-    // Visit info
-    let visitId = cache?.visitId || uuid(sessionId, visitSalt);
-    let iat = cache?.iat || now;
-
-    // A drifted cache session starts a fresh visit on the recomputed session.
-    if (sessionDrift) {
-      visitId = uuid(sessionId, visitSalt);
-      iat = now;
-    }
-
-    // Expire visit after 30 minutes
-    if (!timestamp && now - iat > 1800) {
-      visitId = uuid(sessionId, visitSalt);
-      iat = now;
-    }
-
+    let savedError: Awaited<ReturnType<typeof collectError>> | undefined;
     let pendingClickhouseLink: Parameters<typeof saveSessionLink>[0] | undefined;
     const persistCollection = async (
       sourceTransaction: Prisma.TransactionClient,
@@ -517,7 +401,13 @@ export async function POST(request: Request) {
         );
       }
 
-      if (type === COLLECTION_TYPE.event) {
+      if (type === 'error') {
+        savedError = await collectError(
+          payload,
+          { sessionId, visitId, browser, os, device },
+          sourceTransaction,
+        );
+      } else if (type === COLLECTION_TYPE.event) {
         const base = hostname ? `https://${hostname}` : 'https://localhost';
         const currentUrl = sanitizeTrackingUrl(new URL(url, base));
 
@@ -736,6 +626,7 @@ export async function POST(request: Request) {
               select: {
                 domain: true,
                 collectionGeneration: true,
+                resetAt: true,
               },
             });
 
@@ -745,6 +636,14 @@ export async function POST(request: Request) {
 
             if (currentWebsite?.collectionGeneration !== collectionGeneration) {
               throw new Error('COLLECTION_SOURCE_CHANGED');
+            }
+
+            if (
+              type === 'error' &&
+              currentWebsite?.resetAt &&
+              +createdAt <= +currentWebsite.resetAt
+            ) {
+              throw new Error('ERROR_TIMESTAMP_BEFORE_RESET');
             }
 
             if (backendRequest && !clickhouse.enabled) {
@@ -758,6 +657,12 @@ export async function POST(request: Request) {
         reservedSource,
       );
     } catch (error: any) {
+      if (error instanceof CollectionBudgetExceededError) {
+        return tooManyRequests(error.retryAfter);
+      }
+      if (error?.message === 'ERROR_TIMESTAMP_BEFORE_RESET') {
+        return badRequest({ message: 'Error timestamp is out of range.' });
+      }
       if (error instanceof CollectionRequestReplayError) {
         return conflict({ message: 'Backend collection request already accepted.' });
       }
@@ -816,8 +721,11 @@ export async function POST(request: Request) {
             getCacheTokenTtlSeconds(),
           )
         : null;
-    return withTrackingOrigin(json({ cache: token }), websiteId ? allowedOrigin : '*');
+    return withTrackingOrigin(
+      json(type === 'error' ? { ok: true, ...savedError, cache: token } : { cache: token }),
+      websiteId ? allowedOrigin : '*',
+    );
   } catch (e) {
-    return serverError(e);
+    return serverError(ingestion.error ? 'Error collection failed.' : e);
   }
 }

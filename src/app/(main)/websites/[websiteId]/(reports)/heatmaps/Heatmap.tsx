@@ -24,6 +24,7 @@ import { formatLongNumber } from '@/lib/format';
 import {
   boundHeatmapRenderHeight,
   boundHeatmapRenderWidth,
+  getHeatmapPageHeight,
   isPointWithinHeatmapRender,
 } from '@/lib/heatmap-render-dimensions';
 import type { HeatmapMode, HeatmapPoint, HeatmapResult } from '@/queries/sql';
@@ -643,7 +644,7 @@ function ClickHeatmapView({
   // Keep the canvas sized to real content and clip outlier clicks instead of stretching it.
   const baseWidth = Math.max(viewport?.pageW ?? 0, maxPointX + overlayGutter, 1);
   const renderWidth = boundHeatmapRenderWidth(viewport?.width ?? baseWidth);
-  const contentHeight = viewport?.pageH || 0;
+  const contentHeight = getHeatmapPageHeight(visible);
   const renderHeight = boundHeatmapRenderHeight(Math.max(contentHeight, 640));
   const drawable = visible.filter(point =>
     isPointWithinHeatmapRender(point, renderWidth, renderHeight),

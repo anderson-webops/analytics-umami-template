@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import clickhouse, { CLICKHOUSE_DATE_FORMATS, isClickHouseDiscoveryLimitError } from './clickhouse';
 
+vi.mock('@/lib/prisma', () => ({ default: { client: {} } }));
+
 afterEach(() => {
   vi.doUnmock('@clickhouse/client');
   vi.unstubAllEnvs();

@@ -146,3 +146,76 @@ test('getRevenueMetrics uses the filtered session set for screen-load breakdowns
   expect(query).toContain('sum(filtered_revenue.revenue) as "value"');
   expect(query).not.toContain('and website_event.event_id = revenue.event_id');
 });
+
+test('getRevenueStats counts only positive revenue rows as orders', async () => {
+  rawQueryMock.mockResolvedValue([{ sum: 900, count: 10, unique_count: 0, total_sessions: 0 }]);
+
+  const result = await getRevenueStats('website-1', parameters, {});
+
+  const [query] = rawQueryMock.mock.calls[0];
+
+  expect(query).toContain(
+    'count(distinct case when filtered_revenue.revenue > 0 then filtered_revenue.event_id end) as count',
+  );
+  // Net revenue (payments minus refunds) per order.
+  expect(result.average).toBe(90);
+});
+
+test('ClickHouse revenue stats always keep imported revenue and count only positive orders', async () => {
+  queryState.backend = 'clickhouse';
+  rawQueryMock.mockResolvedValue([{ sum: 900, count: 10, unique_count: 4, total_sessions: 30 }]);
+
+  const result = await getRevenueStats('website-1', parameters, {});
+
+  const [query] = rawQueryMock.mock.calls[0];
+
+  expect(query).toContain("event_name in ('stripe:payment', 'stripe:refund'");
+  expect(query).toContain('or session_id in (select session_id from filtered_sessions)');
+  expect(query).not.toContain('inner join filtered_sessions');
+  expect(query).toContain(
+    'uniqExactIf(filtered_revenue.event_id, filtered_revenue.revenue > 0) as count',
+  );
+  expect(query).toContain('select event_id, session_id, revenue');
+  expect(query).not.toContain('total_sessions');
+  expect(result.average).toBe(90);
+  expect(result.arpu).toBeNull();
+});
+
+test('ClickHouse revenue chart always keeps imported revenue', async () => {
+  queryState.backend = 'clickhouse';
+  rawQueryMock.mockResolvedValue([]);
+
+  await getRevenueChart('website-1', parameters, {});
+
+  const [query] = rawQueryMock.mock.calls[0];
+
+  expect(query).toContain("event_name in ('stripe:payment'");
+  expect(query).toContain('or session_id in (select session_id from filtered_sessions)');
+  expect(query).toContain('countIf(filtered_revenue.revenue > 0) count');
+});
+
+test('ClickHouse revenue channels put revenue without a tracked visit under unknown, not direct', async () => {
+  queryState.backend = 'clickhouse';
+  rawQueryMock.mockResolvedValue([]);
+
+  await getRevenueMetrics('website-1', parameters, {}, 'channel');
+
+  const [query] = rawQueryMock.mock.calls[0];
+
+  expect(query).toContain("and not event_name in ('stripe:payment'");
+  expect(query).toContain('any left join first_event');
+  expect(query).toContain("when tracked = 0 then 'unknown'");
+  expect(query).not.toContain("'Unknown'");
+});
+
+test('ClickHouse revenue locations keep revenue whose session has no event row', async () => {
+  queryState.backend = 'clickhouse';
+  rawQueryMock.mockResolvedValue([]);
+
+  await getRevenueMetrics('website-1', parameters, {}, 'country');
+
+  const [query] = rawQueryMock.mock.calls[0];
+
+  expect(query).toContain("event_name in ('stripe:payment'");
+  expect(query).toContain('any left join revenue_session');
+});

@@ -3,7 +3,9 @@ packages:
   - "!dist"
   - "!**/dist/**"
   - "!build-toolchain"
+  - "!build-toolchain/**"
   - "!deploy/mac-build/pnpm-toolchain"
+verifyDepsBeforeRun: error
 supportedArchitectures:
   os:
     - current
@@ -15,7 +17,7 @@ supportedArchitectures:
     - glibc
     - musl
 overrides:
-  "@umami/react-zen@0.255.0>lucide-react": 1.70.0
+  "@umami/react-zen@0.255.0>lucide-react": 1.72.0
   "@umami/react-zen@0.255.0>@react-spring/web": 10.1.2
   "openapi-typescript@7.13.0>typescript:peer": ^5.x || ^6.x
   "@redocly/openapi-core@1.34.24>minimatch": file:vendor/minimatch-call-compat
@@ -27,6 +29,8 @@ overrides:
   "d3-color@<3.1.0": 3.1.0
   "d3-zoom@3.0.1>d3-drag": 3.0.1
   "d3-zoom@3.0.1>d3-transition": 3.0.2
+  "d3-zoom@3.0.1>d3-dispatch": 3.0.1
+  "d3-zoom@3.0.1>d3-selection": 3.0.0
   "deepmerge-ts@<8.0.0": 8.0.2
   deepmerge: file:vendor/deepmerge
   "diff@>=4.0.0 <4.0.4": 4.0.4
@@ -43,10 +47,12 @@ overrides:
   "svgo@>=2.0.0 <3.0.0": 2.8.4
   "svgo@>=3.0.0 <4.0.0": 3.3.5
   undici: 8.12.4
-  vite: 8.1.6
+  "undici@>=7.0.0 <7.30.1": 7.30.2
+  "undici@>=8.0.0 <8.12.2": 8.12.4
+  vite: 8.3.8
   esbuild: 0.28.2
   "ua-parser-js": 2.0.10
-  tar: 7.5.22
+  tar: 7.5.23
   "shell-quote": 1.11.0
   "js-yaml": 4.3.2
   "form-data": 4.0.6
@@ -54,8 +60,11 @@ overrides:
   d3-color: 3.1.0
   defu: 6.1.6
   hono: 4.12.32
-  lodash: 4.18.0
-  serialize-javascript: 7.1.3
+  lodash: 4.18.1
+  serialize-javascript: 7.1.4
+  "serialize-javascript@<7.1.3": 7.1.4
+  "sucrase@<3.35.1": 3.35.1
+  "zod@>=4.0.0 <4.6.6": 4.6.7
   yaml: 2.8.3
   fast-uri: 3.1.9
   mysql2: 3.23.1
@@ -86,7 +95,6 @@ onlyBuiltDependencies:
   - "@swc/core"
   - prisma
 minimumReleaseAgeExclude:
-  - tar@7.5.22
   - "@umami/react-zen"
   - cn@0.2.6
   - "@umami/api-client@0.81.0"

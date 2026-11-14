@@ -1,5 +1,10 @@
 # Dependabot remediation — 2026-09-11
 
+This is the historical September 11 source-review snapshot. Its installation,
+audit, test and delivery statements refer to that snapshot. Current release
+qualification uses fresh locked installations, full and production audits and
+the repository's current checks.
+
 All 52 reviewed open alerts have been addressed in the local dev working tree. Every package entry in pnpm-lock.yaml was compared to the GitHub alert ranges; zero affected versions remain. pnpm audit reports no known vulnerabilities.
 
 The changes are not committed or pushed yet. GitHub still has 52 open alerts because its default branch, master, has the old dependency graph. These should close as fixed after the changes reach master; do not dismiss still-vulnerable master dependencies as inaccurate or unused.

@@ -4,10 +4,10 @@ import {
   chmodSync,
   constants,
   copyFileSync,
+  existsSync,
   mkdirSync,
   readFileSync,
   realpathSync,
-  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
@@ -15,10 +15,16 @@ import process from 'node:process';
 import {
   cacheIdentity,
   finishToolchainCache,
+  pairedCommandScript,
   selectToolchainCache,
   verifyReusableToolchain,
 } from './build-toolchain-cache.mjs';
-import { sha256, toolchainMetadata, toolchainSource } from './build-toolchain-state.mjs';
+import {
+  sha256,
+  toolchainInputNames,
+  toolchainMetadata,
+  toolchainSource,
+} from './build-toolchain-state.mjs';
 
 const repositoryRoot = path.resolve(import.meta.dirname, '..');
 const argumentsList = process.argv.slice(2);
@@ -37,10 +43,7 @@ assert.ok(
   !options.includes('--print-bin') || command.length === 0,
   '--print-bin cannot be combined with an application command',
 );
-assert.ok(
-  !process.getuid || process.getuid() !== 0,
-  'Prepare build tools as an unprivileged account',
-);
+assert.ok(process.getuid?.() !== 0, 'Prepare build tools as an unprivileged account');
 assert.equal(
   process.version,
   `v${toolchainMetadata.node}`,
@@ -102,13 +105,21 @@ function run(executable, args, cwd, env, quiet = true) {
   });
 }
 
-const seedCli = realpathSync(
-  path.join(
-    path.dirname(process.execPath),
-    process.platform === 'win32' ? 'node_modules/npm/bin/npm-cli.js' : 'npm',
-  ),
+const pairedSeedCli = path.resolve(
+  path.dirname(process.execPath),
+  '../node_modules/npm/bin/npm-cli.js',
 );
-const seedEnvironment = { ...process.env };
+const seedCli = process.env.npm_execpath
+  ? realpathSync(process.env.npm_execpath)
+  : existsSync(pairedSeedCli)
+    ? realpathSync(pairedSeedCli)
+    : realpathSync(
+        path.join(
+          path.dirname(process.execPath),
+          process.platform === 'win32' ? 'node_modules/npm/bin/npm-cli.js' : 'npm',
+        ),
+      );
+const seedEnvironment = { ...process.env, PYTHONDONTWRITEBYTECODE: '1' };
 delete seedEnvironment.NODE_OPTIONS;
 delete seedEnvironment.NODE_PATH;
 const base =
@@ -123,19 +134,14 @@ let cacheAccepted = selection.reused;
 try {
   if (!selection.reused) {
     mkdirSync(path.join(prefix, 'vendor'));
-    for (const name of [
-      'package.json',
-      'package-lock.json',
-      '.npmrc',
-      'UPSTREAM.json',
-      'PAYLOAD.json',
-      toolchainMetadata.archive,
-    ])
+    for (const name of toolchainInputNames) {
+      mkdirSync(path.dirname(path.join(prefix, name)), { recursive: true, mode: 0o700 });
       copyFileSync(
         path.join(toolchainSource, name),
         path.join(prefix, name),
         constants.COPYFILE_EXCL,
       );
+    }
     await run(
       process.execPath,
       [
@@ -186,14 +192,15 @@ try {
           { flag: 'wx' },
         );
     } else {
-      symlinkSync('../node_modules/npm/bin/npm-cli.js', path.join(bin, 'npm'));
-      symlinkSync('../node_modules/npm/bin/npx-cli.js', path.join(bin, 'npx'));
+      for (const name of ['npm', 'npx'])
+        writeFileSync(path.join(bin, name), pairedCommandScript(name), { flag: 'wx', mode: 0o755 });
     }
   }
   const npmCli = path.join(prefix, 'node_modules/npm/bin/npm-cli.js');
   verifyReusableToolchain(prefix, identity.node);
   const environment = {
     ...process.env,
+    PYTHONDONTWRITEBYTECODE: '1',
     PATH: `${bin}${path.delimiter}${process.env.PATH || ''}`,
     npm_execpath: npmCli,
     npm_node_execpath: path.join(bin, nodeName),
@@ -216,6 +223,22 @@ try {
     await run(
       path.join(bin, nodeName),
       [npmCli, '--prefix', prefix, '--workspaces=false', ...args],
+      prefix,
+      auditEnvironment,
+    );
+  }
+  for (const argumentsList of [[], ['--omit=dev']]) {
+    await run(
+      path.join(bin, nodeName),
+      [
+        npmCli,
+        'audit',
+        '--prefix',
+        path.join(prefix, 'compat'),
+        '--workspaces=false',
+        '--audit-level=low',
+        ...argumentsList,
+      ],
       prefix,
       auditEnvironment,
     );

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { useDateRange } from '@/components/hooks';
+import { useDateRange, useTimezone } from '@/components/hooks';
 import type { RevenueStatsData } from '@/components/hooks/queries/useRevenueStatsQuery';
 import { MetricCard } from '@/components/metrics/MetricCard';
 import { MetricsBar } from '@/components/metrics/MetricsBar';
@@ -19,7 +19,8 @@ interface RevenueMetricItem {
 }
 
 export function RevenueMetricsBar({ data, currency }: RevenueMetricsBarProps) {
-  const { isAllTime } = useDateRange();
+  const { timezone } = useTimezone();
+  const { isAllTime, hasComparison } = useDateRange({ timezone });
   const { sum, count, average, unique_count, comparison } = data;
   const sumValue = Number(sum ?? 0);
   const comparisonSumValue = Number(comparison?.sum ?? 0);
@@ -69,7 +70,7 @@ export function RevenueMetricsBar({ data, currency }: RevenueMetricsBarProps) {
             tooltip={tooltip}
             change={change}
             formatValue={formatValue}
-            showChange={!isAllTime}
+            showChange={!isAllTime && hasComparison}
           />
         );
       })}

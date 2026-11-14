@@ -41,7 +41,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ link
 export async function POST(request: Request, { params }: { params: Promise<{ linkId: string }> }) {
   const schema = z.object({
     name: z.string().trim().min(1).max(100).optional(),
-    url: httpUrlParam.optional(),
+    url: httpUrlParam.transform(value => value.trim()).optional(),
     slug: routeSlugParam.optional(),
   });
 

@@ -1,9 +1,21 @@
 import type { Report } from '@/generated/prisma/client';
+import { isEnvEnabled } from '@/lib/env';
+import { getBillingAccess, getWebsiteBillingScope } from '@/lib/load';
 import type { ShareSection } from '@/lib/share';
 import type { Auth } from '@/lib/types';
+import { getWebsite } from '@/queries/prisma';
 import { canMutateResource } from './mutation';
 import { canViewWebsiteSection } from './share';
 import { canDeleteWebsite, canUpdateWebsite, canViewWebsite } from './website';
+
+async function hasReportBillingAccess(report: Report) {
+  if (!isEnvEnabled('CLOUD_MODE')) {
+    return true;
+  }
+
+  const website = await getWebsite(report.websiteId);
+  return !!website && !(await getBillingAccess(await getWebsiteBillingScope(website))).isPastDue;
+}
 
 export function getReportSection(type?: string): ShareSection | null {
   switch (type) {
@@ -36,11 +48,11 @@ export async function canViewReport(auth: Auth, report: Report | null) {
 
   const section = getReportSection(report.type);
 
-  if (section) {
-    return !!(await canViewWebsiteSection(auth, report.websiteId, section));
-  }
+  const allowed = section
+    ? !!(await canViewWebsiteSection(auth, report.websiteId, section))
+    : !!auth.user && !!(await canViewWebsite({ user: auth.user }, report.websiteId));
 
-  return !!auth.user && !!(await canViewWebsite({ user: auth.user }, report.websiteId));
+  return allowed && (auth.user?.id !== report.userId || (await hasReportBillingAccess(report)));
 }
 
 export async function canUpdateReport(auth: Auth, report: Report) {
@@ -53,7 +65,10 @@ export async function canUpdateReport(auth: Auth, report: Report) {
   }
 
   if (auth.user.id === report.userId) {
-    return !!(await canViewWebsite({ user: auth.user }, report.websiteId));
+    return (
+      !!(await canViewWebsite({ user: auth.user }, report.websiteId)) &&
+      (await hasReportBillingAccess(report))
+    );
   }
 
   return !!(await canUpdateWebsite(auth, report.websiteId));
@@ -68,5 +83,8 @@ export async function canDeleteReport(auth: Auth, report: Report) {
     return true;
   }
 
-  return !!(await canDeleteWebsite(auth, report.websiteId));
+  return (
+    !!(await canDeleteWebsite(auth, report.websiteId)) &&
+    (auth.user.id !== report.userId || (await hasReportBillingAccess(report)))
+  );
 }

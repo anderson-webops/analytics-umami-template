@@ -156,7 +156,7 @@ const operation2 = defineOperation({
   method: 'post',
   path: '/api/boards',
   audience: 'public',
-  auth: 'bearer-or-share',
+  auth: 'bearer',
   operation: {
     operationId: 'createBoard',
     summary: 'Create a board',
@@ -182,8 +182,9 @@ const operation2 = defineOperation({
                 ],
               },
               name: {
-                minimum: 1,
-                maximum: 100,
+                type: 'string',
+                minLength: 1,
+                maxLength: 100,
                 description: 'Display name of the resource.',
               },
               description: {

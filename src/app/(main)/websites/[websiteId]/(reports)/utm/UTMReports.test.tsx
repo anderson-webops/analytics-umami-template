@@ -9,6 +9,7 @@ const endDate = new Date('2026-10-02T00:00:00.000Z');
 vi.mock('@/components/charts/PieChart', () => ({ PieChart: () => null }));
 vi.mock('@/components/metrics/ListTable', () => ({ ListTable: () => null }));
 vi.mock('@/components/hooks', () => ({
+  useTimezone: () => ({ timezone: 'UTC' }),
   useDateRange: () => ({ dateRange: { startDate, endDate } }),
   useMessages: () => ({ t: (value: string) => value, labels: { views: 'Views' } }),
   useUTMMetricsQuery: () => ({

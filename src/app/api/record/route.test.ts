@@ -29,6 +29,12 @@ import { saveHeatmapEvents } from '@/queries/sql/heatmap/saveHeatmapEvents';
 import { OPTIONS, POST } from './route';
 
 const clickhouseState = vi.hoisted(() => ({ enabled: false }));
+const loadMocks = vi.hoisted(() => ({
+  fetchAccount: vi.fn(),
+  fetchTeam: vi.fn(),
+  isWebsiteCollectionBlocked: vi.fn(),
+}));
+vi.mock('@/lib/load', () => loadMocks);
 
 vi.mock('@/lib/clickhouse', () => ({
   default: {
@@ -97,6 +103,7 @@ const ACCOUNT_ID = '44444444-4444-4444-8444-444444444444';
 
 beforeEach(() => {
   vi.resetAllMocks();
+  loadMocks.isWebsiteCollectionBlocked.mockResolvedValue(false);
   vi.mocked(hasCollectionPermit).mockReturnValue(true);
   clickhouseState.enabled = false;
   vi.mocked(getCollectionIpLimit).mockResolvedValue({ blocked: false, retryAfter: 60 });
@@ -1753,3 +1760,168 @@ describe('record route CORS', () => {
     expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
   });
 });
+
+describe('record route schema', () => {
+  // The payload timestamp becomes chunkIndex, a Postgres integer column.
+  test('rejects payload timestamps outside the storable range', async () => {
+    parseRequestMock.mockResolvedValue({
+      body: { type: 'record', payload: { website: 'w', events: [] } },
+      error: undefined,
+    });
+
+    await POST(new Request('http://localhost/api/record', { method: 'POST' }));
+
+    const schema = parseRequestMock.mock.calls[0][1] as {
+      safeParse: (value: unknown) => { success: boolean };
+    };
+    const payload = (timestamp: number) => ({
+      type: 'record',
+      payload: { website: '11111111-1111-4111-8111-111111111111', events: [], timestamp },
+    });
+
+    expect(schema.safeParse(payload(Math.floor(Date.now() / 1000))).success).toBe(true);
+    expect(schema.safeParse(payload(2147483648)).success).toBe(false);
+    expect(schema.safeParse(payload(-1)).success).toBe(false);
+  });
+});
+
+describe('record route cache token binding', () => {
+  const websiteId = '11111111-1111-4111-8111-111111111111';
+  const otherWebsiteId = '22222222-2222-4222-8222-222222222222';
+  const sessionId = '33333333-3333-4333-8333-333333333333';
+  const visitId = '44444444-4444-4444-8444-444444444444';
+  let expectedTransaction: ReturnType<typeof prepareReplayRequest>['transaction'];
+
+  function post(website: string) {
+    parseRequestMock.mockResolvedValue({
+      body: {
+        type: 'record',
+        payload: { website, events: [{ type: 3, timestamp: Date.now() }] },
+      },
+      error: undefined,
+    } as any);
+
+    return POST(
+      new Request('http://localhost/api/record', {
+        method: 'POST',
+        headers: { 'x-umami-cache': 'token' },
+      }),
+    );
+  }
+
+  beforeEach(() => {
+    expectedTransaction = prepareReplayRequest(visitId).transaction;
+    vi.mocked(getWebsite).mockResolvedValue({
+      id: websiteId,
+      recorderEnabled: true,
+      replayConfig: { replayEnabled: true },
+    } as any);
+    vi.mocked(getClientInfo).mockResolvedValue({
+      ip: '127.0.0.1',
+      userAgent:
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    } as any);
+    vi.mocked(hasBlockedIp).mockReturnValue(false);
+  });
+
+  test('rejects a cache token issued for a different website', async () => {
+    vi.mocked(parseToken).mockReturnValue({
+      type: 'cache',
+      version: 2,
+      iat: Math.floor(Date.now() / 1000),
+      identityHash: hash(''),
+      sessionSalt: hash('synthetic-month'),
+      websiteId: otherWebsiteId,
+      sessionId,
+      visitId,
+    });
+
+    const response = await post(websiteId);
+
+    expect(response.status).toBe(400);
+    expect(getWebsite).not.toHaveBeenCalled();
+    expect(saveRecording).not.toHaveBeenCalled();
+  });
+
+  test('rejects a token without a websiteId', async () => {
+    vi.mocked(parseToken).mockReturnValue({
+      type: 'cache',
+      sessionId,
+      visitId,
+      version: 2,
+      iat: Math.floor(Date.now() / 1000),
+      identityHash: hash(''),
+      sessionSalt: hash('synthetic-month'),
+    });
+
+    const response = await post(websiteId);
+
+    expect(response.status).toBe(400);
+    expect(saveRecording).not.toHaveBeenCalled();
+  });
+
+  test('rejects a non-cache token type', async () => {
+    vi.mocked(parseToken).mockReturnValue({
+      type: 'share',
+      websiteId,
+      sessionId,
+      visitId,
+      version: 2,
+      iat: Math.floor(Date.now() / 1000),
+      identityHash: hash(''),
+      sessionSalt: hash('synthetic-month'),
+    });
+
+    const response = await post(websiteId);
+
+    expect(response.status).toBe(400);
+    expect(saveRecording).not.toHaveBeenCalled();
+  });
+
+  test('accepts a cache token bound to the same website', async () => {
+    vi.mocked(parseToken).mockReturnValue({
+      type: 'cache',
+      version: 2,
+      websiteId,
+      sessionId,
+      visitId,
+      iat: Math.floor(Date.now() / 1000),
+      identityHash: hash(''),
+      sessionSalt: hash('synthetic-month'),
+    });
+
+    const response = await post(websiteId);
+
+    expect(response.status).toBe(200);
+    expect(saveRecording).toHaveBeenCalledWith(
+      expect.objectContaining({ websiteId, sessionId, visitId }),
+      expectedTransaction,
+    );
+  });
+});
+
+test.each(['record', 'heatmap'])(
+  'a cloud collection block rejects %s before source mutation',
+  async type => {
+    if (type === 'record') prepareReplayRequest();
+    else prepareHeatmapRequest();
+    vi.stubEnv('CLOUD_MODE', '1');
+    loadMocks.isWebsiteCollectionBlocked.mockResolvedValue(true);
+
+    const response = await POST(
+      new Request('http://localhost/api/record', {
+        method: 'POST',
+        headers: { 'x-umami-cache': 'token', 'x-umami-permit': 'permit' },
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
+    expect(loadMocks.isWebsiteCollectionBlocked).toHaveBeenCalledOnce();
+    expect(loadMocks.fetchAccount).not.toHaveBeenCalled();
+    expect(loadMocks.fetchTeam).not.toHaveBeenCalled();
+    expect(withActiveCollectionSource).not.toHaveBeenCalled();
+    expect(saveRecording).not.toHaveBeenCalled();
+    expect(saveHeatmapEvents).not.toHaveBeenCalled();
+  },
+);

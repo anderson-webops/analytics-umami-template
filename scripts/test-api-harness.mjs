@@ -8,6 +8,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { verifyFixtureEnvironment } from '../tests/api/docker/start.mjs';
+import { getApiTestSuite } from './api-test-plan.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 const startup = path.join(root, 'tests/api/docker/start.mjs');
@@ -159,6 +160,17 @@ test('Compose names the dedicated test image without restoring production contai
   assert.equal(existsSync(path.join(root, 'docker-compose.yml')), false);
 });
 
+test('every CI database image is immutable and ClickHouse matches the local fixture', () => {
+  const workflow = readFileSync(path.join(root, '.github/workflows/ci.yml'), 'utf8');
+  const images = [...workflow.matchAll(/^\s+image: (.+)$/gm)].map(match => match[1].trim());
+  assert.equal(images.length, 4);
+  for (const image of images) assert.match(image, /^[A-Za-z0-9._/:+-]+@sha256:[a-f0-9]{64}$/);
+  const clickhouse = images.filter(image => image.startsWith('clickhouse/clickhouse-server:'));
+  assert.equal(clickhouse.length, 1);
+  const compose = readFileSync(path.join(root, 'docker-compose.test.yml'), 'utf8');
+  assert.ok(compose.split('\n').some(line => line.trim() === `image: ${clickhouse[0]}`));
+});
+
 test('the API image shares the current verified Node and independent tool graphs', () => {
   const fixture = readFileSync(path.join(root, 'tests/api/docker/Dockerfile'), 'utf8');
   const builder = readFileSync(path.join(root, 'deploy/mac-build/Dockerfile'), 'utf8');
@@ -198,8 +210,94 @@ test('the API build context excludes private state and existing installations', 
 test('kept-stack commands preserve genuine fixture ownership and prohibit an implicit rebuild', () => {
   const launcher = readFileSync(path.join(root, 'scripts/test-api.ts'), 'utf8');
   assert.match(launcher, /upArgs\.push\('--no-build'\)/);
-  assert.match(launcher, /same fixture environment: pnpm test:api --no-build --keep/);
+  assert.match(launcher, /same fixture environment: \$\{suite\.reuseCommand\}/);
+  assert.equal(getApiTestSuite([], {}).reuseCommand, 'pnpm test:api --no-build --keep');
+  assert.equal(
+    getApiTestSuite(['--e2e'], {}).reuseCommand,
+    'pnpm test:e2e:docker --no-build --keep',
+  );
   assert.doesNotMatch(launcher, /Run tests with: PLAYWRIGHT_BASE_URL=/);
+});
+
+for (const [args, e2e] of [
+  [[], false],
+  [['--e2e'], true],
+  [['--e2e', '--', '--list'], true],
+  [['--', '--e2e'], false],
+  [['--grep', '--e2e'], false],
+  [['--grep', 'logout', '--e2e'], true],
+]) {
+  test(`suite selection preserves option boundaries for ${JSON.stringify(args)}`, () => {
+    const suite = getApiTestSuite(args, {});
+    assert.equal(suite.e2e, e2e);
+    assert.equal(suite.projectName, e2e ? 'umami-e2e-test' : 'umami-api-test');
+    assert.equal(suite.port, e2e ? '3200' : '3100');
+    assert.equal(suite.downCommand, e2e ? 'pnpm test:e2e:docker --down' : 'pnpm test:api:down');
+  });
+}
+
+test('explicit stack identity is retained for both test suites', () => {
+  for (const args of [[], ['--e2e']]) {
+    const suite = getApiTestSuite(args, {
+      COMPOSE_PROJECT_NAME: 'owned-fixture',
+      UMAMI_TEST_PORT: '43100',
+    });
+    assert.equal(suite.projectName, 'owned-fixture');
+    assert.equal(suite.port, '43100');
+  }
+});
+
+test('synthetic browser credentials are supplied only to a local disposable stack', () => {
+  const administrator = JSON.parse(
+    readFileSync(path.join(root, 'tests/api/docker/fixture-admin.json'), 'utf8'),
+  );
+  assert.deepEqual(getApiTestSuite(['--e2e'], {}).browserCredentials, {
+    UMAMI_USER: administrator.username,
+    UMAMI_PASSWORD: administrator.password,
+  });
+  assert.deepEqual(getApiTestSuite([], {}).browserCredentials, {});
+  assert.deepEqual(
+    getApiTestSuite(['--e2e'], { PLAYWRIGHT_BASE_URL: 'http://127.0.0.1:43210' })
+      .browserCredentials,
+    {},
+  );
+  assert.deepEqual(
+    getApiTestSuite(['--e2e'], { PLAYWRIGHT_BASE_URL: 'https://test.example.invalid' })
+      .browserCredentials,
+    {},
+  );
+  const launcher = readFileSync(path.join(root, 'scripts/test-api.ts'), 'utf8');
+  assert.match(launcher, /options\.e2e\s*\? suite\.browserCredentials/);
+});
+
+test('browser setup verifies a provisioned administrator without default-password mutation', () => {
+  const setup = readFileSync(path.join(root, 'tests/e2e/admin.setup.ts'), 'utf8');
+  assert.match(setup, /verify the provisioned test administrator/);
+  assert.match(setup, /passwordChangeRequired: false/);
+  assert.doesNotMatch(setup, /DEFAULT_ADMIN_PASSWORD|\/api\/me\/password/);
+});
+
+test('browser logout retains the explicit menu action and separate confirmed-page coverage', () => {
+  const helper = readFileSync(path.join(root, 'tests/e2e/helpers.ts'), 'utf8');
+  const profile = helper.indexOf("getByRole('button', { name: /^Profile$/i }).click()");
+  const menu = helper.indexOf("getByRole('menuitem', { name: /^Logout$/i }).click()");
+  const loginRoute = helper.indexOf('toHaveURL(/\\/login$/');
+  assert.ok(profile > 0 && menu > profile && loginRoute > menu);
+  const confirmedPage = readFileSync(path.join(root, 'tests/e2e/logout.spec.ts'), 'utf8');
+  assert.match(confirmedPage, /page\.goto\('\/logout'\)/);
+  assert.match(
+    confirmedPage,
+    /getByRole\('main'\)\s*\.getByRole\('button', \{ name: \/\^Logout\$\/i \}\)\s*\.click\(\)/,
+  );
+  assert.match(confirmedPage, /status\(\)\)\.toBe\(200\)/);
+  assert.match(confirmedPage, /status\(\)\)\.toBe\(401\)/);
+});
+
+test('parallel browser user fixtures retain separate identities and supported passwords', async () => {
+  const { users } = await import('../tests/e2e/fixtures.ts');
+  assert.notEqual(users.teamUserCreate.username, users.userCreate.username);
+  for (const user of [users.teamUserCreate, users.userCreate])
+    assert.ok(user.password.length >= 12);
 });
 
 test('fixture startup and API clients share a provisioned, nondefault synthetic administrator', () => {

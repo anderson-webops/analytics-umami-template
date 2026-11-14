@@ -32,6 +32,10 @@ export interface Auth {
   passwordFingerprint?: string;
   mfaVerified?: boolean;
   mfaId?: string;
+  /** Session issued while 2FA was required but not yet set up; limited to the setup routes. */
+  twoFactorSetupPending?: boolean;
+  /** Session belongs to the seeded administrator; the app prompts for a new password. */
+  passwordChangeRequired?: boolean;
   shareToken?: {
     shareId?: string;
     shareType?: number;
@@ -247,6 +251,7 @@ export interface WebsiteSession {
   country: string;
   region: string;
   city: string;
+  referrerDomain: string;
   firstAt: Date | string;
   lastAt: Date | string;
   visits: number;

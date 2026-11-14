@@ -2,11 +2,11 @@
   "name": "umami",
   "version": "4.2.188",
   "private": true,
-  "description": "A modern, privacy-focused alternative to Google Analytics.",
+  "description": "An open-source web and product analytics platform.",
   "author": "Umami Software, Inc. <hello@umami.is>",
   "packageManager": "pnpm@12.18.0",
   "engines": {
-    "node": ">=26.13.0 <27",
+    "node": ">=26.13.1 <27",
     "npm": ">=12.2.2 <13",
     "pnpm": ">=12.18.0 <13"
   },
@@ -32,7 +32,7 @@
     "build:components": "node scripts/bump-components.js && tsup",
     "build:tracker": "npm-run-all check:tracker build:tracker:script build:tracker:types",
     "build:tracker:script": "rollup -c rollup.tracker.config.js",
-    "build:tracker:types": "node scripts/typecheck.mjs -p tsconfig.tracker.types.json && biome format --write src/tracker/index.d.ts",
+    "build:tracker:types": "node scripts/typecheck.mjs -p tsconfig.tracker.types.json && biome check --write src/tracker/index.d.ts src/tracker/errors.d.ts src/tracker/error-utils.d.ts",
     "check:tracker": "node scripts/typecheck.mjs -p tsconfig.tracker.json --noEmit",
     "build:recorder": "rollup -c rollup.recorder.config.js",
     "build:prisma:client": "node scripts/build-prisma-client.js",
@@ -120,7 +120,7 @@
     "audit:toolchain": "node scripts/build-toolchain.mjs -- node scripts/audit-build-toolchain.mjs",
     "check:build-toolchain": "node scripts/build-toolchain.mjs -- node scripts/check-build-toolchain.mjs",
     "check:toolchain-package": "node scripts/build-toolchain.mjs -- node scripts/check-toolchain-package.mjs",
-    "test:build-toolchain": "node scripts/build-toolchain.mjs -- node --test scripts/test-build-toolchain.mjs scripts/test-build-toolchain-cache.mjs && python3 -B -m unittest discover -s scripts -p test_build_toolchain.py",
+    "test:build-toolchain": "node scripts/build-toolchain.mjs -- node --test scripts/test-build-toolchain.mjs scripts/test-build-toolchain-cache.mjs scripts/test-npm-tool-majors.mjs && node scripts/build-toolchain.mjs -- node scripts/package-npm-compat.mjs --check && python3 -B -m unittest discover -s scripts -p test_build_toolchain.py",
     "test:api-harness": "node --test scripts/test-api-harness.mjs",
     "prevalidate": "npm-run-all build:db build:packages",
     "validate": "npm-run-all check:toolchain-package test:build-toolchain test:api-harness check:migration-history test:migration-history test:database-host-policy test:collection-key-config test:service-identity test:legacy-clickhouse-inventory test:packaging test:typescript-entrypoints test:component-dependencies test:development-launcher test:collect-build-config test:geo test:name-data test:braces test:build-tool-vendors test:selector-parser test:source-map check:native-bindings check:peers format:check typecheck test:unit",
@@ -136,7 +136,10 @@
     "test:source-map": "node --test scripts/test-source-map-js-compat.mjs",
     "test:typescript-entrypoints": "node --test scripts/test-typescript-entrypoints.mjs scripts/test-typecheck.mjs",
     "test:component-dependencies": "node --test scripts/test-component-dependencies.mjs scripts/test-zen-icons.mjs scripts/test-zen-motion.mjs",
-    "test:development-launcher": "node --test scripts/test-development-launcher.mjs"
+    "test:development-launcher": "node --test scripts/test-development-launcher.mjs",
+    "test:e2e:docker": "node --import tsx scripts/test-api.ts --e2e",
+    "test:e2e:docker:clickhouse": "node --import tsx scripts/test-api.ts --e2e --clickhouse",
+    "lint:i18n": "eloqnt lint"
   },
   "cacheDirectories": [
     ".next/cache"
@@ -175,11 +178,11 @@
     "jszip": "^3.10.2",
     "kafkajs": "^2.2.4",
     "lightningcss": "1.33.0",
-    "lucide-react": "^1.70.0",
+    "lucide-react": "1.72.0",
     "maxmind": "^5.0.8",
-    "motion": "^14.9.1",
-    "next": "16.4.5",
-    "next-intl": "4.14.9",
+    "motion": "^14.14.0",
+    "next": "16.4.6",
+    "next-intl": "4.15.1",
     "npm-run-all2": "^9.0.4",
     "otplib": "^13.6.0",
     "papaparse": "^5.7.0",
@@ -198,14 +201,15 @@
     "redis": "^6.3.1",
     "request-ip": "^3.3.0",
     "rrweb": "^2.2.0",
-    "rrweb-player": "2.2.0",
+    "rrweb-player": "2.2.2",
     "semver": "^7.8.6",
     "server-only": "0.0.1",
     "thenby": "^1.4.1",
     "ua-parser-js": "^2.0.10",
     "uuid": "^14.0.3",
     "zod": "^4.6.7",
-    "zustand": "^5.0.16"
+    "zustand": "^5.0.16",
+    "flags": "^4.4.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.5",
@@ -245,13 +249,15 @@
     "rollup-plugin-dts": "^6.5.1",
     "rollup-plugin-node-externals": "^9.0.1",
     "rollup-plugin-peer-deps-external": "^2.2.4",
-    "tar": "7.5.22",
+    "tar": "7.5.23",
     "ts-node": "^10.9.2",
     "tsup": "^9.0.0",
     "tsx": "^4.23.15",
     "typescript": "6.0.3",
     "typescript-native": "npm:typescript@7.0.2",
     "vitest": "~5.1.0",
-    "zod-openapi": "^6.0.2"
+    "zod-openapi": "^6.0.2",
+    "@eloqnt/cli": "^0.7.1",
+    "vite": "^8.3.8"
   }
 }

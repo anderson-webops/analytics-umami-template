@@ -1,12 +1,12 @@
 import { createClient } from '@clickhouse/client';
 import { expect, test } from 'vitest';
-import { getSessionData } from './getSessionData';
 
 const integrationTest = process.env.CLICKHOUSE_TEST_URL ? test : test.skip;
 
 integrationTest(
   'limited session-property reads stop replacement-version fan-out without restricting owner reads',
   async () => {
+    const { getSessionData } = await import('./getSessionData');
     const url = new URL(process.env.CLICKHOUSE_TEST_URL ?? '');
     expect(url.hostname).toBe('127.0.0.1');
     expect(url.pathname).toBe('/umami_event_series_test');

@@ -207,5 +207,6 @@ export async function getSavedReplays(websiteId: string, filters: QueryFilters) 
       orderBy: { createdAt: 'desc' },
     },
     filters,
+    { usePrimary: true },
   );
 }

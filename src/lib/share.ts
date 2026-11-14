@@ -61,6 +61,10 @@ export function getValueShareSections(type: string, allowFilter: boolean): Share
     return null;
   }
 
+  if (type === 'distinctId') {
+    return allowFilter ? ['sessions'] : null;
+  }
+
   if (type === 'path' || type === 'event') {
     const selectorSections: ShareSection[] = ['journeys', 'attribution'];
     return allowFilter ? [...metricSections, ...selectorSections] : selectorSections;

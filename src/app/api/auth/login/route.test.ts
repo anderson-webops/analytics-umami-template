@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   parseRequest: vi.fn(),
   getUserByUsername: vi.fn(),
   checkPassword: vi.fn(),
+  hasDefaultPassword: vi.fn(),
+  addTeamBillingStatus: vi.fn(),
   findTwoFactorAuth: vi.fn(),
   createSecureToken: vi.fn(),
   secret: vi.fn(),
@@ -32,6 +34,10 @@ const mocks = vi.hoisted(() => ({
   consumeLoginRecoveryCode: vi.fn(),
 }));
 
+vi.mock('@/lib/load', () => ({
+  addTeamBillingStatus: mocks.addTeamBillingStatus,
+}));
+
 vi.mock('@/lib/request', () => ({
   parseRequest: mocks.parseRequest,
 }));
@@ -43,6 +49,7 @@ vi.mock('@/queries/prisma', () => ({
 
 vi.mock('@/lib/password', () => ({
   checkPassword: mocks.checkPassword,
+  hasDefaultPassword: mocks.hasDefaultPassword,
   hashPassword: mocks.hashPassword,
   isAcceptableLoginPassword: () => true,
   isStrongPassword: () => true,
@@ -124,8 +131,11 @@ beforeEach(() => {
   redis.enabled = false;
   delete (prisma.client as any).$primary;
   mocks.parseRequest.mockReset();
+  mocks.addTeamBillingStatus.mockReset().mockImplementation(async teams => teams);
   mocks.getUserByUsername.mockReset();
   mocks.checkPassword.mockReset();
+  mocks.hasDefaultPassword.mockReset();
+  mocks.hasDefaultPassword.mockReturnValue(false);
   mocks.findTwoFactorAuth.mockReset();
   mocks.createSecureToken.mockReset();
   mocks.secret.mockReset();
@@ -1042,4 +1052,75 @@ test('POST returns a configuration error instead of partial auth when 2FA is ena
     },
   });
   expect(response.status).toBe(503);
+});
+
+test('POST limits the session to 2FA setup when 2FA is required but not set up', async () => {
+  mocks.findTwoFactorAuth.mockResolvedValue(null);
+  mocks.secret.mockReturnValue('app-secret');
+  mocks.getTwoFactorRequirement.mockResolvedValue({ reason: 'team', globalRequired: false });
+
+  const response = await POST(loginRequest());
+
+  expect(mocks.getTwoFactorRequirement).toHaveBeenCalledWith('user-1');
+  expect(mocks.createSecureToken).toHaveBeenCalledWith(
+    expect.objectContaining({
+      userId: 'user-1',
+      role: 'admin',
+      pwd: 'password-fingerprint',
+      type: 'enrollment-auth',
+    }),
+    'app-secret',
+    { expiresIn: 900 },
+  );
+  expect(mocks.getAllUserTeams).not.toHaveBeenCalled();
+  expect(response.status).toBe(200);
+});
+
+test('POST issues a bounded full session when 2FA is not required', async () => {
+  mocks.findTwoFactorAuth.mockResolvedValue(null);
+  mocks.secret.mockReturnValue('app-secret');
+  const response = await POST(loginRequest());
+
+  expect(mocks.createSecureToken).toHaveBeenCalledWith(
+    expect.objectContaining({ userId: 'user-1', role: 'admin', pwd: 'password-fingerprint' }),
+    'app-secret',
+    { expiresIn: 28_800 },
+  );
+  expect(response.status).toBe(200);
+});
+
+test('POST tells a pre-existing seeded-password account to change its password', async () => {
+  mocks.findTwoFactorAuth.mockResolvedValue(null);
+  mocks.hasDefaultPassword.mockReturnValue(true);
+
+  const response = await POST(loginRequest());
+
+  expect(mocks.hasDefaultPassword).toHaveBeenCalledWith(
+    expect.objectContaining({ id: 'user-1', password: 'hashed-password' }),
+  );
+  await expect(response.json()).resolves.toMatchObject({
+    user: { passwordChangeRequired: true },
+  });
+});
+
+test('POST does not flag users whose password has been changed', async () => {
+  mocks.findTwoFactorAuth.mockResolvedValue(null);
+  const response = await POST(loginRequest());
+
+  await expect(response.json()).resolves.toMatchObject({
+    user: { passwordChangeRequired: false },
+  });
+});
+
+test('POST preserves required 2FA when its encryption key is unavailable', async () => {
+  mocks.findTwoFactorAuth.mockResolvedValue(null);
+  mocks.isTwoFactorConfigured.mockReturnValue(false);
+  mocks.getTwoFactorRequirement.mockResolvedValue({ reason: 'global', globalRequired: true });
+
+  const response = await POST(loginRequest());
+
+  expect(response.status).toBe(503);
+  expect(mocks.createSecureToken).not.toHaveBeenCalled();
+  expect(mocks.saveAuth).not.toHaveBeenCalled();
+  expect(mocks.getAllUserTeams).not.toHaveBeenCalled();
 });

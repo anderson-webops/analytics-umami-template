@@ -268,13 +268,17 @@ test.describe('Account', () => {
       expect(response.body).toMatchObject({ id: userId, username, role: 'user' });
       expect(response.body).not.toHaveProperty('password');
 
-      // Tokens are bound to the password hash, so the old session is rejected.
+      // Tokens are bound to the password hash, so the old session is rejected while the caller
+      // stays signed in with the session issued for the new password.
       const stale = await api.bearer(token).get('/api/me');
+      const issued = await api.bearer(response.body.token).get('/api/me');
       const oldLogin = await api.post('/api/auth/login', { username, password });
       const newToken = await login(api, { username, password: newPassword });
       const fresh = await api.bearer(newToken).get('/api/me');
 
       expect(stale.status).toBe(401);
+      expect(issued.status).toBe(200);
+      expect(issued.body.user.id).toBe(userId);
       expect(oldLogin.status).toBe(401);
       expect(fresh.status).toBe(200);
       expect(fresh.body.user.id).toBe(userId);

@@ -1,5 +1,5 @@
 import { beforeEach, expect, test, vi } from 'vitest';
-import { reserveTwoFactorAttempt, resetRateLimit } from './rate-limit';
+import { reserveAttempt, reserveTwoFactorAttempt, resetRateLimit } from './rate-limit';
 
 const mocks = vi.hoisted(() => ({
   queryRaw: vi.fn(),
@@ -67,4 +67,15 @@ test('clears successful authentication state on the primary', async () => {
   expect(mocks.deleteMany).toHaveBeenCalledWith({
     where: { userId: '00000000-0000-4000-8000-000000000001' },
   });
+});
+
+test('upstream reservation entrypoint retains the atomic primary implementation', () => {
+  expect(reserveAttempt).toBe(reserveTwoFactorAttempt);
+});
+
+test('propagates primary admission failures without checking an uncounted code', async () => {
+  mocks.queryRaw.mockRejectedValue(new Error('Synthetic unavailable primary'));
+  await expect(reserveAttempt('00000000-0000-4000-8000-000000000001')).rejects.toThrow(
+    'Synthetic unavailable primary',
+  );
 });

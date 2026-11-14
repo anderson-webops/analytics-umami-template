@@ -16,6 +16,9 @@ const mocks = vi.hoisted(() => {
     appSetting: {
       deleteMany: vi.fn(),
     },
+    twoFactorRateLimit: {
+      deleteMany: vi.fn(),
+    },
   };
 
   return {
@@ -28,7 +31,6 @@ const mocks = vi.hoisted(() => {
     decryptSecret: vi.fn(),
     isTwoFactorConfigured: vi.fn(),
     reserveTwoFactorAttempt: vi.fn(),
-    resetRateLimit: vi.fn(),
     consumeOtp: vi.fn(),
     verifyTotp: vi.fn(),
     getUser: vi.fn(),
@@ -114,7 +116,6 @@ vi.mock('@/lib/two-factor/crypto', () => ({
 
 vi.mock('@/lib/two-factor/rate-limit', () => ({
   reserveTwoFactorAttempt: mocks.reserveTwoFactorAttempt,
-  resetRateLimit: mocks.resetRateLimit,
 }));
 
 vi.mock('@/lib/two-factor/replay-prevention', () => ({
@@ -136,11 +137,11 @@ beforeEach(() => {
   mocks.tx.twoFactorBackupCode.createMany.mockReset();
   mocks.tx.apiKey.deleteMany.mockReset();
   mocks.tx.appSetting.deleteMany.mockReset();
+  mocks.tx.twoFactorRateLimit.deleteMany.mockReset().mockResolvedValue({ count: 1 });
   mocks.generateBackupCodes.mockReset();
   mocks.decryptSecret.mockReset();
   mocks.isTwoFactorConfigured.mockReset();
   mocks.reserveTwoFactorAttempt.mockReset();
-  mocks.resetRateLimit.mockReset();
   mocks.consumeOtp.mockReset();
   mocks.verifyTotp.mockReset();
   mocks.getUser.mockReset();
@@ -175,7 +176,6 @@ beforeEach(() => {
   mocks.decryptSecret.mockReturnValue('plain-secret');
   mocks.isTwoFactorConfigured.mockReturnValue(true);
   mocks.reserveTwoFactorAttempt.mockResolvedValue({ allowed: true });
-  mocks.resetRateLimit.mockResolvedValue(undefined);
   mocks.consumeOtp.mockResolvedValue(true);
   mocks.verifyTotp.mockResolvedValue(true);
   mocks.tx.$queryRaw
@@ -367,11 +367,17 @@ test('POST confirms setup, enables 2FA, stores backup codes, and resets the rate
     ],
   });
   expect(mocks.consumeOtp).toHaveBeenCalledWith('user-1', '123456', mocks.tx);
+  expect(mocks.consumeOtp).toHaveBeenCalledTimes(1);
+  expect(mocks.consumeOtp.mock.invocationCallOrder[0]).toBeGreaterThan(
+    mocks.runActiveSessionMutation.mock.invocationCallOrder[0],
+  );
   expect(mocks.tx.apiKey.deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-1' } });
   expect(mocks.tx.appSetting.deleteMany).toHaveBeenCalledWith({
     where: { key: 'password-verification:user-1' },
   });
-  expect(mocks.resetRateLimit).toHaveBeenCalledWith('user-1');
+  expect(mocks.tx.twoFactorRateLimit.deleteMany).toHaveBeenCalledWith({
+    where: { userId: 'user-1' },
+  });
   expect(mocks.createSecureToken).toHaveBeenCalledWith(
     {
       userId: 'user-1',
@@ -454,7 +460,7 @@ test('current enrollment releases its username-scoped admission key', async () =
   );
 });
 
-test('failed cleanup cannot strand a consumed enrollment code', async () => {
+test('failed account-attempt cleanup cannot strand a consumed enrollment code', async () => {
   mocks.parseRequest.mockResolvedValue({
     auth: {
       authType: 'session',
@@ -493,6 +499,30 @@ test('POST cannot issue a post-reset session from a pre-reset confirmation reque
   expect(response.status).toBe(401);
   expect(mocks.createSecureToken).not.toHaveBeenCalled();
   expect(mocks.clearFailedLogins).not.toHaveBeenCalled();
+});
+
+test('failed factor-attempt cleanup stays inside the mutation before any session is issued', async () => {
+  mocks.tx.twoFactorRateLimit.deleteMany.mockRejectedValueOnce(new Error('database unavailable'));
+
+  await expect(
+    POST(new Request('http://localhost/api/2fa/setup/confirm', { method: 'POST' })),
+  ).rejects.toThrow('database unavailable');
+
+  expect(mocks.runActiveSessionMutation).toHaveBeenCalledOnce();
+  expect(mocks.tx.twoFactorRateLimit.deleteMany).toHaveBeenCalledOnce();
+  expect(mocks.createSecureToken).not.toHaveBeenCalled();
+});
+
+test('failed per-client login cleanup preserves the successful enrollment response and codes', async () => {
+  mocks.clearFailedLogins.mockRejectedValueOnce(new Error('cleanup unavailable'));
+
+  const response = await POST(
+    new Request('http://localhost/api/2fa/setup/confirm', { method: 'POST' }),
+  );
+
+  expect(response.status).toBe(200);
+  expect(response.headers.get('set-cookie')).toContain('verified-session-token');
+  await expect(response.json()).resolves.toEqual({ backupCodes: ['code-1', 'code-2'] });
 });
 
 test('POST rejects a stale session before enabling a factor or revoking keys', async () => {
@@ -572,7 +602,7 @@ test('POST leaves setup pending when another request consumes the TOTP first', a
   });
   expect(mocks.tx.$queryRaw).toHaveBeenCalledTimes(2);
   expect(mocks.tx.appSetting.deleteMany).not.toHaveBeenCalled();
-  expect(mocks.resetRateLimit).not.toHaveBeenCalled();
+  expect(mocks.tx.twoFactorRateLimit.deleteMany).not.toHaveBeenCalled();
 });
 
 test('POST rejects a replaced or completed setup before consuming an OTP or issuing a session', async () => {
@@ -618,7 +648,7 @@ test('POST reserves an attempt and skips writes when the token is invalid', asyn
 
   expect(mocks.reserveTwoFactorAttempt).toHaveBeenCalledWith('user-1');
   expect(mocks.transaction).not.toHaveBeenCalled();
-  expect(mocks.resetRateLimit).not.toHaveBeenCalled();
+  expect(mocks.tx.twoFactorRateLimit.deleteMany).not.toHaveBeenCalled();
   await expect(response.json()).resolves.toMatchObject({
     error: {
       code: 'two-factor-error-invalid-code',

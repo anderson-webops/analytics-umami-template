@@ -111,7 +111,7 @@ test('the version-bound Zen dependency resolves the same modern Lucide as the ap
   const parent = JSON.parse(await fs.readFile(path.join(parentRoot, 'package.json'), 'utf8'));
   assert.equal(parent.version, '0.255.0');
   assert.equal(parent.dependencies['lucide-react'], '^0.555.0');
-  assert.equal(parentRequire('lucide-react/package.json').version, '1.70.0');
+  assert.equal(parentRequire('lucide-react/package.json').version, '1.72.0');
   assert.equal(parentRequire.resolve('lucide-react'), require.resolve('lucide-react'));
 });
 

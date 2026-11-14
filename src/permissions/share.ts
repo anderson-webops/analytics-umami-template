@@ -6,6 +6,8 @@ import { canDeleteLink, canUpdateLink, canViewLink } from './link';
 import { canDeletePixel, canUpdatePixel, canViewPixel } from './pixel';
 import { canDeleteWebsite, canUpdateWebsite, canViewWebsite } from './website';
 
+export type { ShareSection } from '@/lib/share';
+
 type ShareSectionInput = ShareSection | ShareSection[];
 type SharePermission = (auth: Auth, entityId: string) => Promise<boolean>;
 
@@ -113,7 +115,13 @@ export async function canViewWebsiteSection(
     return false;
   }
 
-  return canViewShareSection(shareToken.parameters, section);
+  const sections = Array.isArray(section) ? section : [section];
+  const allowedSections =
+    shareToken.shareType === ENTITY_TYPE.board
+      ? sections.filter(value => value !== 'sessions')
+      : sections;
+
+  return allowedSections.length > 0 && canViewShareSection(shareToken.parameters, allowedSections);
 }
 
 export async function canViewSharedWebsite(auth: Auth | null | undefined, websiteId: string) {
@@ -182,4 +190,20 @@ export async function canViewWebsiteAnnotations(auth: Auth | null | undefined, w
     (await canViewSharedWebsiteFilters(shareAuth, websiteId)) &&
     (await canViewWebsiteSection(shareAuth, websiteId, ['overview', 'compare']))
   );
+}
+
+export async function canViewWebsiteSectionRows(
+  auth: Auth | null | undefined,
+  websiteId: string,
+  section: ShareSectionInput,
+) {
+  if (await canViewWebsiteAsUser(auth, websiteId)) {
+    return true;
+  }
+
+  if (auth?.shareToken?.shareType !== ENTITY_TYPE.website) {
+    return false;
+  }
+
+  return canViewWebsiteSection({ shareToken: auth.shareToken }, websiteId, section);
 }

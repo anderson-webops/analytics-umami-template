@@ -1,4 +1,4 @@
-FROM node@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9 AS node-toolchain
+FROM node@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS node-toolchain
 
 FROM postgres@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826
 
@@ -27,7 +27,7 @@ RUN --mount=type=cache,id=anderson-analytics-arm64-toolchain-npm12,target=/root/
     && npm ci --prefix /opt/analytics-builder-profile/deploy/mac-build/pnpm-toolchain --workspaces=false --strict-allow-scripts --no-fund --no-audit \
     && ln -sfn /opt/analytics-builder-profile/deploy/mac-build/pnpm-toolchain/node_modules/pnpm/pnpm /usr/local/bin/pnpm \
     && ln -sfn /opt/analytics-builder-profile/deploy/mac-build/pnpm-toolchain/node_modules/pnpm/pnpx /usr/local/bin/pnpx \
-    && test "$(node --version)" = 'v26.13.0' \
+    && test "$(node --version)" = 'v26.13.1' \
     && test "$(npm --version)" = '12.2.2' \
     && test "$(pnpm --version)" = '12.18.0' \
     && node /opt/analytics-builder-profile/deploy/mac-build/verify-toolchain.mjs \

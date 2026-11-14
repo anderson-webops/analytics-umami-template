@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { Prisma, PrismaClient, Website } from '@/generated/prisma/client';
+import { BOARD_TYPES } from '@/lib/boards';
 import { ENTITY_TYPE, PERMISSIONS, ROLES, TEAM_ROLE_RANK } from '@/lib/constants';
 import { isEnvEnabled } from '@/lib/env';
 import prisma, { getSchema } from '@/lib/prisma';
@@ -44,6 +45,18 @@ async function deleteWebsiteDependentData(tx: any, websiteId: string) {
   });
 
   await tx.attestedRevenueMovement.deleteMany({
+    where: { websiteId },
+  });
+
+  await tx.errorEvent.deleteMany({
+    where: { websiteId },
+  });
+
+  await tx.errorIssue.deleteMany({
+    where: { websiteId },
+  });
+
+  await tx.errorRateLimit.deleteMany({
     where: { websiteId },
   });
 
@@ -147,7 +160,6 @@ export async function getAllUserWebsitesIncludingTeamAccess(
               deletedAt: null,
               members: {
                 some: {
-                  role: { in: [ROLES.teamOwner, ROLES.teamManager] },
                   userId,
                 },
               },
@@ -350,7 +362,6 @@ export async function updateWebsite(
 
     return { website, share };
   });
-
   if (redis.enabled) {
     await redis.client.del(`website:${websiteId}`);
   }
@@ -486,6 +497,27 @@ export async function transferWebsiteByActor(
           shareType: ENTITY_TYPE.website,
         },
       });
+    }
+
+    if (ownershipChanged && (currentWebsite.userId || currentWebsite.teamId)) {
+      const where: Prisma.BoardWhereInput = {
+        type: BOARD_TYPES.website,
+        parameters: { path: ['websiteId'], equals: websiteId },
+        ...(currentWebsite.teamId
+          ? { teamId: currentWebsite.teamId }
+          : { userId: currentWebsite.userId, teamId: null }),
+      };
+      const boards = await transaction.board.findMany({ where, select: { id: true } });
+      const boardIds = boards.map(board => board.id);
+      if (boardIds.length) {
+        await transaction.share.deleteMany({
+          where: { entityId: { in: boardIds }, shareType: ENTITY_TYPE.board },
+        });
+        await transaction.board.updateMany({
+          where: { ...where, id: { in: boardIds } },
+          data: nextOwnership,
+        });
+      }
     }
 
     return transaction.website.update({

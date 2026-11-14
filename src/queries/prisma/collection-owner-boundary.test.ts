@@ -61,3 +61,41 @@ test.each(['link', 'pixel'] as const)(
     expect(write).toHaveBeenCalledOnce();
   },
 );
+
+test.each(['owner', 'generation', 'deleted'] as const)(
+  'error collection rejects a changed %s before any persistence callback',
+  async transition => {
+    const source = { id: sourceId, userId: firstOwnerId, teamId: null, collectionGeneration: 0 };
+    let active = true;
+    const transaction = {
+      $queryRaw: vi.fn(async () => []),
+      website: { findFirst: vi.fn(async () => (active ? source : null)) },
+    };
+    transactionMock.mockImplementation(async operation => operation(transaction));
+    reserveBudgetMock.mockClear();
+    reserveSourceLimitMock.mockClear();
+    const payload = { id: undefined, stack: 'synthetic', tags: {} };
+    const body = { type: 'error' as const, payload };
+    const admission = await reserveActiveCollectionBudget('website', sourceId, body, '192.0.2.10');
+    expect(reserveBudgetMock).toHaveBeenCalledWith(
+      transaction,
+      expect.objectContaining({ accountId: firstOwnerId }),
+      {
+        bytes: Buffer.byteLength(JSON.stringify(body), 'utf8') + 3 * 512,
+        rows: 3,
+        requests: 1,
+      },
+      'anonymous',
+    );
+    if (transition === 'owner') source.userId = secondOwnerId;
+    if (transition === 'generation') source.collectionGeneration++;
+    if (transition === 'deleted') active = false;
+    const write = vi.fn(async () => 'written');
+    await expect(
+      withActiveCollectionSource('website', sourceId, write, undefined, admission),
+    ).rejects.toThrow(
+      transition === 'deleted' ? 'COLLECTION_SOURCE_NOT_FOUND' : 'COLLECTION_SOURCE_CHANGED',
+    );
+    expect(write).not.toHaveBeenCalled();
+  },
+);

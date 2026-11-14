@@ -268,8 +268,9 @@ const operation3 = defineOperation({
             type: 'object',
             properties: {
               name: {
-                minimum: 1,
-                maximum: 100,
+                type: 'string',
+                minLength: 1,
+                maxLength: 100,
                 description: 'Display name of the resource.',
               },
               url: {

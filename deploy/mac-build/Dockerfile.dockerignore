@@ -6,8 +6,16 @@ build-toolchain/**
 !build-toolchain/package-lock.json
 !build-toolchain/UPSTREAM.json
 !build-toolchain/PAYLOAD.json
+!build-toolchain/compat/
+build-toolchain/compat/**
+!build-toolchain/compat/.npmrc
+!build-toolchain/compat/package.json
+!build-toolchain/compat/package-lock.json
 !build-toolchain/vendor/
 build-toolchain/vendor/**
+!build-toolchain/vendor/env-paths-4.0.0-webops.1.tgz
+!build-toolchain/vendor/minipass-flush-2.0.1-webops.1.tgz
+!build-toolchain/vendor/minipass-pipeline-3.0.1-webops.1.tgz
 !build-toolchain/vendor/npm-12.2.2-webops.1.tgz
 !scripts/
 scripts/**

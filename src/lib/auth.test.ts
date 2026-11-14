@@ -9,8 +9,8 @@ import { hash } from '@/lib/crypto';
 import { createSecureToken, parseSecureToken, parseToken } from '@/lib/jwt';
 import redis from '@/lib/redis';
 import { resolveShareAccess } from '@/lib/share-access';
-import { getShare } from '@/queries/prisma';
 import { getApiKeyByHash, updateApiKeyLastUsed } from '@/queries/prisma/apiKey';
+import { getShare } from '@/queries/prisma/share';
 import { getUser } from '@/queries/prisma/user';
 import { hashApiKey } from './api-key';
 import { checkAuth, parseShareToken, saveAuth } from './auth';
@@ -46,12 +46,26 @@ vi.mock('@/queries/prisma/user', () => ({
   getUser: vi.fn(),
 }));
 
+vi.mock('@/queries/prisma/share', () => ({
+  getShare: vi.fn(),
+}));
+
 vi.mock('@/queries/prisma', () => ({
   getShare: vi.fn(),
 }));
 
 vi.mock('@/lib/share-access', () => ({
   resolveShareAccess: vi.fn(),
+}));
+
+vi.mock('@/lib/load', () => ({
+  fetchAccount: vi.fn(),
+  fetchWebsite: vi.fn(),
+}));
+
+vi.mock('@/permissions', () => ({
+  canViewWebsite: vi.fn(),
+  canViewWebsiteSection: vi.fn(),
 }));
 
 vi.mock('@/queries/prisma/apiKey', () => ({
@@ -65,6 +79,7 @@ vi.mock('@/lib/redis', () => ({
     client: {
       get: vi.fn(),
       set: vi.fn(),
+      expire: vi.fn().mockResolvedValue(true),
     },
   },
 }));
@@ -78,6 +93,7 @@ const redisMock = redis as unknown as {
   client: {
     get: ReturnType<typeof vi.fn>;
     set: ReturnType<typeof vi.fn>;
+    expire: ReturnType<typeof vi.fn>;
   };
 };
 
@@ -103,7 +119,7 @@ function cookieRequest(options: { method?: string; origin?: string } = {}) {
   });
 }
 
-function mockUser() {
+function mockUser(overrides: Record<string, unknown> = {}) {
   getUserMock.mockImplementation(
     async () =>
       ({
@@ -113,6 +129,7 @@ function mockUser() {
         password: PASSWORD_HASH,
         sessionGeneration: 0,
         twoFactorRequired: false,
+        ...overrides,
       }) as any,
   );
 }
@@ -122,12 +139,16 @@ beforeEach(() => {
   vi.stubEnv('CLOUD_MODE', '');
   vi.stubEnv('TWO_FACTOR_ENCRYPTION_KEY', '');
   parseSecureTokenMock.mockReset();
+  vi.mocked(parseToken).mockReset().mockReturnValue(null);
+  vi.mocked(getShare).mockReset();
+  vi.mocked(resolveShareAccess).mockReset();
   getUserMock.mockReset();
   getApiKeyByHashMock.mockReset();
   updateApiKeyLastUsedMock.mockClear();
   redisMock.enabled = false;
   redisMock.client.get.mockReset();
   redisMock.client.set.mockReset();
+  redisMock.client.expire.mockReset().mockResolvedValue(true);
   vi.mocked(createSecureToken).mockReset();
   twoFactorMocks.findTwoFactorAuth.mockReset().mockResolvedValue(null);
   twoFactorMocks.findGlobalSetting.mockReset().mockResolvedValue(null);
@@ -154,8 +175,13 @@ test('a token for a rotated share ID cannot access the current share', async () 
     type: SHARE_TOKEN_TYPE,
     shareId: currentId,
     shareType: 1,
+    websiteId: currentId,
   });
-  vi.mocked(getShare).mockResolvedValueOnce({ id: currentId, shareType: 1 } as any);
+  vi.mocked(getShare).mockResolvedValueOnce({
+    id: currentId,
+    shareType: 1,
+    entityId: currentId,
+  } as any);
   vi.mocked(resolveShareAccess).mockResolvedValueOnce({
     data: { shareId: currentId, shareType: 1 },
     entity: { id: currentId },
@@ -172,8 +198,13 @@ test('link shares cannot authenticate raw website APIs', async () => {
     type: SHARE_TOKEN_TYPE,
     shareId,
     shareType: ENTITY_TYPE.link,
+    websiteId: 'link-1',
   });
-  vi.mocked(getShare).mockResolvedValue({ id: shareId, shareType: ENTITY_TYPE.link } as any);
+  vi.mocked(getShare).mockResolvedValue({
+    id: shareId,
+    shareType: ENTITY_TYPE.link,
+    entityId: 'link-1',
+  } as any);
   vi.mocked(resolveShareAccess).mockResolvedValue({
     data: { shareId, shareType: ENTITY_TYPE.link, linkId: 'link-1', websiteId: 'link-1' },
     entity: { id: 'link-1' },
@@ -246,8 +277,15 @@ test.each([
     type: SHARE_TOKEN_TYPE,
     shareId,
     shareType: scenario.shareType,
+    ...(scenario.shareType === ENTITY_TYPE.board
+      ? { boardId: scenario.entity.id }
+      : { websiteId: scenario.entity.id }),
   });
-  vi.mocked(getShare).mockResolvedValue({ id: shareId, shareType: scenario.shareType } as any);
+  vi.mocked(getShare).mockResolvedValue({
+    id: shareId,
+    shareType: scenario.shareType,
+    entityId: scenario.entity.id,
+  } as any);
   vi.mocked(resolveShareAccess).mockResolvedValue({
     data: { shareId, shareType: scenario.shareType, ...scenario.data },
     entity: scenario.entity,
@@ -903,6 +941,31 @@ describe('checkAuth password fingerprint', () => {
 });
 
 describe('saveAuth absolute expiration', () => {
+  test('keeps the default signed deadline aligned with stored refresh metadata', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-14T00:00:00Z'));
+    redisMock.enabled = true;
+    const expiresAt = Math.floor(Date.now() / 1000) + 28_800;
+    redisMock.client.set.mockImplementationOnce(async () => {
+      vi.setSystemTime(new Date('2026-11-14T00:00:10Z'));
+    });
+
+    try {
+      await saveAuth({ userId: 'user-1' });
+      expect(redisMock.client.set).toHaveBeenCalledWith(
+        expect.any(String),
+        { userId: 'user-1', ttl: 28_800, expiresAt },
+        28_800,
+      );
+      expect(createSecureToken).toHaveBeenCalledWith(
+        { authKey: expect.any(String), exp: expiresAt },
+        expect.any(String),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test('pins the signed expiry even if Redis writes cross a clock boundary', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-10-11T12:00:00Z'));
@@ -919,7 +982,7 @@ describe('saveAuth absolute expiration', () => {
       await expect(saveAuth(session, 3_600, absoluteExpiry)).resolves.toBe('signed-token');
       expect(redisMock.client.set).toHaveBeenCalledWith(
         expect.stringMatching(/^auth:[a-f\d]{32}$/),
-        session,
+        { ...session, ttl: 120, expiresAt: absoluteExpiry },
         120,
       );
       expect(createSecureToken).toHaveBeenCalledWith(
@@ -956,5 +1019,175 @@ describe('saveAuth absolute expiration', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('upstream authentication integration with canonical boundaries', () => {
+  const systemUserId = '41e2b680-648e-4b09-bcd7-3e2b10c06264';
+  const systemPasswordHash = '$2b$10$BUli0c.muyCW1ErNJc3jL.vFRFtFJWrT8/GcR4A.sUdCznaXiqFXa';
+
+  function redisSession(overrides: Record<string, unknown> = {}, expiresAt?: number) {
+    const deadline = expiresAt ?? Math.floor(Date.now() / 1000) + 60;
+    const session = {
+      userId: 'user-1',
+      role: 'user',
+      pwd: hash(PASSWORD_HASH),
+      sessionGeneration: 0,
+      ttl: 3_600,
+      expiresAt: deadline,
+      ...overrides,
+    };
+    redisMock.enabled = true;
+    parseSecureTokenMock.mockReturnValue({ authKey: 'auth:bounded', exp: deadline } as any);
+    redisMock.client.get.mockResolvedValue(session);
+    mockUser();
+    return session;
+  }
+
+  test('marks the seeded password before returning a password-free user', async () => {
+    parseSecureTokenMock.mockReturnValue({
+      userId: systemUserId,
+      role: 'admin',
+      pwd: hash(systemPasswordHash),
+      sessionGeneration: 0,
+    } as any);
+    mockUser({ id: systemUserId, role: 'admin', password: systemPasswordHash });
+
+    const auth = await checkAuth(authedRequest());
+    expect(auth).toHaveProperty('passwordChangeRequired', true);
+    expect(auth?.user).not.toHaveProperty('password');
+  });
+
+  test('refreshes a current Redis session only to its signed absolute deadline', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-14T00:00:00Z'));
+    try {
+      redisSession();
+      expect((await checkAuth(authedRequest()))?.user?.id).toBe('user-1');
+      expect(redisMock.client.expire).toHaveBeenCalledWith('auth:bounded', 60);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test.each([
+    { ttl: undefined, expiresAt: undefined },
+    { ttl: 30 * 24 * 60 * 60 },
+    { ttl: -1 },
+    { ttl: 3.5 },
+    { expiresAt: 1 },
+  ])('leaves legacy or unbounded refresh metadata unchanged: %j', async overrides => {
+    redisSession(overrides);
+    expect((await checkAuth(authedRequest()))?.user?.id).toBe('user-1');
+    expect(redisMock.client.expire).not.toHaveBeenCalled();
+  });
+
+  test.each([{ pwd: hash('changed-password') }, { role: 'admin' }, { sessionGeneration: 1 }])(
+    'never refreshes a revoked session: %j',
+    async overrides => {
+      redisSession(overrides);
+      expect(await checkAuth(authedRequest())).toBeNull();
+      expect(redisMock.client.expire).not.toHaveBeenCalled();
+    },
+  );
+
+  test('never refreshes a cross-origin cookie mutation', async () => {
+    redisSession();
+    expect(
+      await checkAuth(cookieRequest({ method: 'POST', origin: 'https://hostile.invalid' })),
+    ).toBeNull();
+    expect(redisMock.client.expire).not.toHaveBeenCalled();
+  });
+
+  test('retains authorization when an optional Redis TTL refresh fails', async () => {
+    redisSession();
+    redisMock.client.expire.mockRejectedValue(new Error('Synthetic TTL refresh failure'));
+    expect((await checkAuth(authedRequest()))?.user?.id).toBe('user-1');
+  });
+
+  test('rejects a signed deadline that expires during authorization', async () => {
+    redisSession({}, Math.floor(Date.now() / 1000) - 1);
+    expect(await checkAuth(authedRequest())).toBeNull();
+    expect(redisMock.client.expire).not.toHaveBeenCalled();
+  });
+
+  test('keeps the upstream setup indicator scoped to canonical enrollment routes', async () => {
+    parseSecureTokenMock.mockReturnValue({
+      userId: 'user-1',
+      role: 'user',
+      pwd: hash(PASSWORD_HASH),
+      sessionGeneration: 0,
+      type: 'enrollment-auth',
+    } as any);
+    mockUser();
+    twoFactorMocks.findUser.mockResolvedValue({ twoFactorRequired: true });
+    vi.stubEnv('TWO_FACTOR_ENCRYPTION_KEY', 'a'.repeat(64));
+
+    expect(await checkAuth(authedRequest('/api/2fa/status'))).toMatchObject({
+      enrollmentOnly: true,
+      twoFactorSetupPending: true,
+    });
+    expect(await checkAuth(authedRequest('/api/websites'))).toBeNull();
+    twoFactorMocks.findTwoFactorAuth.mockResolvedValue({ id: 'new-factor', isEnabled: true });
+    expect(await checkAuth(authedRequest('/api/websites'))).toBeNull();
+  });
+
+  test('rejects a share token whose live row points at a different entity', async () => {
+    vi.mocked(parseToken).mockReturnValue({
+      type: SHARE_TOKEN_TYPE,
+      shareId: 'share-1',
+      shareType: ENTITY_TYPE.website,
+      websiteId: 'original-website',
+    });
+    vi.mocked(getShare).mockResolvedValue({
+      id: 'share-1',
+      shareType: ENTITY_TYPE.website,
+      entityId: 'replacement-website',
+    } as any);
+
+    expect(await parseShareToken(authedRequest())).toBeNull();
+    expect(resolveShareAccess).not.toHaveBeenCalled();
+  });
+
+  test('rejects a share token without its minted entity binding', async () => {
+    vi.mocked(parseToken).mockReturnValue({
+      type: SHARE_TOKEN_TYPE,
+      shareId: 'share-1',
+      shareType: ENTITY_TYPE.website,
+    });
+    vi.mocked(getShare).mockResolvedValue({
+      id: 'share-1',
+      shareType: ENTITY_TYPE.website,
+      entityId: 'website-1',
+    } as any);
+
+    expect(await parseShareToken(authedRequest())).toBeNull();
+    expect(resolveShareAccess).not.toHaveBeenCalled();
+  });
+
+  test('uses the current share parameters rather than the minted snapshot', async () => {
+    vi.mocked(parseToken).mockReturnValue({
+      type: SHARE_TOKEN_TYPE,
+      shareId: 'share-1',
+      shareType: ENTITY_TYPE.website,
+      websiteId: 'website-1',
+      parameters: { sessions: true },
+    });
+    const share = {
+      id: 'share-1',
+      shareType: ENTITY_TYPE.website,
+      entityId: 'website-1',
+      parameters: { sessions: false },
+    };
+    vi.mocked(getShare).mockResolvedValue(share as any);
+    vi.mocked(resolveShareAccess).mockResolvedValue({
+      entity: { id: 'website-1' },
+      data: { websiteId: 'website-1', parameters: share.parameters },
+    } as any);
+
+    expect(await parseShareToken(authedRequest())).toMatchObject({
+      parameters: { sessions: false },
+    });
+    expect(resolveShareAccess).toHaveBeenCalledWith(share);
   });
 });

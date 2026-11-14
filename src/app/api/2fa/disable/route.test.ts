@@ -1,4 +1,5 @@
 import { beforeEach, expect, test, vi } from 'vitest';
+import { SessionRevokedError } from '@/queries/prisma/authorization';
 
 const mocks = vi.hoisted(() => ({
   parseRequest: vi.fn(),
@@ -11,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   verifyTotp: vi.fn(),
   reservePasswordVerificationAttempt: vi.fn(),
   transaction: vi.fn(),
+  runActiveSessionMutation: vi.fn(),
   queryRaw: vi.fn(),
   userFindUnique: vi.fn(),
   deleteBackupCodes: vi.fn(),
@@ -81,6 +83,11 @@ vi.mock('@/queries/prisma/user', () => ({
   getUser: mocks.getUser,
 }));
 
+vi.mock('@/queries/prisma/authorization', () => ({
+  SessionRevokedError: class SessionRevokedError extends Error {},
+  runActiveSessionMutation: mocks.runActiveSessionMutation,
+}));
+
 import { POST } from './route';
 
 beforeEach(() => {
@@ -94,6 +101,9 @@ beforeEach(() => {
   mocks.verifyTotp.mockReset();
   mocks.reservePasswordVerificationAttempt.mockReset();
   mocks.transaction.mockReset();
+  mocks.runActiveSessionMutation
+    .mockReset()
+    .mockImplementation((_, operation) => mocks.transaction(operation));
   mocks.queryRaw.mockReset();
   mocks.userFindUnique.mockReset();
   mocks.deleteBackupCodes.mockReset();
@@ -156,6 +166,12 @@ test('POST rotates the session generation with factor deletion and returns only 
   expect(userQuery.join('?')).toContain('AND "session_generation" = ?');
   expect(userParameters).toEqual(['user-1', 'hashed-password', 0]);
   expect(mocks.consumeOtp).toHaveBeenCalledWith('user-1', '123456', expect.any(Object));
+  expect(mocks.consumeOtp).toHaveBeenCalledTimes(1);
+  expect(mocks.runActiveSessionMutation).toHaveBeenCalledWith(
+    expect.objectContaining({ authType: 'session', sessionGeneration: 0 }),
+    expect.any(Function),
+  );
+  expect(mocks.getTwoFactorRequirement).toHaveBeenNthCalledWith(2, 'user-1', expect.any(Object));
   const [factorQuery, ...factorParameters] = mocks.queryRaw.mock.calls[1];
   expect(factorQuery.join('?')).toContain('WHERE "id" = ?');
   expect(factorQuery.join('?')).toContain('AND "user_id" = ?::uuid');
@@ -347,4 +363,74 @@ test('POST rejects an exhausted attempt before checking the disable code', async
   await expect(response.json()).resolves.toMatchObject({
     error: { code: 'two-factor-error-too-many-attempts', lockedUntil: lockedUntil.toISOString() },
   });
+});
+
+function prepareDisableRequest() {
+  mocks.parseRequest.mockResolvedValue({
+    auth: { authType: 'session', user: { id: 'user-1' }, sessionGeneration: 0 },
+    body: { password: 'password', token: '123456' },
+  });
+  mocks.getTwoFactorRequirement.mockResolvedValue({ reason: null });
+  mocks.getUser.mockResolvedValue({ password: 'hashed-password' });
+  mocks.checkPassword.mockResolvedValue(true);
+  mocks.findTwoFactorAuth.mockResolvedValue({
+    id: 'factor-1',
+    isEnabled: true,
+    secret: 'encrypted',
+  });
+  mocks.reserveTwoFactorAttempt.mockResolvedValue({ allowed: true });
+  mocks.verifyTotp.mockResolvedValue(true);
+}
+
+test.each(['global', 'user', 'team'])(
+  'POST retains a newly required %s factor at the guarded mutation boundary',
+  async reason => {
+    prepareDisableRequest();
+    mocks.getTwoFactorRequirement
+      .mockResolvedValueOnce({ reason: null })
+      .mockResolvedValueOnce({ reason });
+
+    const response = await POST(
+      new Request('http://localhost/api/2fa/disable', { method: 'POST' }),
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: 'two-factor-error-disable-not-allowed' },
+    });
+    expect(mocks.queryRaw).not.toHaveBeenCalled();
+    expect(mocks.consumeOtp).not.toHaveBeenCalled();
+    expect(mocks.deleteBackupCodes).not.toHaveBeenCalled();
+    expect(mocks.deleteApiKeys).not.toHaveBeenCalled();
+    expect(mocks.createSecureToken).not.toHaveBeenCalled();
+  },
+);
+
+test('POST rejects a session revoked after password verification without consuming its code', async () => {
+  prepareDisableRequest();
+  mocks.runActiveSessionMutation.mockRejectedValueOnce(new SessionRevokedError());
+
+  const response = await POST(new Request('http://localhost/api/2fa/disable', { method: 'POST' }));
+
+  expect(response.status).toBe(401);
+  expect(mocks.queryRaw).not.toHaveBeenCalled();
+  expect(mocks.consumeOtp).not.toHaveBeenCalled();
+  expect(mocks.deleteBackupCodes).not.toHaveBeenCalled();
+  expect(mocks.createSecureToken).not.toHaveBeenCalled();
+});
+
+test('POST rejects a reused disable code before deleting factor or recovery state', async () => {
+  prepareDisableRequest();
+  mocks.consumeOtp.mockResolvedValueOnce(false);
+
+  const response = await POST(new Request('http://localhost/api/2fa/disable', { method: 'POST' }));
+
+  expect(response.status).toBe(400);
+  await expect(response.json()).resolves.toMatchObject({
+    error: { code: 'two-factor-error-code-used' },
+  });
+  expect(mocks.consumeOtp).toHaveBeenCalledTimes(1);
+  expect(mocks.queryRaw).toHaveBeenCalledTimes(1);
+  expect(mocks.deleteBackupCodes).not.toHaveBeenCalled();
+  expect(mocks.createSecureToken).not.toHaveBeenCalled();
 });

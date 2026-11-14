@@ -514,6 +514,82 @@ function emptyScroll(): HeatmapResult['scroll'] {
   };
 }
 
+export function pickSnapshotViewport(
+  points: HeatmapPoint[],
+): { width: number; height: number; pageW: number; pageH: number } | null {
+  const viewportBuckets = new Map<
+    string,
+    {
+      width: number;
+      height: number;
+      count: number;
+      maxPageW: number;
+      maxPageY: number;
+      pageHCounts: Map<number, number>;
+    }
+  >();
+
+  for (const p of points) {
+    const viewportKey = `${p.viewportW}x${p.viewportH}`;
+    const viewportBucket = viewportBuckets.get(viewportKey);
+
+    if (viewportBucket) {
+      viewportBucket.count += p.count;
+      viewportBucket.maxPageW = Math.max(viewportBucket.maxPageW, p.pageW);
+      viewportBucket.maxPageY = Math.max(viewportBucket.maxPageY, p.pageY);
+      viewportBucket.pageHCounts.set(
+        p.pageH,
+        (viewportBucket.pageHCounts.get(p.pageH) ?? 0) + p.count,
+      );
+    } else {
+      viewportBuckets.set(viewportKey, {
+        width: p.viewportW,
+        height: p.viewportH,
+        count: p.count,
+        maxPageW: p.pageW,
+        maxPageY: p.pageY,
+        pageHCounts: new Map([[p.pageH, p.count]]),
+      });
+    }
+  }
+
+  let bestViewport: {
+    width: number;
+    height: number;
+    count: number;
+    maxPageW: number;
+    maxPageY: number;
+    pageHCounts: Map<number, number>;
+  } | null = null;
+
+  for (const bucket of viewportBuckets.values()) {
+    if (!bestViewport || bucket.count > bestViewport.count) {
+      bestViewport = bucket;
+    }
+  }
+
+  if (!bestViewport) {
+    return null;
+  }
+
+  let commonPageH = 0;
+  let commonPageHCount = 0;
+
+  for (const [pageH, count] of bestViewport.pageHCounts) {
+    if (count > commonPageHCount || (count === commonPageHCount && pageH > commonPageH)) {
+      commonPageH = pageH;
+      commonPageHCount = count;
+    }
+  }
+
+  return {
+    width: bestViewport.width,
+    height: bestViewport.height,
+    pageW: bestViewport.maxPageW,
+    pageH: Math.max(commonPageH, Math.ceil(bestViewport.maxPageY)),
+  };
+}
+
 function pickScrollSnapshotViewport(
   buckets: HeatmapScrollBucket[],
 ): { width: number; height: number; pageW: number; pageH: number } | null {

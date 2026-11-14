@@ -17,7 +17,7 @@ import { useUpdateQuery } from '@/components/hooks/queries/useUpdateQuery';
 import { RefreshCw } from '@/components/icons';
 import { LINKS_URL } from '@/lib/constants';
 import { getRandomChars } from '@/lib/generate';
-import { isValidUrl } from '@/lib/url';
+import { isSafeHttpUrl } from '@/lib/security';
 
 const generateId = () => getRandomChars(9);
 
@@ -48,19 +48,27 @@ export function LinkEditForm({
   const [defaultSlug] = useState(generateId());
 
   const handleSubmit = async (data: any) => {
-    await mutateAsync(data, {
-      onSuccess: async () => {
-        toast(t(messages.saved));
-        touch('links');
-        touch(`link:${linkId}`);
-        onSave?.();
-        onClose?.();
+    await mutateAsync(
+      { ...data, url: data.url.trim() },
+      {
+        onSuccess: async () => {
+          toast(t(messages.saved));
+          touch('links');
+          touch(`link:${linkId}`);
+          onSave?.();
+          onClose?.();
+        },
       },
-    });
+    );
   };
 
-  const checkUrl = (url: string) => {
-    if (!isValidUrl(url)) {
+  const checkUrl = (url: string, formValues: any) => {
+    const normalized = url.trim();
+    if (
+      normalized.length > 500 ||
+      !isSafeHttpUrl(normalized) ||
+      normalized === `${hostUrl}/${formValues.slug}`
+    ) {
       return t(labels.invalidUrl);
     }
     return true;

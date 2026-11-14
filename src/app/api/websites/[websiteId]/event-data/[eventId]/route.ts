@@ -8,7 +8,7 @@ import {
   unauthorized,
 } from '@/lib/response';
 import { reserveShareQueryCost } from '@/lib/share-query-budget';
-import { canViewWebsite, canViewWebsiteSection } from '@/permissions';
+import { canViewWebsite, canViewWebsiteSectionRows } from '@/permissions';
 import { getEventDataById } from '@/queries/sql/events/getEventDataById';
 
 const SHARED_EVENT_DATA_COST = 8;
@@ -30,7 +30,7 @@ export async function GET(
     return badRequest({ message: 'Invalid event identifier.' });
   }
 
-  if (!(await canViewWebsiteSection(auth, websiteId, 'events'))) {
+  if (!(await canViewWebsiteSectionRows(auth, websiteId, 'events'))) {
     return unauthorized();
   }
 
@@ -67,5 +67,5 @@ export async function GET(
     return badRequest({ message: 'Public-share event is too large.' });
   }
 
-  return json(data);
+  return json(data, { headers: { 'Cache-Control': 'no-store' } });
 }

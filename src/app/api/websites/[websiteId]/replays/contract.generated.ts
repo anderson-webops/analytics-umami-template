@@ -7,7 +7,7 @@ const operation1 = defineOperation({
   method: 'get',
   path: '/api/websites/{websiteId}/replays',
   audience: 'public',
-  auth: 'bearer-or-share',
+  auth: 'bearer',
   operation: {
     operationId: 'getWebsiteReplays',
     summary: 'List website session replays',
@@ -384,6 +384,12 @@ const operation1 = defineOperation({
                   items: {
                     type: 'object',
                     properties: {
+                      distinctIds: {
+                        type: 'array',
+                        items: {
+                          type: 'string',
+                        },
+                      },
                       id: {
                         type: 'string',
                         description: 'Unique identifier of the resource.',
@@ -466,6 +472,7 @@ const operation1 = defineOperation({
                       },
                     },
                     required: [
+                      'distinctIds',
                       'id',
                       'sessionId',
                       'websiteId',

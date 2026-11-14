@@ -1,12 +1,17 @@
 import { hasPermission } from '@/lib/auth';
 import { BOARD_ENTITY_TYPES, getBoardEntityIds, getResolvedComponentEntity } from '@/lib/boards';
 import { PERMISSIONS } from '@/lib/constants';
+import { getBillingAccess, getEntityBillingScope } from '@/lib/load';
 import type { Auth, BoardComponentConfig, BoardParameters } from '@/lib/types';
 import { getBoard, getReport, getTeamUser } from '@/queries/prisma';
 import { canUpdateLink, canViewLink } from './link';
 import { canMutateResource } from './mutation';
 import { canUpdatePixel, canViewPixel } from './pixel';
 import { canUpdateWebsite, canViewWebsite } from './website';
+
+async function hasBoardBillingAccess(board: Awaited<ReturnType<typeof getBoard>>) {
+  return !!board && !(await getBillingAccess(await getEntityBillingScope(board))).isPastDue;
+}
 
 const BOARD_COMPONENT_REPORT_TYPES = {
   Funnel: 'funnel',
@@ -190,13 +195,13 @@ export async function canViewBoard({ user, shareToken }: Auth, boardId: string) 
   }
 
   if (board.userId) {
-    return user.id === board.userId;
+    return user.id === board.userId && (await hasBoardBillingAccess(board));
   }
 
   if (board.teamId) {
     const teamUser = await getTeamUser(board.teamId, user.id);
 
-    return !!teamUser;
+    return !!teamUser && (await hasBoardBillingAccess(board));
   }
 
   return false;
@@ -218,13 +223,17 @@ export async function canUpdateBoard({ user }: Auth, boardId: string) {
   }
 
   if (board.userId) {
-    return user.id === board.userId;
+    return user.id === board.userId && (await hasBoardBillingAccess(board));
   }
 
   if (board.teamId) {
     const teamUser = await getTeamUser(board.teamId, user.id);
 
-    return teamUser && hasPermission(teamUser.role, PERMISSIONS.websiteUpdate);
+    return (
+      !!teamUser &&
+      (await hasBoardBillingAccess(board)) &&
+      hasPermission(teamUser.role, PERMISSIONS.websiteUpdate)
+    );
   }
 
   return false;
@@ -246,13 +255,17 @@ export async function canDeleteBoard({ user }: Auth, boardId: string) {
   }
 
   if (board.userId) {
-    return user.id === board.userId;
+    return user.id === board.userId && (await hasBoardBillingAccess(board));
   }
 
   if (board.teamId) {
     const teamUser = await getTeamUser(board.teamId, user.id);
 
-    return teamUser && hasPermission(teamUser.role, PERMISSIONS.websiteDelete);
+    return (
+      !!teamUser &&
+      (await hasBoardBillingAccess(board)) &&
+      hasPermission(teamUser.role, PERMISSIONS.websiteDelete)
+    );
   }
 
   return false;

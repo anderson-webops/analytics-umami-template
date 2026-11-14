@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createDocument, type ZodOpenApiPathsObject } from 'zod-openapi';
-import { loadApiContracts } from '@/openapi/contracts';
+import { type ContractLoadOptions, loadApiContracts } from '@/openapi/contracts';
 import {
   analyzeContractCoverage,
   type ContractCoverage,
@@ -10,7 +10,11 @@ import {
 import { discoverApiOperations } from '@/openapi/discover';
 import { applyFieldDescriptions } from '@/openapi/field-descriptions';
 import { inferApiContracts } from '@/openapi/infer';
-import { type ApiAudience, getOperationKey } from '@/openapi/operation';
+import {
+  type ApiAudience,
+  getOperationKey,
+  type LoadedApiOperationContract,
+} from '@/openapi/operation';
 import { operationDescriptions } from '@/openapi/operation-descriptions';
 import { errorResponseComponents } from '@/openapi/schemas';
 import { getSecurityRequirements, securitySchemes } from '@/openapi/security';
@@ -20,6 +24,7 @@ export type DocumentAudience = ApiAudience | 'all';
 export interface OpenApiBuildResult {
   document: ReturnType<typeof createDocument>;
   coverage: ContractCoverage;
+  inferredContracts: LoadedApiOperationContract[];
 }
 
 async function getPackageVersion(projectRoot: string) {
@@ -49,9 +54,10 @@ function getDocumentTags(paths: ZodOpenApiPathsObject) {
 export async function buildOpenApiDocument(
   audience: DocumentAudience = 'public',
   projectRoot = process.cwd(),
+  options: ContractLoadOptions = {},
 ): Promise<OpenApiBuildResult> {
   const [explicitContracts, discovered, version] = await Promise.all([
-    loadApiContracts(projectRoot),
+    loadApiContracts(projectRoot, options),
     discoverApiOperations(projectRoot),
     getPackageVersion(projectRoot),
   ]);
@@ -130,5 +136,5 @@ export async function buildOpenApiDocument(
 
   applyFieldDescriptions(document);
 
-  return { document, coverage };
+  return { document, coverage, inferredContracts };
 }

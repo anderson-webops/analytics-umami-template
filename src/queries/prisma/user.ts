@@ -515,6 +515,15 @@ export async function deleteUser(userId: string, actorUserId: string, auth: Auth
       await transaction.attestedRevenueMovement.deleteMany({
         where: { websiteId: { in: websiteIds } },
       });
+      await transaction.errorEvent.deleteMany({
+        where: { websiteId: { in: websiteIds } },
+      });
+      await transaction.errorIssue.deleteMany({
+        where: { websiteId: { in: websiteIds } },
+      });
+      await transaction.errorRateLimit.deleteMany({
+        where: { websiteId: { in: websiteIds } },
+      });
       await transaction.eventData.deleteMany({
         where: { websiteId: { in: sourceIds } },
       });
