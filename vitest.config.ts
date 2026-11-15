@@ -3,6 +3,7 @@ import replace from '@rollup/plugin-replace';
 import { defineConfig } from 'vitest/config';
 
 const releaseBuilder = process.env.ANALYTICS_RELEASE_SINGLE_WORKER === '1';
+const clickhouseIntegration = Boolean(process.env.CLICKHOUSE_TEST_URL);
 
 export default defineConfig({
   plugins: [
@@ -22,7 +23,7 @@ export default defineConfig({
   test: {
     fileParallelism: !releaseBuilder,
     maxWorkers: releaseBuilder ? 1 : undefined,
-    testTimeout: releaseBuilder ? 20_000 : undefined,
+    testTimeout: releaseBuilder || clickhouseIntegration ? 20_000 : undefined,
     env: {
       APP_SECRET: 'unit-test-only-secret-0000000000000000000000',
     },
