@@ -150,7 +150,7 @@ function fixture(site = 'analytics.np-servicerequest.org') {
       libc: 'glibc',
       node: '26.13.1',
       npm: '12.2.2',
-      package_manager: 'pnpm@12.21.0',
+      package_manager: 'pnpm@12.22.0',
     },
     configuration_sha256: digest(configurationBytes),
     runtime_contract_sha256: digest(contractBytes),

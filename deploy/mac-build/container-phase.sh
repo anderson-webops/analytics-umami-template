@@ -26,7 +26,7 @@ cd "$source_root"
 test "$(uname -m)" = aarch64
 test "$(node --version)" = v26.13.1
 test "$(npm --version)" = 12.2.2
-test "$(pnpm --version)" = 12.21.0
+test "$(pnpm --version)" = 12.22.0
 test "$(pnpm config get virtual-store-dir-max-length)" = 60
 test "$(pnpm config get store-dir)" = /pnpm-store
 test "$(git rev-parse HEAD)" = "$RELEASE_COMMIT"

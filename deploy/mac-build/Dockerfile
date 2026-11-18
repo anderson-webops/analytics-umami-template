@@ -29,7 +29,7 @@ RUN --mount=type=cache,id=anderson-analytics-arm64-toolchain-npm12,target=/root/
     && ln -sfn /opt/analytics-builder-profile/deploy/mac-build/pnpm-toolchain/node_modules/pnpm/pnpx /usr/local/bin/pnpx \
     && test "$(node --version)" = 'v26.13.1' \
     && test "$(npm --version)" = '12.2.2' \
-    && test "$(pnpm --version)" = '12.21.0' \
+    && test "$(pnpm --version)" = '12.22.0' \
     && node /opt/analytics-builder-profile/deploy/mac-build/verify-toolchain.mjs \
     && /usr/lib/postgresql/17/bin/postgres --version | grep -q 'PostgreSQL) 17.' \
     && bwrap --version

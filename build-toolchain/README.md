@@ -1,11 +1,11 @@
 # Build-only package managers
 
-The application uses pnpm12.21.0 on Node26.13.1. Build-time npm12.2.2 has
+The application uses pnpm12.22.0 on Node26.13.1. Build-time npm12.2.2 has
 an independent locked graph here; the pnpm distribution has its independent
 lock under `deploy/mac-build/pnpm-toolchain/`. Both graphs are excluded from
 the application workspace and included in its full and production audit gates.
 
-The pnpm graph approves only the reviewed `pnpm@12.21.0` installer under npm's
+The pnpm graph approves only the reviewed `pnpm@12.22.0` installer under npm's
 strict script policy. This replaces its shell-only placeholder with the native
 binary for reliable direct subprocess execution on macOS and Linux.
 

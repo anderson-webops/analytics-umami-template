@@ -33,12 +33,12 @@ test('Linux builder installs and verifies independently locked npm and pnpm grap
   const root = JSON.parse(fs.readFileSync(path.join(directory, '../../package.json')));
 
   assert.equal(npm.npm, '12.2.2');
-  assert.equal(pnpm.packages['node_modules/pnpm'].version, '12.21.0');
-  assert.equal(root.packageManager, 'pnpm@12.21.0');
+  assert.equal(pnpm.packages['node_modules/pnpm'].version, '12.22.0');
+  assert.equal(root.packageManager, 'pnpm@12.22.0');
   const pnpmManifest = JSON.parse(
     fs.readFileSync(path.join(directory, 'pnpm-toolchain/package.json')),
   );
-  assert.deepEqual(pnpmManifest.allowScripts, { 'pnpm@12.21.0': true });
+  assert.deepEqual(pnpmManifest.allowScripts, { 'pnpm@12.22.0': true });
   assert.match(source, /pnpm-toolchain --workspaces=false --strict-allow-scripts/);
   assert.match(source, /npm ci --prefix \/opt\/analytics-builder-profile\/build-toolchain/);
   assert.match(

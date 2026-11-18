@@ -202,7 +202,7 @@ or host compatibility must remain blocked with a specific stage and reason.
 
 ## Build and verify
 
-Build from the exact release commit under Node 26.13.1 and pnpm 12.18.0:
+Build from the exact release commit under Node 26.13.1 and pnpm 12.22.0:
 
 ```sh
 pnpm install --frozen-lockfile
