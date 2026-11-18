@@ -17,6 +17,7 @@ build-toolchain/vendor/**
 !build-toolchain/vendor/minipass-flush-2.0.1-webops.1.tgz
 !build-toolchain/vendor/minipass-pipeline-3.0.1-webops.1.tgz
 !build-toolchain/vendor/npm-12.2.2-webops.1.tgz
+!build-toolchain/vendor/picomatch-4.0.7-webops.1.tgz
 !scripts/
 scripts/**
 !scripts/build-toolchain-state.mjs

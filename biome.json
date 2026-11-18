@@ -56,7 +56,7 @@
   },
   "overrides": [
     {
-      "includes": ["build-toolchain/compat/**"],
+      "includes": ["build-toolchain/compat/**", "vendor/picomatch/repeated-output.cjs"],
       "formatter": {
         "enabled": false
       },

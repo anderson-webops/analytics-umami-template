@@ -1,16 +1,16 @@
 # Build-only package managers
 
-The application uses pnpm12.18.0 on Node26.13.1. Build-time npm12.2.2 has
+The application uses pnpm12.21.0 on Node26.13.1. Build-time npm12.2.2 has
 an independent locked graph here; the pnpm distribution has its independent
 lock under `deploy/mac-build/pnpm-toolchain/`. Both graphs are excluded from
 the application workspace and included in its full and production audit gates.
 
-The pnpm graph approves only the reviewed `pnpm@12.18.0` installer under npm's
+The pnpm graph approves only the reviewed `pnpm@12.21.0` installer under npm's
 strict script policy. This replaces its shell-only placeholder with the native
 binary for reliable direct subprocess execution on macOS and Linux.
 
 The npm packaging derives from the reviewed `vitesse-nuxt-template` source
-`5d27a700fca7e36eb8a7f2f728ddd028cbd57000`. `UPSTREAM.json` binds the official
+`0630d098d373924c65bb7f25bdf19e9d5430b955`. `UPSTREAM.json` binds the official
 archive and417 original CLI, documentation and license files. The reproducible
 npm archive changes packaging declarations only. The independent lock selects
 reviewed modern library majors, including Glob14, Minimatch11 and Minipass7.
@@ -26,11 +26,17 @@ formatting and type-import ordering; lint and required archive, integrity and
 regression checks remain enabled. The package graphs retain separate lockfiles
 and audit coverage.
 
+The maintained Picomatch input preserves the reviewed repeated-extglob guard
+across the npm and application graphs. Its producer checks the original registry
+archive and reproduces both patched distributions. Raw guard formatting stays
+byte-identical to that shared input; lint, archive reproduction, bounded attack
+cases and installed-consumer checks remain enforced.
+
 `pnpm run check:toolchain-package` verifies the original upstream bytes.
 `pnpm run test:build-toolchain` covers qualification, all13 modern-library
 contracts, TypeScript declarations, compatibility-archive reproduction,
 tampering, concurrent creation, failed/interrupted outcomes and the three-profile
-cache cap. Every cache reuse verifies the full3035-file payload and performs
+cache cap. Every cache reuse verifies the complete locked payload and performs
 fresh full, production and registry signature audits, including the original
 compatibility-input graph. Unavailable audits remain failures.
 The paired Node executable and any required macOS libnode copy are content-bound;

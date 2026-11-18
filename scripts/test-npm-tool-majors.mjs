@@ -383,6 +383,7 @@ test('new local tool archives and installed bridge bytes reject corruption befor
     'env-paths-4.0.0-webops.1.tgz',
     'minipass-flush-2.0.1-webops.1.tgz',
     'minipass-pipeline-3.0.1-webops.1.tgz',
+    'picomatch-4.0.7-webops.1.tgz',
   ]) {
     const filename = path.join(candidate, 'vendor', archive);
     const original = await readFile(filename);

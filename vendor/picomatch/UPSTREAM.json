@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "name": "picomatch",
+  "version": "4.0.7",
+  "patchedVersion": "4.0.7-webops.1",
+  "registryIntegrity": "sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA==",
+  "advisory": "https://github.com/advisories/GHSA-fc5q-39xc-vjpf",
+  "changes": "Extend the existing unsafe repeated-extglob literalization boundary to effective variable-quantity output and ambiguous alternatives. Preserve safe collapsed output, prove simple alternatives prefix-free under the effective case flags, fully escape literalized backslashes, and protect this boundary independently of the recursion-depth option. Preserve other original implementation, types, documentation and license bytes.",
+  "archiveSha256": "0d6aa02f2f0ed591a8ee6f6bfd7a34bc755d5a368c13026e802472cddaaefa3f",
+  "guardSha256": "018d8ef03ee18f890ac4279fa6783bf1d700ced7a6b8f2c97ae585281006c51b",
+  "files": [
+    {
+      "path": "package/LICENSE",
+      "upstreamSha256": "d0cd141b0c322fded5dfad1d4645bb2fedfc05b7321fe1009469638190d59ef9",
+      "sha256": "d0cd141b0c322fded5dfad1d4645bb2fedfc05b7321fe1009469638190d59ef9"
+    },
+    {
+      "path": "package/lib/constants.js",
+      "upstreamSha256": "c28f952d2758261fe5428a121add485cc25b03e0193633f649de903dc0e5e222",
+      "sha256": "c28f952d2758261fe5428a121add485cc25b03e0193633f649de903dc0e5e222"
+    },
+    {
+      "path": "package/index.js",
+      "upstreamSha256": "02ae26406508e28f9ba0865be16cf77f0b33de6c4d4d49c212c4176df1d5625a",
+      "sha256": "02ae26406508e28f9ba0865be16cf77f0b33de6c4d4d49c212c4176df1d5625a"
+    },
+    {
+      "path": "package/lib/parse.js",
+      "upstreamSha256": "4e1e05447668aa1e94366c5516a2bcd8f5fff800cc92b1d0cd7d77703b8618c4",
+      "sha256": "a4554128b6eeb419bfdcab35f34c3a066a444509ae3c7a2b2685dd2f926a77ed"
+    },
+    {
+      "path": "package/lib/picomatch.js",
+      "upstreamSha256": "fdd249d7ffff853f3bb1c77eafc8baa1a437bea85a94c35877b83c6a40d9ca94",
+      "sha256": "fdd249d7ffff853f3bb1c77eafc8baa1a437bea85a94c35877b83c6a40d9ca94"
+    },
+    {
+      "path": "package/posix.js",
+      "upstreamSha256": "5695ff5dfcd5a338a40630bd506056f2950bcb08fe1cc068519cbbfe60add480",
+      "sha256": "5695ff5dfcd5a338a40630bd506056f2950bcb08fe1cc068519cbbfe60add480"
+    },
+    {
+      "path": "package/lib/scan.js",
+      "upstreamSha256": "6457a1764e5c2e543cc3a0c00ce12ebb3764097628868198370b64d4e642aaae",
+      "sha256": "6457a1764e5c2e543cc3a0c00ce12ebb3764097628868198370b64d4e642aaae"
+    },
+    {
+      "path": "package/lib/utils.js",
+      "upstreamSha256": "f04604f70cd1a3f6ace80b84766468674ff38b4bb83818d2ef1d81fc6355f935",
+      "sha256": "f04604f70cd1a3f6ace80b84766468674ff38b4bb83818d2ef1d81fc6355f935"
+    },
+    {
+      "path": "package/package.json",
+      "upstreamSha256": "479b70b87aa7b44344d62c8a459ae7e53dd2bca6c61f1396bd55e63e9de73fc6",
+      "sha256": "b199aaf09d8a1751f57631d304662fa590b98a471042faa14a5639c012eaa9b4"
+    },
+    {
+      "path": "package/README.md",
+      "upstreamSha256": "a69b87120fe2b9cb8f9057eaef6b9f9887f803e02185ca2f431e8162f6312220",
+      "sha256": "a69b87120fe2b9cb8f9057eaef6b9f9887f803e02185ca2f431e8162f6312220"
+    }
+  ]
+}

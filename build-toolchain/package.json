@@ -10,11 +10,12 @@
     "npm": "file:vendor/npm-12.2.2-webops.1.tgz",
     "env-paths": "file:vendor/env-paths-4.0.0-webops.1.tgz",
     "minipass-flush": "file:vendor/minipass-flush-2.0.1-webops.1.tgz",
-    "minipass-pipeline": "file:vendor/minipass-pipeline-3.0.1-webops.1.tgz"
+    "minipass-pipeline": "file:vendor/minipass-pipeline-3.0.1-webops.1.tgz",
+    "picomatch": "file:vendor/picomatch-4.0.7-webops.1.tgz"
   },
   "overrides": {
     "glob": "14.0.6",
-    "minimatch": "11.0.8",
+    "minimatch": "11.0.9",
     "@npmcli/query": "6.0.0",
     "balanced-match": "5.0.0",
     "chalk": "6.0.1",
@@ -25,6 +26,7 @@
     "minipass-flush": "$minipass-flush",
     "minipass-pipeline": "$minipass-pipeline",
     "proggy": "5.0.0",
+    "picomatch": "$picomatch",
     "spdx-expression-parse": "5.0.0",
     "supports-color": "11.0.0"
   }

@@ -34,7 +34,7 @@ for (const [command, expected] of [
 }
 assert.equal(
   execFileSync(pnpmCli, ['--version'], { encoding: 'utf8', timeout: 30_000 }).trim(),
-  '12.18.0',
+  '12.21.0',
 );
 
 for (const prefix of [npmPrefix, pnpmPrefix]) {
