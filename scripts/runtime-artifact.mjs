@@ -466,8 +466,12 @@ async function readContract(contractPath = defaultContractPath) {
     'prisma/migrations/35_expire_new_session_replays/migration.sql',
     'prisma/migrations/31_expire_new_session_replays/migration.sql',
   ].filter(file => contract.requiredFiles.includes(file));
-  const replayRetentionFiles = [
+  const clickhouseReplayRetentionMigrations = [
     'db/clickhouse/migrations/16_expire_new_session_replays.sql',
+    'db/clickhouse/migrations/15_expire_new_session_replays.sql',
+  ].filter(file => contract.requiredFiles.includes(file));
+  const replayRetentionFiles = [
+    ...clickhouseReplayRetentionMigrations,
     ...replayRetentionMigrations,
     'runtime-scripts/prune-expired-session-replays.mjs',
   ];
@@ -481,6 +485,7 @@ async function readContract(contractPath = defaultContractPath) {
   if (
     replayRetentionFilesDeclared !== replayRetentionCapability ||
     (replayRetentionCapability && replayRetentionMigrations.length !== 1) ||
+    (replayRetentionCapability && clickhouseReplayRetentionMigrations.length !== 1) ||
     (contract.deployment?.schemaVersion === 1 && replayRetentionCapability) ||
     (replayRetentionContract && !replayRetentionCapability) ||
     (replayRetentionCapability &&

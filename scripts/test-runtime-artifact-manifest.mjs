@@ -40,6 +40,10 @@ const replayRetentionMigration = releaseMigration(
   'prisma/migrations/35_expire_new_session_replays/migration.sql',
   'prisma/migrations/31_expire_new_session_replays/migration.sql',
 );
+const clickhouseReplayRetentionMigration = releaseMigration(
+  'db/clickhouse/migrations/16_expire_new_session_replays.sql',
+  'db/clickhouse/migrations/15_expire_new_session_replays.sql',
+);
 const loginRecoveryMigration = releaseMigration(
   'prisma/migrations/41_add_login_recovery_credentials/migration.sql',
   'prisma/migrations/33_add_login_recovery_credentials/migration.sql',
@@ -50,7 +54,7 @@ const heatmapRetentionPaths = [
   'runtime-scripts/prune-expired-heatmap-events.mjs',
 ];
 const replayRetentionPaths = [
-  'db/clickhouse/migrations/16_expire_new_session_replays.sql',
+  clickhouseReplayRetentionMigration,
   replayRetentionMigration,
   'runtime-scripts/prune-expired-session-replays.mjs',
 ];
@@ -282,6 +286,14 @@ async function addLoginRecoveryFixture(root, contractPath) {
 }
 
 for (const [migrationPath, alternatives, prepare] of [
+  [
+    clickhouseReplayRetentionMigration,
+    [
+      'db/clickhouse/migrations/16_expire_new_session_replays.sql',
+      'db/clickhouse/migrations/15_expire_new_session_replays.sql',
+    ],
+    addReplayRetentionFixture,
+  ],
   [
     loginRecoveryMigration,
     [
@@ -1183,7 +1195,7 @@ test('requires the bounded replay cleanup command in every runtime artifact', as
 
 for (const migrationPath of [
   'db/clickhouse/migrations/15_expire_new_heatmap_events.sql',
-  'db/clickhouse/migrations/16_expire_new_session_replays.sql',
+  clickhouseReplayRetentionMigration,
   'db/clickhouse/migrations/17_add_session_data_trust_tier.sql',
   'db/clickhouse/migrations/18_disable_unverified_revenue_materialization.sql',
   'db/clickhouse/migrations/19_add_event_collection_trust_tier.sql',
