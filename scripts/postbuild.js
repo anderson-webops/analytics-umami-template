@@ -71,33 +71,15 @@ async function run() {
 
   await copyReplayCssBindings(appDir);
 
-  for (const relativePath of ['public', 'prisma', 'generated', '.next/static']) {
+  for (const relativePath of [
+    'public',
+    'prisma',
+    'generated',
+    '.next/static',
+    'db/clickhouse/migrations',
+  ]) {
     await copyRuntimePath(path.resolve(relativePath), path.join(appDir, relativePath));
   }
-  await copyRuntimePath(
-    path.resolve('db/clickhouse/migrations/15_expire_new_heatmap_events.sql'),
-    path.join(appDir, 'db/clickhouse/migrations/15_expire_new_heatmap_events.sql'),
-  );
-  await copyRuntimePath(
-    path.resolve('db/clickhouse/migrations/16_expire_new_session_replays.sql'),
-    path.join(appDir, 'db/clickhouse/migrations/16_expire_new_session_replays.sql'),
-  );
-  await copyRuntimePath(
-    path.resolve('db/clickhouse/migrations/17_add_session_data_trust_tier.sql'),
-    path.join(appDir, 'db/clickhouse/migrations/17_add_session_data_trust_tier.sql'),
-  );
-  await copyRuntimePath(
-    path.resolve('db/clickhouse/migrations/18_disable_unverified_revenue_materialization.sql'),
-    path.join(appDir, 'db/clickhouse/migrations/18_disable_unverified_revenue_materialization.sql'),
-  );
-  await copyRuntimePath(
-    path.resolve('db/clickhouse/migrations/19_add_event_collection_trust_tier.sql'),
-    path.join(appDir, 'db/clickhouse/migrations/19_add_event_collection_trust_tier.sql'),
-  );
-  await copyRuntimePath(
-    path.resolve('db/clickhouse/migrations/20_add_verified_event_data_pivot.sql'),
-    path.join(appDir, 'db/clickhouse/migrations/20_add_verified_event_data_pivot.sql'),
-  );
 
   await fs.rm(path.join(appDir, 'geo'), { force: true, recursive: true });
   await copyRuntimePath(

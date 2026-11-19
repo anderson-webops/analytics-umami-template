@@ -87,6 +87,17 @@ test('generated API client version matches the application release', async () =>
   assert.equal(generatedVersion, packageJson.version);
 });
 
+test('postbuild copies complete migration directories including retained legacy names', async () => {
+  const postbuild = await fs.readFile(new URL('./postbuild.js', import.meta.url), 'utf8');
+  const copiedDirectories = postbuild.match(
+    /for \(const relativePath of \[([\s\S]*?)\]\) \{\s*await copyRuntimePath\(path\.resolve\(relativePath\), path\.join\(appDir, relativePath\)\);/,
+  )?.[1];
+  assert.ok(copiedDirectories);
+  assert.match(copiedDirectories, /'prisma'/);
+  assert.match(copiedDirectories, /'db\/clickhouse\/migrations'/);
+  assert.doesNotMatch(postbuild, /path\.resolve\('db\/clickhouse\/migrations\/[^']+\.sql'\)/);
+});
+
 test('CI builds the production artifact on its declared architecture', async () => {
   const contract = JSON.parse(
     await fs.readFile(new URL('../deploy/runtime-artifact.json', import.meta.url), 'utf8'),
