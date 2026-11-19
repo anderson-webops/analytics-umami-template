@@ -417,8 +417,12 @@ async function readContract(contractPath = defaultContractPath) {
     throw new Error('Unsupported or incomplete deployment compatibility contract.');
   }
 
-  const loginRecoveryFiles = [
+  const loginRecoveryMigrations = [
     'prisma/migrations/41_add_login_recovery_credentials/migration.sql',
+    'prisma/migrations/33_add_login_recovery_credentials/migration.sql',
+  ].filter(file => contract.requiredFiles.includes(file));
+  const loginRecoveryFiles = [
+    ...loginRecoveryMigrations,
     'runtime-scripts/issue-login-recovery.mjs',
   ];
   const loginRecoveryDeclared = loginRecoveryFiles.some(file =>
@@ -430,6 +434,7 @@ async function readContract(contractPath = defaultContractPath) {
     ) ?? false;
   if (
     loginRecoveryDeclared !== loginRecoveryCapability ||
+    (loginRecoveryCapability && loginRecoveryMigrations.length !== 1) ||
     (loginRecoveryCapability &&
       !loginRecoveryFiles.every(file => contract.requiredFiles.includes(file)))
   ) {
@@ -457,9 +462,13 @@ async function readContract(contractPath = defaultContractPath) {
     throw new Error('Unsupported or incomplete deployment compatibility contract.');
   }
 
+  const replayRetentionMigrations = [
+    'prisma/migrations/35_expire_new_session_replays/migration.sql',
+    'prisma/migrations/31_expire_new_session_replays/migration.sql',
+  ].filter(file => contract.requiredFiles.includes(file));
   const replayRetentionFiles = [
     'db/clickhouse/migrations/16_expire_new_session_replays.sql',
-    'prisma/migrations/35_expire_new_session_replays/migration.sql',
+    ...replayRetentionMigrations,
     'runtime-scripts/prune-expired-session-replays.mjs',
   ];
   const replayRetentionFilesDeclared = replayRetentionFiles.some(file =>
@@ -471,6 +480,7 @@ async function readContract(contractPath = defaultContractPath) {
   const replayRetentionContract = [3, 4].includes(contract.deployment?.schemaVersion);
   if (
     replayRetentionFilesDeclared !== replayRetentionCapability ||
+    (replayRetentionCapability && replayRetentionMigrations.length !== 1) ||
     (contract.deployment?.schemaVersion === 1 && replayRetentionCapability) ||
     (replayRetentionContract && !replayRetentionCapability) ||
     (replayRetentionCapability &&

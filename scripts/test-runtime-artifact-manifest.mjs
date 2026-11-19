@@ -18,6 +18,32 @@ import {
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const temporaryDirectories = [];
 const source = { commit: 'a'.repeat(40), dirty: false };
+const maintainedContract = JSON.parse(
+  await fs.readFile(new URL('../deploy/runtime-artifact.json', import.meta.url), 'utf8'),
+);
+
+function releaseMigration(...paths) {
+  const selected = paths.filter(file => maintainedContract.requiredFiles.includes(file));
+  assert.equal(selected.length, 1);
+  return selected[0];
+}
+
+const sessionGenerationPath = releaseMigration(
+  'prisma/migrations/30_revoke_sessions_on_factor_reset/migration.sql',
+  'prisma/migrations/32_revoke_stateless_sessions/migration.sql',
+);
+const replayBudgetPath = releaseMigration(
+  'prisma/migrations/32_expire_replay_visit_budgets/migration.sql',
+  'prisma/migrations/30_expire_replay_visit_budgets/migration.sql',
+);
+const replayRetentionMigration = releaseMigration(
+  'prisma/migrations/35_expire_new_session_replays/migration.sql',
+  'prisma/migrations/31_expire_new_session_replays/migration.sql',
+);
+const loginRecoveryMigration = releaseMigration(
+  'prisma/migrations/41_add_login_recovery_credentials/migration.sql',
+  'prisma/migrations/33_add_login_recovery_credentials/migration.sql',
+);
 const heatmapRetentionPaths = [
   'db/clickhouse/migrations/15_expire_new_heatmap_events.sql',
   'prisma/migrations/33_expire_new_heatmap_events/migration.sql',
@@ -25,7 +51,7 @@ const heatmapRetentionPaths = [
 ];
 const replayRetentionPaths = [
   'db/clickhouse/migrations/16_expire_new_session_replays.sql',
-  'prisma/migrations/35_expire_new_session_replays/migration.sql',
+  replayRetentionMigration,
   'runtime-scripts/prune-expired-session-replays.mjs',
 ];
 const sessionTrustPaths = [
@@ -42,10 +68,7 @@ const eventTrustPaths = [
 const revenueDisablePath =
   'db/clickhouse/migrations/18_disable_unverified_revenue_materialization.sql';
 const attestedRevenuePath = 'prisma/migrations/40_add_attested_revenue_movement/migration.sql';
-const loginRecoveryPaths = [
-  'prisma/migrations/41_add_login_recovery_credentials/migration.sql',
-  'runtime-scripts/issue-login-recovery.mjs',
-];
+const loginRecoveryPaths = [loginRecoveryMigration, 'runtime-scripts/issue-login-recovery.mjs'];
 
 test('generated API client version matches the application release', async () => {
   const packageJson = JSON.parse(
@@ -256,6 +279,53 @@ async function addLoginRecoveryFixture(root, contractPath) {
     await fs.writeFile(fullPath, 'synthetic login recovery file\n');
   }
   await fs.writeFile(contractPath, JSON.stringify(contract));
+}
+
+for (const [migrationPath, alternatives, prepare] of [
+  [
+    loginRecoveryMigration,
+    [
+      'prisma/migrations/41_add_login_recovery_credentials/migration.sql',
+      'prisma/migrations/33_add_login_recovery_credentials/migration.sql',
+    ],
+    addLoginRecoveryFixture,
+  ],
+  [
+    replayRetentionMigration,
+    [
+      'prisma/migrations/35_expire_new_session_replays/migration.sql',
+      'prisma/migrations/31_expire_new_session_replays/migration.sql',
+    ],
+    addReplayRetentionFixture,
+  ],
+]) {
+  test(`retains one complete historical migration lineage for ${migrationPath}`, async () => {
+    const { root, contractPath } = await createFixture();
+    await prepare(root, contractPath);
+    const alternative = alternatives.find(file => file !== migrationPath);
+    const contract = JSON.parse(await fs.readFile(contractPath, 'utf8'));
+    contract.requiredFiles = contract.requiredFiles.map(file =>
+      file === migrationPath ? alternative : file,
+    );
+    const destination = path.join(root, alternative);
+    await fs.mkdir(path.dirname(destination), { recursive: true });
+    await fs.rename(path.join(root, migrationPath), destination);
+    await fs.writeFile(contractPath, JSON.stringify(contract));
+    await createRuntimeManifest(root, { contractPath, source });
+    await verifyRuntimeArtifact(root, { contractPath });
+    contract.requiredFiles.push(migrationPath);
+    await fs.writeFile(contractPath, JSON.stringify(contract));
+    await assert.rejects(
+      createRuntimeManifest(root, { contractPath, source }),
+      /incomplete deployment compatibility contract/,
+    );
+    contract.requiredFiles = contract.requiredFiles.filter(file => !alternatives.includes(file));
+    await fs.writeFile(contractPath, JSON.stringify(contract));
+    await assert.rejects(
+      createRuntimeManifest(root, { contractPath, source }),
+      /incomplete deployment compatibility contract/,
+    );
+  });
 }
 
 afterEach(async () => {
@@ -1118,11 +1188,11 @@ for (const migrationPath of [
   'db/clickhouse/migrations/18_disable_unverified_revenue_materialization.sql',
   'db/clickhouse/migrations/19_add_event_collection_trust_tier.sql',
   'db/clickhouse/migrations/20_add_verified_event_data_pivot.sql',
-  'prisma/migrations/30_revoke_sessions_on_factor_reset/migration.sql',
+  sessionGenerationPath,
   'prisma/migrations/31_bound_event_ingestion/migration.sql',
-  'prisma/migrations/32_expire_replay_visit_budgets/migration.sql',
+  replayBudgetPath,
   'prisma/migrations/33_expire_new_heatmap_events/migration.sql',
-  'prisma/migrations/35_expire_new_session_replays/migration.sql',
+  replayRetentionMigration,
   'prisma/migrations/36_add_session_data_trust_tier/migration.sql',
   'prisma/migrations/37_add_event_collection_trust_tier/migration.sql',
   'prisma/migrations/38_add_session_link_trust_tier/migration.sql',
