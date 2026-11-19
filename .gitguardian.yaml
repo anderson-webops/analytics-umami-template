@@ -7,3 +7,5 @@ secret:
       match: a58a4d9e0116e63f36b8a5be0295067deca4e43bd72e92be2473945cf5f90fd8
     - name: Approved public credential confined to the isolated API fixture
       match: c4066fccb80dc1e6e52c976b2f2497ab65f2151127fd83f02a542103d562be7e
+    - name: Historical disposable Mac build credential confined to its loopback fixture
+      match: 3e66876c6629cdab8f61a780bd7e81e3685733e7e1e91b295a49fa48d4611148
