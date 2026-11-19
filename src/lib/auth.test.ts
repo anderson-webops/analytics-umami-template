@@ -1133,6 +1133,8 @@ describe('upstream authentication integration with canonical boundaries', () => 
   });
 
   test('rejects a share token whose live row points at a different entity', async () => {
+    vi.stubEnv('APP_SECRET', 'test-only-share-token-secret-value');
+    vi.stubEnv('DISABLE_PUBLIC_SHARES', '');
     vi.mocked(parseToken).mockReturnValue({
       type: SHARE_TOKEN_TYPE,
       shareId: 'share-1',
@@ -1150,6 +1152,8 @@ describe('upstream authentication integration with canonical boundaries', () => 
   });
 
   test('rejects a share token without its minted entity binding', async () => {
+    vi.stubEnv('APP_SECRET', 'test-only-share-token-secret-value');
+    vi.stubEnv('DISABLE_PUBLIC_SHARES', '');
     vi.mocked(parseToken).mockReturnValue({
       type: SHARE_TOKEN_TYPE,
       shareId: 'share-1',
@@ -1166,6 +1170,8 @@ describe('upstream authentication integration with canonical boundaries', () => 
   });
 
   test('uses the current share parameters rather than the minted snapshot', async () => {
+    vi.stubEnv('APP_SECRET', 'test-only-share-token-secret-value');
+    vi.stubEnv('DISABLE_PUBLIC_SHARES', '');
     vi.mocked(parseToken).mockReturnValue({
       type: SHARE_TOKEN_TYPE,
       shareId: 'share-1',
@@ -1189,5 +1195,14 @@ describe('upstream authentication integration with canonical boundaries', () => 
       parameters: { sessions: false },
     });
     expect(resolveShareAccess).toHaveBeenCalledWith(share);
+  });
+
+  test('rejects share authentication before token or database work when public shares are disabled', async () => {
+    vi.stubEnv('DISABLE_PUBLIC_SHARES', '1');
+
+    expect(await parseShareToken(authedRequest())).toBeNull();
+    expect(parseToken).not.toHaveBeenCalled();
+    expect(getShare).not.toHaveBeenCalled();
+    expect(resolveShareAccess).not.toHaveBeenCalled();
   });
 });
