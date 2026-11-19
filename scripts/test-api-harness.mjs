@@ -330,7 +330,7 @@ test('the approved public fixture exception preserves exact credentials and ever
   );
   const policy = readFileSync(path.join(root, '.gitguardian.yaml'), 'utf8').trimEnd().split('\n');
   assert.deepEqual(policy.slice(0, 3), ['version: 2', 'secret:', '  ignored_matches:']);
-  assert.equal(policy.length, 9);
+  assert.equal(policy.length, 11);
   for (let index = 3; index < policy.length; index += 2) {
     assert.match(policy[index], /^ {4}- name: [A-Za-z0-9 ._-]+$/);
     assert.match(policy[index + 1], /^ {6}match: [a-f0-9]{64}$/);
@@ -341,6 +341,7 @@ test('the approved public fixture exception preserves exact credentials and ever
       '281a94510feb4d0e2c7391dd461db16f8683c8b324f97129b6d3831c8f488d85',
       'a58a4d9e0116e63f36b8a5be0295067deca4e43bd72e92be2473945cf5f90fd8',
       'c4066fccb80dc1e6e52c976b2f2497ab65f2151127fd83f02a542103d562be7e',
+      '3e66876c6629cdab8f61a780bd7e81e3685733e7e1e91b295a49fa48d4611148',
     ],
   );
 });
