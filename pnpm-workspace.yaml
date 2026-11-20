@@ -36,6 +36,7 @@ overrides:
   "deepmerge-ts@<8.0.0": 8.0.2
   deepmerge: file:vendor/deepmerge
   "diff@>=4.0.0 <4.0.4": 4.0.4
+  "@prisma/config>effect@<=3.22.0": 3.22.4
   "esbuild@>=0.27.3 <0.28.1": 0.28.2
   "fast-uri@>=3.0.0 <3.1.9": 3.1.9
   "fflate@>=0.4.5 <0.4.9": 0.4.9
