@@ -57,10 +57,11 @@ Review the version-bound selection when updating Zen.
 
 ## Zen icons
 
-The exact `@umami/react-zen@0.255.0>lucide-react` selection uses Lucide 1.72.0,
-matching the application's direct dependency. Zen's published dependency still
-names 0.555.0. Its sixteen consumed icon names remain available on the current
-major; the removed brand icons are neither consumed nor publicly re-exported.
+The version-bound `@umami/react-zen@0.255.0>lucide-react` selection and the
+application's direct dependency share the exact Lucide pin in the pnpm catalog.
+Zen's published dependency still names 0.555.0. Its sixteen consumed icon names
+remain available on the current major; the removed brand icons are neither
+consumed nor publicly re-exported.
 
 `test:component-dependencies` checks both published module formats, every Lucide
 namespace use, the unchanged 316 public exports and declarations, all consumed

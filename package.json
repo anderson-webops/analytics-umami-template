@@ -1,6 +1,6 @@
 {
   "name": "umami",
-  "version": "4.2.194",
+  "version": "4.2.195",
   "private": true,
   "description": "An open-source web and product analytics platform.",
   "author": "Umami Software, Inc. <hello@umami.is>",
@@ -154,7 +154,7 @@
     "@prisma/adapter-pg": "^7.10.1",
     "@prisma/client": "^7.10.1",
     "@prisma/extension-read-replicas": "^0.5.0",
-    "@tanstack/react-query": "^5.108.0",
+    "@tanstack/react-query": "^5.108.1",
     "@umami/api-client": "workspace:*",
     "@umami/mcp": "workspace:*",
     "@umami/react-zen": "^0.255.0",
@@ -179,11 +179,11 @@
     "jszip": "^3.10.2",
     "kafkajs": "^2.2.4",
     "lightningcss": "1.33.0",
-    "lucide-react": "1.75.0",
+    "lucide-react": "catalog:",
     "maxmind": "^5.1.0",
     "motion": "^14.14.0",
     "next": "16.4.6",
-    "next-intl": "4.15.1",
+    "next-intl": "4.15.3",
     "npm-run-all2": "^9.0.4",
     "otplib": "^13.6.0",
     "papaparse": "^5.7.1",
@@ -210,7 +210,7 @@
     "uuid": "^14.0.3",
     "zod": "^4.6.7",
     "zustand": "^5.1.0",
-    "flags": "^4.4.0"
+    "flags": "^4.4.1"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.8",
@@ -259,7 +259,7 @@
     "typescript-native": "npm:typescript@7.0.2",
     "vitest": "~5.1.1",
     "zod-openapi": "^6.0.2",
-    "@eloqnt/cli": "^0.7.2",
+    "@eloqnt/cli": "^0.7.3",
     "vite": "^8.3.8"
   }
 }

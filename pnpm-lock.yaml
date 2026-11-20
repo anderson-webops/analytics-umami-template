@@ -171,8 +171,14 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+catalogs:
+  default:
+    lucide-react:
+      specifier: 1.76.0
+      version: 1.76.0
+
 overrides:
-  '@umami/react-zen@0.255.0>lucide-react': 1.75.0
+  '@umami/react-zen@0.255.0>lucide-react': 1.76.0
   '@umami/react-zen@0.255.0>@react-spring/web': 10.1.2
   openapi-typescript@7.13.0>typescript:peer: ^5.x || ^6.x
   '@redocly/openapi-core@1.34.24>minimatch': file:vendor/minimatch-call-compat
@@ -182,7 +188,9 @@ overrides:
   brace-expansion@>=2.0.0 <2.1.7: 2.1.7
   browserslist: 4.29.0
   d3-color@<3.1.0: 3.1.0
-  d3-format@>=3.1.0 <3.1.2: 3.1.2
+  d3-format@>=3.1.0 <3.1.3: 3.1.3
+  d3-time@>=3.1.0 <3.1.1: 3.1.1
+  d3-time-format@>=4.1.0 <4.1.1: 4.1.1
   '@types/d3-time@>=3.0.0 <3.0.4': 3.0.4
   d3-zoom@3.0.1>d3-drag: 3.0.1
   d3-zoom@3.0.1>d3-transition: 3.0.2
@@ -264,8 +272,8 @@ importers:
         specifier: ^0.5.0
         version: 0.5.0(@prisma/client@7.10.1(prisma@7.10.1(@types/node@26.6.6)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(typescript@6.0.3))(typescript@6.0.3))
       '@tanstack/react-query':
-        specifier: ^5.108.0
-        version: 5.108.0(@types/react@19.3.0)(react@19.3.1)
+        specifier: ^5.108.1
+        version: 5.108.1(@types/react@19.3.0)(react@19.3.1)
       '@umami/api-client':
         specifier: workspace:*
         version: link:packages/api-client
@@ -315,8 +323,8 @@ importers:
         specifier: 0.28.2
         version: 0.28.2
       flags:
-        specifier: ^4.4.0
-        version: 4.4.0(next@16.4.6(@babel/core@7.29.7(supports-color@10.2.2))(@playwright/test@1.65.1)(@types/node@26.6.6)(babel-plugin-react-compiler@1.0.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+        specifier: ^4.4.1
+        version: 4.4.1(next@16.4.6(@babel/core@7.29.7(supports-color@10.2.2))(@playwright/test@1.65.1)(@types/node@26.6.6)(babel-plugin-react-compiler@1.0.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       immer:
         specifier: ^11.2.10
         version: 11.2.10
@@ -342,8 +350,8 @@ importers:
         specifier: 1.33.0
         version: 1.33.0
       lucide-react:
-        specifier: 1.75.0
-        version: 1.75.0(@types/react@19.3.0)(react@19.3.1)
+        specifier: 'catalog:'
+        version: 1.76.0(@types/react@19.3.0)(react@19.3.1)
       maxmind:
         specifier: ^5.1.0
         version: 5.1.0
@@ -354,8 +362,8 @@ importers:
         specifier: 16.4.6
         version: 16.4.6(@babel/core@7.29.7(supports-color@10.2.2))(@playwright/test@1.65.1)(@types/node@26.6.6)(babel-plugin-react-compiler@1.0.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       next-intl:
-        specifier: 4.15.1
-        version: 4.15.1(@swc/helpers@0.5.24)(@types/react@19.3.0)(next@16.4.6(@babel/core@7.29.7(supports-color@10.2.2))(@playwright/test@1.65.1)(@types/node@26.6.6)(babel-plugin-react-compiler@1.0.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(react@19.3.1)
+        specifier: 4.15.3
+        version: 4.15.3(@swc/helpers@0.5.24)(@types/react@19.3.0)(next@16.4.6(@babel/core@7.29.7(supports-color@10.2.2))(@playwright/test@1.65.1)(@types/node@26.6.6)(babel-plugin-react-compiler@1.0.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(react@19.3.1)
       npm-run-all2:
         specifier: ^9.0.4
         version: 9.0.4
@@ -439,8 +447,8 @@ importers:
         specifier: ^2.6.8
         version: 2.6.8
       '@eloqnt/cli':
-        specifier: ^0.7.2
-        version: 0.7.2(@swc/helpers@0.5.24)
+        specifier: ^0.7.3
+        version: 0.7.3(@swc/helpers@0.5.24)
       '@netlify/plugin-nextjs':
         specifier: ^5.16.8
         version: 5.16.8
@@ -1286,21 +1294,36 @@ packages:
   '@electric-sql/pglite@0.4.3':
     resolution: {integrity: sha512-ichuWTgtd4mOM1G4SpyGJa5trT03lWbMypDV0fUXUCXg5hiHqVAz/bZyV68NqmkLB7WcYmj1RMJVSp8HV/v/ZQ==}
 
-  '@eloqnt/cli@0.7.2':
-    resolution: {integrity: sha512-EY2WjexansqVWnNm52/ALcqJeH3c7uvRgPDSOiZMzhLDPJnztisiseyqCNzqrnpnAVtXtoHaK+vYcsjqU/Ur2A==}
+  '@eloqnt/cli@0.7.3':
+    resolution: {integrity: sha512-qGOposiK48ijf9D75/oDhHZOdBgxWxki0kU6uX9ScQQm0uN2U1NOrkVm1+SMCs13zG5Z5e8g6wdLAtDnF/woWQ==}
     hasBin: true
 
   '@eloqnt/config@0.1.1':
     resolution: {integrity: sha512-YRDigSaiJEzKDfzTth5kG+L/PKfB3mo8h7yNzpXExPfvQmcD05WoZT57PdhJE0jI+Vva6eb0OCU8hnHHgdME3g==}
 
+  '@eloqnt/config@0.1.2':
+    resolution: {integrity: sha512-0pdjiCFur3M1fxuoPIoLS/ElTNerOdmkjToiLi399ITOLE/HRvHxJ5OjuOPQqPIZcbYXr2+WAWu3dnXMjt/WZg==}
+
+  '@eloqnt/extractor@0.1.0':
+    resolution: {integrity: sha512-ZesGo0H7jCqGLvCE2e0vyUNhRPBnIRc3xuCtCMsrSXTc+DTtjhXfyF+BtCmDk2WVEgExL0e8Y3bJQygjmr3qdw==}
+
   '@eloqnt/format-json@0.1.0':
     resolution: {integrity: sha512-4Pkb+HyzgWNJXoU48aJhUyNZSjZvMGooPCNG1ZFmBm55xTiNNPQCNXH66Ob6sXS6RvbWZrRpCf+Uo/Jz9K9g+A==}
+
+  '@eloqnt/format-json@0.1.1':
+    resolution: {integrity: sha512-Pp8DZPMSWBZy8CydZ293LhXnopdiIVdKO0z//fWFA+Cq1CK9vk2DdoigEFxjWl4CqYfXrRQYPdaKEKTC/9e1CQ==}
 
   '@eloqnt/format-po@0.1.1':
     resolution: {integrity: sha512-aLtmIoqXGEaeTT0RcsLN8sZ3aIrsT/c/dVs28zrLhDjO3+vA3KNP+r98N0xq8w/k36+/GIUt4uZNbqcA71GVWw==}
 
-  '@eloqnt/sdk@0.7.1':
-    resolution: {integrity: sha512-17SNWChiOVlugnMr9X65NYq1HtWremCSjqqSwPi6qIsR7YXB5aKOBQLELhDWo0DzK/o+8qOiUauNTqBZGK2auQ==}
+  '@eloqnt/format-po@0.1.2':
+    resolution: {integrity: sha512-bohkA1SmJ9rJQG+tNsY8gWrdSo+pJazdjI+dTW+Wt2eg+UuwejXuYOkZDVcWRBCt6MH1dhHo0UuDau0jUmu/+Q==}
+
+  '@eloqnt/messages@0.1.0':
+    resolution: {integrity: sha512-/YIr/bPaRCJmPGR5OrqVoado0j5ijcD7q95jZlkIzd0ipmEM4s+805c9PafoLUKCrudMEI4gqIUsZ24hZ0d2pQ==}
+
+  '@eloqnt/sdk@0.7.2':
+    resolution: {integrity: sha512-00X1GAugine1MFEYWmb8tMGMxKnY/zBKjqPYzCLZxubAQkxZFnCx1QSpEv0/FuEAJoqOb5+NdbVZ+66gqlvFzQ==}
 
   '@emnapi/core@2.0.0-beta.2':
     resolution: {integrity: sha512-MzCVoWtcg4Pm2B3je5mMvYMvj3MmBKw+fU7vbsJc9/iT8ip6/eYIHo/Dsm/mr+wsHB6SEyJDuxB09Yy6r/8+4A==}
@@ -2905,11 +2928,11 @@ packages:
     resolution: {integrity: sha512-r5bClKrcIusDoo049dSL8CawnHR6mRdDwhlQuIgZRNty68q0x8k3Lf1BtPAMxRf/GgnHBnIO4ujd3+GQdLWzxQ==}
     engines: {node: '>=16.0.0'}
 
-  '@tanstack/query-core@5.108.0':
-    resolution: {integrity: sha512-X9zJUtEV/0D2q9pmGS/Bza8S4bNovSBhZOtdhtu0fzsHwizC6C+Eh/q5CX3MQBchsRMrirWVQmv7Fp4OStzV9g==}
+  '@tanstack/query-core@5.108.1':
+    resolution: {integrity: sha512-GBX6Xsc9E+9eVLLxuM7orQNbssQjpruOCbocBYwT78MjxOWT5I+CWdvEo0N+UM6+oCZEKxuSud1oFLvE3OEmIg==}
 
-  '@tanstack/react-query@5.108.0':
-    resolution: {integrity: sha512-DpMbB8pVorEZcsHRa0Z13KQGfmndqvJbuLy9h+xfP8XpuEZBOxzq+QfXGonQ0fAgRSWhc+QsfoRETSTWxAEAVw==}
+  '@tanstack/react-query@5.108.1':
+    resolution: {integrity: sha512-8/p7fpIdmUiKIukQ5ddAMUUSKC7Z8CcgUOBR2r3WqRvMg9Lzc4CXeoFchjfATKvqi23SyYFvesDdOULrvyunNg==}
     peerDependencies:
       '@types/react': ^18 || ^19
       react: ^18 || ^19
@@ -3690,8 +3713,8 @@ packages:
     resolution: {integrity: sha512-B5znKqRmKROAN4oHWQ50W/qisVjA9GXh2WMsVKdFVp4DxWmcrOsweqgUOUVsv5th96kwaZlokU6SlV4J3gak1w==}
     engines: {node: '>=12'}
 
-  d3-format@3.1.2:
-    resolution: {integrity: sha512-AJDdYOdnyRDV5b6ArilzCPPwc1ejkHcoyFarqlPqT7zRYjhavcT3uSrqcMvsgh2CgoPbK3RCwyHaVyxYcP2Arg==}
+  d3-format@3.1.3:
+    resolution: {integrity: sha512-+F+/49swqmGuQJmSKnVMIDH/QkEFV5li9QRj0xm/KhyAUBv099O5PrvpQFxBp24PYph17Mnvt9mjKQV0ii0nMA==}
     engines: {node: '>=12'}
 
   d3-geo@3.1.0:
@@ -3734,12 +3757,12 @@ packages:
     resolution: {integrity: sha512-SaLBuwGm3MOViRq2ABk3eLoxwZELpH6zhl3FbAoJ7Vm1gofKx6El1Ib5z23NUEhF9AsGl7y+dzLe5Cw2AArGTA==}
     engines: {node: '>=12'}
 
-  d3-time-format@4.1.0:
-    resolution: {integrity: sha512-dJxPBlzC7NugB2PDLwo9Q8JiTR3M3e4/XANkreKSUxF8vvXKqm1Yfq4Q5dl8budlunRVlUUaDUgFt7eA8D6NLg==}
+  d3-time-format@4.1.1:
+    resolution: {integrity: sha512-22XaqjyCjpqgda20erhsOjGmC3vvYwTNYniKAd45W5UWLDF43moeOuV9qYpRqobIlsnK0UhnKZjUUJm3VgORUA==}
     engines: {node: '>=12'}
 
-  d3-time@3.1.0:
-    resolution: {integrity: sha512-VqKjzBLejbSMT4IgbmVgDjpkYrNWUYJnbCGo874u7MMKIWsILRX+OpX/gTk8MqjpT1A/c6HY2dCA77ZN0lkQ2Q==}
+  d3-time@3.1.1:
+    resolution: {integrity: sha512-Ze7rjrhMzdeulh0/hjcfFj7XLAHOfowtEMfsoG6DU866HPynQNW7Wfen6hzXcqKTv8XzxvF6Hzr5XD6bMHr2ug==}
     engines: {node: '>=12'}
 
   d3-timer@3.0.2:
@@ -4034,8 +4057,8 @@ packages:
   fix-dts-default-cjs-exports@1.0.1:
     resolution: {integrity: sha512-pVIECanWFC61Hzl2+oOCtoJ3F17kglZC/6N94eRWycFgBH35hHx0Li604ZIzhseh97mf2p0cv7vVrOZGoqhlEg==}
 
-  flags@4.4.0:
-    resolution: {integrity: sha512-JqdgsAgZM/pKdK3deqSRGaWJ6LKtUgt/G/ekvmZiplvYGBP+wO5ZCvPlPNN+Hbd5mgGwdv5qXcpHiLlBhhOFyg==}
+  flags@4.4.1:
+    resolution: {integrity: sha512-KdM9LiSlupYY54zg6hBo82zm68ZB8JmTmz6j0HXCiGqfcmx9uKvKm/I+wJkyRNzwQg9BAuyyQoNGK0JgwrKnkA==}
     peerDependencies:
       '@opentelemetry/api': ^1.7.0
       next: '*'
@@ -4517,8 +4540,8 @@ packages:
     resolution: {integrity: sha512-5J9ysMYUpYIg9RF2vJpy9SinEmSviFSe0GyPpCQ4L5QSkLAgeLXlTAOu2ZwWUU5m+0SBl6gUU1R1ZQB3aKypfA==}
     engines: {bun: '>=1.0.0', deno: '>=1.30.0', node: '>=8.0.0'}
 
-  lucide-react@1.75.0:
-    resolution: {integrity: sha512-piesXAZIXru9d5lHBoM6cPHOBs5+QkMx+3EXwG3xWJ7qdViuz92JtYN0u9jMB6jt+2WbQrwhvJGdMwGnL3EOfA==}
+  lucide-react@1.76.0:
+    resolution: {integrity: sha512-wRVHt2Xf64GXndB4rQOY9+3Wy9oJ59HDMYv6vwhT0hpSwUxQhG/RM9YijnOmvmIQ+VI/n+1V/FKd6gP4XL2aBQ==}
     peerDependencies:
       '@types/react': '*'
       react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
@@ -4662,8 +4685,8 @@ packages:
   next-intl-swc-plugin-extractor@4.15.1:
     resolution: {integrity: sha512-n+CrfyQ3obIpZoaHtlHvtTLg6EuFcmSC3c71Yv0Kh4/5zenBJ8WeYP/xAnsiwQjZcaK9zie0SHwWeIG+5OJaBw==}
 
-  next-intl@4.15.1:
-    resolution: {integrity: sha512-b0KOLdd2pv+uWTma2Lv8OlSLCAqa2zasCx6ZXo2n/0/rAGWkzgRdQ0nD7sl0xtuDFRPNu8sNm+cWgJic16Sbmg==}
+  next-intl@4.15.3:
+    resolution: {integrity: sha512-kvD3eTPydChHX0VN98NuCfyMs4Vq2/Fw/mJimX19jP3Z8uo0XxRvY/kecewMCvNWDRePNt4zz1kPus4d6Tv1KA==}
     peerDependencies:
       '@types/react': ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
       next: ^12.0.0 || ^13.0.0 || ^14.0.0 || ^15.0.0 || ^16.0.0
@@ -6737,10 +6760,10 @@ snapshots:
 
   '@electric-sql/pglite@0.4.3': {}
 
-  '@eloqnt/cli@0.7.2(@swc/helpers@0.5.24)':
+  '@eloqnt/cli@0.7.3(@swc/helpers@0.5.24)':
     dependencies:
       '@clack/prompts': 1.9.0
-      '@eloqnt/sdk': 0.7.1(@swc/helpers@0.5.24)
+      '@eloqnt/sdk': 0.7.2(@swc/helpers@0.5.24)
       citty: 0.1.6
       open: 11.0.4
       picocolors: 1.1.1
@@ -6749,20 +6772,47 @@ snapshots:
 
   '@eloqnt/config@0.1.1': {}
 
+  '@eloqnt/config@0.1.2': {}
+
+  '@eloqnt/extractor@0.1.0(@swc/helpers@0.5.24)':
+    dependencies:
+      '@eloqnt/messages': 0.1.0
+      '@swc/core': 1.16.22(@swc/helpers@0.5.24)
+      next-intl-swc-plugin-extractor: 4.15.1
+    transitivePeerDependencies:
+      - '@swc/helpers'
+
   '@eloqnt/format-json@0.1.0':
     dependencies:
       '@eloqnt/config': 0.1.1
+
+  '@eloqnt/format-json@0.1.1':
+    dependencies:
+      '@eloqnt/config': 0.1.2
 
   '@eloqnt/format-po@0.1.1':
     dependencies:
       '@eloqnt/config': 0.1.1
       po-parser: 2.2.0
 
-  '@eloqnt/sdk@0.7.1(@swc/helpers@0.5.24)':
+  '@eloqnt/format-po@0.1.2':
+    dependencies:
+      '@eloqnt/config': 0.1.2
+      po-parser: 2.2.0
+
+  '@eloqnt/messages@0.1.0':
+    dependencies:
+      '@eloqnt/config': 0.1.2
+      '@eloqnt/format-json': 0.1.1
+      '@eloqnt/format-po': 0.1.2
+
+  '@eloqnt/sdk@0.7.2(@swc/helpers@0.5.24)':
     dependencies:
       '@eloqnt/config': 0.1.1
+      '@eloqnt/extractor': 0.1.0(@swc/helpers@0.5.24)
       '@eloqnt/format-json': 0.1.0
       '@eloqnt/format-po': 0.1.1
+      '@eloqnt/messages': 0.1.0
       '@formatjs/icu-messageformat-parser': 3.5.23
       '@swc/core': 1.16.22(@swc/helpers@0.5.24)
       ai: 7.0.172(zod@4.6.7)
@@ -8059,11 +8109,11 @@ snapshots:
 
   '@tabby_ai/hijri-converter@1.0.5': {}
 
-  '@tanstack/query-core@5.108.0': {}
+  '@tanstack/query-core@5.108.1': {}
 
-  '@tanstack/react-query@5.108.0(@types/react@19.3.0)(react@19.3.1)':
+  '@tanstack/react-query@5.108.1(@types/react@19.3.0)(react@19.3.1)':
     dependencies:
-      '@tanstack/query-core': 5.108.0
+      '@tanstack/query-core': 5.108.1
       react: 19.3.1
     optionalDependencies:
       '@types/react': 19.3.0
@@ -8314,7 +8364,7 @@ snapshots:
       cmdk: 1.1.1(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       cn: 0.2.6
       embla-carousel-react: 8.6.0(react@19.3.1)
-      lucide-react: 1.75.0(@types/react@19.3.0)(react@19.3.1)
+      lucide-react: 1.76.0(@types/react@19.3.0)(react@19.3.1)
       react: 19.3.1
       react-day-picker: 9.14.0(react@19.3.1)
       react-dom: 19.3.1(react@19.3.1)
@@ -8401,14 +8451,14 @@ snapshots:
       d3-array: 3.2.1
       d3-color: 3.1.0
       d3-delaunay: 6.0.2
-      d3-format: 3.1.2
+      d3-format: 3.1.3
       d3-geo: 3.1.0
       d3-interpolate: 3.0.1
       d3-path: 3.1.0
       d3-scale: 4.0.2
       d3-shape: 3.2.0
-      d3-time: 3.1.0
-      d3-time-format: 4.1.0
+      d3-time: 3.1.1
+      d3-time-format: 4.1.1
       internmap: 2.0.3
 
   '@vitest/mocker@5.1.1(msw@3.0.7(@types/node@26.6.6)(supports-color@10.2.2)(typescript@6.0.3)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.8.3)))(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.8.3))':
@@ -8778,7 +8828,7 @@ snapshots:
 
   d3-ease@3.0.2: {}
 
-  d3-format@3.1.2: {}
+  d3-format@3.1.3: {}
 
   d3-geo@3.1.0:
     dependencies:
@@ -8803,10 +8853,10 @@ snapshots:
   d3-scale@4.0.2:
     dependencies:
       d3-array: 3.2.4
-      d3-format: 3.1.2
+      d3-format: 3.1.3
       d3-interpolate: 3.0.1
-      d3-time: 3.1.0
-      d3-time-format: 4.1.0
+      d3-time: 3.1.1
+      d3-time-format: 4.1.1
 
   d3-selection@3.0.0: {}
 
@@ -8816,11 +8866,11 @@ snapshots:
     dependencies:
       d3-path: 3.1.1
 
-  d3-time-format@4.1.0:
+  d3-time-format@4.1.1:
     dependencies:
-      d3-time: 3.1.0
+      d3-time: 3.1.1
 
-  d3-time@3.1.0:
+  d3-time@3.1.1:
     dependencies:
       d3-array: 3.2.4
 
@@ -9112,7 +9162,7 @@ snapshots:
       mlly: 1.8.2
       rollup: 4.68.7
 
-  flags@4.4.0(next@16.4.6(@babel/core@7.29.7(supports-color@10.2.2))(@playwright/test@1.65.1)(@types/node@26.6.6)(babel-plugin-react-compiler@1.0.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(react-dom@19.3.1(react@19.3.1))(react@19.3.1):
+  flags@4.4.1(next@16.4.6(@babel/core@7.29.7(supports-color@10.2.2))(@playwright/test@1.65.1)(@types/node@26.6.6)(babel-plugin-react-compiler@1.0.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(react-dom@19.3.1(react@19.3.1))(react@19.3.1):
     dependencies:
       '@edge-runtime/cookies': 5.0.2
       jose: 5.10.0
@@ -9527,7 +9577,7 @@ snapshots:
 
   lru.min@1.1.5: {}
 
-  lucide-react@1.75.0(@types/react@19.3.0)(react@19.3.1):
+  lucide-react@1.76.0(@types/react@19.3.0)(react@19.3.1):
     dependencies:
       react: 19.3.1
     optionalDependencies:
@@ -9662,11 +9712,13 @@ snapshots:
 
   next-intl-swc-plugin-extractor@4.15.1: {}
 
-  next-intl@4.15.1(@swc/helpers@0.5.24)(@types/react@19.3.0)(next@16.4.6(@babel/core@7.29.7(supports-color@10.2.2))(@playwright/test@1.65.1)(@types/node@26.6.6)(babel-plugin-react-compiler@1.0.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(react@19.3.1):
+  next-intl@4.15.3(@swc/helpers@0.5.24)(@types/react@19.3.0)(next@16.4.6(@babel/core@7.29.7(supports-color@10.2.2))(@playwright/test@1.65.1)(@types/node@26.6.6)(babel-plugin-react-compiler@1.0.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(react@19.3.1):
     dependencies:
-      '@eloqnt/config': 0.1.1
-      '@eloqnt/format-json': 0.1.0
-      '@eloqnt/format-po': 0.1.1
+      '@eloqnt/config': 0.1.2
+      '@eloqnt/extractor': 0.1.0(@swc/helpers@0.5.24)
+      '@eloqnt/format-json': 0.1.1
+      '@eloqnt/format-po': 0.1.2
+      '@eloqnt/messages': 0.1.0
       '@formatjs/intl-localematcher': 0.8.14
       '@parcel/watcher': 2.6.0
       '@swc/core': 1.16.22(@swc/helpers@0.5.24)
