@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { mock } from 'node:test';
 import { PrismaPg } from '@prisma/adapter-pg';
 import pg from 'pg';
 import { PrismaClient } from '@/generated/prisma/client';
@@ -303,46 +304,37 @@ try {
     5_000,
   );
 
-  const sourceWindows = await client.replayIngestBudget.findMany({
-    where: {
-      websiteId,
-      scope: { in: ['minute', 'day'] },
-      scopeKey: { startsWith: 'heatmap:' },
-    },
-  });
-  assert.ok(sourceWindows.length >= 2);
-  const minute = sourceWindows
-    .filter(row => row.scope === 'minute')
-    .sort((left, right) => left.scopeKey.localeCompare(right.scopeKey))
-    .at(-1);
-  const day = sourceWindows
-    .filter(row => row.scope === 'day')
-    .sort((left, right) => left.scopeKey.localeCompare(right.scopeKey))
-    .at(-1);
-  assert.ok(minute);
-  assert.ok(day);
+  const windowTime = Date.now();
+  const clock = mock.method(Date, 'now', () => windowTime);
+  try {
+    await reserve(randomUUID(), 1);
+    const minute = {
+      websiteId_scope_scopeKey: {
+        websiteId,
+        scope: 'minute',
+        scopeKey: `heatmap:${new Date(Math.floor(windowTime / 60_000) * 60_000).toISOString()}`,
+      },
+    };
+    const day = {
+      websiteId_scope_scopeKey: {
+        websiteId,
+        scope: 'day',
+        scopeKey: `heatmap:${new Date(Math.floor(windowTime / 86_400_000) * 86_400_000).toISOString()}`,
+      },
+    };
 
-  await client.replayIngestBudget.update({
-    where: { websiteId_scope_scopeKey: { websiteId, scope: 'minute', scopeKey: minute.scopeKey } },
-    data: { events: 20_000 },
-  });
-  await rejectedReservation(randomUUID(), 60);
+    await client.replayIngestBudget.update({ where: minute, data: { events: 20_000 } });
+    await rejectedReservation(randomUUID(), 60);
 
-  await client.replayIngestBudget.update({
-    where: { websiteId_scope_scopeKey: { websiteId, scope: 'minute', scopeKey: minute.scopeKey } },
-    data: { events: 0, chunks: 5_000 },
-  });
-  await rejectedReservation(randomUUID(), 60);
+    await client.replayIngestBudget.update({ where: minute, data: { events: 0, chunks: 5_000 } });
+    await rejectedReservation(randomUUID(), 60);
 
-  await client.replayIngestBudget.update({
-    where: { websiteId_scope_scopeKey: { websiteId, scope: 'minute', scopeKey: minute.scopeKey } },
-    data: { events: 0, chunks: 0 },
-  });
-  await client.replayIngestBudget.update({
-    where: { websiteId_scope_scopeKey: { websiteId, scope: 'day', scopeKey: day.scopeKey } },
-    data: { events: 500_000 },
-  });
-  await rejectedReservation(randomUUID(), 86_400);
+    await client.replayIngestBudget.update({ where: minute, data: { events: 0, chunks: 0 } });
+    await client.replayIngestBudget.update({ where: day, data: { events: 500_000 } });
+    await rejectedReservation(randomUUID(), 86_400);
+  } finally {
+    clock.mock.restore();
+  }
 
   console.log('Heatmap budget passed PostgreSQL visit, window, rollback and sink checks.');
 } finally {
